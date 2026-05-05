@@ -1,0 +1,43 @@
+# --- 第三方參考素材 / 大型資料集（不入版控）---
+ref/visual6502-master/
+ref/drive-download-*/
+ref/GPU方案*/
+ref/*.zip
+
+# --- 二進位文件 ---
+*.docx
+*.doc
+*.pdf
+*.zip
+*.7z
+*.rar
+
+# --- 未來 C# 建構產物 ---
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.dll
+*.exe
+*.pdb
+
+# --- IDE / 編輯器 ---
+.idea/
+.vscode/
+*.swp
+*~
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+
+# --- 輸出與快取 ---
+output/
+*.log

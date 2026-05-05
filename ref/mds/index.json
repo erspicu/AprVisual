@@ -1,0 +1,148 @@
+{
+  "documents": [
+    {
+      "order": "06",
+      "title": "14 Day Action Plan",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/14_Day_Action_Plan_en.md"
+    },
+    {
+      "order": "06",
+      "title": "14 Day Action Plan",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/14_Day_Action_Plan_zh.md"
+    },
+    {
+      "order": "01",
+      "title": "INDEX",
+      "category": "docs",
+      "path": "mds/docs/INDEX.md"
+    },
+    {
+      "order": "01",
+      "title": "GPU Project Guide Complete",
+      "category": "docs / en",
+      "path": "mds/docs/en/GPU_Project_Guide_Complete_en.md"
+    },
+    {
+      "order": "02",
+      "title": "GPU Project Guide Reconstructed From Original Flow",
+      "category": "docs / en",
+      "path": "mds/docs/en/GPU_Project_Guide_Reconstructed_From_Original_Flow_en.md"
+    },
+    {
+      "order": "05",
+      "title": "GPU Project MVP Skeleton CSharp",
+      "category": "docs / en",
+      "path": "mds/docs/en/GPU_Project_MVP_Skeleton_CSharp_en.md"
+    },
+    {
+      "order": "03",
+      "title": "GPU Project README",
+      "category": "docs / en",
+      "path": "mds/docs/en/GPU_Project_README_en.md"
+    },
+    {
+      "order": "04",
+      "title": "GPU Project Roadmap TODO",
+      "category": "docs / en",
+      "path": "mds/docs/en/GPU_Project_Roadmap_TODO_en.md"
+    },
+    {
+      "order": "01",
+      "title": "GPU Project Guide Complete",
+      "category": "docs / zh",
+      "path": "mds/docs/zh/GPU_Project_Guide_Complete_zh.md"
+    },
+    {
+      "order": "02",
+      "title": "GPU Project Guide Reconstructed From Original Flow",
+      "category": "docs / zh",
+      "path": "mds/docs/zh/GPU_Project_Guide_Reconstructed_From_Original_Flow_zh.md"
+    },
+    {
+      "order": "05",
+      "title": "GPU Project MVP Skeleton CSharp",
+      "category": "docs / zh",
+      "path": "mds/docs/zh/GPU_Project_MVP_Skeleton_CSharp_zh.md"
+    },
+    {
+      "order": "03",
+      "title": "GPU Project README",
+      "category": "docs / zh",
+      "path": "mds/docs/zh/GPU_Project_README_zh.md"
+    },
+    {
+      "order": "04",
+      "title": "GPU Project Roadmap TODO",
+      "category": "docs / zh",
+      "path": "mds/docs/zh/GPU_Project_Roadmap_TODO_zh.md"
+    },
+    {
+      "order": "01",
+      "title": "INDEX",
+      "category": "evaluation",
+      "path": "mds/evaluation/INDEX.md"
+    },
+    {
+      "order": "01",
+      "title": "GPU Project Technical Evaluation and Feasibility Conclusion",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/GPU_Project_Technical_Evaluation_and_Feasibility_Conclusion_en.md"
+    },
+    {
+      "order": "04",
+      "title": "How to Package It as a Paper or Open Source Project if Successful",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/How_to_Package_It_as_a_Paper_or_Open_Source_Project_if_Successful_en.md"
+    },
+    {
+      "order": "03",
+      "title": "Most Valuable MVP to Prioritize",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/Most_Valuable_MVP_to_Prioritize_en.md"
+    },
+    {
+      "order": "05",
+      "title": "Personal Fit Knowledge Gaps 6 Month Plan and AI Strategy",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/Personal_Fit_Knowledge_Gaps_6_Month_Plan_and_AI_Strategy_en.md"
+    },
+    {
+      "order": "02",
+      "title": "Top 3 Most Likely Technical Failure Points",
+      "category": "evaluation / en",
+      "path": "mds/evaluation/en/Top_3_Most_Likely_Technical_Failure_Points_en.md"
+    },
+    {
+      "order": "01",
+      "title": "GPU Project Technical Evaluation and Feasibility Conclusion",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/GPU_Project_Technical_Evaluation_and_Feasibility_Conclusion_zh.md"
+    },
+    {
+      "order": "04",
+      "title": "How to Package It as a Paper or Open Source Project if Successful",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/How_to_Package_It_as_a_Paper_or_Open_Source_Project_if_Successful_zh.md"
+    },
+    {
+      "order": "03",
+      "title": "Most Valuable MVP to Prioritize",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/Most_Valuable_MVP_to_Prioritize_zh.md"
+    },
+    {
+      "order": "05",
+      "title": "Personal Fit Knowledge Gaps 6 Month Plan and AI Strategy",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/Personal_Fit_Knowledge_Gaps_6_Month_Plan_and_AI_Strategy_zh.md"
+    },
+    {
+      "order": "02",
+      "title": "Top 3 Most Likely Technical Failure Points",
+      "category": "evaluation / zh",
+      "path": "mds/evaluation/zh/Top_3_Most_Likely_Technical_Failure_Points_zh.md"
+    }
+  ]
+}

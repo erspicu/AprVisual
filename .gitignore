@@ -45,3 +45,7 @@ Thumbs.db
 # --- 輸出與快取 ---
 output/
 *.log
+*.out
+
+# --- Claude Code 本機狀態 ---
+.claude/

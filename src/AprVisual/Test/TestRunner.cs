@@ -345,7 +345,24 @@ namespace AprVisual.Test
             try
             {
                 WireCore.LoadSystem(rom);
-                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                int rdis = WireCore.LookupNode("ppu.rendering_disabled");
+                for (int f = 0; f < frames; f++)
+                {
+                    WireCore.RunFrame();
+                    if ((f + 1) % 10 == 0 || f == frames - 1)
+                    {
+                        // count nonzero palette-RAM entries as a quick "has the test drawn anything" gauge
+                        int nzPal = 0;
+                        for (int i = 0; i < 32; i++)
+                        {
+                            var pl = new List<int>(); WireCore.ResolveNodes($"ppu.pal_ram_{i:X2}_b[5:0]", pl, quiet: true);
+                            if (pl.Count == 6 && WireCore.ReadBits(pl) != 0x0F) nzPal++;
+                        }
+                        int rd = rdis != WireCore.EmptyNode && WireCore.IsNodeHigh(rdis) ? 1 : 0;
+                        Console.WriteLine($"#  frame {f + 1,3}: {WireCore.DumpCpuState()}  rendering_disabled={rd}  pal_ram!=0F:{nzPal}/32");
+                        Console.Out.Flush();
+                    }
+                }
                 Console.WriteLine($"# after {frames} frame(s): {WireCore.DumpCpuState()}");
 
                 // palette RAM (32 entries, 6-bit each — the "b" side, like handler_palette_ram)
@@ -511,21 +528,26 @@ namespace AprVisual.Test
 
                 Console.WriteLine($"# node ids: in_vblank={inVbl} vbl_flag={vblF} /vbl_flag={nVblF} set_vbl_flag={setVbl} read_2002_output_vblank_flag={rdOut} /r2002={nR2002}");
 
-                WireCore.RunFrame();   // → in_vblank rising edge
-                Console.WriteLine($"# at vblank start: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)}  in_vbl={H1(inVbl)} set_vbl={H1(setVbl)} vbl_flag={H1(vblF)} /vbl_flag={H1(nVblF)} rd_out={H1(rdOut)}");
-                Console.WriteLine("# trace ~3 frames, printing on every change of vbl_flag — t hpos vpos | vbl_flag /vbl_flag set_vbl rd_2002_vbl /r2002 io_ce | cpu.ab cpu.rw");
-                int prev = H1(vblF), changes = 0;
-                for (long j = 0; j < 2_200_000 && changes < 40; j++)
+                // extra read-buffer nodes
+                int nRdOut = WireCore.LookupNode("ppu./read_2002_output_vblank_flag");
+                int nVblOut = WireCore.LookupNode("ppu./vbl_flag_out");
+                int nBuf   = WireCore.LookupNode("ppu./vbl_flag_read_buffer");
+                int bufOut = WireCore.LookupNode("ppu.vbl_flag_read_buffer_out");
+                int ioDb7  = WireCore.LookupNode("ppu._io_db7");
+                int ioCe2  = WireCore.LookupNode("ppu._io_ce");
+
+                int clk0n = WireCore.LookupNode("cpu.clk0");
+                WireCore.RunFrame();                                    // → in_vblank rising edge (vpos 240 dot 0)
+                for (long i = 0; i < 400_000 && H1(vblF) == 0; i++) WireCore.Step(1);   // → vbl_flag set (vpos 241 dot 1)
+                Console.WriteLine($"# vbl_flag set at t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)} — tracing 160 half-cycles (covers the next $2002 read while the flag is up); only printing on change");
+                Console.WriteLine("# per half-cycle — t hpos | r_out(7869) /r_out(7729) vbl_flag /vbl_flag /vbl_out buf(/7827) bufOut(7871) | /r2002 _io_ce _io_db7 io_db | cpu.ab clk0");
+                string lastLine = "";
+                for (int j = 0; j < 160; j++)
                 {
-                    int cur = H1(vblF);
-                    if (cur != prev)
-                    {
-                        Console.WriteLine($"  {WireCore.Time,8} {Rd(hp),3} {Rd(vp),3} | {cur} {H1(nVblF)} {H1(setVbl)} {H1(rdOut)} {H1(nR2002)} {H1(ioCe)} | ab={Rd(ab):X4} rw={(rw != WireCore.EmptyNode && WireCore.IsNodeHigh(rw) ? 'R' : 'W')}");
-                        prev = cur; changes++;
-                    }
+                    string line = $"{H1(rdOut)} {H1(nRdOut)} {H1(vblF)} {H1(nVblF)} {H1(nVblOut)} {H1(nBuf)} {H1(bufOut)} | {H1(nR2002)} {H1(ioCe2)} {H1(ioDb7)} {Rd(ioDb):X2} | {Rd(ab):X4} {(clk0n != WireCore.EmptyNode && WireCore.IsNodeHigh(clk0n) ? 1 : 0)}";
+                    if (line != lastLine) { Console.WriteLine($"  {WireCore.Time,8} {Rd(hp),3} | {line}"); lastLine = line; }
                     WireCore.Step(1);
                 }
-                Console.WriteLine($"# (end: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)} vbl_flag={H1(vblF)}, {changes} changes seen)");
                 return 0;
             }
             finally { WireCore.Shutdown(); }

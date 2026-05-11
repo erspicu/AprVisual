@@ -79,8 +79,9 @@ namespace AprVisual.Sim
             public void Write(int addr, byte v) => Data[addr] = v;
         }
 
-        private static readonly Dictionary<string, Memory> _memories = new();
+        private static readonly Dictionary<string, Memory> _memories = new(StringComparer.Ordinal);
         public static Memory? ResolveMemory(string name) => _memories.TryGetValue(name, out var m) ? m : null;
+        internal static IReadOnlyCollection<string> MemoryNames => _memories.Keys;
 
         // ── handler factories (stubs) ──
         // TODO: ClockHandler — AddHandler(() => ToggleClock());

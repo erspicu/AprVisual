@@ -27,7 +27,7 @@ namespace AprVisual.Test
             string systemDefDir = WireCore.SystemDefDir;
             int maxWait = 15;
             string region = "ntsc";
-            bool benchmark = false;
+            bool benchmark = false, dumpSystem = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -37,6 +37,7 @@ namespace AprVisual.Test
                     case "--test":            if (i + 1 < args.Length) testPath     = args[++i]; break;
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
+                    case "--dump-system":     dumpSystem = true; break;
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -44,7 +45,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -52,8 +53,8 @@ namespace AprVisual.Test
 
             WireCore.SystemDefDir = systemDefDir;
 
-            if (dumpModule != null)
-                return DumpModule(systemDefDir, dumpModule);
+            if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
+            if (dumpSystem) return DumpSystem();
 
             if (romPath != null)
             {
@@ -125,6 +126,36 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── Step 2 acceptance harness: compose the full nes-001 + cart netlist and print
+        //    node/transistor/memory counts + a few LookupNode / ResolveNodes probes. ──
+        private static int DumpSystem()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 2; }
+
+            Console.WriteLine($"global node array:  {WireCore.NodeArrayCount}");
+            Console.WriteLine($"  non-null nodes:   {WireCore.NonNullNodeCount}");
+            Console.WriteLine($"  with pull-up:     {WireCore.PullUpNodeCount}");
+            Console.WriteLine($"transistors:        {WireCore.TransistorBuildCount}  (incl. {WireCore.ConnectionTransistorCount} connection-transistors)");
+            Console.WriteLine($"forceCompute nodes: {WireCore.ForceComputeList.Count}");
+            Console.WriteLine($"memories:           {string.Join(", ", WireCore.MemoryNames)}");
+
+            Console.WriteLine("\nlookups:");
+            foreach (var p in new[] { "clk", "res", "vcc", "vss", "cpu.clk0", "cpu.a0", "cpu.ir0", "cpu.ab0", "cpu.db0",
+                                      "ppu.clk0", "ppu.io_ce", "u1.cs", "u3.1/Y1", "cart.edge.cpu_a0", "cart.prg.a0", "port0.out" })
+                Console.WriteLine($"  {p,-22} = {WireCore.LookupNode(p)}");
+
+            Console.WriteLine("\nresolveNodes:");
+            void Probe(string e) { var l = new System.Collections.Generic.List<int>(); WireCore.ResolveNodes(e, l); Console.WriteLine($"  {e,-22} -> {l.Count,4} nodes  [{string.Join(",", System.Linq.Enumerable.Take(l, 8))}{(l.Count > 8 ? ",…" : "")}]"); }
+            Probe("cpu.ab[15:0]");
+            Probe("cpu.db[7:0]");
+            Probe("cpu.a[7:0]");
+            Probe("cart.edge.cpu_a[14:0]");
+            Probe("*.vss");   // should resolve entirely to Ngnd (=2)
+            Probe("*.vcc");   // should resolve entirely to Npwr (=1)
+            return 0;
+        }
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -175,6 +206,7 @@ namespace AprVisual.Test
                     [--region ntsc|pal|dendy]
                     [--benchmark]                       (S3) measure cycles/sec
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
+                  AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                     [--system-def-dir <dir>]            default: data/system-def
                   (no args)                             open the GUI (S1: not implemented yet)
                 """);

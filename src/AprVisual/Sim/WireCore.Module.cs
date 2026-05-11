@@ -6,30 +6,58 @@ namespace AprVisual.Sim
     internal static unsafe partial class WireCore
     {
         // ── Module composition / instantiation — port of ref/metalnes-main wire_module.cpp:
-        //      Wires::addInstance / addConnection / addNode / addTransistor (~L892-1340)
-        //      and wire_node_resolver.cpp (the name->id + array/wildcard/| expansion).
+        //      Wires::addInstance / setupNodes / setupPins / setupMemory / setupSegments /
+        //      setupTransistors / addNode / addTransistor / addConnection (~L892-1340)
+        //      + wire_node_resolver.cpp (name → id + array / wildcard / | expansion).
         //    See MD/note/02_模組化網表系統.md §3.
         //
-        //    Key tricks to keep (decided for S1):
-        //      - a "connection" between two nodes = a transistor with gate = Npwr (always ON),
-        //        c1/c2 = the two nodes. Reuses the group machinery; no destructive node merge.
-        //      - each instance gets a contiguous, aligned slice of the global node-id space;
-        //        local ids are offset; full names registered as "prefix.localName".
-        //      - special "func<clock>" / "func<rom>" / "func<ram>" / "func<video_out>" /
-        //        "func<audio_out>" hook nodes — handlers find them via "*func<...>" wildcard.
+        //    Key tricks (kept from MetalNES):
+        //      - "connection" between two nodes = a transistor with gate = Npwr (always ON), c1/c2 =
+        //        the two nodes. Reuses the group machinery; no destructive node merge.
+        //      - each *new* instance prefix gets a contiguous, aligned slice of the global node-id
+        //        space; local ids are offset (vss/vcc fold to Ngnd/Npwr); names registered as
+        //        "prefix.localName". Re-instantiating the same prefix reuses it (only re-runs the
+        //        sub-module / connection recursion) — that's how the cartridge layers compose.
+        //      - "func<clock>" / "func<rom>" / "func<ram>" / "func<video_out>" / "func<audio_out>"
+        //        hook nodes — handlers find them via "*func<...>" wildcard (Step 6).
 
-        // name -> global node id, and id -> name(s). Built during instantiation.
-        private static readonly Dictionary<string, int> _nodeByName = new();
+        // ── build-time per-node record (the hot path uses the flattened WireCore.TransistorList) ──
+        internal sealed class Node
+        {
+            public int Id;
+            public string Name = "";
+            public int Pullups;                 // segdef '+' / pullups:[] count
+            public readonly List<int> Gates  = new();   // transistor indices this node gates
+            public readonly List<int> C1c2s  = new();   // transistor indices this node is a channel end of
+            public CallbackInfo? Callback;      // set by AddCallback (Step 6)
+        }
+
+        // build-time tables (consumed by WireCore.Reset() in Step 3 to fill the unmanaged hot arrays)
+        private static readonly List<Node?> _nodes = new();             // indexed by global node id
+        private static readonly List<Transistor> _transistors = new();
+        private static readonly HashSet<(int, int, int)> _transistorSet = new();   // dedup by (gate, c1, c2)
+        private static readonly List<int> _forceComputeList = new();
+        private static readonly HashSet<string> _instancesSetUp = new(StringComparer.Ordinal);
+
+        internal static IReadOnlyList<Node?> Nodes => _nodes;
+        internal static IReadOnlyList<Transistor> Transistors => _transistors;
+        internal static IReadOnlyList<int> ForceComputeList => _forceComputeList;
+        internal static int NodeArrayCount => _nodes.Count;
+        internal static int TransistorBuildCount => _transistors.Count;
+        internal static int NonNullNodeCount { get { int c = 0; foreach (var n in _nodes) if (n != null) c++; return c; } }
+        internal static int PullUpNodeCount  { get { int c = 0; foreach (var n in _nodes) if (n != null && n.Pullups > 0) c++; return c; } }
+        internal static int ConnectionTransistorCount { get { int c = 0; foreach (var t in _transistors) if (t.Gate == Npwr) c++; return c; } }
+
+        // name <-> id (name is unique; id may have several names — aliases, like #<pin>)
+        private static readonly Dictionary<string, int> _nodeByName = new(StringComparer.Ordinal);
         private static readonly Dictionary<int, string> _nameByNode = new();
-        private static int _maxNodeId = Ngnd;   // npwr=1, ngnd=2 already taken
+        private static int _maxNodeId = Ngnd;
 
         public static int LookupNode(string name) => _nodeByName.TryGetValue(name, out int id) ? id : EmptyNode;
+        public static string GetNodeName(int id) => _nameByNode.TryGetValue(id, out string? n) ? n : (id == Npwr ? "vcc" : id == Ngnd ? "vss" : id.ToString());
+        public static bool IsPwrGnd(int nn) => nn == Npwr || nn == Ngnd;
 
-        public static string GetNodeName(int id) => _nameByNode.TryGetValue(id, out string? n) ? n : "";
-
-        /// <summary>
-        /// Allocate `count` fresh node ids, aligned to `alignment` (port of node_resolver::allocNodes).
-        /// </summary>
+        /// <summary>Allocate <paramref name="count"/> fresh node ids, aligned to <paramref name="alignment"/>. Port of node_resolver::allocNodes.</summary>
         public static int AllocNodes(int alignment, int count)
         {
             int start = _maxNodeId + 1;
@@ -38,48 +66,276 @@ namespace AprVisual.Sim
             return start;
         }
 
-        /// <summary>
-        /// Instantiate <paramref name="def"/> (and recursively its sub-modules) under <paramref name="prefix"/>,
-        /// adding its nodes / segments (pull-ups) / transistors / connections / forceCompute to the global tables.
-        /// TODO: port Wires::addInstance.
-        /// </summary>
-        public static void AddInstance(ModuleDef def, string prefix)
+        // ── reset all build-time state (called at the start of ComposeSystem / any fresh build) ──
+        public static void ResetBuild()
         {
-            throw new NotImplementedException("WireCore.AddInstance — port Wires::addInstance");
+            ClearLoadedDefs();
+            _nodes.Clear();
+            _transistors.Clear();
+            _transistorSet.Clear();
+            _forceComputeList.Clear();
+            _instancesSetUp.Clear();
+            _nodeByName.Clear();
+            _nameByNode.Clear();
+            _memories.Clear();   // declared in WireCore.Handlers.cs
+            _maxNodeId = Ngnd;
+            AddNode(Npwr, "vcc");
+            AddNode(Ngnd, "vss");
         }
 
-        /// <summary>connection: from &lt;-&gt; to as an always-ON transistor (port of Wires::addConnection).</summary>
-        public static void AddConnection(int from, int to)
+        private static Node? GetOrCreateNode(int nn)
         {
-            if (from == to) return;
-            // if (IsPwrGnd(from)) (from,to) = (to,from);
-            // AddTransistor(name: $"{GetNodeName(from)}<>{GetNodeName(to)}", gate: Npwr, c1: from, c2: to);
-            throw new NotImplementedException("WireCore.AddConnection — port Wires::addConnection");
+            if (nn == EmptyNode) return null;
+            while (_nodes.Count <= nn) _nodes.Add(null);
+            return _nodes[nn] ??= new Node { Id = nn };
+        }
+
+        /// <summary>Register a (name → id) mapping (and id → name, first wins) and ensure the node exists.</summary>
+        public static void AddNode(int nn, string name)
+        {
+            var node = GetOrCreateNode(nn);
+            if (node == null) return;
+            _maxNodeId = Math.Max(_maxNodeId, nn);
+
+            if (_nodeByName.TryGetValue(name, out int existing))
+            {
+                if (existing != nn) Console.Error.WriteLine($"node name '{name}' already maps to {existing}, not {nn} — keeping {existing}");
+            }
+            else _nodeByName[name] = nn;
+
+            if (string.IsNullOrEmpty(node.Name)) node.Name = name;
+            if (!_nameByNode.ContainsKey(nn)) _nameByNode[nn] = name;
+        }
+
+        /// <summary>Allocate a fresh node with the given name (for callback target nodes etc.). Port of Wires::addNode(name).</summary>
+        public static int AddNamedNode(string name)
+        {
+            int nn = AllocNodes(1, 1);
+            AddNode(nn, name);
+            return nn;
         }
 
         public static void AddTransistor(string name, int gate, int c1, int c2, bool isWeak = false)
         {
-            // TODO: build-time — append to a List<Transistor>; also register gate.gates / c1.c1c2s / c2.c1c2s;
-            // if pull-up via weak transistor, bump the node's pullup count. The flattened TransistorList
-            // is produced later in WireCore.Reset() (see WireCore.cs / .Group.cs).
-            throw new NotImplementedException("WireCore.AddTransistor");
+            if (gate == EmptyNode || c1 == EmptyNode || c2 == EmptyNode) return;
+            if (c1 == c2) return;
+            if (IsPwrGnd(c1)) (c1, c2) = (c2, c1);   // normalise supply onto c2
+
+            var key = (gate, c1, c2);
+            if (!_transistorSet.Add(key)) return;     // dedup by (gate, c1, c2)
+
+            int i = _transistors.Count;
+            _transistors.Add(new Transistor { Gate = gate, C1 = c1, C2 = c2, IsWeak = isWeak, Name = name });
+            GetOrCreateNode(gate)!.Gates.Add(i);
+            GetOrCreateNode(c1)!.C1c2s.Add(i);
+            GetOrCreateNode(c2)!.C1c2s.Add(i);
+        }
+
+        /// <summary>Connect two nodes = an always-ON transistor (gate = Npwr). Port of Wires::addConnection(id,id).</summary>
+        public static void AddConnection(int from, int to)
+        {
+            if (from == to) return;
+            if (IsPwrGnd(from)) (from, to) = (to, from);
+            AddTransistor($"{GetNodeName(from)}<>{GetNodeName(to)}", Npwr, from, to);
+        }
+
+        /// <summary>Connect two node *expressions* (one-to-many if the left resolves to one node). Port of Wires::addConnection(str,str).</summary>
+        public static void AddConnection(string fromExpr, string toExpr)
+        {
+            var fromList = new List<int>();
+            var toList = new List<int>();
+            ResolveNodes(fromExpr, fromList);
+            ResolveNodes(toExpr, toList);
+
+            if (fromList.Count == 1 && toList.Count > 0)
+            {
+                foreach (int t in toList) AddConnection(fromList[0], t);
+            }
+            else if (fromList.Count == toList.Count && fromList.Count > 0)
+            {
+                for (int i = 0; i < fromList.Count; i++) AddConnection(fromList[i], toList[i]);
+            }
+            else
+            {
+                Console.Error.WriteLine($"connection failed: '{fromExpr}' -> '{toExpr}'  ({fromList.Count} vs {toList.Count})");
+            }
+        }
+
+        /// <summary>Combine an instance prefix with a (possibly empty) local name. Port of combinePrefix.</summary>
+        public static string CombinePrefix(string prefix, string name)
+        {
+            if (prefix.Length == 0) return name;
+            if (name.Length == 0) return prefix;
+            if (prefix[^1] == '.') return prefix + name;
+            return prefix + "." + name;
+        }
+
+        private static int MaxNodeIdOf(ModuleDef def)
+        {
+            int m = 0;
+            foreach (int id in def.NodeNames.Values) if (id > m) m = id;
+            foreach (var sd in def.Segs) if (!sd.Node.IsName && sd.Node.Id > m) m = sd.Node.Id;
+            foreach (var td in def.Trans)
+            {
+                if (!td.Gate.IsName && td.Gate.Id > m) m = td.Gate.Id;
+                if (!td.C1.IsName && td.C1.Id > m) m = td.C1.Id;
+                if (!td.C2.IsName && td.C2.Id > m) m = td.C2.Id;
+            }
+            return m;
         }
 
         /// <summary>
-        /// Resolve a node *expression* to one or more global node ids. Supports
-        /// (port of node_resolver::resolveNodes):
-        ///   "name"        single node
-        ///   "a[7:0]"      [a7, a6, ..., a0]  (big-endian: first index = MSB)
-        ///   "a[]"         [a0, a1, ...] until lookup fails
-        ///   "x|y|z"       [x, y, z]
-        ///   "*func&lt;rom&gt;"  every node whose name matches the wildcard
+        /// Instantiate <paramref name="def"/> under <paramref name="prefix"/>: a *new* prefix allocates a
+        /// node-id slice and sets up its nodes / pins / memory / segments / transistors; then (always)
+        /// recurse into sub-modules, apply connections, and collect forceCompute nodes.
+        /// Port of Wires::addInstance.
+        /// </summary>
+        public static void AddInstance(ModuleDef def, string prefix)
+        {
+            if (_instancesSetUp.Add(prefix))
+            {
+                int maxNode = MaxNodeIdOf(def);
+                int alignment = maxNode < 100 ? 100 : 1000;
+                int nodeStart = AllocNodes(alignment, maxNode + 1);
+                int nodeGnd = def.NodeNames.GetValueOrDefault("vss", EmptyNode);
+                int nodePwr = def.NodeNames.GetValueOrDefault("vcc", EmptyNode);
+
+                int Remap(int local) =>
+                    local == EmptyNode ? EmptyNode :
+                    local == nodeGnd   ? Ngnd :
+                    local == nodePwr   ? Npwr :
+                    nodeStart + local;
+                int ResolveRef(NodeRef r) => r.IsName ? LookupNode(CombinePrefix(prefix, r.Name!)) : Remap(r.Id);
+
+                // setupNodes
+                foreach (var (name, id) in def.NodeNames) AddNode(Remap(id), CombinePrefix(prefix, name));
+
+                // setupPins — add a "#<pin>" alias for each pin's node (documentation / layout; not load-bearing)
+                foreach (var pd in def.Pins)
+                {
+                    int pinNode = LookupNode(CombinePrefix(prefix, pd.Name));
+                    if (pinNode != EmptyNode) AddNode(pinNode, CombinePrefix(prefix, "#" + pd.Pin));
+                    else Console.Error.WriteLine($"missing pin '{pd.Name}' (#{pd.Pin}) in instance '{prefix}' ({def.Name})");
+                }
+
+                // setupMemory — behavioral RAM/ROM regions (not transistors)
+                foreach (var (mname, msize) in def.Memories)
+                {
+                    string full = CombinePrefix(prefix, mname);
+                    _memories[full] = new Memory { Name = full, Data = new byte[msize] };
+                }
+
+                // setupSegments — pull-ups (we don't keep the polygons)
+                foreach (var sd in def.Segs)
+                {
+                    int nid = ResolveRef(sd.Node);
+                    if (nid == EmptyNode || IsPwrGnd(nid)) continue;
+                    var n = GetOrCreateNode(nid);
+                    if (n != null && sd.Pull == '+') n.Pullups++;
+                }
+                foreach (var pu in def.Pullups)
+                {
+                    var list = new List<int>();
+                    ResolveNodes(CombinePrefix(prefix, pu), list);
+                    foreach (int nid in list) { var n = GetOrCreateNode(nid); if (n != null) n.Pullups++; }
+                }
+
+                // setupTransistors
+                foreach (var td in def.Trans)
+                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak);
+            }
+
+            // recurse into sub-modules
+            foreach (var sub in def.SubModules)
+            {
+                if (LoadedDefs.TryGetValue(sub.Type, out var subDef)) AddInstance(subDef, CombinePrefix(prefix, sub.Prefix));
+                else Console.Error.WriteLine($"sub-module type '{sub.Type}' not loaded (under prefix '{prefix}')");
+            }
+
+            // connections
+            foreach (var (cf, ct) in def.Connections) AddConnection(CombinePrefix(prefix, cf), CombinePrefix(prefix, ct));
+
+            // forceCompute
+            foreach (var fc in def.ForceCompute) ResolveNodes(CombinePrefix(prefix, fc), _forceComputeList);
+        }
+
+        /// <summary>
+        /// Resolve a node *expression* to one or more global node ids. Port of node_resolver::resolveNodes:
+        ///   "name"          single node (missing → Ngnd)
+        ///   "a[7:0]"        [a0, a1, ..., a7]   (the index order matches bit order: bit i = a&lt;i&gt;)
+        ///   "a[]"           [a0, a1, ...] until lookup fails
+        ///   "x|y|z"         [x, y, z]
+        ///   "*func&lt;rom&gt;"   every node whose name starts with the part before '*' and ends with the part after
         /// Missing array elements fall back to Ngnd (so wrong widths don't crash), matching MetalNES.
         /// </summary>
         public static void ResolveNodes(string expr, List<int> outIds)
         {
-            throw new NotImplementedException("WireCore.ResolveNodes — port node_resolver::resolveNodes");
-        }
+            if (expr.IndexOf('|') >= 0)
+            {
+                foreach (var part in expr.Split('|')) ResolveNodes(part, outIds);
+                return;
+            }
 
-        public static bool IsPwrGnd(int nn) => nn == Npwr || nn == Ngnd;
+            int star = expr.IndexOf('*');
+            if (star >= 0)
+            {
+                string left = expr.Substring(0, star);
+                string right = expr.Substring(star + 1);
+                foreach (var kv in _nodeByName)
+                {
+                    string name = kv.Key;
+                    if (name.Length >= left.Length && name.Length >= right.Length &&
+                        name.StartsWith(left, StringComparison.Ordinal) && name.EndsWith(right, StringComparison.Ordinal))
+                        outIds.Add(kv.Value);
+                }
+                return;
+            }
+
+            int lb = expr.IndexOf('[');
+            if (lb >= 0)
+            {
+                int rb = expr.IndexOf(']', lb);
+                if (rb >= 0)
+                {
+                    string range = expr.Substring(lb + 1, rb - lb - 1);
+                    string nameLeft = expr.Substring(0, lb);
+                    string nameRight = expr.Substring(rb + 1);
+
+                    if (range.Length == 0)
+                    {
+                        for (int i = 0; ; i++)
+                        {
+                            int nn = LookupNode(nameLeft + i + nameRight);
+                            if (nn == EmptyNode) break;
+                            outIds.Add(nn);
+                        }
+                    }
+                    else
+                    {
+                        int colon = range.IndexOf(':');
+                        if (colon >= 0
+                            && int.TryParse(range.AsSpan(0, colon), out int rangeEnd)            // before ':'
+                            && int.TryParse(range.AsSpan(colon + 1), out int rangeStart))        // after ':'
+                        {
+                            int delta = rangeStart < rangeEnd ? 1 : -1;
+                            for (int i = rangeStart; delta > 0 ? i <= rangeEnd : i >= rangeEnd; i += delta)
+                            {
+                                int nn = LookupNode(nameLeft + i + nameRight);
+                                outIds.Add(nn == EmptyNode ? Ngnd : nn);
+                            }
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine($"bad node range expression: '{expr}'");
+                        }
+                    }
+                    return;
+                }
+            }
+
+            int single = LookupNode(expr);
+            if (single == EmptyNode) Console.Error.WriteLine($"unknown node: '{expr}' — using vss");
+            outIds.Add(single == EmptyNode ? Ngnd : single);
+        }
     }
 }

@@ -183,6 +183,7 @@ namespace AprVisual.Test
             fails += TestInverter();
             fails += TestNand();
             fails += TestPassTransistor();
+            fails += TestCallback();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -255,6 +256,31 @@ namespace AprVisual.Test
             f += Check("en=0 -> out holds previous value (1)", WireCore.IsNodeHigh("out"));
             WireCore.SetHigh("en");                 // reconnect; out should now follow in (=0)
             f += Check("en=1 again -> out tracks in (0)", !WireCore.IsNodeHigh("out"));
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // Callback / fake-transistor mechanism: a callback watching node 'w' must fire after 'w' changes.
+        private static int TestCallback()
+        {
+            Console.WriteLine("callback (fake-transistor watch):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "w");                 // a node we'll drive
+            int fires = 0;
+            // AddCallback must happen *before* Reset() (it adds a fake node + transistors).
+            WireCore.AddCallback(new[] { WireCore.LookupNode("w") }, () => fires++);
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            int f = 0;
+            int before = fires;
+            WireCore.SetHigh("w");
+            f += Check("callback fires after w: 0 -> 1", fires > before);
+            before = fires;
+            WireCore.SetHigh("w");                     // no change ⇒ no fire
+            f += Check("callback does NOT fire when w unchanged", fires == before);
+            before = fires;
+            WireCore.SetLow("w");
+            f += Check("callback fires after w: 1 -> 0", fires > before);
             WireCore.Shutdown();
             return f;
         }

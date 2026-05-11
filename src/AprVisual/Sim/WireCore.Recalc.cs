@@ -8,7 +8,9 @@ namespace AprVisual.Sim
         //      recalcNodeList / processQueue / recalcNode / setNodeState / enqueueNode (~L1519-1928)
         //      and step_cycle (~L730-751). See MD/note/01_模擬核心演算法.md §2.2-2.6.
 
-        public static int ClockNode = EmptyNode;   // resolved in WireCore.System.cs after the module loads
+        // The master clock node ("clk") is toggled by the clock handler (WireCore.Handlers.AttachClockHandler),
+        // not by StepCycle directly — see the note there. Kept here only for reference / diagnostics.
+        public static int ClockNode = EmptyNode;
 
         /// <summary>Mark a node dirty and propagate to quiescence.</summary>
         public static void RecalcNodeList(int nn) { EnqueueNode(nn); ProcessQueue(); }
@@ -124,11 +126,7 @@ namespace AprVisual.Sim
 
         private static void StepCycle()
         {
-            if (ClockNode != EmptyNode)
-            {
-                if (NodeStates[ClockNode] != 0) SetLow(ClockNode); else SetHigh(ClockNode);
-            }
-            RunHandlerChain();          // WireCore.Handlers.cs (clock handler, nes-system handler, …)
+            RunHandlerChain();          // WireCore.Handlers.cs (clock handler toggles "clk", nes-system handler, …)
             if (TraceLevel != 0) CaptureTraceLine();   // WireCore.Trace.cs
             Time++;
         }

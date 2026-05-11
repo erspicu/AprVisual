@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -47,6 +47,7 @@ namespace AprVisual.Test
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
+                    case "--dump-node":       if (i + 1 < args.Length) dumpNodeName = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
@@ -59,7 +60,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -74,6 +75,7 @@ namespace AprVisual.Test
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath != null) return Probe2002(probePath);
             if (probeVblPath != null) return ProbeVbl(probeVblPath);
+            if (dumpNodeName != null) return DumpNode(dumpNodeName);
 
             if (romPath != null)
             {
@@ -458,6 +460,29 @@ namespace AprVisual.Test
         }
 
         private static int[] ResolveQ(string expr) { var l = new List<int>(); WireCore.ResolveNodes(expr, l, quiet: true); return l.ToArray(); }
+
+        // ── Introspect a node's wiring: pull-up count + the transistors it gates + the transistors it's
+        //    a channel end of (with each transistor's gate / other end). For tracing logic structure. ──
+        private static int DumpNode(string name)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            int id = WireCore.LookupNode(name);
+            if (id == WireCore.EmptyNode) { Console.Error.WriteLine($"no node named '{name}'"); return 1; }
+            WireCore.Node? node = id >= 0 && id < WireCore.Nodes.Count ? WireCore.Nodes[id] : null;
+            string Nm(int n) => $"{WireCore.GetNodeName(n)}#{n}";
+            Console.WriteLine($"node '{name}' = id {id}");
+            if (node == null) { Console.WriteLine("  (no Node object — supply node or unused)"); return 0; }
+            Console.WriteLine($"  pullups={node.Pullups}  gates={node.Gates.Count}  c1c2s={node.C1c2s.Count}  callback={(node.Callback != null)}");
+            Console.WriteLine($"  ── transistors GATED by this node ({node.Gates.Count}) — i.e. this node turns these on/off:");
+            foreach (int tid in node.Gates)
+            { var t = WireCore.Transistors[tid]; Console.WriteLine($"     '{t.Name}'  channel: {Nm(t.C1)} <-> {Nm(t.C2)}{(t.IsWeak ? "  (weak)" : "")}"); }
+            Console.WriteLine($"  ── transistors with this node as a CHANNEL end ({node.C1c2s.Count}) — i.e. these drive/connect this node when their gate is on:");
+            foreach (int tid in node.C1c2s)
+            { var t = WireCore.Transistors[tid]; int other = t.C1 == id ? t.C2 : t.C1; Console.WriteLine($"     '{t.Name}'  gate={Nm(t.Gate)}  other end: {Nm(other)}{(t.IsWeak ? "  (weak)" : "")}"); }
+            return 0;
+        }
 
         // ── Trace the 2C02's latched vblank flag (the $2002 bit-7 source): does set_vbl_flag pulse at
         //    vblank start? does vbl_flag latch high and stay? does read_2002_output_vblank_flag follow it

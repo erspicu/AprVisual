@@ -153,6 +153,23 @@ namespace AprVisual.Test
             Probe("cart.edge.cpu_a[14:0]");
             Probe("*.vss");   // should resolve entirely to Ngnd (=2)
             Probe("*.vcc");   // should resolve entirely to Npwr (=1)
+
+            // ── Step 3: power on (allocate hot arrays, build LUT + flattened transistor lists) ──
+            try { WireCore.Reset(); }
+            catch (Exception ex) { Console.Error.WriteLine($"Reset() failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 2; }
+
+            int stateHigh = 0;
+            for (int i = 0; i < WireCore.NodeCount; i++) unsafe { if (WireCore.NodeStates[i] != 0) stateHigh++; }
+            // spot-check: a known node's flattened c1c2 sub-list vs its build-time C1c2s
+            int probeNode = WireCore.LookupNode("cpu.clk0");
+            int buildC1c2 = probeNode > 0 && probeNode < WireCore.Nodes.Count && WireCore.Nodes[probeNode] != null ? WireCore.Nodes[probeNode]!.C1c2s.Count : -1;
+
+            Console.WriteLine("\nReset():");
+            Console.WriteLine($"  NodeCount:          {WireCore.NodeCount}");
+            Console.WriteLine($"  TransistorList len: {WireCore.TransistorListLength}");
+            Console.WriteLine($"  nodes at state 1:   {stateHigh}  (== {WireCore.PullUpNodeCount} pull-ups + 1 for vcc)");
+            Console.WriteLine($"  forceCompute flags: {WireCore.ForceComputeList.Count}");
+            Console.WriteLine($"  cpu.clk0 (#{probeNode}) build-time c1c2s count = {buildC1c2}");
             return 0;
         }
 

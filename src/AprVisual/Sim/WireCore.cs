@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace AprVisual.Sim
 {
@@ -105,23 +106,98 @@ namespace AprVisual.Sim
         // ───────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Reset all per-node state to power-on (pull-ups -> high, the rest 0/floating),
-        /// (re)build the flattened transistor lists and the FlagsToState LUT.
-        /// Allocates the unmanaged arrays if not already done. Call after parse/build.
-        /// TODO: port from ref/metalnes-main wire_module.cpp wire_compute::reset() (~L1400-1517).
+        /// Power-on the netlist built by ComposeSystem/AddInstance: allocate the unmanaged hot arrays,
+        /// build the FlagsToState LUT and the flattened TransistorList, set every node to power-on state
+        /// (pull-ups → high, the rest 0/floating), mark Ngnd/Npwr and the forceCompute nodes.
+        /// Port of ref/metalnes-main wire_module.cpp wire_compute::reset() (~L1400-1517). Re-runnable.
         /// </summary>
         public static void Reset()
         {
-            // TODO:
-            //  1. allocate NodeStates / NodeInfos / RecalcList* / RecalcHash* sized to NodeCount
-            //  2. BuildFlagsToStateTable()  (WireCore.Group.cs)
-            //  3. for each node: connections = c1c2s.Count + gates.Count; SetFloat(); if pullups>0 -> PullUp + state=1
-            //  4. build TransistorList: per node, flatten gates -> (c1,c2,...,0); channels split into
-            //     normal (gate,other,...,0) / to-GND (gate,...,0) / to-VCC (gate,...,0)
-            //  5. NodeStates[Ngnd]=0; NodeInfos[Ngnd] = Gnd; NodeStates[Npwr]=1; NodeInfos[Npwr] = Pwr
-            //  6. apply forceCompute list
-            throw new NotImplementedException("WireCore.Reset — port wire_compute::reset()");
+            NodeCount = NodeArrayCount;
+            if (NodeCount < 3) throw new InvalidOperationException("WireCore.Reset: netlist not composed (call ComposeSystem first)");
+
+            FreeUnmanagedMemory();   // release any prior allocations (re-runnable)
+
+            NodeStates     = AllocArray<byte>(NodeCount);
+            NodeInfos      = AllocArray<NodeInfo>(NodeCount);
+            RecalcList     = AllocArray<int>(NodeCount);
+            RecalcListNext = AllocArray<int>(NodeCount);
+            RecalcHash     = AllocArray<int>(NodeCount);
+            RecalcHashNext = AllocArray<int>(NodeCount);
+            _groupBuf      = AllocArray<int>(NodeCount);
+            FlagsToState   = AllocArray<byte>(256);
+            BuildFlagsToStateTable();   // WireCore.Group.cs
+
+            RecalcListCount = RecalcListNextCount = 0;
+            Time = 0;
+
+            // ── per-node power-on state ──
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                Node? node = Nodes[nn];
+                if (node == null) continue;   // AllocArray zeroed: state 0, flags 0, tlist* 0
+                ref NodeInfo ns = ref NodeInfos[nn];
+                ns.Connections = node.C1c2s.Count + node.Gates.Count;
+                ns.Flags = NodeFlags.None;
+                if (node.Pullups > 0) { ns.Flags |= NodeFlags.PullUp; NodeStates[nn] = 1; }
+                if (node.Callback != null) ns.Flags |= NodeFlags.HasCallback;
+            }
+
+            // ── flattened transistor lists (cache-friendly; one big int[] of null(0)-terminated sub-lists) ──
+            // Index 0 is a sentinel so an "empty" sub-list index of 0 points straight at a 0 terminator.
+            var tl = new List<int> { 0 };
+            int AddSubList(List<int> sub)
+            {
+                if (sub.Count == 0) return 0;
+                int idx = tl.Count;
+                tl.AddRange(sub);
+                tl.Add(0);
+                return idx;
+            }
+            var gates = new List<int>();
+            var c1c2 = new List<int>();
+            var c1gnd = new List<int>();
+            var c1pwr = new List<int>();
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                Node? node = Nodes[nn];
+                if (node == null) continue;
+                ref NodeInfo ns = ref NodeInfos[nn];
+
+                gates.Clear();
+                foreach (int tid in node.Gates) { var t = Transistors[tid]; gates.Add(t.C1); gates.Add(t.C2); }
+                ns.TlistGates = AddSubList(gates);
+
+                c1c2.Clear(); c1gnd.Clear(); c1pwr.Clear();
+                foreach (int tid in node.C1c2s)
+                {
+                    var t = Transistors[tid];
+                    if (t.Gate == Ngnd) continue;             // gate tied to GND → transistor can never turn on
+                    int other = t.C1 == nn ? t.C2 : t.C1;
+                    if (other == Ngnd) c1gnd.Add(t.Gate);
+                    else if (other == Npwr) c1pwr.Add(t.Gate);
+                    else { c1c2.Add(t.Gate); c1c2.Add(other); }
+                }
+                ns.TlistC1c2s = AddSubList(c1c2);
+                ns.TlistC1gnd = AddSubList(c1gnd);
+                ns.TlistC1pwr = AddSubList(c1pwr);
+            }
+            TransistorList = AllocArray<int>(tl.Count);
+            for (int i = 0; i < tl.Count; i++) TransistorList[i] = tl[i];
+            _transistorListLength = tl.Count;
+
+            // ── supply nodes (override whatever the loop set) ──
+            NodeStates[Ngnd] = 0; NodeInfos[Ngnd].Flags = NodeFlags.Gnd;
+            NodeStates[Npwr] = 1; NodeInfos[Npwr].Flags = NodeFlags.Pwr;
+
+            // ── forceCompute: if a group has both Gnd and Pwr, they cancel (certain bus nodes) ──
+            foreach (int nn in ForceComputeList)
+                if (nn >= 0 && nn < NodeCount) NodeInfos[nn].Flags |= NodeFlags.ForceCompute;
         }
+
+        // length of TransistorList (for diagnostics)
+        public static int TransistorListLength => _transistorListLength;
+        private static int _transistorListLength;
 
         /// <summary>Free every unmanaged allocation owned by WireCore. Idempotent.</summary>
         public static void Shutdown()

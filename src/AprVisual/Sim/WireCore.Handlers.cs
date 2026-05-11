@@ -175,13 +175,61 @@ namespace AprVisual.Sim
         }
 
         /// <summary>
-        /// Video output (placeholder). TODO (Step 7): watch the PPU's vid_[11:0] composite-ladder value +
-        /// the pixel clock, decode each pixel to RGB into FrameBuffer. For now just allocates a black frame.
+        /// Video output — FIRST CUT. On each ppu.pclk1 rising edge, write the current pixel
+        /// (ppu.hpos[8:0] / ppu.vpos[8:0]) into FrameBuffer, coloured by ppu.pal_ptr[4:0] (the 5-bit
+        /// palette-RAM slot the pixel reads) through an approximate 32-colour ramp.
+        ///
+        /// NOTE: this is NOT the real picture — the proper path is the 2C02's composite ladder
+        /// (vid_[11:0] → an NTSC voltage signal, demodulated over time), or the actual 6-bit colour
+        /// out of the palette RAM (node TBD — needs more 2C02 pixel-pipeline study). What this gives
+        /// is the *structure* of the rendered frame (which palette slot each pixel uses), which is
+        /// enough to confirm the PPU is producing pixel data. Degrades to a black frame if any of the
+        /// nodes don't resolve. Must be called before Reset() (AddCallback adds nodes).
+        /// FrameBuffer is allocated by ResetNes(); the callback reads the static field at call time.
         /// </summary>
         public static void AttachVideoHandler()
         {
-            if (FrameBuffer == null) FrameBuffer = AllocArray<uint>(ScreenW * ScreenH);
-            // TODO: AddCallback on ppu.vid_[...] / ppu.pclk → write FrameBuffer[y*256+x].
+            int pclk1 = LookupNode("ppu.pclk1");
+            var hpos = new List<int>();   ResolveNodes("ppu.hpos[8:0]", hpos, quiet: true);
+            var vpos = new List<int>();   ResolveNodes("ppu.vpos[8:0]", vpos, quiet: true);
+            var palPtr = new List<int>(); ResolveNodes("ppu.pal_ptr[4:0]", palPtr, quiet: true);
+            if (pclk1 == EmptyNode || hpos.Count == 0 || vpos.Count == 0 || palPtr.Count == 0)
+            {
+                Console.Error.WriteLine("AttachVideoHandler: missing ppu.pclk1 / hpos / vpos / pal_ptr — video output disabled (black frame)");
+                return;
+            }
+
+            int[] hN = hpos.ToArray(), vN = vpos.ToArray(), pN = palPtr.ToArray();
+            bool prev = false;
+            AddCallback(new[] { pclk1 }, () =>
+            {
+                bool now = NodeStates[pclk1] != 0;
+                if (!prev && now)                               // rising edge of the pixel clock
+                {
+                    int x = ReadBits(hN), y = ReadBits(vN);
+                    if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
+                        FrameBuffer[y * ScreenW + x] = ApproxPalette[ReadBits(pN) & 31];
+                }
+                prev = now;
+            });
+        }
+
+        // 32-entry "palette slot → colour" ramp (placeholder; NOT the real palette-RAM contents).
+        // ARGB 0x00RRGGBB. Even slots (the "colour 0" backdrop slots) dimmed.
+        private static readonly uint[] ApproxPalette = BuildApproxPalette();
+        private static uint[] BuildApproxPalette()
+        {
+            var p = new uint[32];
+            for (int i = 0; i < 32; i++)
+            {
+                double h = i / 32.0 * (Math.PI * 2);
+                int r = (int)(127 + 110 * Math.Sin(h + 0.0));
+                int g = (int)(127 + 110 * Math.Sin(h + 2.094));
+                int b = (int)(127 + 110 * Math.Sin(h + 4.188));
+                if ((i & 3) == 0) { r /= 2; g /= 2; b /= 2; }
+                p[i] = (uint)((Math.Clamp(r, 0, 255) << 16) | (Math.Clamp(g, 0, 255) << 8) | Math.Clamp(b, 0, 255));
+            }
+            return p;
         }
     }
 }

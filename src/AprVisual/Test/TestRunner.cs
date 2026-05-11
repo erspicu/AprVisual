@@ -14,7 +14,7 @@ namespace AprVisual.Test
     ///   --test-dir &lt;dir&gt;        batch-run *.nes in a directory
     ///   --max-wait &lt;sec&gt;        timeout per test (default 15)
     ///   --region ntsc|pal|dendy
-    ///   --benchmark             (S3) measure cycles/sec — placeholder for now
+    ///   --benchmark <rom>       headless throughput: simulated FPS / MIPS / raw step rate
     ///   --dump-module &lt;name&gt;    parse data/system-def/&lt;name&gt;.js (+ sub-modules / external files) and print a summary
     ///   --system-def-dir &lt;dir&gt; where the .js module files live (default: data/system-def)
     ///
@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -56,7 +56,10 @@ namespace AprVisual.Test
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
-                    case "--benchmark": benchmark = true; break;
+                    case "--benchmark":
+                        benchmark = true;
+                        if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
+                        break;
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
@@ -76,6 +79,7 @@ namespace AprVisual.Test
             if (probePath != null) return Probe2002(probePath);
             if (probeVblPath != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName != null) return DumpNode(dumpNodeName);
+            if (benchPath != null) return Benchmark(benchPath, shotFrames);
 
             if (romPath != null)
             {
@@ -329,6 +333,51 @@ namespace AprVisual.Test
                     bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
                 }
                 Console.WriteLine($"# wrote {outPath}  ({WireCore.ScreenW}x{WireCore.ScreenH}, {WireCore.Time} half-cycles total)");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── Headless throughput benchmark: how many simulated NES frames / 6502 cycles per real second.
+        //    (S3 baseline — the switch-level interpreter's speed, before the IR backend exists to beat it.)
+        //    Constants: 2A03 clk0 toggles every 24 master half-cycles ⇒ 1 simulated CPU cycle = 24 steps;
+        //    one NTSC frame ≈ 357366 master clocks = 714732 half-cycles; CPU 1.789773 MHz; 60.0988 Hz.
+        private static int Benchmark(string romPath, int frames)
+        {
+            if (frames < 4) frames = 12;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# benchmark: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper}) — {frames} frame(s) headless, Release build recommended");
+            try
+            {
+                var swLoad = System.Diagnostics.Stopwatch.StartNew();
+                WireCore.LoadSystem(rom);
+                swLoad.Stop();
+
+                long t0 = WireCore.Time;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                sw.Stop();
+
+                long halfCycles = WireCore.Time - t0;
+                double secs = sw.Elapsed.TotalSeconds;
+                if (secs <= 0) secs = 1e-9;
+                double cpuCycles = halfCycles / 24.0;             // 24 master half-cycles per 2A03 clk0 cycle
+                double fps      = frames / secs;
+                double cpuHz    = cpuCycles / secs;
+                double stepsHz  = halfCycles / secs;
+                const double realFps = 60.0988, realCpuHz = 1_789_773.0;
+                const double cycPerInstr = 2.8;                  // rough NES-code average (3..7 cyc opcodes, mostly 2..4)
+
+                Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
+                Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
+                Console.WriteLine($"# real time: {secs:F3} s");
+                Console.WriteLine();
+                Console.WriteLine($"  FPS  = {fps,8:F2}  simulated NES frames / real second        ( {fps / realFps * 100:F1}% of realtime, i.e. 1 real second of NES takes {realFps / fps:F1} s to simulate )");
+                Console.WriteLine($"  MIPS = {cpuHz / 1e6,8:F3}  M simulated 6502 cycles / real second    ( {cpuHz / realCpuHz * 100:F1}% of the real 1.79 MHz 2A03 )");
+                Console.WriteLine($"         {cpuHz / cycPerInstr / 1e6,8:F3}  M 6502 instructions / s  (≈, assuming ~{cycPerInstr:F1} cycles/instr)");
+                Console.WriteLine($"  ---");
+                Console.WriteLine($"  raw   {stepsHz / 1e6,8:F2}  M switch-level steps (master half-cycles) / s   — the actual inner-loop rate");
                 return 0;
             }
             finally { WireCore.Shutdown(); }
@@ -623,11 +672,12 @@ namespace AprVisual.Test
                   AprVisual --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
                   AprVisual --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3, out=screenshot.png)
                   AprVisual --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pixel-clock samples
+                  AprVisual --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS (6502 cyc/s), raw step rate (default N=12; use a Release build)
                   AprVisual --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                  timeout per test (default 15)
                     [--region ntsc|pal|dendy]
-                    [--benchmark]                       (S3) measure cycles/sec
+                    [--benchmark]                       also time each test (cycles/sec)
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor circuits and check truth tables

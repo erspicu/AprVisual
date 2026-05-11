@@ -9,6 +9,7 @@
 | 順序 | 文件 | 目的 |
 |------|------|------|
 | ★ | [08_執行路線圖_四階段.md](./08_執行路線圖_四階段.md) | **目前的執行計畫**：S1 C# 改寫 MetalNES → S2 高階化成 IR → S3 CPU 證明效率 → S4 codegen+GPU |
+| ★ | [09_S1實作風格_參考AprNes.md](./09_S1實作風格_參考AprNes.md) | **S1 實作決議**：參考 `ref/AprNes` 的 rendering（GDI SetDIBitsToDevice）與設計風格（unsafe 指標、巨型 static partial class、CLI args 分流），含已拍板的選擇 |
 | 1 | [00_專案總覽.md](./00_專案總覽.md) | 三分鐘理解這個專案在做什麼、不在做什麼 |
 | 2 | [04_風險_驗證_可行性.md](./04_風險_驗證_可行性.md) | 在投入前先看：可行性分層與三大失敗點 |
 | 3 | [03_MVP與CSharp骨架.md](./03_MVP與CSharp骨架.md) | 第一版要做到什麼程度才算成功 |

@@ -72,16 +72,48 @@ namespace AprVisual.Sim
             return GetNodeValue();
         }
 
+        // Port of wire_module.cpp addNodeToGroup (~L1931-2001). Recursive (matches MetalNES); the
+        // groups are bounded by the conduction structure so depth stays modest in practice. (If a
+        // pathological bus group ever overflows the stack, convert to an explicit work list.)
         private static void AddNodeToGroup(int nn)
         {
-            // TODO: port wire_module.cpp addNodeToGroup (~L1931-2001):
-            //  - skip if nn already in _groupBuf
-            //  - push nn; if NodeInfos[nn].Connections > _maxConnections -> _maxState = NodeStates[nn]; _maxConnections = ...
-            //  - _groupFlags |= NodeInfos[nn].Flags
-            //  - walk TlistC1c2s: while *p: gate=*p++, c2=*p++; if NodeStates[gate]!=0 AddNodeToGroup(c2)
-            //  - walk TlistC1gnd: while *p: gate=*p++; if NodeStates[gate]!=0 { _groupFlags |= Gnd; break; }
-            //  - walk TlistC1pwr: similarly for Pwr
-            throw new NotImplementedException("WireCore.AddNodeToGroup — port wire_module.cpp addNodeToGroup");
+            // dedup — linear scan of the current group
+            for (int i = 0; i < _groupCount; i++) if (_groupBuf[i] == nn) return;
+
+            ref NodeInfo ns = ref NodeInfos[nn];
+            _groupBuf[_groupCount++] = nn;
+
+            // track the highest-connection ("largest capacitance") node's state for the all-floating case
+            if (ns.Connections > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = ns.Connections; }
+
+            // this node is now part of a group being resolved — it won't need separate re-processing this pass
+            RecalcHash[nn] = 0;
+
+            _groupFlags |= ns.Flags;
+
+            // walk channels to normal nodes: (gate, other) pairs, 0-terminated
+            if (ns.TlistC1c2s != 0)
+            {
+                int* p = TransistorList + ns.TlistC1c2s;
+                while (*p != 0)
+                {
+                    int gate = *p++;
+                    int other = *p++;
+                    if (NodeStates[gate] != 0) AddNodeToGroup(other);
+                }
+            }
+            // any ON channel to GND ⇒ the whole group is pulled low
+            if (ns.TlistC1gnd != 0)
+            {
+                int* p = TransistorList + ns.TlistC1gnd;
+                while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
+            }
+            // any ON channel to VCC ⇒ pulled high
+            if (ns.TlistC1pwr != 0)
+            {
+                int* p = TransistorList + ns.TlistC1pwr;
+                while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+            }
         }
 
         private static byte GetNodeValue()

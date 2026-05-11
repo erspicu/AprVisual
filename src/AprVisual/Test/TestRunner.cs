@@ -38,6 +38,7 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
+                    case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -173,6 +174,91 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── Step 4+5 acceptance harness: hand-built tiny netlists (inverter / NAND / pass transistor /
+        //    dynamic hold) driven via SetHigh/SetLow, checked against their truth tables.
+        //    (cf. MD/struct/04 §13.3 and ref/metalnes-main chip_tests.cpp's pslatch/4021.) ──
+        private static int SelfTest()
+        {
+            int fails = 0;
+            fails += TestInverter();
+            fails += TestNand();
+            fails += TestPassTransistor();
+            Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
+            return fails == 0 ? 0 : 1;
+        }
+
+        private static int Check(string what, bool ok)
+        {
+            Console.WriteLine($"  [{(ok ? "ok" : "FAIL")}] {what}");
+            return ok ? 0 : 1;
+        }
+
+        // NMOS inverter: gate 'a' pulls output 'y' down to vss; 'y' has a pull-up. y == !a.
+        private static int TestInverter()
+        {
+            Console.WriteLine("inverter (y = !a):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a");
+            WireCore.AddNode(11, "y");
+            WireCore.AddTransistor("inv", gate: 10, c1: 11, c2: WireCore.Ngnd);
+            WireCore.Nodes[11]!.Pullups = 1;          // segdef '+'
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            int f = 0;
+            f += Check("a floating (0) -> y = 1 (pull-up)", WireCore.IsNodeHigh("y"));
+            WireCore.SetHigh("a"); f += Check("a = 1 -> y = 0", !WireCore.IsNodeHigh("y"));
+            WireCore.SetLow ("a"); f += Check("a = 0 -> y = 1", WireCore.IsNodeHigh("y"));
+            WireCore.SetHigh("a"); f += Check("a = 1 -> y = 0 (again)", !WireCore.IsNodeHigh("y"));
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // NMOS NAND: 'a' and 'b' in series pulling 'y' down to vss; 'y' has a pull-up. y == !(a && b).
+        private static int TestNand()
+        {
+            Console.WriteLine("NAND (y = !(a & b)):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "b"); WireCore.AddNode(12, "y"); WireCore.AddNode(13, "mid");
+            WireCore.AddTransistor("t1", gate: 10, c1: 12, c2: 13);              // a: y <-> mid
+            WireCore.AddTransistor("t2", gate: 11, c1: 13, c2: WireCore.Ngnd);  // b: mid <-> vss
+            WireCore.Nodes[12]!.Pullups = 1;
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            int f = 0;
+            foreach (var (a, b, expectHigh) in new[] { (false, false, true), (true, false, true), (false, true, true), (true, true, false) })
+            {
+                if (a) WireCore.SetHigh("a"); else WireCore.SetLow("a");
+                if (b) WireCore.SetHigh("b"); else WireCore.SetLow("b");
+                f += Check($"a={(a ? 1 : 0)} b={(b ? 1 : 0)} -> y = {(expectHigh ? 1 : 0)}", WireCore.IsNodeHigh("y") == expectHigh);
+            }
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // Pass transistor + dynamic hold: gate 'en' connects 'in' <-> 'out'; 'out' has no pull-up.
+        // en=1 -> out follows in; en=0 -> out holds its last value (parasitic capacitance abstraction).
+        private static int TestPassTransistor()
+        {
+            Console.WriteLine("pass transistor / dynamic hold:");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "in"); WireCore.AddNode(11, "out"); WireCore.AddNode(12, "en");
+            WireCore.AddTransistor("pass", gate: 12, c1: 10, c2: 11);
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            int f = 0;
+            WireCore.SetHigh("en");
+            WireCore.SetHigh("in");  f += Check("en=1 in=1 -> out = 1", WireCore.IsNodeHigh("out"));
+            WireCore.SetLow ("in");  f += Check("en=1 in=0 -> out = 0", !WireCore.IsNodeHigh("out"));
+            WireCore.SetHigh("in");  f += Check("en=1 in=1 -> out = 1 (again)", WireCore.IsNodeHigh("out"));
+            WireCore.SetLow ("en");                 // disconnect
+            WireCore.SetLow ("in");                 // change the (now disconnected) input
+            f += Check("en=0 -> out holds previous value (1)", WireCore.IsNodeHigh("out"));
+            WireCore.SetHigh("en");                 // reconnect; out should now follow in (=0)
+            f += Check("en=1 again -> out tracks in (0)", !WireCore.IsNodeHigh("out"));
+            WireCore.Shutdown();
+            return f;
+        }
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -224,6 +310,7 @@ namespace AprVisual.Test
                     [--benchmark]                       (S3) measure cycles/sec
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
+                  AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
                   (no args)                             open the GUI (S1: not implemented yet)
                 """);

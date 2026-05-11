@@ -175,17 +175,18 @@ namespace AprVisual.Sim
         }
 
         /// <summary>
-        /// Video output — FIRST CUT. On each ppu.pclk1 rising edge, write the current pixel
-        /// (ppu.hpos[8:0] / ppu.vpos[8:0]) into FrameBuffer, coloured by ppu.pal_ptr[4:0] (the 5-bit
-        /// palette-RAM slot the pixel reads) through an approximate 32-colour ramp.
+        /// Video output. On each ppu.pclk1 rising edge, for the visible area (hpos &lt; 256, vpos &lt; 240)
+        /// write FrameBuffer[y*256+x] = the current pixel's colour: read the 5-bit palette-RAM slot
+        /// (ppu.pal_ptr[4:0]), read that slot's 6-bit stored colour (ppu.pal_ram_&lt;slot&gt;_b[5:0]) — exactly
+        /// the value handler_palette_ram exposes in MetalNES — and look it up in the 64-colour NES master
+        /// palette → ARGB.
         ///
-        /// NOTE: this is NOT the real picture — the proper path is the 2C02's composite ladder
-        /// (vid_[11:0] → an NTSC voltage signal, demodulated over time), or the actual 6-bit colour
-        /// out of the palette RAM (node TBD — needs more 2C02 pixel-pipeline study). What this gives
-        /// is the *structure* of the rendered frame (which palette slot each pixel uses), which is
-        /// enough to confirm the PPU is producing pixel data. Degrades to a black frame if any of the
-        /// nodes don't resolve. Must be called before Reset() (AddCallback adds nodes).
-        /// FrameBuffer is allocated by ResetNes(); the callback reads the static field at call time.
+        /// Caveats: not pixel-perfect — the hpos→column mapping may be off by ~1 (pipeline latency, not
+        /// corrected), the master palette is the common "2C02 NTSC" RGB table (the real composite
+        /// vid_[11:0] ladder + NTSC demodulation would be more accurate, but this is plenty for S1), and
+        /// PPU colour emphasis (vid_emph) is ignored. Degrades to a black frame if the nodes don't
+        /// resolve. Must be called before Reset() (AddCallback adds nodes); FrameBuffer is allocated by
+        /// ResetNes(), and the callback reads the static field at call time.
         /// </summary>
         public static void AttachVideoHandler()
         {
@@ -193,9 +194,19 @@ namespace AprVisual.Sim
             var hpos = new List<int>();   ResolveNodes("ppu.hpos[8:0]", hpos, quiet: true);
             var vpos = new List<int>();   ResolveNodes("ppu.vpos[8:0]", vpos, quiet: true);
             var palPtr = new List<int>(); ResolveNodes("ppu.pal_ptr[4:0]", palPtr, quiet: true);
-            if (pclk1 == EmptyNode || hpos.Count == 0 || vpos.Count == 0 || palPtr.Count == 0)
+            // the 32 palette-RAM entries' stored values (the "b" side of each 6T cell, like handler_palette_ram)
+            var palRam = new int[32][];
+            int palRamOk = 0;
+            for (int i = 0; i < 32; i++)
             {
-                Console.Error.WriteLine("AttachVideoHandler: missing ppu.pclk1 / hpos / vpos / pal_ptr — video output disabled (black frame)");
+                var l = new List<int>();
+                ResolveNodes($"ppu.pal_ram_{i:X2}_b[5:0]", l, quiet: true);
+                palRam[i] = l.ToArray();
+                if (l.Count == 6) palRamOk++;
+            }
+            if (pclk1 == EmptyNode || hpos.Count == 0 || vpos.Count == 0 || palPtr.Count == 0 || palRamOk == 0)
+            {
+                Console.Error.WriteLine("AttachVideoHandler: missing ppu.pclk1 / hpos / vpos / pal_ptr / pal_ram_* — video output disabled (black frame)");
                 return;
             }
 
@@ -208,28 +219,28 @@ namespace AprVisual.Sim
                 {
                     int x = ReadBits(hN), y = ReadBits(vN);
                     if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
-                        FrameBuffer[y * ScreenW + x] = ApproxPalette[ReadBits(pN) & 31];
+                    {
+                        int slot = ReadBits(pN) & 31;
+                        int colour6 = palRam[slot].Length == 6 ? ReadBits(palRam[slot]) : 0;
+                        FrameBuffer[y * ScreenW + x] = NesPalette[colour6 & 0x3F];
+                    }
                 }
                 prev = now;
             });
         }
 
-        // 32-entry "palette slot → colour" ramp (placeholder; NOT the real palette-RAM contents).
-        // ARGB 0x00RRGGBB. Even slots (the "colour 0" backdrop slots) dimmed.
-        private static readonly uint[] ApproxPalette = BuildApproxPalette();
-        private static uint[] BuildApproxPalette()
-        {
-            var p = new uint[32];
-            for (int i = 0; i < 32; i++)
-            {
-                double h = i / 32.0 * (Math.PI * 2);
-                int r = (int)(127 + 110 * Math.Sin(h + 0.0));
-                int g = (int)(127 + 110 * Math.Sin(h + 2.094));
-                int b = (int)(127 + 110 * Math.Sin(h + 4.188));
-                if ((i & 3) == 0) { r /= 2; g /= 2; b /= 2; }
-                p[i] = (uint)((Math.Clamp(r, 0, 255) << 16) | (Math.Clamp(g, 0, 255) << 8) | Math.Clamp(b, 0, 255));
-            }
-            return p;
-        }
+        // The 64-colour NES master palette (common "2C02 NTSC" RGB approximation). ARGB 0x00RRGGBB.
+        // Indices 0x0D/0x0E/0x0F/0x1D-0x1F/0x2D-0x2F/0x3D-0x3F are "blacker than black" → black.
+        private static readonly uint[] NesPalette =
+        [
+            0x666666, 0x002A88, 0x1412A7, 0x3B00A4, 0x5C007E, 0x6E0040, 0x6C0600, 0x561D00,
+            0x333500, 0x0B4800, 0x005200, 0x004F08, 0x00404D, 0x000000, 0x000000, 0x000000,
+            0xADADAD, 0x155FD9, 0x4240FF, 0x7527FE, 0xA01ACC, 0xB71E7B, 0xB53120, 0x994E00,
+            0x6B6D00, 0x388700, 0x0C9300, 0x008F32, 0x007C8D, 0x000000, 0x000000, 0x000000,
+            0xFFFEFF, 0x64B0FF, 0x9290FF, 0xC676FF, 0xF36AFF, 0xFE6ECC, 0xFE8170, 0xEA9E22,
+            0xBCBE00, 0x88D800, 0x5CE430, 0x45E082, 0x48CDDE, 0x4F4F4F, 0x000000, 0x000000,
+            0xFFFEFF, 0xC0DFFF, 0xD3D2FF, 0xE8C8FF, 0xFBC2FF, 0xFEC4EA, 0xFECCC5, 0xF7D8A5,
+            0xE4E594, 0xCFEF96, 0xBDF4AB, 0xB3F3CC, 0xB5EBF2, 0xB8B8B8, 0x000000, 0x000000,
+        ];
     }
 }

@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -45,6 +45,7 @@ namespace AprVisual.Test
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
+                    case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
@@ -57,7 +58,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -70,6 +71,7 @@ namespace AprVisual.Test
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
+            if (probePath != null) return Probe2002(probePath);
 
             if (romPath != null)
             {
@@ -403,6 +405,57 @@ namespace AprVisual.Test
             }
             finally { WireCore.Shutdown(); }
         }
+
+        // ── Trace one $2002 (PPUSTATUS) read: run a frame to reach vblank, step until cpu.ab == 0x2002,
+        //    then dump the CPU↔PPU register-path signals for ~40 half-cycles. Finds the broken link
+        //    (74LS139 decode? ppu.io_ce? PPU reg logic driving ppu.io_db? data bus back to cpu.db?). ──
+        private static int Probe2002(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)} — probing a $2002 read");
+            try
+            {
+                WireCore.LoadSystem(rom);
+
+                int[] ab = ResolveQ("cpu.ab[15:0]");
+                int[] db = ResolveQ("cpu.db[7:0]");
+                int[] ioAb = ResolveQ("ppu.io_ab[2:0]");
+                int[] ioDb = ResolveQ("ppu.io_db[7:0]");
+                int rw   = WireCore.LookupNode("cpu.rw");
+                int clk0 = WireCore.LookupNode("cpu.clk0");
+                int u3y1 = WireCore.LookupNode("u3.1/Y1");
+                int u3y0 = WireCore.LookupNode("u3.1/Y0");
+                int u3y3 = WireCore.LookupNode("u3.2/Y3");
+                int ioCe = WireCore.LookupNode("ppu.io_ce");
+                int inVbl= WireCore.LookupNode("ppu.in_vblank");
+                int vblF = WireCore.LookupNode("ppu.vbl_flag0");   // may not exist
+                int H1(int n) => n != WireCore.EmptyNode && WireCore.IsNodeHigh(n) ? 1 : 0;
+
+                WireCore.RunFrame();   // → in_vblank rising edge: the vbl flag should now be set
+                Console.WriteLine($"# at vblank start: t={WireCore.Time}  in_vblank={H1(inVbl)}  {WireCore.DumpCpuState()}");
+
+                // step until the CPU puts $2002 on the address bus
+                bool found = false;
+                for (long i = 0; i < 200_000; i++)
+                {
+                    WireCore.Step(1);
+                    if (WireCore.ReadBits(ab) == 0x2002) { found = true; break; }
+                }
+                if (!found) { Console.WriteLine("# no $2002 access seen in 200k half-cycles after vblank"); return 1; }
+
+                Console.WriteLine("# cols: t  clk0  cpu.ab  rw  u3.2/Y3(/romsel)  u3.1/Y0(sram)  u3.1/Y1(ppu)  ppu.io_ce  ppu.io_ab  ppu.io_db  cpu.db  in_vblank");
+                for (int j = 0; j < 40; j++)
+                {
+                    Console.WriteLine($"  {WireCore.Time,8}  {H1(clk0)}  {WireCore.ReadBits(ab):X4}  {(rw != WireCore.EmptyNode && WireCore.IsNodeHigh(rw) ? 'R' : 'W')}  {H1(u3y3)}  {H1(u3y0)}  {H1(u3y1)}  {H1(ioCe)}  {WireCore.ReadBits(ioAb):X1}  {WireCore.ReadBits(ioDb):X2}  {WireCore.ReadBits(db):X2}  {H1(inVbl)}");
+                    WireCore.Step(1);
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        private static int[] ResolveQ(string expr) { var l = new List<int>(); WireCore.ResolveNodes(expr, l, quiet: true); return l.ToArray(); }
 
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {

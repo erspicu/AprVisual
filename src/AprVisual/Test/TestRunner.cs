@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -46,6 +46,7 @@ namespace AprVisual.Test
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
+                    case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
@@ -58,7 +59,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -72,6 +73,7 @@ namespace AprVisual.Test
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath != null) return Probe2002(probePath);
+            if (probeVblPath != null) return ProbeVbl(probeVblPath);
 
             if (romPath != null)
             {
@@ -456,6 +458,66 @@ namespace AprVisual.Test
         }
 
         private static int[] ResolveQ(string expr) { var l = new List<int>(); WireCore.ResolveNodes(expr, l, quiet: true); return l.ToArray(); }
+
+        // ── Trace the 2C02's latched vblank flag (the $2002 bit-7 source): does set_vbl_flag pulse at
+        //    vblank start? does vbl_flag latch high and stay? does read_2002_output_vblank_flag follow it
+        //    onto ppu.io_db during a $2002 read? ──
+        private static int ProbeVbl(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)} — probing the 2C02 vbl flag");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int inVbl  = WireCore.LookupNode("ppu.in_vblank");
+                int vblF   = WireCore.LookupNode("ppu.vbl_flag");
+                int nVblF  = WireCore.LookupNode("ppu./vbl_flag");
+                int setVbl = WireCore.LookupNode("ppu.set_vbl_flag");
+                int rdOut  = WireCore.LookupNode("ppu.read_2002_output_vblank_flag");
+                int nR2002 = WireCore.LookupNode("ppu./r2002");
+                int spr0   = WireCore.LookupNode("ppu.spr0_hit");
+                int sprOv  = WireCore.LookupNode("ppu.spr_overflow");
+                int ioCe   = WireCore.LookupNode("ppu.io_ce");
+                int rw     = WireCore.LookupNode("cpu.rw");
+                int[] hp = ResolveQ("ppu.hpos[8:0]"), vp = ResolveQ("ppu.vpos[8:0]"), ioDb = ResolveQ("ppu.io_db[7:0]"), ab = ResolveQ("cpu.ab[15:0]");
+                int H1(int n) => n != WireCore.EmptyNode && WireCore.IsNodeHigh(n) ? 1 : 0;
+                int Rd(int[] a) => WireCore.ReadBits(a);
+
+                Console.WriteLine($"# node ids: in_vblank={inVbl} vbl_flag={vblF} /vbl_flag={nVblF} set_vbl_flag={setVbl} read_2002_output_vblank_flag={rdOut} /r2002={nR2002}");
+
+                WireCore.RunFrame();   // → in_vblank rising edge
+                Console.WriteLine($"# at vblank start: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)}  in_vbl={H1(inVbl)} set_vbl={H1(setVbl)} vbl_flag={H1(vblF)} /vbl_flag={H1(nVblF)} rd_out={H1(rdOut)}");
+                Console.WriteLine("# tracing up to ~6000 half-cycles, printing only on change of [in_vbl set_vbl vbl_flag /vbl_flag] — t hpos vpos | in_vbl set_vbl vbl_flag /vbl_flag rd_2002_vbl");
+                int prevKey = -1;
+                for (int j = 0; j < 6000; j++)
+                {
+                    int key = (H1(inVbl) << 3) | (H1(setVbl) << 2) | (H1(vblF) << 1) | H1(nVblF);
+                    if (key != prevKey)
+                    {
+                        Console.WriteLine($"  {WireCore.Time,8} {Rd(hp),3} {Rd(vp),3} | {H1(inVbl)} {H1(setVbl)} {H1(vblF)} {H1(nVblF)} {H1(rdOut)}");
+                        prevKey = key;
+                    }
+                    WireCore.Step(1);
+                }
+                Console.WriteLine($"# (end of trace window: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)})");
+
+                // step to the next $2002 read
+                bool found = false;
+                for (long i = 0; i < 300_000; i++) { WireCore.Step(1); if (Rd(ab) == 0x2002 && (rw == WireCore.EmptyNode || WireCore.IsNodeHigh(rw))) { found = true; break; } }
+                if (found)
+                {
+                    Console.WriteLine($"# at $2002 read: t={WireCore.Time} — next ~24 half-cycles — t ab io_ce /r2002 vbl_flag rd_2002_vbl io_db");
+                    for (int j = 0; j < 24; j++)
+                    {
+                        Console.WriteLine($"  {WireCore.Time,8}  ab={Rd(ab):X4} io_ce={H1(ioCe)} /r2002={H1(nR2002)} vbl_flag={H1(vblF)} rd_out={H1(rdOut)} io_db={Rd(ioDb):X2}");
+                        WireCore.Step(1);
+                    }
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
 
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {

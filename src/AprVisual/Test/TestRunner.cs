@@ -7,12 +7,14 @@ namespace AprVisual.Test
 {
     /// <summary>
     /// Headless CLI entry (no window). Mirrors ref/AprNes/TestRunner.cs's shape:
-    ///   --rom &lt;path&gt;        load and... (S1: actually this pops up the window — see below)
-    ///   --test &lt;path&gt;       run to the blargg $6000 signature; print "PASS|..." / "FAIL(n)|...", exit code
-    ///   --test-dir &lt;dir&gt;    batch-run *.nes in a directory
-    ///   --max-wait &lt;sec&gt;    timeout per test (default 15)
+    ///   --rom &lt;path&gt;            load and... (S1: actually this pops up the window — see below)
+    ///   --test &lt;path&gt;           run to the blargg $6000 signature; print "PASS|..." / "FAIL(n)|...", exit code
+    ///   --test-dir &lt;dir&gt;        batch-run *.nes in a directory
+    ///   --max-wait &lt;sec&gt;        timeout per test (default 15)
     ///   --region ntsc|pal|dendy
-    ///   --benchmark         (S3) measure cycles/sec — placeholder for now
+    ///   --benchmark             (S3) measure cycles/sec — placeholder for now
+    ///   --dump-module &lt;name&gt;    parse data/system-def/&lt;name&gt;.js (+ sub-modules / external files) and print a summary
+    ///   --system-def-dir &lt;dir&gt; where the .js module files live (default: data/system-def)
     ///
     /// Note: `--rom` is handled here too so a single arg works; for `--rom` we hand back to the
     /// GUI path (open MainForm) rather than running headless.
@@ -21,7 +23,8 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null;
+            string systemDefDir = WireCore.SystemDefDir;
             int maxWait = 15;
             string region = "ntsc";
             bool benchmark = false;
@@ -30,20 +33,27 @@ namespace AprVisual.Test
             {
                 switch (args[i])
                 {
-                    case "--rom":      if (i + 1 < args.Length) romPath  = args[++i]; break;
-                    case "--test":     if (i + 1 < args.Length) testPath = args[++i]; break;
-                    case "--test-dir": if (i + 1 < args.Length) testDir  = args[++i]; break;
-                    case "--max-wait": if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
-                    case "--region":   if (i + 1 < args.Length) region   = args[++i].ToLowerInvariant(); break;
+                    case "--rom":             if (i + 1 < args.Length) romPath      = args[++i]; break;
+                    case "--test":            if (i + 1 < args.Length) testPath     = args[++i]; break;
+                    case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
+                    case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
+                    case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
+                    case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
+                    case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--benchmark": benchmark = true; break;
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
             }
+
+            WireCore.SystemDefDir = systemDefDir;
+
+            if (dumpModule != null)
+                return DumpModule(systemDefDir, dumpModule);
 
             if (romPath != null)
             {
@@ -70,6 +80,48 @@ namespace AprVisual.Test
                 return RunOneTest(testPath, maxWait, region, benchmark);
 
             PrintUsage();
+            return 0;
+        }
+
+        // ── Step 1 acceptance harness: parse a .js module def and print a summary so we can
+        //    eyeball that counts / sub-modules / external files came through correctly. ──
+        private static int DumpModule(string dir, string name)
+        {
+            WireCore.ModuleDef def;
+            try { def = WireCore.LoadModuleDef(dir, name); }
+            catch (Exception ex) { Console.Error.WriteLine($"parse failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            int segPlus = 0, segMinus = 0, segNone = 0;
+            foreach (var s in def.Segs) { if (s.Pull == '+') segPlus++; else if (s.Pull == '-') segMinus++; else segNone++; }
+            int weak = 0; foreach (var t in def.Trans) if (t.IsWeak) weak++;
+
+            Console.WriteLine($"module: {def.Name}  ({def.Description})");
+            Console.WriteLine($"  file:          {def.Path}");
+            Console.WriteLine($"  named nodes:   {def.NodeNames.Count}");
+            Console.WriteLine($"  segdefs:       {def.Segs.Count}   (+: {segPlus}, -: {segMinus}, none: {segNone})");
+            Console.WriteLine($"  transdefs:     {def.Trans.Count}   (weak: {weak})");
+            Console.WriteLine($"  connections:   {def.Connections.Count}");
+            Console.WriteLine($"  pins:          {def.Pins.Count}");
+            Console.WriteLine($"  pullups:       {def.Pullups.Count}   forceCompute: {def.ForceCompute.Count}");
+            if (def.Memories.Count > 0)
+                Console.WriteLine($"  memory:        {string.Join(", ", System.Linq.Enumerable.Select(def.Memories, kv => $"{kv.Key}({kv.Value})"))}");
+            if (def.NodeNameFiles.Count + def.TransDefFiles.Count + def.SegDefFiles.Count > 0)
+                Console.WriteLine($"  external:      nodenames={string.Join(",", def.NodeNameFiles)} transdefs={string.Join(",", def.TransDefFiles)} segdefs={string.Join(",", def.SegDefFiles)}");
+            Console.WriteLine($"  sub-modules:   {def.SubModules.Count}");
+            foreach (var sm in def.SubModules) Console.WriteLine($"    {sm.Prefix,-12} -> {sm.Type}");
+
+            if (WireCore.LoadedDefs.Count > 1)
+            {
+                Console.WriteLine($"\n  all defs loaded ({WireCore.LoadedDefs.Count}):");
+                foreach (var kv in WireCore.LoadedDefs)
+                    Console.WriteLine($"    {kv.Key,-16} nodes={kv.Value.NodeNames.Count,5}  trans={kv.Value.Trans.Count,6}  segs={kv.Value.Segs.Count,6}  conns={kv.Value.Connections.Count,4}");
+            }
+
+            // A few sample named nodes (sanity: the internal-register names should be present for 2a03).
+            var sample = new System.Collections.Generic.List<string>();
+            foreach (var probe in new[] { "vcc", "vss", "clk0", "res", "rw", "a0", "x0", "y0", "pcl0", "ab0", "db0", "func<ram>" })
+                if (def.NodeNames.ContainsKey(probe)) sample.Add(probe);
+            if (sample.Count > 0) Console.WriteLine($"\n  sample nodes present: {string.Join(", ", sample)}");
             return 0;
         }
 
@@ -116,13 +168,15 @@ namespace AprVisual.Test
             Console.WriteLine("""
                 AprVisual — switch-level NES (S1)
 
-                  AprVisual --rom <game.nes>          show a window with the live 256x240 sim
-                  AprVisual --test <test.nes>         headless: run to the $6000 signature, print PASS/FAIL
-                  AprVisual --test-dir <dir>          headless: batch-run *.nes under <dir>
-                    [--max-wait <sec>]                timeout per test (default 15)
+                  AprVisual --rom <game.nes>            show a window with the live 256x240 sim
+                  AprVisual --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
+                  AprVisual --test-dir <dir>            headless: batch-run *.nes under <dir>
+                    [--max-wait <sec>]                  timeout per test (default 15)
                     [--region ntsc|pal|dendy]
-                    [--benchmark]                     (S3) measure cycles/sec
-                  (no args)                           open the GUI (S1: not implemented yet)
+                    [--benchmark]                       (S3) measure cycles/sec
+                  AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
+                    [--system-def-dir <dir>]            default: data/system-def
+                  (no args)                             open the GUI (S1: not implemented yet)
                 """);
         }
     }

@@ -23,10 +23,12 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null;
             string systemDefDir = WireCore.SystemDefDir;
+            string shotOut = "screenshot.png";
             int maxWait = 15;
             int traceCycles = 64;
+            int shotFrames = 3;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
 
@@ -39,6 +41,9 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
+                    case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
+                    case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
+                    case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--selftest":        return SelfTest();
@@ -49,7 +54,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -60,6 +65,7 @@ namespace AprVisual.Test
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
             if (tracePath != null) return Trace(tracePath, traceCycles);
+            if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
 
             if (romPath != null)
             {
@@ -289,6 +295,35 @@ namespace AprVisual.Test
             return f;
         }
 
+        // ── Run N frames headless and dump the FrameBuffer to a PNG (visual verification of the
+        //    video handler / the rendered picture). Wraps the unmanaged FrameBuffer in a Bitmap (no copy). ──
+        private static int Screenshot(string romPath, int frames, string outPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, CHR {rom.ChrRom.Length / 1024} KB, mapper {rom.Mapper}) — running {frames} frame(s)");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                for (int f = 0; f < frames; f++)
+                {
+                    long hc = WireCore.RunFrame();
+                    Console.WriteLine($"#  frame {f + 1}/{frames}: {hc} half-cycles  |  {WireCore.DumpCpuState()}");
+                }
+                unsafe
+                {
+                    if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
+                    using var bmp = new System.Drawing.Bitmap(
+                        WireCore.ScreenW, WireCore.ScreenH, WireCore.ScreenW * 4,
+                        System.Drawing.Imaging.PixelFormat.Format32bppRgb, (IntPtr)WireCore.FrameBuffer);
+                    bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                Console.WriteLine($"# wrote {outPath}  ({WireCore.ScreenW}x{WireCore.ScreenH}, {WireCore.Time} half-cycles total)");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -357,6 +392,7 @@ namespace AprVisual.Test
 
                   AprVisual --rom <game.nes>            show a window; CPU state in the title bar (video output: WIP)
                   AprVisual --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
+                  AprVisual --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3, out=screenshot.png)
                   AprVisual --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                  timeout per test (default 15)

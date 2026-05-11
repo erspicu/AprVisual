@@ -4,6 +4,8 @@ ref/drive-download-*/
 ref/GPU方案*/
 ref/metalnes-main/
 ref/*.zip
+nes-test-roms-master/
+etc/
 
 # --- 二進位文件 ---
 *.docx

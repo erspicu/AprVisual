@@ -145,6 +145,7 @@ namespace AprVisual.Sim
                 ResolveMemory("cart.chrram.ram")?.Clear();
                 Reset();                                  // re-power node state + rebuild hot arrays (frees FrameBuffer too)
                 FrameBuffer = AllocArray<uint>(ScreenW * ScreenH);
+                RecomputeAllNodes();                      // settle the raw power-on state — MetalNES's resetState() does this
             }
             if (N_Res != EmptyNode)
             {

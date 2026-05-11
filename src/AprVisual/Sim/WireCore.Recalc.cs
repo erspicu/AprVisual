@@ -40,13 +40,26 @@ namespace AprVisual.Sim
             }
         }
 
+        // Hard cap on settle passes. MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
+        // We keep a generous hard cap so a non-converging region can't hang the whole simulation —
+        // the state is a heuristic anyway (see MD/struct/01 §11.2). If this trips routinely it's a bug.
+        private const int MaxSettlePasses = 1000;
+
         private static void ProcessQueue()
         {
             int iteration = 0;
             while (RecalcListNextCount != 0)
             {
-                if (++iteration == 100)
-                    Console.Error.WriteLine($"WireCore.ProcessQueue: settle iteration {iteration} (still propagating; not necessarily a bug — see MD/struct/01 §11.2)");
+                ++iteration;
+                if (iteration == 100)
+                    Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating; not necessarily a bug — see MD/struct/01 §11.2)");
+                if (iteration > MaxSettlePasses)
+                {
+                    Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
+                    for (int i = 0; i < RecalcListNextCount; i++) RecalcHashNext[RecalcListNext[i]] = 0;
+                    RecalcListNextCount = 0;
+                    break;
+                }
 
                 // swap "next" ↔ "current" (can't tuple-swap pointers — use temps)
                 int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;

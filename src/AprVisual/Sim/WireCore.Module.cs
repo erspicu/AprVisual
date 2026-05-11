@@ -269,12 +269,13 @@ namespace AprVisual.Sim
         ///   "x|y|z"         [x, y, z]
         ///   "*func&lt;rom&gt;"   every node whose name starts with the part before '*' and ends with the part after
         /// Missing array elements fall back to Ngnd (so wrong widths don't crash), matching MetalNES.
+        /// <paramref name="quiet"/> suppresses the "unknown node" warnings (for optional trace probes).
         /// </summary>
-        public static void ResolveNodes(string expr, List<int> outIds)
+        public static void ResolveNodes(string expr, List<int> outIds, bool quiet = false)
         {
             if (expr.IndexOf('|') >= 0)
             {
-                foreach (var part in expr.Split('|')) ResolveNodes(part, outIds);
+                foreach (var part in expr.Split('|')) ResolveNodes(part, outIds, quiet);
                 return;
             }
 
@@ -326,7 +327,7 @@ namespace AprVisual.Sim
                                 outIds.Add(nn == EmptyNode ? Ngnd : nn);
                             }
                         }
-                        else
+                        else if (!quiet)
                         {
                             Console.Error.WriteLine($"bad node range expression: '{expr}'");
                         }
@@ -336,7 +337,7 @@ namespace AprVisual.Sim
             }
 
             int single = LookupNode(expr);
-            if (single == EmptyNode) Console.Error.WriteLine($"unknown node: '{expr}' — using vss");
+            if (single == EmptyNode && !quiet) Console.Error.WriteLine($"unknown node: '{expr}' — using vss");
             outIds.Add(single == EmptyNode ? Ngnd : single);
         }
     }

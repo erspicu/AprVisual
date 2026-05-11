@@ -67,8 +67,7 @@ namespace AprVisual
 
             try
             {
-                // TODO (S1): build the netlist + start the sim.
-                WireCore.LoadSystem(_rom);
+                WireCore.LoadSystem(_rom);            // compose + attach handlers + copy ROM + power-on reset
 
                 // GDI: blit WireCore.FrameBuffer straight onto the panel's HDC, scaled.
                 unsafe { NativeGDI.Init(_screen.CreateGraphics(), WireCore.ScreenW, WireCore.ScreenH, WireCore.FrameBuffer, DisplayScale); }
@@ -77,13 +76,13 @@ namespace AprVisual
                 _running = true;
                 _frameTimer.Start();
             }
-            catch (NotImplementedException ex)
+            catch (Exception ex)
             {
-                // Skeleton stage: the sim engine isn't ported yet — keep the window up with a note.
+                // Keep the window up with a note rather than crashing.
                 MessageBox.Show(this,
                     $"ROM loaded: {_rom.Name}\nPRG {_rom.PrgRom.Length / 1024} KB, CHR {_rom.ChrRom.Length / 1024} KB, mapper {_rom.Mapper}\n\n" +
-                    $"Switch-level sim not implemented yet (S1 skeleton):\n{ex.Message}",
-                    "AprVisual — S1 skeleton", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    $"Simulation failed to start:\n{ex.GetType().Name}: {ex.Message}",
+                    "AprVisual", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -92,13 +91,18 @@ namespace AprVisual
             if (!_running) return;
             try
             {
-                WireCore.RunFrame();
+                // S1: the video handler is still a placeholder (black framebuffer), so step a fixed
+                // chunk per tick and surface the live CPU state in the title bar rather than blocking
+                // for a whole NES frame. (Real PPU vid_ → RGB decode comes later; then this becomes RunFrame.)
+                WireCore.Step(50_000);               // ≈ 2000 6502 cycles per tick — keeps the UI responsive
                 if (_gdiReady) NativeGDI.Present();
+                Text = $"AprVisual — {_rom?.Name}  |  {WireCore.DumpCpuState()}";
             }
-            catch (NotImplementedException)
+            catch (Exception ex)
             {
                 _running = false;
                 _frameTimer.Stop();
+                Text = $"AprVisual — {_rom?.Name}  |  STOPPED: {ex.GetType().Name}: {ex.Message}";
             }
         }
 

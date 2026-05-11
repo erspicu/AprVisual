@@ -1,63 +1,76 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace AprVisual.Sim
 {
     internal static unsafe partial class WireCore
     {
-        // ── Trace logging — port of ref/metalnes-main handler_log.h / logger.cpp + wire_gui's column picker.
-        //    See MD/note/04_驗證與測試策略.md §4 and MD/struct/01 附錄 B (cpu_eval_trace.json).
-        //
-        //    Two uses in S1:
-        //      1. like a logic analyser: pick a set of node/register expressions as "columns",
-        //         dump one line per trace point.
-        //      2. golden-reference comparison: each frame (or each cycle), dump cpu.a/x/y/p/s/pc,
-        //         cpu.ab/db — compare against MetalNES / chipsim.js / Perfect6502 (S1 exit gate).
+        // ── Trace logging + the blargg $6000 test-ROM result probe — port of ref/metalnes-main
+        //    handler_log.h / logger.cpp + handler_nes_system::check_unit_test().
+        //    See MD/note/04_驗證與測試策略.md and MD/struct/01 附錄 B (cpu_eval_trace.json).
+        //    (ReadBits / WriteBits live in WireCore.Handlers.cs.)
 
-        // Resolved trace columns: (label, node ids). A multi-node column is read as one integer.
+        // ── trace columns (a "logic analyser": pick node/register expressions, dump one line per trace point) ──
         private static readonly List<(string Label, int[] Nodes)> _traceColumns = new();
-        private static readonly List<string> _traceLog = new();   // S1: plain in-memory list; ring buffer later
+        private static readonly List<string> _traceLog = new();
+        public static IReadOnlyList<string> TraceLog => _traceLog;
+        public static void ClearTrace() { _traceLog.Clear(); }
 
-        /// <summary>Configure trace columns from a comma-separated expr list, e.g. "cpu.clk0,cpu.ab[],cpu.db[],cpu.rw".</summary>
+        /// <summary>Configure trace columns from a comma-separated expression list, e.g. "cpu.clk0,cpu.ab[15:0],cpu.db[7:0],cpu.rw".</summary>
         public static void SetTraceColumns(string exprCsv)
         {
-            throw new NotImplementedException("WireCore.SetTraceColumns — resolve each expr via ResolveNodes");
+            _traceColumns.Clear();
+            foreach (var raw in exprCsv.Split(','))
+            {
+                string e = raw.Trim();
+                if (e.Length == 0) { _traceColumns.Add(("", Array.Empty<int>())); continue; }   // blank column = separator
+                var ids = new List<int>();
+                ResolveNodes(e, ids, quiet: true);
+                _traceColumns.Add((e, ids.ToArray()));
+            }
+            if (_traceColumns.Count > 0) TraceLevel = 1;
         }
 
-        /// <summary>Read a multi-node "register" expression as an integer (bit i = nodes[i]).</summary>
-        public static int ReadBits(ReadOnlySpan<int> nodes)
-        {
-            int v = 0;
-            for (int i = 0; i < nodes.Length; i++)
-                if (NodeStates[nodes[i]] != 0) v |= 1 << i;
-            return v;
-        }
-
-        /// <summary>Append one trace line (the current values of all configured columns).</summary>
+        /// <summary>Append one trace line: the current value of each configured column.</summary>
         public static void CaptureTraceLine()
         {
-            throw new NotImplementedException("WireCore.CaptureTraceLine");
+            if (_traceColumns.Count == 0) return;
+            var sb = new StringBuilder();
+            sb.Append(Time.ToString().PadLeft(9)).Append("  ");
+            foreach (var (label, nodes) in _traceColumns)
+            {
+                if (nodes.Length == 0) { sb.Append(" | "); continue; }
+                int v = ReadBits(nodes);
+                int hexDigits = (nodes.Length + 3) / 4;
+                sb.Append(label).Append('=').Append(v.ToString("X").PadLeft(hexDigits, '0')).Append("  ");
+            }
+            _traceLog.Add(sb.ToString());
         }
 
-        /// <summary>Snapshot the CPU's named state nodes (cpu.a/x/y/p/s/pc, ab/db) — for golden comparison.</summary>
+        /// <summary>Read a value spread across an ordered list of nodes (bit i = nodes[i]). Returns -1 if the list is empty.</summary>
+        public static int ReadReg(IReadOnlyList<int> nodes) => nodes.Count == 0 ? -1 : ReadBits(nodes);
+
+        /// <summary>Snapshot the CPU's named-state nodes (a/x/y/p/s/pc, ab/db, opcode) — for golden-trace comparison.</summary>
         public static string DumpCpuState()
         {
-            throw new NotImplementedException("WireCore.DumpCpuState — read cpu.a[7:0] etc. via ResolveNodes/ReadBits");
+            int a = ReadReg(R_CpuA), x = ReadReg(R_CpuX), y = ReadReg(R_CpuY);
+            int p = ReadReg(R_CpuP), s = ReadReg(R_CpuS), ir = ReadReg(R_CpuIr);
+            int pcl = ReadReg(R_CpuPcl), pch = ReadReg(R_CpuPch);
+            int pc = (pcl >= 0 && pch >= 0) ? (pch << 8) | pcl : -1;
+            int ab = ReadReg(R_CpuAb), db = ReadReg(R_CpuDb);
+            bool sync = N_CpuSync != EmptyNode && NodeStates[N_CpuSync] != 0;
+            string H2(int v) => v < 0 ? "--" : v.ToString("X2");
+            string H4(int v) => v < 0 ? "----" : v.ToString("X4");
+            return $"t={Time,8}  PC={H4(pc)}  A={H2(a)} X={H2(x)} Y={H2(y)} P={H2(p)} S={H2(s)}  IR={H2(ir)}  AB={H4(ab)} DB={H2(db)}{(sync ? "  (fetch)" : "")}";
         }
 
-        public static IReadOnlyList<string> TraceLog => _traceLog;
-
-        public static void ClearTrace()
-        {
-            _traceLog.Clear();
-        }
-
-        // ── $6000 blargg test-ROM signature detection (port of handler_nes_system::check_unit_test) ──
-        //    Lives here because it reads a memory ("cart.eram.ram") like a trace probe.
+        // ── blargg test-ROM result detection ($6000 in cart.eram.ram): signature 0xDE 0xB0 0x61 at $6001-3,
+        //    status at $6000 (<0x80 = done; 0x80 = running; 0x81 = needs reset), NUL-terminated text from $6004. ──
         public readonly struct UnitTestResult
         {
             public readonly bool Found, Complete;
-            public readonly int Code;       // <0x80 = done; 0x80 = running; 0x81 = needs reset
+            public readonly int Code;
             public readonly string Text;
             public UnitTestResult(bool found, bool complete, int code, string text)
             { Found = found; Complete = complete; Code = code; Text = text; }
@@ -65,14 +78,24 @@ namespace AprVisual.Sim
 
         public static UnitTestResult CheckUnitTest()
         {
-            // TODO: port check_unit_test:
-            //   var eram = ResolveMemory("cart.eram.ram"); if (eram is null) return default;
-            //   if (eram.Data[1]==0xDE && eram.Data[2]==0xB0 && eram.Data[3]==0x61) {
-            //       int code = eram.Data[0];
-            //       if (code < 0x80) { read NUL-terminated string from eram.Data[4..]; return done; }
-            //       else return running/needs-reset;
-            //   }
-            throw new NotImplementedException("WireCore.CheckUnitTest — port handler_nes_system::check_unit_test");
+            var eram = M_EramRam;
+            if (eram == null || eram.Data.Length < 5) return default;
+            byte[] d = eram.Data;
+            if (d[1] != 0xDE || d[2] != 0xB0 || d[3] != 0x61) return default;   // signature not yet written
+
+            int code = d[0];
+            if (code is >= 0x80)
+                return new UnitTestResult(found: true, complete: false, code, "");   // 0x80 running, 0x81 needs reset
+
+            var sb = new StringBuilder();
+            for (int i = 4; i < d.Length; i++)
+            {
+                char c = (char)d[i];
+                if (c == '\0') break;
+                if (c == '\r') continue;
+                sb.Append(c);
+            }
+            return new UnitTestResult(found: true, complete: true, code, sb.ToString());
         }
     }
 }

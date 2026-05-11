@@ -23,9 +23,10 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null;
             string systemDefDir = WireCore.SystemDefDir;
             int maxWait = 15;
+            int traceCycles = 64;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
 
@@ -36,6 +37,8 @@ namespace AprVisual.Test
                     case "--rom":             if (i + 1 < args.Length) romPath      = args[++i]; break;
                     case "--test":            if (i + 1 < args.Length) testPath     = args[++i]; break;
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
+                    case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
+                    case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--selftest":        return SelfTest();
@@ -46,7 +49,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -56,6 +59,7 @@ namespace AprVisual.Test
 
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
+            if (tracePath != null) return Trace(tracePath, traceCycles);
 
             if (romPath != null)
             {
@@ -293,12 +297,8 @@ namespace AprVisual.Test
 
             try
             {
-                // TODO (S1): WireCore.LoadSystem(rom); set region; then loop:
-                //   run frames until WireCore.CheckUnitTest().Complete or `maxWait` seconds elapse;
-                //   print "PASS | rom | name\n<text>" (exit 0) or "FAIL(code) | rom | (text)" (exit code).
                 // TODO (S3): if (benchmark) — measure switch-level cycles/sec; later compare vs IR backend.
-                WireCore.LoadSystem(rom);
-                WireCore.ResetNes();
+                WireCore.LoadSystem(rom);   // composes + attaches handlers + copies ROM + power-on resets
 
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 while (sw.Elapsed.TotalSeconds < maxWait)
@@ -312,12 +312,39 @@ namespace AprVisual.Test
                         return r.Code == 0 ? 1 : r.Code;
                     }
                 }
-                Console.WriteLine($"FAIL(timeout) | {Path.GetFileName(path)} | {name}");
+                var rr = WireCore.CheckUnitTest();
+                Console.WriteLine($"TIMEOUT | {Path.GetFileName(path)} | {name} | {(rr.Found ? $"sig found, code 0x{rr.Code:X2}" : "no $6000 signature")}  ({WireCore.Time} half-cycles)");
                 return 3;
             }
-            catch (NotImplementedException ex)
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── Step 7 / S1 exit-gate harness: load a ROM, power-on reset, step N CPU cycles (≈ N*24 half-cycles),
+        //    and dump the CPU's named-state nodes each cycle — for eyeballing / comparing against
+        //    MetalNES / chipsim.js / Perfect6502. ──
+        private static int Trace(string path, int cycles)
+        {
+            var rom = NesRom.LoadFromFile(path);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {path}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(path)}  (PRG {rom.PrgRom.Length / 1024} KB, CHR {rom.ChrRom.Length / 1024} KB, mapper {rom.Mapper})");
+            try
             {
-                Console.WriteLine($"SKIP(not-implemented) | {Path.GetFileName(path)} | {ex.Message}");
+                WireCore.LoadSystem(rom);
+                Console.WriteLine($"# after power-on reset: {WireCore.DumpCpuState()}");
+                int prevSync = -1;
+                int instrCount = 0;
+                for (int c = 0; c < cycles; c++)
+                {
+                    WireCore.Step(12 * 2);          // one 6502 cycle = 12 master cycles = 24 half-cycles
+                    string line = WireCore.DumpCpuState();
+                    // mark instruction-fetch cycles (cpu.sync high) for readability
+                    bool sync = line.Contains("(fetch)");
+                    if (sync) instrCount++;
+                    Console.WriteLine($"  cyc {c + 1,5}  {line}");
+                    if (c > 12 && WireCore.Time == 0) break;   // sanity: clk never advanced ⇒ bail
+                    prevSync = sync ? 1 : 0;
+                }
+                Console.WriteLine($"# {instrCount} opcode-fetch cycle(s) observed in {cycles} CPU cycles ({WireCore.Time} half-cycles)");
                 return 0;
             }
             finally { WireCore.Shutdown(); }
@@ -328,7 +355,8 @@ namespace AprVisual.Test
             Console.WriteLine("""
                 AprVisual — switch-level NES (S1)
 
-                  AprVisual --rom <game.nes>            show a window with the live 256x240 sim
+                  AprVisual --rom <game.nes>            show a window; CPU state in the title bar (video output: WIP)
+                  AprVisual --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
                   AprVisual --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                  timeout per test (default 15)
@@ -338,7 +366,7 @@ namespace AprVisual.Test
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
-                  (no args)                             open the GUI (S1: not implemented yet)
+                  (no args)                             open an empty window
                 """);
         }
     }

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using AprVisual.Rom;
 using AprVisual.Sim;
 
@@ -23,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -42,6 +44,7 @@ namespace AprVisual.Test
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
+                    case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
@@ -54,7 +57,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -66,6 +69,7 @@ namespace AprVisual.Test
             if (dumpSystem) return DumpSystem();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
+            if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
 
             if (romPath != null)
             {
@@ -324,6 +328,82 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
+        // ── Diagnostic: after N frames, dump the PPU's palette RAM + VRAM nametable 0 + rendering state,
+        //    and sample pal_ptr/hpos/vpos over the next ~32 pixel-clock edges — to chase the "screen is all
+        //    backdrop" issue (did the palette/VRAM writes land? does pal_ptr track the pixel pipeline?). ──
+        private static int PpuDump(string romPath, int frames)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)} — running {frames} frame(s)");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                Console.WriteLine($"# after {frames} frame(s): {WireCore.DumpCpuState()}");
+
+                // palette RAM (32 entries, 6-bit each — the "b" side, like handler_palette_ram)
+                var sb = new StringBuilder("palette RAM (6-bit):");
+                for (int i = 0; i < 32; i++)
+                {
+                    var l = new List<int>(); WireCore.ResolveNodes($"ppu.pal_ram_{i:X2}_b[5:0]", l, quiet: true);
+                    int v = l.Count == 6 ? WireCore.ReadBits(l) : -1;
+                    if ((i & 7) == 0) sb.Append("  ");
+                    sb.Append(' ').Append(v < 0 ? "??" : v.ToString("X2"));
+                }
+                Console.WriteLine(sb);
+
+                // PPU VRAM (u4.ram) — nametable 0
+                var vram = WireCore.ResolveMemory("u4.ram");
+                if (vram != null && vram.Data.Length >= 64)
+                {
+                    sb = new StringBuilder("VRAM[0000..003F]:");
+                    for (int i = 0; i < 64; i++) { if ((i & 15) == 0) sb.Append("  "); sb.Append(' ').Append(vram.Data[i].ToString("X2")); }
+                    Console.WriteLine(sb);
+                    int nzNt = 0, nzAt = 0;
+                    int ntLen = Math.Min(0x3C0, vram.Data.Length);          // 960-byte name table
+                    for (int i = 0; i < ntLen; i++) if (vram.Data[i] != 0) nzNt++;
+                    for (int i = 0x3C0; i < 0x400 && i < vram.Data.Length; i++) if (vram.Data[i] != 0) nzAt++;
+                    Console.WriteLine($"# nametable 0: {nzNt}/{ntLen} nonzero tile bytes, {nzAt}/64 nonzero attr bytes");
+                }
+                else Console.WriteLine("# (no u4.ram memory)");
+
+                // rendering / vblank state
+                foreach (var n in new[] { "ppu.rendering_disabled", "ppu.in_vblank", "ppu.in_visible_frame", "ppu.in_visible_frame_and_rendering" })
+                {
+                    int id = WireCore.LookupNode(n);
+                    if (id != WireCore.EmptyNode) Console.WriteLine($"# {n} = {(WireCore.IsNodeHigh(id) ? 1 : 0)}");
+                }
+
+                // sample pal_ptr / hpos / vpos at the next ~32 pclk1 rising edges
+                int pclk1 = WireCore.LookupNode("ppu.pclk1");
+                var pp = new List<int>(); WireCore.ResolveNodes("ppu.pal_ptr[4:0]", pp, quiet: true);
+                var hp = new List<int>(); WireCore.ResolveNodes("ppu.hpos[8:0]", hp, quiet: true);
+                var vp = new List<int>(); WireCore.ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
+                if (pclk1 != WireCore.EmptyNode && pp.Count > 0 && hp.Count > 0 && vp.Count > 0)
+                {
+                    Console.WriteLine("pixel samples (at pclk1 rising edges) — hpos:vpos:pal_ptr:");
+                    bool prev = WireCore.IsNodeHigh(pclk1);
+                    int got = 0;
+                    sb = new StringBuilder("  ");
+                    for (long i = 0; i < 2_000_000 && got < 48; i++)
+                    {
+                        WireCore.Step(1);
+                        bool now = WireCore.IsNodeHigh(pclk1);
+                        if (!prev && now)
+                        {
+                            sb.Append($"{WireCore.ReadBits(hp)}:{WireCore.ReadBits(vp)}:{WireCore.ReadBits(pp):X2}  ");
+                            if (++got % 8 == 0) { Console.WriteLine(sb); sb = new StringBuilder("  "); }
+                        }
+                        prev = now;
+                    }
+                    if (sb.Length > 2) Console.WriteLine(sb);
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -393,6 +473,7 @@ namespace AprVisual.Test
                   AprVisual --rom <game.nes>            show a window; CPU state in the title bar (video output: WIP)
                   AprVisual --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
                   AprVisual --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3, out=screenshot.png)
+                  AprVisual --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pixel-clock samples
                   AprVisual --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                  timeout per test (default 15)

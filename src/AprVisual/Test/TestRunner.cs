@@ -488,32 +488,19 @@ namespace AprVisual.Test
 
                 WireCore.RunFrame();   // → in_vblank rising edge
                 Console.WriteLine($"# at vblank start: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)}  in_vbl={H1(inVbl)} set_vbl={H1(setVbl)} vbl_flag={H1(vblF)} /vbl_flag={H1(nVblF)} rd_out={H1(rdOut)}");
-                Console.WriteLine("# tracing up to ~6000 half-cycles, printing only on change of [in_vbl set_vbl vbl_flag /vbl_flag] — t hpos vpos | in_vbl set_vbl vbl_flag /vbl_flag rd_2002_vbl");
-                int prevKey = -1;
-                for (int j = 0; j < 6000; j++)
+                Console.WriteLine("# trace ~3 frames, printing on every change of vbl_flag — t hpos vpos | vbl_flag /vbl_flag set_vbl rd_2002_vbl /r2002 io_ce | cpu.ab cpu.rw");
+                int prev = H1(vblF), changes = 0;
+                for (long j = 0; j < 2_200_000 && changes < 40; j++)
                 {
-                    int key = (H1(inVbl) << 3) | (H1(setVbl) << 2) | (H1(vblF) << 1) | H1(nVblF);
-                    if (key != prevKey)
+                    int cur = H1(vblF);
+                    if (cur != prev)
                     {
-                        Console.WriteLine($"  {WireCore.Time,8} {Rd(hp),3} {Rd(vp),3} | {H1(inVbl)} {H1(setVbl)} {H1(vblF)} {H1(nVblF)} {H1(rdOut)}");
-                        prevKey = key;
+                        Console.WriteLine($"  {WireCore.Time,8} {Rd(hp),3} {Rd(vp),3} | {cur} {H1(nVblF)} {H1(setVbl)} {H1(rdOut)} {H1(nR2002)} {H1(ioCe)} | ab={Rd(ab):X4} rw={(rw != WireCore.EmptyNode && WireCore.IsNodeHigh(rw) ? 'R' : 'W')}");
+                        prev = cur; changes++;
                     }
                     WireCore.Step(1);
                 }
-                Console.WriteLine($"# (end of trace window: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)})");
-
-                // step to the next $2002 read
-                bool found = false;
-                for (long i = 0; i < 300_000; i++) { WireCore.Step(1); if (Rd(ab) == 0x2002 && (rw == WireCore.EmptyNode || WireCore.IsNodeHigh(rw))) { found = true; break; } }
-                if (found)
-                {
-                    Console.WriteLine($"# at $2002 read: t={WireCore.Time} — next ~24 half-cycles — t ab io_ce /r2002 vbl_flag rd_2002_vbl io_db");
-                    for (int j = 0; j < 24; j++)
-                    {
-                        Console.WriteLine($"  {WireCore.Time,8}  ab={Rd(ab):X4} io_ce={H1(ioCe)} /r2002={H1(nR2002)} vbl_flag={H1(vblF)} rd_out={H1(rdOut)} io_db={Rd(ioDb):X2}");
-                        WireCore.Step(1);
-                    }
-                }
+                Console.WriteLine($"# (end: t={WireCore.Time} vpos={Rd(vp)} hpos={Rd(hp)} vbl_flag={H1(vblF)}, {changes} changes seen)");
                 return 0;
             }
             finally { WireCore.Shutdown(); }

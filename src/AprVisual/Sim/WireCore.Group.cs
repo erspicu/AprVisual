@@ -28,6 +28,7 @@ namespace AprVisual.Sim
         private static NodeFlags _groupFlags;
         private static int _groupCount;       // number of nodes currently in _groupBuf
         private static int* _groupBuf;        // node ids in the current group (alloc'd in Reset, sized NodeCount)
+        private static int* _inGroup;         // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup
         private static byte _maxState;        // state of the highest-connection node seen
         private static int _maxConnections;
 
@@ -64,6 +65,9 @@ namespace AprVisual.Sim
         /// </summary>
         private static byte ComputeNodeGroup(int nn)
         {
+            // clear the previous group's dedup flags (only those entries — keeps _inGroup all-zero between calls)
+            for (int i = 0; i < _groupCount; i++) _inGroup[_groupBuf[i]] = 0;
+
             _groupFlags = NodeFlags.None;
             _groupCount = 0;
             _maxState = 0;
@@ -77,8 +81,8 @@ namespace AprVisual.Sim
         // pathological bus group ever overflows the stack, convert to an explicit work list.)
         private static void AddNodeToGroup(int nn)
         {
-            // dedup — linear scan of the current group
-            for (int i = 0; i < _groupCount; i++) if (_groupBuf[i] == nn) return;
+            if (_inGroup[nn] != 0) return;          // O(1) dedup (MetalNES uses a linear scan; same effect)
+            _inGroup[nn] = 1;
 
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = nn;

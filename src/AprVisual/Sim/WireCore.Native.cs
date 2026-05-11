@@ -50,6 +50,8 @@ namespace AprVisual.Sim
             FlagsToState = null;
             TransistorList = null;
             RecalcList = RecalcListNext = RecalcHash = RecalcHashNext = null;
+            _groupBuf = null;
+            _inGroup = null;
             FrameBuffer = null;
         }
     }

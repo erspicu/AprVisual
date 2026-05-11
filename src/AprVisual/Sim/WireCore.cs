@@ -125,8 +125,13 @@ namespace AprVisual.Sim
             RecalcHash     = AllocArray<int>(NodeCount);
             RecalcHashNext = AllocArray<int>(NodeCount);
             _groupBuf      = AllocArray<int>(NodeCount);
+            _inGroup       = AllocArray<int>(NodeCount);
             FlagsToState   = AllocArray<byte>(256);
             BuildFlagsToStateTable();   // WireCore.Group.cs
+
+            // _inGroup must start all-zero (it does — AllocArray clears) and ComputeNodeGroup keeps it so;
+            // but the *previous* group's _groupBuf/_groupCount are now stale, so reset them too.
+            _groupCount = 0;
 
             RecalcListCount = RecalcListNextCount = 0;
             Time = 0;

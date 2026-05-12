@@ -38,6 +38,8 @@ namespace AprVisual.Sim.Logic
         public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
         public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — dissolves 821/843 SCC nodes correctly (hpos counter, APU DMC, chroma ring, …) but still over-cuts ~2-3 spots (a 6502 pipeline register reading a non-stable data source, a palette-RAM cascade) → checking 2 mismatches + a driving cascade. Root issue: the "register reads Prev(data)" model assumes data is stable until the register's clock edge, which fails when data depends on a register clocked by an earlier derived phase within the same master half-cycle. Needs more thought (asking Gemini). With γ.0+γ.1 driving coverage is 79.3% (843 nodes in 56 SCCs → S1).
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
+        public static int[][] SccEvalOrders = [];   // S4.3: [k] = SCC #k's nodes in Gauss-Seidel order (reverse-postorder of a DFS — back-edges dropped); the fixed-K micro-block evaluates each SCC's nodes in this order, K times
+        public const int FixedKScc = 32;            // S4.3: # of fixed-K iterations for the residual-SCC micro-block (Gauss-Seidel; the deepest SCC = the ~496-node APU DMC down-counter's carry chain; K=8 wasn't enough — see the validation report; per-SCC profiling could shrink this for the smaller SCCs)
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
         public static bool[] OkToSkipInRecalc = []; // [nodeId]; true = the driving-mode bridge ProcessQueue may skip RecalcNode(this) — IR-covered, not InScc, channel-graph component all-IR, and NodeRef dep-closure all-IR (see BuildOkToSkip). DEBUG-gated by IrEngine.DebugSkipRecalc / --debug-skip-recalc for now.
@@ -105,6 +107,7 @@ namespace AprVisual.Sim.Logic
                 CheckInChecking[v] = observable;
                 if (observable) CheckedCount++;
             }
+            _validBuf = new byte[n]; SccFixedKMismatchCount = 0; SccFixedKMaxK = 0;
             MismatchCount = 0; FirstMismatchTime = -1; FirstMismatchNode = -1; MismatchByNode.Clear();
             Built = true;
         }
@@ -338,6 +341,28 @@ namespace AprVisual.Sim.Logic
             }
             EvalOrder = order.ToArray();
             DrivingCoveredCount = EvalOrder.Length;
+
+            // S4.3: per-SCC Gauss-Seidel order — DFS the SCC's induced subgraph; reverse-postorder is a topo order
+            // of the DAG that remains once the back-edges are dropped, i.e. the order that propagates the most in
+            // one pass (only the back-edges need another iteration). The codegen emits `for k in 0..K: <each SCC's
+            // nodes in this order>` (fixed-K micro-block; see EmitCsharpSource / S4.2b's ping-pong loop).
+            SccEvalOrders = new int[SccComponents.Count][];
+            for (int si = 0; si < SccComponents.Count; si++)
+            {
+                var comp = SccComponents[si];
+                var member = new HashSet<int>(comp);
+                var color = new Dictionary<int, byte>(comp.Length);   // 0/absent unvisited, 1 on-stack, 2 done
+                var post = new List<int>(comp.Length);
+                void DfsScc(int u)
+                {
+                    color[u] = 1;
+                    if (deps[u] is { } dl) foreach (int w in dl) if (member.Contains(w) && !color.ContainsKey(w)) DfsScc(w);
+                    color[u] = 2; post.Add(u);
+                }
+                foreach (int v in comp) if (!color.ContainsKey(v)) DfsScc(v);
+                post.Reverse();
+                SccEvalOrders[si] = post.ToArray();
+            }
         }
 
         /// <summary>Compute OkToSkipInRecalc[v] — true ⇒ the driving-mode bridge ProcessQueue can skip RecalcNode(v):
@@ -393,6 +418,23 @@ namespace AprVisual.Sim.Logic
             ComplexExpr   => 0,                                                // shouldn't appear (Complex ⇒ hybrid ⇒ NextExpr is null)
             _             => 0,
         };
+
+        // EvalExpr variant that reads from managed buffers (used by the S4.3 fixed-K SCC validation / codegen path).
+        public static int EvalExprBuf(Expr e, byte[] cur, byte[] prev) => e switch
+        {
+            ConstExpr c   => c.Value ? 1 : 0,
+            NodeRefExpr nr => nr.Id < cur.Length ? cur[nr.Id] : 0,
+            HoldExpr h    => h.Id < prev.Length ? prev[h.Id] : 0,
+            PrevExpr p    => p.Id < prev.Length ? prev[p.Id] : 0,
+            NotExpr x     => 1 - EvalExprBuf(x.Operand, cur, prev),
+            AndExpr a     => EvalExprBuf(a.L, cur, prev) & EvalExprBuf(a.R, cur, prev),
+            OrExpr o      => EvalExprBuf(o.L, cur, prev) | EvalExprBuf(o.R, cur, prev),
+            MuxExpr m     => EvalExprBuf(m.Cond, cur, prev) != 0 ? EvalExprBuf(m.A, cur, prev) : EvalExprBuf(m.B, cur, prev),
+            _             => 0,
+        };
+        static byte[] _validBuf = [];
+        public static long SccFixedKMismatchCount;   // S4.3 validation: # of (SCC node, half-cycle) where the fixed-K (K=FixedKScc) micro-block disagreed with S1 (in checking mode)
+        public static int  SccFixedKMaxK;            // S4.3: the most iterations any SCC actually needed to reach a fixpoint, observed in checking mode (≤ FixedKScc means K is enough)
 
         /// <summary>Compile EvalOrder's Expr trees into the flat stack-machine program (_flatOp/_flatArg).
         /// Post-order emit each NextExpr[v]'s tree, then a StoreNode(v). Mirrors EvalExpr's semantics.</summary>
@@ -553,8 +595,27 @@ namespace AprVisual.Sim.Logic
                 }
                 sb.AppendLine("  }");
             }
+            // S4.3 — the residual-SCC fixed-K micro-block (`for k in 0..K: <each SCC's nodes in Gauss-Seidel order>`).
+            // The cur[] reads inside an SCC's block see this iteration's updates (Gauss-Seidel); reads outside the
+            // SCCs see the values left by the chunks above (or, when S4.2b's bus resolver is in, the ping-pong loop).
+            int sccNodes = 0; foreach (var o in SccEvalOrders) sccNodes += o.Length;
+            sb.AppendLine($"  static void Step_scc_fixedK(byte[] cur, byte[] prev) {{   // {SccEvalOrders.Length} SCCs, {sccNodes} nodes, K={FixedKScc}");
+            sb.AppendLine($"    for (int k = 0; k < {FixedKScc}; k++) {{");
+            for (int si = 0; si < SccEvalOrders.Length; si++)
+            {
+                if (SccEvalOrders[si].Length == 0) continue;
+                sb.AppendLine($"      // SCC {si} ({SccEvalOrders[si].Length} nodes)");
+                foreach (int v in SccEvalOrders[si])
+                {
+                    string rhs = (v < NextExpr.Length && NextExpr[v] is { } e) ? CsExpr(e) : "0";
+                    sb.AppendLine($"      cur[{v}]=(byte)({rhs});");
+                }
+            }
+            sb.AppendLine("    }");
+            sb.AppendLine("  }");
             sb.Append("  public static void Step(byte[] cur, byte[] prev) {");
             for (int ci = 0; ci < nChunks; ci++) sb.Append($" Step_chunk_{ci}(cur,prev);");
+            sb.Append(" Step_scc_fixedK(cur,prev);");
             sb.AppendLine(" }");
             sb.AppendLine("}");
             return sb.ToString();
@@ -602,6 +663,24 @@ namespace AprVisual.Sim.Logic
                         Console.WriteLine($"  DIAG #{v}: t={WireCore.Time}  ir={EvalExpr(e)} s1={WireCore.NodeStates[v]} prevSelf={(v < PrevStates.Length ? PrevStates[v] : -1)}  | {string.Join("  ", parts)}");
                     }
                 }
+            }
+            // S4.3 validation: does the fixed-K residual-SCC micro-block (Gauss-Seidel order, K = FixedKScc) converge
+            // to S1's settled values? Re-init the SCC nodes to their start-of-half-cycle value, iterate, compare.
+            if (SccEvalOrders.Length > 0)
+            {
+                new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(_validBuf);                                  // post-half-cycle state of everything
+                foreach (var o in SccEvalOrders) foreach (int v in o) _validBuf[v] = v < PrevStates.Length ? PrevStates[v] : (byte)0;   // SCC nodes ← start-of-half-cycle
+                int kUsed = 0;
+                for (int k = 0; k < FixedKScc; k++)
+                {
+                    bool changed = false;
+                    foreach (var o in SccEvalOrders) foreach (int v in o)
+                        if (v < NextExpr.Length && NextExpr[v] is { } se) { byte nv = (byte)EvalExprBuf(se, _validBuf, PrevStates); if (_validBuf[v] != nv) { _validBuf[v] = nv; changed = true; } }
+                    kUsed = k + 1;
+                    if (!changed) break;
+                }
+                if (kUsed > SccFixedKMaxK) SccFixedKMaxK = kUsed;
+                foreach (var o in SccEvalOrders) foreach (int v in o) if (v < n && _validBuf[v] != WireCore.NodeStates[v]) SccFixedKMismatchCount++;
             }
         }
 

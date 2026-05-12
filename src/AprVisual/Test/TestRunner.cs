@@ -1187,6 +1187,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"  IR-covered nodes: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount}  /  {WireCore.NonNullNodeCount}  ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%)   — checked: {AprVisual.Sim.Logic.IrEngine.CheckedCount} (the rest are un-modelled internal placeholders, skipped)");
                 AprVisual.Sim.Logic.IrEngine.Step(cycles);
                 long mm = AprVisual.Sim.Logic.IrEngine.MismatchCount;
+                Console.WriteLine($"  S4.3 fixed-K SCC micro-block (K={AprVisual.Sim.Logic.IrEngine.FixedKScc}): {(AprVisual.Sim.Logic.IrEngine.SccFixedKMismatchCount == 0 ? "converged to S1 for every SCC node" : $"{AprVisual.Sim.Logic.IrEngine.SccFixedKMismatchCount} (SCC-node, half-cycle) DISAGREEMENTS")} — max iterations any SCC actually needed: {AprVisual.Sim.Logic.IrEngine.SccFixedKMaxK}");
                 if (mm == 0)
                 {
                     Console.WriteLine($"  ✓ NO MISMATCHES over {cycles} half-cycles ({WireCore.Time} t) — IR ≡ S1 for every IR-covered node. (S2.6 equivalence gate PASSED for this ROM.)");

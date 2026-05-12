@@ -1,0 +1,108 @@
+Timestamp: 2026-05-12T23:37:51
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深 switch-level 模擬器/邏輯綜合工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → 多種 backend」的 review。我在做你當初為了 GPU 而 deprioritize 的「β = event-driven IR runtime（單台 CPU 高速化）」，卡住了，需要你給方向。請用繁體中文、務實、給明確建議。
+
+## 背景速覽
+
+- **S1（golden reference）**：C# 重寫 MetalNES 的 switch-level event-driven 引擎。`ProcessQueue`（dirty-set worklist，BFS 一波波處理直到 quiescent）；`RecalcNode(nn)` → `ComputeNodeGroup(nn)`（從 nn 出發，沿**導通的 transistor channel** 走出連通群、累積群的 flags（GND/VCC/pull-up/SetHigh/SetLow），群值 = flags-OR → 256-entry LUT；純浮島 = 最大電容 node 的當前值）→ 然後 `for each group member m: SetNodeState(m, groupValue)`（**一次 RecalcNode 更新整個導通群的所有 member**）；`SetNodeState(m, v)`：若 v 變了 → `NodeStates[m]=v` + enqueue「m 當 gate 的那些 transistor 的兩個 channel 端點」（= m 的 gate-fanout）+ enqueue 受影響的 callback。clk handler 每半週期 toggle clk node（`SetHigh`/`SetLow`，set flag + enqueue），然後 `ProcessQueue` settle。約 ~40-45K hc/s（~15s/幀）。
+- **S2/S3 的 IR**：每個 node `v` 抽出 `NextExpr[v]` = 「下半週期 settle 後 v 的值」的 boolean tree（`NodeRef(id)` = 該 node 此半週期 current 值 / `Hold(id)` = 該 node 半週期開頭值（寄生電容 keeper）/ `Prev(id)` = 同 Hold、用來斷 sequential loop / `Mux/And/Or/Not/Const`）。~85% 的 node 有乾淨 NextExpr（acyclic、放進拓樸排序 EvalOrder）、843 在 56 個小殘餘 SCC（counter/shift-reg）、~2000 hybrid multi-driver tri-state bus（NextExpr==null）。
+- **已有的 batch driving mode**（已驗 0 mismatch）：每半週期 ① snapshot PrevStates=NodeStates ② handlers（DeferRecalc，clk 等 enqueue 不 settle）③ flush 一層 ④ `RunFlatProgram`（按 EvalOrder 拓樸序、用 EvalExpr 評估全部 11680 個 IR node，`Hold/Prev` 讀 PrevStates）⑤ `ProcessQueue`（S1 的 bridge：算殘餘 SCC + hybrid bus + 重算被 enqueue 的 IR node（多半同值 → 無事）+ InvokeCallbacks）。**它能對的關鍵**：step ④ 對 latch `Mux(derivedClk, data, Hold(self))` 用 `Hold(self)=PrevStates[self]`（半週期開頭值）—— 這在 derivedClk 是 mid-half-cycle 邊緣的 PPU 時脈相位時是**錯的**（latch 該 hold 的是 mid-half-cycle 的 data，不是半週期開頭）；但 step ⑤ 的 S1 `RecalcNode` 會**重算這些 latch**（用 group walk / keeper 的當前值）→ 把錯的覆蓋掉 → 所以整體對。S4 探索完了：codegen 出 C#-JIT / LLVM-MCJIT / GPU-D3D11 backend 全是「每半週期 re-eval 全部 11680 node + step ⑤」—— **沒一個打得過 S1**（冗餘 re-eval + step ⑤ 主宰）。
+
+## β 的點子（你當初提的）
+
+跟 S1 一樣 **event-driven（dirty-set、只重算變的）**，但 `RecalcNode(v)` 對 IR-covered 的 v（NextExpr[v]!=null && !InScc[v]）用 **`EvalExpr(NextExpr[v])`（一棵靜態 boolean tree）取代 `ComputeNodeGroup(v)`（group walk + flags-OR + 256-LUT）**；殘餘 SCC / hybrid bus / 行為式 memory node 退回 S1 的 `RecalcNode`（group walk）。dirty-set 傳播照 S1。預期 ~2-3× faster（per-node 從「指標追逐 transistor list + flags + LUT」變成「eval 一棵小 boolean tree」、dirty-set 數量一樣）。它**不用 step ④ 那種全 re-eval、也不用 step ⑤ 的 S1 bridge**（就是 S1 的 loop、只是 per-node 更快）。
+
+## 我做了什麼 + 卡在哪
+
+`StepOneEventDriven()`：① handlers（DeferRecalc）② `ProcessQueueWith(RecalcNodeForEventDriven)` —— = S1 `ProcessQueue` 的 copy、每個 enqueued node 用 callback 重算（S1 的 `ProcessQueue`/hot-path 不動）③ trace; Time++。`RecalcNodeForEventDriven(nn)`：IR-covered → `byte nv=(byte)EvalExprCurrent(NextExpr[nn]); SetNodeState(nn,nv)` + 若有 callback enqueue 之；其餘 → `WireCore.RecalcNode(nn)`（S1 group walk）。改變後額外 enqueue：(a) `irFanout[nn]`（NextExpr 引用 Node(nn) 的 IR node 們 —— 因為 S1 的 gate-fanout 只 cover「nn 當 gate」的、不 cover「nn 當 channel」的，但 IR 的 NextExpr 可能引用 nn 是個 channel）；(b) `nn.TlistC1c2s` 裡（gate 導通的）`other` endpoint（透過導通 pass 跟 nn 連的 node —— S1 的 group walk 隱式處理「導通群所有 member 一起更新」、β 的 per-node EvalExpr 沒有）。`EvalExprCurrent`：`Hold(id)/Prev(id)/NodeRef(id)` **全讀當前 `NodeStates[id]`**（不讀 PrevStates —— latch 的 keeper 語意 = hold 當前值；省掉 PrevStates snapshot）。
+
+**結果**：bare-2A03 第一個 mismatch 從 t=11（沒 `EvalExprCurrent` 前）推到 t=107（有了之後），但**整體還是 ~425K（bare-2A03，1000 半週期）/ ~444K（nes-001）node-mismatch、~1235/1400 distinct node 錯**。nes-001 第一個 mismatch：t=6，`ppu.spr_d7_int#193`（hybrid node，所以走 S1 `RecalcNode`），`ir=1 s1=0`，半週期開頭值=1 —— 即 β 沒在 t=6 重算 `#193`（漏了某條 fanout edge 該 wake 它），或它 group 的某個 input stale。
+
+## 想問你的（請逐題給明確建議）
+
+1. **「EvalExpr 取代 group walk」對 event-driven 模型 fundamentally sound 嗎？** S1 的 `RecalcNode(nn)` 有個 side-effect：`ComputeNodeGroup(nn)` 走出**導通群**、把群裡所有 member（包含跟 nn 透過導通 pass 連在一起的別的 node，可能是 hybrid bus 或 SCC node）都設成群值。β 的 `EvalExpr(NextExpr[nn])` 只算 nn 自己。我試著用 (b) channel-fanout enqueue 補（讓那些 member 之後被重算），但沒夠。是不是「IR-covered 的 nn」在「nn 跟一個 hybrid bus 處在同一個導通群」時，根本不該用 EvalExpr、而該走完整 group walk？（γ.0 node-aliasing 折掉了 always-on wire 群、但**沒折條件導通的 pass 群** —— 一個 cell 透過 readout pass 連到 bitline、那個 pass 條件導通。）若是，那「能用 EvalExpr 快路」的條件到底是什麼？「nn 此刻的導通群只有 {nn} 自己」(動態)？還是「nn 的 DriveAnalysis 裡沒有任何 OwnerDrives==null 的雙向 pass」(靜態)？
+2. **β 正確需要哪些 fanout？** 當 node `nn` 改變、要 enqueue 哪些 node？S1 只 enqueue「nn 當 gate 的 transistor 的兩端」(gate-fanout)，靠後續 `RecalcNode` 的 group walk 隱式 cover channel-connection。β 的 per-node EvalExpr 沒 group walk → 我加了 (a) irFanout + (b) channel-fanout。還缺什麼？是不是「nn 改變 → 還要 enqueue『nn 的 channel-鄰居的 gate-fanout』」這種 transitive 的？或者乾脆「nn 改變 → enqueue nn 的**完整 transistor 鄰域**（所有碰到 nn 的 transistor，無論 nn 是 gate 還是 channel）的所有相關 node」？
+3. **有沒有更乾淨的 formulation？** Candidates：(a) IR node 也走 `WireCore.RecalcNode`（完整 group walk），只是在 group walk 走到一個「純-IR、1-node 自成一群、所有 driver 都是 IR」的葉子時，用 `EvalExpr(NextExpr[leaf])` 替代 `getNodeValue`+flags 累積（保留 group walk 的 side-effect、只省葉子的 flags/LUT）—— 但這樣省的時間有限（group walk 本身是成本）；(b) 把 IR 當「memoization」：`RecalcNode(nn)` 先檢查 nn 的「relevant inputs」（NextExpr 的 NodeRefs）自上次以來變了沒、沒變就直接 return（skip group walk）—— 不是 substitution、是 skip；這對嗎？(c) 別的？
+4. **β 值得做嗎？** γ.0 之後大多 node 是 1-node 群，S1 對它的 group walk = 走 1 個 transistor list（可能就 1-3 個 transistor）+ flags-OR + LUT —— 跟「eval 一棵 ~3-5-node 的 Expr tree（interpreted，遞迴）」比，真的快很多嗎？還是 β 的好處被 (a)(b) 的 extra fanout 開銷吃掉？如果不確定能贏，是不是該（c）老實收尾、別再投入？user 的目標是「單台 correct + real-time-usable」；S1 ~15s/幀 離 real-time（~16ms/幀）還差 ~900×，所以「~2-3× 提速」其實也救不了 real-time —— 那 β 的意義是什麼（純為了「比 S1 快」的 demonstration？）？
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常硬核且深入的工程問題。你的除錯過程（追蹤到 `t=6` 的 `#193` 節點）已經摸到了 switch-level 與 gate-level (IR) 混合模擬最核心的痛點：**邊界與原子性（Atomicity）的衝突**。
+
+我們直接破題，給你最務實的建議：**請直接看第 4 題的結論——我強烈建議你停損並放棄 $\beta$ 路線。**
+
+但為了讓你「死得明白」，我們逐一回答你的問題，拆解為什麼 $\beta$ 會卡住，以及背後的根本原因。
+
+---
+
+### 1. 「EvalExpr 取代 group walk」對 event-driven 模型 fundamentally sound 嗎？
+
+**答案：Fundamentally UNSOUND（根本上不健全），除非有極其嚴格的靜態保證。**
+
+你的直覺非常敏銳，問題就出在**導通群（DC-connected component）的原子性被破壞了**。
+
+*   **S1 (Group Walk) 的物理意義**：當一個 transistor 導通，兩端的 nodes 在物理上就變成了「同一個電氣節點」（共享電荷與驅動力）。S1 的 `ComputeNodeGroup` 保證了這個導通群裡的所有節點會**同時、原子性地**更新為相同的值。
+*   **$\beta$ (EvalExpr) 的問題**：`EvalExpr` 是典型的 gate-level 邏輯。它預設了「單向驅動」與「節點孤立性」。當節點 `nn` 透過 pass transistor 連到混合總線（hybrid bus）時，如果只對 `nn` 做 `EvalExpr`，你只更新了 `nn` 的值，卻沒有把電荷/狀態同步給總線上的其他成員。
+*   **為什麼靠 enqueue (b) channel-fanout 補救無效？**
+    這會引發**暫態危害（Transient Hazard）**。在 S1 中，節點 A 和 B 是「同時」變成 1 的。在 $\beta$ 中，A 先變成 1，把 B 放進 queue；在 B 被處理之前，系統處於一個「A=1, B=0 且 A, B 導通」的**物理不可能狀態**。如果這個瞬間，某個 callback 或其他 fanout 被觸發，就會讀到錯誤的狀態，導致雪崩式的 mismatch（這就是為什麼你的 mismatch 會在幾百個半週期後爆炸）。
+
+**能用 EvalExpr 走快路的嚴格條件是：**
+該節點必須是**完全孤立的 CMOS 邏輯閘輸出（Static Gate Output）**。也就是說，它的 channel 端點**只連接到 VCC/GND**（透過 pull-up/down network），**絕對不包含**任何 OwnerDrives == null 的 pass transistor，也絕對不會在任何條件下與其他狀態未知的節點形成導通群。一旦有條件導通的 pass pass，就必須退回 Group Walk。
+
+---
+
+### 2. $\beta$ 正確需要哪些 fanout？
+
+如果硬要修補 $\beta$（非常不建議），除了你加的 (a) `irFanout` 和 (b) channel-fanout 之外，你還面臨一個無底洞：
+
+在 switch-level 中，信號傳播有兩種：
+1.  **Topological Change（拓樸改變）**：Gate 端改變，導致開關切換，這會改變導通群的形狀。這時需要 S1 的 `gate-fanout`。
+2.  **Value Injection（值注入）**：Channel 端的 Source 改變，透過**已經導通**的 transistor 傳遞給 Drain。這時需要 channel-fanout。
+
+**你缺的是「Transitive Channel Propagation」（傳遞性通道廣播）。**
+如果 A 改變了，且 A 連著導通的 T1 到 B，B 又連著導通的 T2 到 C... 你不能只 enqueue B。你必須 enqueue B、C 以及整個導通群。而要找出這個導通群需要什麼？**這不就是 S1 的 Group Walk 嗎！**
+
+所以，企圖用單點 EvalExpr + 精細的 fanout enqueue 來模擬 switch-level 的導通行為，最終必然會演化成「重新發明了一次充滿 Bug 的 Group Walk」。
+
+---
+
+### 3. 有沒有更乾淨的 formulation？
+
+如果你的目標只是「讓 S1 變快一點」，你提的 **(b) IR 當「memoization」** 是相對最乾淨且安全的做法。
+
+*   **做法 (b) 的細節**：
+    保留 S1 的 `RecalcNode`（不破壞 event-driven 和 group walk 的原子性）。但是，對於 IR-covered 且是純單向驅動的節點，建立一個 `LastInputs[]` 快取。當 `RecalcNode` 被喚醒時，先檢查其 `NextExpr` 所依賴的 input nodes 是否與上次相同。
+    *   如果相同：直接 return（Skip group walk）。
+    *   如果不同：執行原本的 S1 `ComputeNodeGroup`。
+*   **優點**：絕對保證正確性（沒有破壞 group walk 的原子性），且濾掉了無效的 event 觸發。
+*   **缺點**：維護 input 快取的 Overhead 可能不小，整體加速上限極低（大概頂多 1.2x ~ 1.5x）。
+
+---
+
+### 4. $\beta$ 值得做嗎？（關鍵結論）
+
+**極度不建議繼續投入 $\beta$。請立刻收尾止血。**
+
+我們來算一筆務實的帳：
+1.  **效能目標差距過大**：你的目標是 real-time（~16ms/幀），現在是 ~15000ms/幀。你需要的是 **900 倍**的加速。
+2.  **$\beta$ 的天花板極低**：就算 $\beta$ 完美實作，沒有 bug。因為你還有大量 hybrid node (SCC, bus) 必須跑 S1，且 event-queue 本身的 overhead 佔比很大。把 1-node group walk 換成 tree eval，撐死只能給你 **2 到 3 倍**的加速（降到 ~5000ms/幀）。這對「能玩」這個 user goal 沒有任何實質意義。
+3.  **複雜度與除錯成本失控**：為了一個 3x 的加速，你要處理 switch-level 與 boolean-level 之間極難搞的邊界狀態（如上述的暫態危害）。這在工程上是 ROI（投資報酬率）極低的行為。
+
+### 下一步的明確建議（Pivot Direction）
+
+既然你的大目標是「單台 correct + real-time-usable」，你需要的是**架構上的降維打擊**，而不是微觀的 runtime 最佳化。
+
+1.  **放棄「Event-Driven 混合靜態 IR」**：
+    Switch-level 模擬器要跑到 real-time，歷史上的成功案例（像 Verilator 的做法）都是把整個系統「完全攤平編譯成靜態的 C/C++ 程式碼」。
+2.  **擁抱 S4 的 Batch Driving，但要解決 Latch 延遲問題**：
+    你之前放棄 S4（Batch re-eval）是因為速度比 S1 慢，且全靠 S1 擦屁股。
+    如果你能把 **IR 提取的品質提升**（例如：正確識別出 latch 的 mid-phase clock，把 Latch 寫成帶 clock edge trigger 的 IR，而不是依賴 `Hold/Prev` 和 S1 的延遲修補），讓 **100% 的節點都能轉成 IR**（把 SCC 解開成 fixed-point iteration 迴圈）。
+    一旦 100% 都是 IR，你就可以直接生成一包純粹的 C# / C++ function，裡面沒有 queue，沒有 dynamic transistor walk，只有純粹的 bitwise 運算。這是唯一能達到 900x 加速（~16ms/幀）的路徑。
+3.  **把 S1 當作「開發期」的 Golden Reference**：
+    S1 現在 ~15s/幀 且絕對正確。這是一個完美的**離線對照組**。不要試圖加速它了。把它封裝好，用來自動驗證你未來提取的「純靜態 C Code」每一 cycle 的行為是否與物理模型一致。
+
+**總結**：$\beta$ 是一個誘人但錯誤的兔子洞（Rabbit hole）。它試圖在不相容的物理抽象層（電路網 vs 邏輯閘）之間建立動態橋樑。**停掉 $\beta$，保留 S1 作為神主牌，把精力轉移到「如何提升 IR 的提取率到 100% 並直接 AOT 編譯」上。**

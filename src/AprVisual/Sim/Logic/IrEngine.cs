@@ -69,6 +69,7 @@ namespace AprVisual.Sim.Logic
         public static int CompiledChunkCount;
         public static bool UseCompiledStep = true;  // S4.1: step-4 = the compiled chunks; set false to A/B vs the stack-machine interpreter (RunFlatProgram)
         public static bool UseLlvmStep = false;     // S4.5: step-4 = the LLVM-MCJIT'd `step` function (LlvmCodegen); --llvm-step to enable (overrides UseCompiledStep)
+        public static bool UseGpuStep = false;      // S4.6: step-4 = the D3D11 compute kernel (GpuRunner — bytecode interpreter; per-step CPU↔GPU round-trip, slow but a drop-in for step-4); --gpu-step to enable (overrides the others)
         static byte[] _evalCur = [];
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
@@ -136,6 +137,10 @@ namespace AprVisual.Sim.Logic
             {
                 try { LlvmCodegen.Compile(); }
                 catch (Exception ex) { Console.Error.WriteLine($"LLVM step compile failed → falling back to the Expression-tree JIT: {ex.GetType().Name}: {ex.Message}"); UseLlvmStep = false; }
+            }
+            if (UseGpuStep && !GpuRunner.Initialized)   // S4.6: create the D3D11 device + compile the kernel + upload the schedule now
+            {
+                if (!GpuRunner.Init()) { Console.Error.WriteLine($"GPU step init failed → falling back to the Expression-tree JIT: {GpuRunner.InitError}"); UseGpuStep = false; }
             }
             Built = true;
         }
@@ -696,7 +701,7 @@ namespace AprVisual.Sim.Logic
             }
         }
 
-        static void RunStep() { if (UseLlvmStep) RunLlvmStep(); else if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram(); }
+        static void RunStep() { if (UseGpuStep) GpuRunner.RunGpuStep(); else if (UseLlvmStep) RunLlvmStep(); else if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram(); }
 
         // ── S4.2b — runnable fixed-K residual-SCC micro-block + the inline bus resolver (the run versions of the
         //    S4.3 / S4.2b-validation code; these REPLACE S1's ProcessQueue settling of the SCC + bus nodes when

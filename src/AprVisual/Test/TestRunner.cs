@@ -67,6 +67,7 @@ namespace AprVisual.Test
                     case "--dump-emitted-cs": dumpEmittedCs = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;  // S4.1: write IrEngine.EmitCsharpSource() (the codegen output) to a file ("-" = stdout)
                     case "--no-compiled-step": AprVisual.Sim.Logic.IrEngine.UseCompiledStep = false; break;   // S4.1 A/B: use the stack-machine interpreter instead of the compiled chunks
                     case "--llvm-step": AprVisual.Sim.Logic.IrEngine.UseLlvmStep = true; break;   // S4.5: step-4 = the LLVM-MCJIT'd `step` (instead of the Expression-tree JIT chunks)
+                    case "--gpu-step": AprVisual.Sim.Logic.IrEngine.UseGpuStep = true; break;   // S4.6: step-4 = the D3D11 compute kernel (slow per-step round-trip — for the equivalence check)
                     case "--no-pingpong": AprVisual.Sim.Logic.IrEngine.PingPongEnabled = false; break;   // S4.2b A/B: skip the inline SCC/bus ping-pong, fall back to the pure S1 bridge ProcessQueue
                     case "--pingpong": AprVisual.Sim.Logic.IrEngine.PingPongEnabled = true; break;       // S4.2b A/B: enable the inline SCC/bus ping-pong (replaces step-5's SCC/bus settling) — WIP, has a bug
                     case "--enable-bus-lowering": AprVisual.Sim.Logic.IrEngine.EnableBusLowering = true; break;   // S4.2 γ.4 A/B: give hybrid bus nodes a wired-AND pseudo-NextExpr

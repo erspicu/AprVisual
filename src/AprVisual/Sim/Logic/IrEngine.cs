@@ -32,6 +32,13 @@ namespace AprVisual.Sim.Logic
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
+        // ── flattened driving-mode IR program (S3.1): EvalOrder's Expr trees compiled to one stack-machine
+        //    instruction stream — a tight loop over arrays beats recursing object trees (cache-friendly, no
+        //    virtual dispatch). Op codes: 0 LoadNode(arg=id), 1 LoadPrev(arg=id), 2 Const0, 3 Const1, 4 Not,
+        //    5 And, 6 Or, 7 Mux(cond?a:b), 8 StoreNode(arg=id, also SetNodeState+EnqueueNode if changed).
+        const byte OpLoadNode = 0, OpLoadPrev = 1, OpConst0 = 2, OpConst1 = 3, OpNot = 4, OpAnd = 5, OpOr = 6, OpMux = 7, OpStore = 8;
+        static byte[] _flatOp = []; static int[] _flatArg = []; static int _flatLen; static byte[] _flatStk = [];
+        public static long FlatInstrCount;        // # of instructions in the driving-mode flat program (diagnostic)
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
         public static int  FirstMismatchNode = -1;
@@ -51,6 +58,7 @@ namespace AprVisual.Sim.Logic
             PrevStates = new byte[n];
             CheckInChecking = new bool[NextExpr.Length];
             BuildEvalOrder();          // current-value dependency graph → break residual cycles (hybrid-ize) → topo sort → EvalOrder[] (driving mode)
+            CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
             IrCoveredCount = 0; CheckedCount = 0;
             var nodes = WireCore.Nodes;
             for (int v = 0; v < NextExpr.Length; v++)
@@ -183,6 +191,65 @@ namespace AprVisual.Sim.Logic
             _             => 0,
         };
 
+        /// <summary>Compile EvalOrder's Expr trees into the flat stack-machine program (_flatOp/_flatArg).
+        /// Post-order emit each NextExpr[v]'s tree, then a StoreNode(v). Mirrors EvalExpr's semantics.</summary>
+        static void CompileFlatProgram()
+        {
+            var ops = new List<byte>(EvalOrder.Length * 12);
+            var args = new List<int>(EvalOrder.Length * 12);
+            int maxDepth = 1;
+            void Emit(byte op, int arg) { ops.Add(op); args.Add(arg); }
+            void Walk(Expr e, ref int depth)   // depth tracking: a leaf pushes 1; And/Or pop 2 push 1 (net -1); Mux pops 3 push 1 (net -2); Not net 0
+            {
+                switch (e)
+                {
+                    case ConstExpr c: Emit(c.Value ? OpConst1 : OpConst0, 0); depth++; if (depth > maxDepth) maxDepth = depth; break;
+                    case NodeRefExpr nr: Emit(OpLoadNode, nr.Id); depth++; if (depth > maxDepth) maxDepth = depth; break;
+                    case HoldExpr h: Emit(OpLoadPrev, h.Id); depth++; if (depth > maxDepth) maxDepth = depth; break;
+                    case PrevExpr p: Emit(OpLoadPrev, p.Id); depth++; if (depth > maxDepth) maxDepth = depth; break;
+                    case NotExpr x: Walk(x.Operand, ref depth); Emit(OpNot, 0); break;                                  // pops 1, pushes 1: net 0
+                    case AndExpr a: Walk(a.L, ref depth); Walk(a.R, ref depth); Emit(OpAnd, 0); depth--; break;          // pops 2, pushes 1
+                    case OrExpr o: Walk(o.L, ref depth); Walk(o.R, ref depth); Emit(OpOr, 0); depth--; break;
+                    case MuxExpr m: Walk(m.Cond, ref depth); Walk(m.A, ref depth); Walk(m.B, ref depth); Emit(OpMux, 0); depth -= 2; break;  // pops 3, pushes 1
+                    default: Emit(OpConst0, 0); depth++; if (depth > maxDepth) maxDepth = depth; break;                  // ComplexExpr shouldn't appear
+                }
+            }
+            foreach (int v in EvalOrder)
+            {
+                int d = 0;
+                if (v < NextExpr.Length && NextExpr[v] is { } e) Walk(e, ref d); else Emit(OpConst0, 0);
+                Emit(OpStore, v);   // consumes the one value on the stack (d should be 1 here)
+            }
+            _flatOp = ops.ToArray(); _flatArg = args.ToArray(); _flatLen = ops.Count;
+            _flatStk = new byte[Math.Max(16, maxDepth + 4)];
+            FlatInstrCount = _flatLen;
+        }
+
+        /// <summary>Run the flat driving-mode IR program: evaluate every node in EvalOrder (topo order) and
+        /// write it back via WireCore.SetNodeState (+ EnqueueNode if it changed, so the bridge ProcessQueue
+        /// propagates it / services its callbacks). Equivalent to `foreach v in EvalOrder: SetNodeState(v, EvalExpr(NextExpr[v]))`.</summary>
+        static void RunFlatProgram()
+        {
+            byte[] stk = _flatStk; byte[] op = _flatOp; int[] arg = _flatArg; int n = _flatLen;
+            int prevN = PrevStates.Length;
+            int sp = 0;
+            for (int i = 0; i < n; i++)
+            {
+                switch (op[i])
+                {
+                    case OpLoadNode: stk[sp++] = WireCore.NodeStates[arg[i]]; break;
+                    case OpLoadPrev: stk[sp++] = arg[i] < prevN ? PrevStates[arg[i]] : (byte)0; break;
+                    case OpConst0: stk[sp++] = 0; break;
+                    case OpConst1: stk[sp++] = 1; break;
+                    case OpNot: stk[sp - 1] = (byte)(1 - stk[sp - 1]); break;
+                    case OpAnd: { byte b = stk[--sp]; stk[sp - 1] &= b; break; }
+                    case OpOr:  { byte b = stk[--sp]; stk[sp - 1] |= b; break; }
+                    case OpMux: { byte b = stk[--sp]; byte a = stk[--sp]; byte c = stk[--sp]; stk[sp++] = c != 0 ? a : b; break; }
+                    case OpStore: { byte nv = stk[--sp]; int v = arg[i]; if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); } break; }
+                }
+            }
+        }
+
         public static int DiagNode = -1;        // if ≥0: on each mismatch of this node, print t / Pretty / ir / s1 / referenced-node values
 
         static void CollectIds(Expr e, HashSet<int> ids)
@@ -256,11 +323,7 @@ namespace AprVisual.Sim.Logic
             new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (start of this half-cycle — Hold/Prev read this)
             WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
             WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
-            foreach (int v in EvalOrder)                                         // 4. IR-evaluate, topo order (deps already done; reads NodeStates' fresh boundary + earlier IR values, prevStates for Hold/Prev)
-            {
-                byte nv = (byte)EvalExpr(NextExpr[v]!);
-                if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }   // SetNodeState writes + enqueues v's gate fan-out (incl. hybrid nodes that depend on v); EnqueueNode(v) so ProcessQueue's RecalcNode(v) also services v's own group callbacks (memory/video)
-            }
+            RunFlatProgram();                                                    // 4. IR-evaluate every node in EvalOrder (topo order; flat stack-machine program — S3.1); writes back via SetNodeState + EnqueueNode if changed
             WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.

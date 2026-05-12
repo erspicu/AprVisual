@@ -562,8 +562,9 @@ namespace AprVisual.Test
                        dy.PullDown!.Equals(AprVisual.Sim.Logic.Expr.Node(10)) && dy.PullUp == AprVisual.Sim.Logic.PullUpKind.StaticLoad && dy.Passes.Count == 0 && !dy.Hybrid);
             f += Check("z: pullDown == (n_b & n_c), pullUp == StaticLoad, not hybrid",
                        dz.PullDown!.Equals(AprVisual.Sim.Logic.Expr.And(AprVisual.Sim.Logic.Expr.Node(12), AprVisual.Sim.Logic.Expr.Node(13))) && dz.PullUp == AprVisual.Sim.Logic.PullUpKind.StaticLoad && !dz.Hybrid);
-            f += Check("'mid' classified as a stack interior (Gates.Count==0, no pull-up)",
-                       di[15] != null && di[15]!.PullDown != null && di[15]!.Passes.Count == 0);
+            f += Check("'mid' = a stack interior: pullDown == n_c, and gets one inbound write port from pulled-up neighbour z (b ? z : …)",
+                       di[15] != null && di[15]!.PullDown!.Equals(AprVisual.Sim.Logic.Expr.Node(13))
+                       && di[15]!.Passes.Count == 1 && di[15]!.Passes[0].Other == 14 && di[15]!.Passes[0].OwnerDrives == false && !di[15]!.Hybrid);
             f += Check("r↔q recorded as a transmission-gate pass on both ends (q.Passes→r, r.Passes→q), q has no pull-down",
                        dq.Passes.Any(p => p.Other == 17) && dr.Passes.Any(p => p.Other == 18) && dq.PullDown == null);
             f += Check("r↔q direction: r drives q (r has a pull-up; q is dynamic)",

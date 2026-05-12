@@ -85,20 +85,16 @@ namespace AprVisual.Sim.Logic
             int n = nodes.Count;
             var di = new DriveInfo?[n];
 
-            // Per-node flags used by the chain-interior test: does this node have *any* pull-up (a static load
-            // or a pull-up transistor of any kind)? does it have a *direct* PullDown transistor (a channel to vss)?
+            // hasAnyPullUp[m] = m has a static load (pullups>0) or a pull-up transistor of any kind (it can be
+            // *driven high* — used below to decide which side of a pass to a chain-interior node "owns" it).
             var hasAnyPullUp = new bool[n];
-            var hasDirectPd  = new bool[n];
             for (int m = Ngnd + 1; m < n; m++)
             {
                 var nm = nodes[m];
                 if (nm == null) continue;
-                if (nm.Pullups > 0) hasAnyPullUp[m] = true;
+                if (nm.Pullups > 0) { hasAnyPullUp[m] = true; continue; }
                 foreach (int tid in nm.C1c2s)
-                {
-                    if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive or TransistorKind.PullUpLoad) hasAnyPullUp[m] = true;
-                    if (g.Kind[tid] == TransistorKind.PullDown) hasDirectPd[m] = true;
-                }
+                    if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive or TransistorKind.PullUpLoad) { hasAnyPullUp[m] = true; break; }
             }
 
             // A "stack interior" node = a transparent series-junction *inside a pull-down chain*: it never drives
@@ -108,28 +104,22 @@ namespace AprVisual.Sim.Logic
             // for the bug where a *dynamic mux/bus* node (Gates.Count==0, no pull-up, but all its channel
             // transistors are Passes to control-gated signal sources — e.g. cpu.#aluresult0, the ALU result bus)
             // was wrongly treated as a transparent stack node ⇒ its mux passes got skipped ⇒ nextExpr = Hold(self).
-            // We also exclude m if it has a Pass to a *real* node o that has both a pull-up AND its own direct
-            // PullDown (o can drive m both high and low through the pass — m isn't just wire below o; e.g. cpu node
-            // 8867 ↔ 9484). A gate output whose pull-down stack runs *through* m has a pull-up but NO direct
-            // PullDown of its own, so the NAND/NOR/AOI stack junctions stay chain-interior. Precomputed once.
+            // Such a junction's value still gets a write port back from any *pulled-up* pass-neighbor o (o can pull
+            // it up/down through the pass — see pass 2), so e.g. NAND/NOR/AOI stack junctions and cpu node 8867 ↔
+            // 9484 get the right Mux(passgate, Node(o), …) instead of a bare clear-and-hold. Precomputed once.
             var chainInterior = new bool[n];
             for (int m = Ngnd + 1; m < n; m++)
             {
                 var nm = nodes[m];
                 if (nm == null || nm.Gates.Count != 0 || nm.Pullups != 0) continue;
                 if (m < g.Role.Length && g.Role[m] == NodeRole.Bus) continue;
-                bool hasPullUpTransistor = false, hasPullDownTransistor = false, touchesRealDriver = false;
+                bool hasPullUpTransistor = false, hasPullDownTransistor = false;
                 foreach (int tid in nm.C1c2s)
                 {
                     if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive) hasPullUpTransistor = true;
                     if (g.Kind[tid] == TransistorKind.PullDown) hasPullDownTransistor = true;
-                    if (g.Kind[tid] == TransistorKind.Pass)
-                    {
-                        var t = trans[tid]; int o = t.C1 == m ? t.C2 : t.C1;
-                        if (o >= 0 && o < n && o != m && hasAnyPullUp[o] && hasDirectPd[o]) touchesRealDriver = true;
-                    }
                 }
-                if (hasPullUpTransistor || !hasPullDownTransistor || touchesRealDriver) continue;
+                if (hasPullUpTransistor || !hasPullDownTransistor) continue;
                 chainInterior[m] = true;
             }
             bool IsChainInterior(int m) => m >= 0 && m < n && chainInterior[m];
@@ -240,7 +230,22 @@ namespace AprVisual.Sim.Logic
                 var t = trans[tid];
                 int a = t.C1, b = t.C2;
                 if (a == b) continue;
-                if (IsChainInterior(a) || IsChainInterior(b)) { g.PassDirection[tid] = PassDir.Unknown; continue; }  // a "transparent" pass inside some pull-down chain
+                bool aInt = IsChainInterior(a), bInt = IsChainInterior(b);
+                if (aInt || bInt)
+                {
+                    // A pass with a chain-interior end is "transparent" — counted in the parent's pull-down DFS,
+                    // not a write port — *except* that a chain-interior junction m sitting next to a pulled-up
+                    // node o gets an inbound write port o→m: when this pass conducts, m and o are one group and o
+                    // (which can drive high) carries the value, so m's nextExpr should follow Node(o). (o needs
+                    // no link back: o.PullDown already includes the path o—pass—m—…—vss from the DFS, so Node(o)
+                    // is exactly the settled group value.) Fixes NAND/NOR/AOI stack junctions floating high while
+                    // hold==0, the cart-glue latch node 14200 ↔ 13045, etc.
+                    g.PassDirection[tid] = PassDir.Unknown;
+                    var c0 = GateCond(t.Gate);
+                    if (aInt && !bInt && b < n && hasAnyPullUp[b] && di[a] is { } dia) { dia.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.BtoA; }
+                    if (bInt && !aInt && a < n && hasAnyPullUp[a] && di[b] is { } dib) { dib.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.AtoB; }
+                    continue;
+                }
                 var da = a < di.Length ? di[a] : null;
                 var db = b < di.Length ? di[b] : null;
                 if (da == null || db == null) { g.PassDirection[tid] = PassDir.Unknown; continue; }   // (shouldn't happen — Pass ends are signal nodes)
@@ -277,6 +282,14 @@ namespace AprVisual.Sim.Logic
             for (int v = 0; v < n; v++)
                 if (di[v] is { PullUp: PullUpKind.Conditional, Hybrid: false } d2 && d2.Passes.Count > 0)
                 { d2.Hybrid = true; d2.HybridReason = "precharge/domino node with pass connections (multi-driver — switch-level handles the priority)"; }
+
+            // ── pass 4: a pure dynamic node (no own pull-down, no pull-up) with ≥3 inbound write ports is a
+            //    multi-port bus bridge (e.g. cpu.dl[7:0] bridging the data latch to the ADH / ADL / IDB buses +
+            //    the IDL hold). A priority Mux(cond_a, A, Mux(cond_b, B, …)) can't model "≥2 ports conduct ⇒ the
+            //    merged group resolves by drive strength, not by Mux order" — hand it to S1's switch-level. ──
+            for (int v = 0; v < n; v++)
+                if (di[v] is { Hybrid: false, PullDown: null, PullUp: PullUpKind.None } d3 && d3.Passes.Count(p => p.OwnerDrives == false) >= 3)
+                { d3.Hybrid = true; d3.HybridReason = "dynamic multi-port bus bridge (≥3 write ports — switch-level resolves the multi-driver)"; }
 
             return di;
         }

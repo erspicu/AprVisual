@@ -76,7 +76,7 @@ The canonical algorithm to reproduce is `wire_compute` in `ref/metalnes-main/sou
 
 ## Working in this repo
 
-- **Communicate with the user in Traditional Chinese (繁體中文)** — chat replies, summaries, explanations. Code, identifiers, code comments, and commit messages stay in English; planning/design docs in `MD/` stay in Traditional Chinese.
+- **Communicate with the user in Traditional Chinese (繁體中文)** — chat replies, summaries, explanations. Code, identifiers, code comments, and commit messages stay in English; planning/design docs in `MD/` stay in Traditional Chinese. **Prompts to Gemini** (via `tools/knowledgebase/gemini_query.py -f <utf8-prompt-file>`, e.g. the S2 per-step design reviews) are also in Traditional Chinese — pass the prompt via `-f` (a UTF-8 file) not argv, and read the response from `tools/knowledgebase/message/<timestamp>.txt` (the console print mojibakes UTF-8 on Windows; the log file is correct).
 - Planning/design docs → `MD/` (Traditional Chinese); code → `src/`; runtime data → `data/`. Don't edit `ref/`.
 - Commit/push only when the user asks. The repo is `github.com/erspicu/AprVisual` (private). End commit messages with the `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer.
 - When porting a `WireCore` stub, the TODO comment names the `ref/metalnes-main` function and line range; cross-check against `MD/note/`.

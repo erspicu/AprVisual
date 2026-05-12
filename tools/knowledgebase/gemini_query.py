@@ -77,10 +77,16 @@ def list_models(api_key):
 def main():
     parser = argparse.ArgumentParser(description="Query Gemini API")
     parser.add_argument("prompt", nargs='?', help="The question or prompt to ask Gemini")
+    parser.add_argument("-f", "--prompt-file", help="Read the prompt from a UTF-8 file (avoids argv length/encoding limits). If a positional prompt is also given, it is appended after the file content.")
     parser.add_argument("-o", "--output", help="Save output to a text file")
     parser.add_argument("-l", "--list-models", action="store_true", help="List available models and save to models_list.txt")
-    
+
     args = parser.parse_args()
+
+    if args.prompt_file:
+        with open(args.prompt_file, 'r', encoding='utf-8') as f:
+            file_prompt = f.read()
+        args.prompt = (file_prompt + ("\n\n" + args.prompt if args.prompt else "")) if file_prompt.strip() else args.prompt
     
     config = load_config()
     api_key = config.get("api_key")

@@ -1,0 +1,146 @@
+Timestamp: 2026-05-12T15:11:00
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是一位資深的編譯器 / 模擬器 / 硬體驗證工程師，幫我 review 一個 NES 晶片模擬器的「switch-level netlist → 可評估邏輯 IR → CPU 直譯器（最終要 GPU bit-slicing）」管線中、效能優化階段（S3）的設計取捨。請用繁體中文回答，務實、給明確的優先順序與理由，不要客套。
+
+## 背景
+
+專案：把 Visual6502-style 的 switch-level netlist（segdefs/transdefs/nodenames）—— 2A03（NES CPU，改版 6502，內含 APU）+ 2C02（NES PPU）+ 板上 TTL —— 轉成可分析、可驗證、可執行的邏輯模型，最終做成 CUDA bit-parallel kernel（一個 32-bit word = 32 個 NES 實例並行）來快速 cycle-accurate 模擬大量 NES。「價值在這條翻譯管線，不在 GPU 本身」。
+
+已完成：
+- S1 = C# 重寫 MetalNES 的 switch-level 模擬引擎（recalcNodeList / processQueue / recalcNode / 256-entry flags→state LUT；NMOS group 解析：GND wins → VCC/pull-up → external drive → hold-previous（寄生電容 → 最大電容 node）→ 0）。「raw S1 直譯器」就是這個。
+- S2 = netlist → boolean IR。`Expr` records：`Const(bool)` / `NodeRef(id)`（current value，讀 `NodeStates[id]`）/ `Not` / `And` / `Or` / `Mux(cond,a,b)` / `Hold(id)`（寄生電容 hold = 上半週期值，讀 `PrevStates[id]`）/ `Prev(id)`（上半週期值）/ `Complex`（無法表示就 fall back）。對每個 node 抽出 `NextExpr[v]` = 「下半週期 settle 後 v 的值」的 boolean 函數。DriveAnalysis 分析每個 node 的 PullDown(Expr) / PullUp(None/StaticLoad/StrongVcc/Conditional) / Pass（transmission-gate 寫埠）/ Hybrid（多 driver bus 無法純函數表示，標 hybrid → 交給 switch-level）。SccModel 復原 cross-coupled SRAM-cell latch（`NextExpr[a] = Mux(write_en, data, Prev(a))`）和 cross-coupled-NOR-with-load latch。
+- S2.4 = IR 直譯器，兩種模式：
+  - **checking 模式**：snapshot prevStates → `WireCore.Step(1)`（跑 S1 一個半週期）→ 驗證 `EvalExpr(NextExpr[v]) == NodeStates[v]` for 所有 observable node。已通過等價 gate（0 mismatch）。
+  - **driving 模式**：IR 自己驅動 netlist。流程：半週期開始 `PrevStates = NodeStates` snapshot → `RunHandlerChain()`（deferred，只 enqueue）→ `ProcessQueueOneLevel()`（一層 BFS）→ `RunFlatProgram()`（評估所有 driving-covered node）→ `ProcessQueue()`（settle 剩下的）。已通過等價 gate（0 mismatch）。
+  - flat program：把每個 `NextExpr[v]` 的 tree post-order 編成一個 stack-machine 指令流（ops: LoadNode / LoadPrev / Const0 / Const1 / Not / And / Or / Mux / StoreNode），`RunFlatProgram()` 一個 tight loop 跑完。比 recursive eval 快 ~1.46×。
+
+## 現況數字
+
+- **driving 模式比 S1 慢約 5.4×**：一個 benchmark（branch_timing test，跑兩個 frame = 1,369,455 個 master 半週期 = 57,061 個 6502 cycle，Release build）—— S1 = 29.7 秒；IR-driving + flat eval = 159.6 秒；recursive eval 更慢（232.7 秒，~8×）。
+- **IR coverage（整片 nes-001，14723 個 node）**：12523 個 IR-covered（85.1%，= `NextExpr[v] != null`）；6818 個 driving-evaluated（46.3%，= 有 NextExpr 且不在 SCC 裡、放進拓樸排序 EvalOrder）；**5705 個 node 在「current-value 的 NodeRef SCC」裡 → driving 模式直接交給 S1 的 ProcessQueue 跑**。flat program = 34,893 條指令。
+- **那 5705 個 InScc node 的結構**：2254 個 SCC，size 分布 = 703 / 79 / 54 / 38 / 26 / 20 / 14 / 13 / 11 / 11 / 11 / 9 / 8 / 一堆 7 / 一堆 6 / …… / 其餘大量 size-1（self-loop）。
+  - 那個 **703-node SCC 是 PPU（2C02）的**：含 PPU 內部的 master→pixel 時鐘除頻（clk0_int / pclk0 / pclk1）+ 一大堆 sprite-evaluation / OAM / shift-register 的 pass-transistor 網路（DriveAnalysis 沒能把它們化成乾淨的 Mux tree，所以這些 node 的 NextExpr 互相引用對方的 current value，繞成一個 703 長的環）。
+  - 還有一個 **~505-node SCC 是 APU 的**（在 2A03 裡）：frame counter / length counters / sweep units / 四個 channel 的 timer，全是 cross-coupled counter。
+  - 其餘是小 SCC（≤80）+ 大量 self-loop（T-flip-flop：`q_next = !q` 或 `Mux(en, !q, q)`）。
+
+## 為什麼慢（我的分析，三個成本）
+
+1. **(a) flat program 是 brute-force**：每個半週期無條件評估全部 ~6818 個 driving-covered node 的 NextExpr。S1 是 event-driven（只 RecalcNode 真的變了的那幾個 node）。一個 6502 cycle 裡實際 toggle 的 node 可能只有幾十到幾百個 → IR eval 做了約 10-100 倍的冗餘 node-work。我認為這是主要瓶頸（34893 條/半週期 × 1.37M 半週期 ≈ 478 億條指令）。
+2. **(b) bridge 冗餘 re-derive**：RunFlatProgram 的 StoreNode op 對每個變了的 IR node 做 `EnqueueNode(v)` → 接著 ProcessQueue `RecalcNode(v)`（重算它的 switch-level group → 算出同一個值）+ fan-out 到別的 IR node（又被重算一次）。我有一個 `OkToSkipInRecalc` 機制（IR-covered 且 channel-graph component 全是 IR-covered 且 NodeRef dep-closure 全是 IR-covered 的 node，ProcessQueue 可以 skip 它的 RecalcNode）—— 但條件太嚴，14723 個裡只有 184 個夠格，所以幾乎沒加速。
+3. **(c) 那 5705 個 InScc node 仍走完整 S1 ProcessQueue**（~39% 的 node）—— 這部分本來就跟 S1 一樣快，不是額外的問題；但 (a)+(b)+(c) 加起來 = 5.4× S1。
+
+## 提議的分階段計畫（請 review + 排優先序）
+
+**Step α — precise-enqueue bridge**（不改正確性，打成本 b）：StoreNode op 對 IR-covered 的 v 不 EnqueueNode(v)；改成 RunFlatProgram 跑完後，只把「真的變了的 IR node」的 **非-IR fanout**（gate-consumer + channel-neighbour，過濾掉 IR-covered 的）丟進 queue。ProcessQueue 於是只 settle InScc 子圖 + hybrid bus，不再重算 IR 那 46%。需要預算每個 driving-covered node 的「非-IR fanout 集合」（一次性，build 時建）。風險低。預期 driving 從 ~5.4× 降到 ~2-3× S1。
+
+**Step β — event-driven flat eval**（不改正確性，打成本 a，我認為是主要的 win）：只在「某個 input 這個半週期變了」時才重評估一個 IR node 的 NextExpr。維護一個 dirty queue；dep graph（已經建了「node w → 引用 Node(w) 的 IR node 們」）告訴髒污怎麼傳：半週期開始 snapshot → handler + bridge 把外部變化餵進來 → 沿 IR sub-DAG 在 EvalOrder 順序傳 dirty → 只重評估 dirty 的 node → 改了就把 consumer 標 dirty。風險中（要小心 IR↔InScc 跨邊）。
+- 替代設計：與其「IR flat eval（event-driven）+ S1 ProcessQueue（event-driven）+ bridge」三層，不如把兩個 event loop **合成一個** —— ProcessQueue 的 `RecalcNode(v)` 改成 `if (IsIr(v)) EvalAndSet(NextExpr[v]); else RecalcNode(v)`。難點：ProcessQueue 是 BFS-by-level、不是 topo order，但 NextExpr[v] 會引用「比 v 早 evaluate 的 node 的 Node(w)（current value）」—— 在非-topo 的 event loop 裡 w 可能還沒被處理。解法：IR node 之間用 EvalOrder 排（同一 BFS level 內先處理 EvalOrder 較前的）；或 IR node 一律只引用 Prev(w)（forward 邊也改 Prev，但會引入一個半週期延遲、可能要 settle 多輪）。
+
+**Step γ — 救回 InScc node**（打成本 c + 提升 coverage，要新的 IR 建模）：
+- self-loop SCC（絕大多數）：`q` 的 NextExpr[q] 引用 Node(q) → 改寫成 Prev(q)，self-edge 斷掉、q 變可 evaluate。前提：NextExpr[q] 真的是「Prev-值 + handler input」的函數（一個 register/flip-flop），不是碰巧 self-reference 的組合邏輯。需要 classifier。
+- 大 SCC（PPU 703、APU 505）：counter/divider/shift-register tangle。兩種子方案：(i) 通用 feedback-edge-set cut + Prev 替換（= 我之前試過然後 revert 掉的「Stage D」，但要加 classifier 只切「真的是 clocked-register 邊界」的邊；而且除頻鏈的 NextExpr 抽出來本身就是錯的、可能要重抽）；(ii) pattern-match 已知結構（T-FF 鏈 → /N counter；modulo-N counter with reload；LFSR shift register）→ 為它們發手寫 IR。
+- 之前 Stage D 為什麼壞掉（要避免重蹈）：盲目切 back-edge + Node→Prev → (1) 破 checking 模式（clk0_int 每半週期變 → Prev(n) ≠ Node(n)，下游讀到舊值 → 從 0 變 2091 個 mismatch）；(2) 除頻鏈抽出來的 NextExpr 本身就錯（driving 模式也壞）。
+
+## 想問你的（請逐題回答）
+
+1. **優先順序**：α → β → γ？還是 γ 先（先把 coverage 補滿、讓更多 node 受惠於 event-driven）？還是 β 先（直接打最大瓶頸）？給理由。
+2. **β 的「合成一個 event loop」vs「兩層 + bridge」**：哪個對？合成的話，IR node 的 Node(w) forward 引用怎麼在非-topo event loop 裡保證 w 先被處理？「全部改 Prev」會不會引入太多延遲、要 settle 多輪到不划算？
+3. **γ 的子方案 (i) 通用 edge-cut + classifier vs (ii) pattern-match**：哪個務實？「這條 feedback 邊是不是安全的 register 邊界」這個 classifier 怎麼建（看 gate 是不是某個 clock-like node？看兩端是不是 cross-coupled？看 transistor 的 weak/depletion flag？看 NextExpr 的形狀？）？對 NES 的 PPU/APU 那種 die，pattern-match 大概要 match 哪幾種 pattern？
+4. **更聰明的表示**：把 NextExpr 編成 C# delegate / 動態產生的 IL / 更 cache-friendly 的 bytecode（目前是 byte op-code + int arg 兩個平行陣列 + byte stack）值不值得？S4 本來就是 codegen（emit C++/Verilog + CUDA bit-sliced kernel）—— 要不要把一部分提前？bit-slicing 友善的 IR 長什麼樣？
+5. **目標詮釋**：對「整片 NES 跑快」這個目標，合理的 milestone 是什麼？單實例 CPU IR ≈ S1 就夠（剩下靠 GPU 32-way 並行）、還是 CPU 也得明顯贏 S1 才算數？IR coverage 拉到多少算「夠」（90%? 95%? 100%）？有沒有我沒想到的更划算的方向？
+
+========================================================================
+RESPONSE
+========================================================================
+身為編譯器與硬體驗證工程師，從你的終極目標（**GPU bit-parallel kernel**）來看，你現在的優化方向存在一個**戰略層級的矛盾**：
+
+CPU 模擬器想要快，通常靠 Event-driven（跳過不活躍的 node）；但 **GPU 架構極度討厭 Event-driven（queue 操作與 branch divergence 會殺死效能），GPU 最擅長的就是你現在嫌棄的「Brute-force Flat Program」（無條件全域計算）**。
+
+因此，你的 S3（CPU 效能優化）只是為了「加速驗證迴圈」，而不是最終產物。你的核心瓶頸其實是「IR Coverage 不足導致必須 fallback 到 S1」。如果無法把 PPU/APU 的大 SCC 化為 IR，你的 GPU bit-slicing 計畫根本無法實現（GPU 無法跑 switch-level BFS）。
+
+以下是針對你問題的務實回答與優先序排列：
+
+### 1. 優先順序：α → γ → (S4) → β
+
+**理由：**
+1.  **α (Precise-enqueue bridge) 必須先做**：這是架構上的 Bug 修復。成本極低（靜態建表），且能立刻消除 (b) 的冗餘。這是投資報酬率最高的防禦性優化。
+2.  **γ (救回 InScc node) 是專案生死線**：你最終要上 GPU bit-slicing，GPU 不能跑 S1 的 ProcessQueue。如果 PPU 那 703 個 node 和 APU 那 505 個 node 沒有變成 boolean IR，GPU 管線就斷了。**Coverage 才是你現在真正的 Blockers，不是 CPU 的 Event-driven 效能。**
+3.  **S4 (提前進入 Codegen 實驗) 優先於 β**：一旦 γ 解掉，直接把 Flat Program 轉成 C++ bit-slicing (32-bit `&`, `|`, `~`) 來驗證。這會比任何 C# 直譯器都快上百倍。
+4.  **β (Event-driven flat eval) 降級為「可選/延後」**：除非你開發過程中 C# 跑得慢到讓你無法忍受（例如跑一次 test bench 要等一小時），否則實作 β 只是在寫「最終 GPU 絕對用不到的程式碼」。有了 α，C# 直譯器應該就能回到與 S1 差不多的速度，這對開發驗證已經夠了。
+
+---
+
+### 2. β 的設計取捨：絕對選「兩層 + bridge」，不要合併 Event Loop
+
+如果你非得做 β，**絕對不能合併**。
+
+**理由與致命傷分析：**
+*   **本質衝突**：IR 邏輯模型的前提是 **Zero-delay (Topological Sort)**，只要一個 pass 就能算出穩態；S1 的 Switch-level BFS 依賴 **Propagation Delay (Levelized Event Queue)** 來解決爭用與電容充放電。
+*   **Forward 引用問題**：如果硬塞進非 Topo 的 Event Loop，當 node $A$ 變了，觸發計算 $B = A \land C$ 時，$C$ 可能在同一個半週期內也該變，但它還沒出現在 queue 裡。這會導致 $B$ 算出錯誤的過渡態（Glitch），並將這錯誤狀態傳播，甚至陷入無限震盪。
+*   **全部改 Prev 的代價**：把 Forward 邊改成 Prev 相當於把組合邏輯（Combinational Logic）強行變成以半週期為單位的 Pipeline Register。一個原本 5 級深度的 Mux Tree，會變成需要 5 個半週期（2.5 個 6502 cycle）才能 settle。這會徹底破壞 Cycle-accurate 驗證，絕對不可行。
+
+**正確的 β 實作**：
+維持 IR Topological Array。維護一個 `BitArray is_dirty` 和一個 `min_dirty_index`。
+1. Input 改變時，設定對應的 `is_dirty[index]`，更新 `min_dirty_index`。
+2. 從 `min_dirty_index` 開始往下遍歷 EvalOrder：
+   `if (is_dirty[i]) { val = Eval(); if (val != old) { set children dirty; update bridge queue; } }`
+這保留了 GPU flat program 的雛形，同時加上了 CPU 友善的 skip 機制。
+
+---
+
+### 3. γ 的 SCC 破解：務實策略是 (ii) Pattern-match + (i) 針對性 Edge-cut
+
+不要再用「盲目的 Feedback-edge-set cut」。Stage D 會壞掉是因為它切斷了「不能切」的邊（例如 multi-phase clock 的組合邏輯回饋）。
+
+**務實做法：**
+1.  **定義 Clock Domain (分類器核心)**：
+    NMOS 電路的 register 邊界 100% 由 Pass-transistor（傳輸閘）控制。你需要寫一個分析器，找出所有受 `clk0`, `pclk0`, `pclk1` 等全域/區域時脈驅動的 Pass-transistor 的寫入埠。**只有這些節點的輸入端，才有資格被標記為 `Prev()`。**
+2.  **Self-loop 處理 (針對性 Edge-cut)**：
+    對於 size-1 的 SCC，只要確定它是一個 Dynamic Latch（靠 parasitic capacitance 保持，由 clock 更新）或 Static Latch（有明確的 inverter 回饋迴路），且更新條件由 clock 決定，就安全地將迴路上的自身參考轉為 `Prev()`。
+3.  **PPU/APU 大 SCC (Pattern-match 為主)**：
+    703 個 node 的 SCC 通常是因為：
+    *   (a) **Bi-directional Pass Transistors** 被你的分析器誤認為 Combinational loop。
+    *   (b) **Clock Dividers**：除頻器本身是 T-FlipFlop 串聯。
+    *   **如何 Pattern-match**：
+        *   **Shift Registers / LFSR**：認出 `A = Mux(clk, Prev(B), Hold(A))` 的鏈條。
+        *   **Counters**：認出 Ripple-carry 的特徵。
+        *   手動將 PPU 內部的 Clock Generator 節點（那幾個分頻信號）強制升級為「Pseudo-Inputs」。在分析 NextExpr 前，先把它們切斷，當作獨立的子圖處理。只要打斷 Clock Generator 到後端邏輯的 cycle，703 的大 SCC 瞬間就會崩解成一堆幾十個 node 的小 SCC。
+
+---
+
+### 4. 更聰明的表示與 GPU 前置準備
+
+**不要浪費時間做 C# IL 動態生成或 Delegate 陣列。**
+
+如果你要寫 S4 的 GPU Codegen，你現在的 IR 必須往 **Bit-slicing-friendly** 的方向靠攏。
+*   **Bit-slicing 的神聖原則**：沒有 `if`，沒有 `switch`，只有 `&`, `|`, `^`, `~`。
+*   `Mux(cond, a, b)` 必須表示為：`(cond & a) | (~cond & b)`。
+*   `Hold` 必須表示為與時脈狀態的 bitwise 結合。
+
+**你現在該做的「更聰明表示」**：
+直接在 C# 裡寫一個 **Bit-sliced C++ 代碼產生器**。
+將 34,893 條指令的 Flat Program 輸出成一個巨大的 C++ 函數：
+```cpp
+// 32-instances in parallel
+uint32_t state_node_X = (state_node_Y & state_node_Z) | (~state_node_Y & state_node_W);
+```
+用 Clang/GCC 編譯這個 C++ 函數並開 `-O3` 跑跑看。現代 C++ 編譯器對這種 Static SSA 形式的巨大 Block 優化能力極強（會自動分配暫存器、做 Instruction Scheduling）。**這不僅是你驗證邏輯的最速解（保證比 C# 任何 Event-driven 都快），也是無痛過渡到 CUDA Kernel 的跳板。**
+
+---
+
+### 5. 目標詮釋：什麼才是「夠好」？
+
+1.  **IR Coverage 的及格線是 99% - 100%**：
+    只要還有哪怕 1% 的活躍邏輯留在 S1，你的 GPU 夢想就是死胡同。因為 GPU thread divergence 使得你無法把 S1 的 BFS ProcessQueue 塞進 kernel。所有會頻繁 toggle 的 node 必須 100% 進入 IR。唯有極少數「永遠不會動」的外部 pin config 可以豁免。
+2.  **單實例 CPU IR 不需要贏 S1 太多**：
+    S1 已經高度特化於單一模擬。你把 IR (Flat Program) 做到單實例只慢 S1 兩倍以內就算大獲全勝了，因為 **Flat Program 的成本不會隨著並行度增加而線性增加**（在 CPU 上可用 SIMD AVX2/AVX-512，一次算 8/16 台機器；在 GPU 上一次算 32/64 甚至萬台）。
+3.  **重新定義 Milestone**：
+    *   **M1**：完成 Step α，確保 C# 直譯器驗證速度回到可用範圍（~2x S1）。
+    *   **M2 (關鍵)**：完成 Step γ，用 Clock Domain 切割法與手動斷開 PPU/APU Clock Tree 的回饋邊，將 IR Coverage 拉到 98%+，消滅大於 20 個 node 的 SCC。
+    *   **M3**：跳過 β。直接寫一個陽春的 C++ CodeGen 輸出 Bit-sliced C++ 程式碼。把 32 個 test vector 塞進去跑，驗證與 S1 的等價性。
+    *   **M4**：把 C++ CodeGen 改成 CUDA/HLSL CodeGen，宣告勝利。
+
+**總結：別在 CPU 上過度優化一個未來 GPU 不會用的 Event-driven 引擎。把精力全部投入在解開 PPU/APU 的 SCC，把 coverage 衝滿，然後提早進入 C++ Bit-slicing 實驗。**

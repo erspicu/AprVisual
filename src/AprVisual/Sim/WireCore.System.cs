@@ -15,6 +15,12 @@ namespace AprVisual.Sim
 
         public static string SystemDefDir = "data/system-def";   // where the .js module files live
 
+        // When true (--system 2a03): compose / load a *bare 2A03* — just the `2a03` module (modified 6502 + APU
+        // die) under prefix "cpu" + a behavioral flat 64KB RAM/ROM (no 2C02, no board TTL, no cart-mmu). This is
+        // the proper "S3 CPU proof" object — measuring the IR engine's per-instance speed against S1's
+        // switch-level *for the CPU alone*, without the 2C02's giant SCC tangle dragging the bridge down.
+        public static bool UseBare2a03;
+
         // ── cached nodes / registers / memory, resolved by ResolveCachedNodes() after the netlist is built ──
         public static int N_Res = EmptyNode;          // the board "res" line (→ CIC → cpu.res / ppu.res)
         public static int N_PpuInVblank = EmptyNode;  // rising edge = frame boundary
@@ -34,6 +40,8 @@ namespace AprVisual.Sim
         /// </summary>
         public static void ComposeSystem(bool chrIsRam, bool isTestRom)
         {
+            if (UseBare2a03) { ComposeSystem2a03Bare(); return; }
+
             ResetBuild();   // clears all build-time state, re-registers vcc/vss
 
             var nes001 = LoadModuleDef(SystemDefDir, "nes-001");
@@ -58,6 +66,25 @@ namespace AprVisual.Sim
 
             // S1.5: collapse always-on shorts + drop dead transistors + compact ids (behaviour-preserving;
             // also the canonical netlist S2 will work on). Toggle off with WireCore.EnableLowering / --no-lower.
+            if (EnableLowering) LowerNetlist();
+            else LastLowerStats = "(lowering disabled — --no-lower)";
+        }
+
+        /// <summary>Compose just the `2a03` module (modified 6502 + APU) under prefix "cpu" — for the bare-2A03
+        /// rig (--system 2a03). Ties the inactive inputs: nmi/irq get a weak pull-up (they're active-low →
+        /// idle high), dbg gets an always-on pull-down (avoid the CPU's internal test mode). The clock (cpu.clk_in),
+        /// reset (cpu.res), and data bus (cpu.db[7:0] ↔ a behavioral flat 64 KB RAM/ROM) are wired up by
+        /// LoadSystem2a03Bare. Does NOT load nes-001 / the 2C02 / the board TTL / the cart-mmu.</summary>
+        public static void ComposeSystem2a03Bare()
+        {
+            ResetBuild();
+            var cpu = LoadModuleDef(SystemDefDir, "2a03");
+            AddInstance(cpu, "cpu");
+            // inactive tie-offs (so power-on settle / reset behave): nmi/irq idle high (active-low), dbg low.
+            int nmi = LookupNode("cpu.nmi"), irq = LookupNode("cpu.irq"), dbg = LookupNode("cpu.dbg");
+            if (nmi != EmptyNode && Nodes[nmi] is { } nn) nn.Pullups = 1;
+            if (irq != EmptyNode && Nodes[irq] is { } ni) ni.Pullups = 1;
+            if (dbg != EmptyNode) AddTransistor("dbg_gnd", gate: Npwr, c1: dbg, c2: Ngnd);   // always-on pull-down on the debug pin
             if (EnableLowering) LowerNetlist();
             else LastLowerStats = "(lowering disabled — --no-lower)";
         }

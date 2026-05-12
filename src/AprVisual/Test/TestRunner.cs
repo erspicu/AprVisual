@@ -46,6 +46,7 @@ namespace AprVisual.Test
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--trace-cmp":       if (i + 1 < args.Length) traceCmpPath = args[++i]; break;   // S2.4/2.6: IR vs S1 per-node per-half-cycle
                     case "--engine":          if (i + 1 < args.Length && args[++i] == "ir") useIr = true; break;   // "ir" → use the S2.4 IR-driving engine instead of S1's switch-level
+                    case "--system":          if (i + 1 < args.Length && args[++i] == "2a03") WireCore.UseBare2a03 = true; break;   // "2a03" → the bare-2A03 CPU-only rig (S3 CPU proof) instead of the full NES board
                     case "--diag-node":       if (i + 1 < args.Length) int.TryParse(args[++i], out AprVisual.Sim.Logic.IrEngine.DiagNode); break;  // with --trace-cmp: print details on each mismatch of this node id
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
@@ -361,6 +362,9 @@ namespace AprVisual.Test
                 int id = WireCore.LookupNode(nm);
                 Console.WriteLine($"    {nm,-12} = {(id == WireCore.EmptyNode ? "(no such node)" : id < m.NextExpr.Length ? m.Describe(id) : "?")}");
             }
+            // S2.4 / S3 picture: build the full IR engine (BuildEvalOrder + residual-SCC detection + the flat program)
+            AprVisual.Sim.Logic.IrEngine.Build();
+            Console.WriteLine($"  → IR engine: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount} IR-covered ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%), {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} driving-evaluated, {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in residual SCCs → S1, {AprVisual.Sim.Logic.IrEngine.SkippableInRecalcCount} bridge-skippable, {AprVisual.Sim.Logic.IrEngine.FlatInstrCount:N0} flat instrs; {WireCore.NonNullNodeCount} nodes total{(WireCore.UseBare2a03 ? "  [bare-2A03 rig]" : "")}");
             return 0;
         }
 

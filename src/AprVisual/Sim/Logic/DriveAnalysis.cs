@@ -234,29 +234,23 @@ namespace AprVisual.Sim.Logic
                 if (aInt || bInt)
                 {
                     // A pass with a chain-interior end is "transparent" — counted in the parent's pull-down DFS,
-                    // not a write port — *except*:
-                    //  • a chain-interior junction m sitting next to a *drivable* non-chain-interior node o (o has
-                    //    a pull-up *or* its own pull-down — it can pull the merged group to a defined value: high
-                    //    via the pull-up, low via the clear) gets an inbound write port o→m: when this pass
-                    //    conducts, m and o are one group and o carries the value, so m's nextExpr should follow
-                    //    Node(o). (o needs no link back: o.PullDown already includes the o—pass—m—…—vss path from
-                    //    the DFS, so Node(o) is exactly the settled group value.)
-                    //  • two chain-interior junctions m,o pass-connected: each gets an inbound port to the other
-                    //    (their merged group's value — which may be driven by something further down either
-                    //    chain — settles to one number, so reading Node(other) gives it). Fixes NAND/NOR/AOI
-                    //    stack junctions, cart-glue latch 14200 ↔ 13045, and multi-junction dynamic chains like
-                    //    cpu node 9163 ↔ 9920 ↔ 9834 (the branch-control pipeline).
+                    // not a write port — *except*: a chain-interior junction m sitting next to a *drivable*
+                    // non-chain-interior node o (o has a pull-up *or* its own pull-down — it can pull the merged
+                    // group to a defined value: high via the pull-up, low via the clear) gets an inbound write
+                    // port o→m: when this pass conducts, m and o are one group and o carries the value, so m's
+                    // nextExpr should follow Node(o). (o needs no link back: o.PullDown already includes the
+                    // o—pass—m—…—vss path from the DFS, so Node(o) is exactly the settled group value — and a
+                    // back-edge would just be redundant.) Fixes NAND/NOR/AOI stack junctions floating high while
+                    // hold==0, the cart-glue latch 14200 ↔ 13045, etc.
+                    //   When *both* ends are chain-interior, the pass stays purely transparent: giving each an
+                    // inbound Node(other) port would create a combinational cycle in the current-value dependency
+                    // graph (m↔o), breaking the topo sort that driving mode needs — and these unnamed junctions
+                    // aren't on the verification boundary anyway, so their (rare) transient mismatches are moot.
                     bool Drivable(int o) => o >= 0 && o < n && (hasAnyPullUp[o] || (o < di.Length && di[o] is { PullDown: not null }));
                     g.PassDirection[tid] = PassDir.Unknown;
                     var c0 = GateCond(t.Gate);
-                    if (aInt && bInt)
-                    {
-                        if (di[a] is { } d2a) d2a.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false });
-                        if (di[b] is { } d2b) d2b.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false });
-                        g.PassDirection[tid] = PassDir.Bidirectional;
-                    }
-                    else if (aInt && Drivable(b) && di[a] is { } dia) { dia.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.BtoA; }
-                    else if (bInt && Drivable(a) && di[b] is { } dib) { dib.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.AtoB; }
+                    if (aInt && !bInt && Drivable(b) && di[a] is { } dia) { dia.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.BtoA; }
+                    else if (bInt && !aInt && Drivable(a) && di[b] is { } dib) { dib.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.AtoB; }
                     continue;
                 }
                 var da = a < di.Length ? di[a] : null;

@@ -12,14 +12,20 @@ namespace AprVisual.Sim
         // not by StepCycle directly — see the note there. Kept here only for reference / diagnostics.
         public static int ClockNode = EmptyNode;
 
-        /// <summary>Mark a node dirty and propagate to quiescence.</summary>
-        public static void RecalcNodeList(int nn) { EnqueueNode(nn); ProcessQueue(); }
+        // When true, RecalcNodeList / SetHigh / SetLow / SetFloat only *enqueue* the dirty node(s) —
+        // they do NOT run ProcessQueue. The caller (S2.4 IrEngine.StepOne driving mode) owns the settle:
+        // it lets the handler chain enqueue the boundary changes, then evaluates the IR, then runs
+        // ProcessQueue itself (the hybrid bridge). Default false ⇒ S1's behaviour is exactly unchanged.
+        public static bool DeferRecalc;
 
-        /// <summary>Mark several nodes dirty and propagate to quiescence.</summary>
+        /// <summary>Mark a node dirty and propagate to quiescence (unless DeferRecalc, then just enqueue).</summary>
+        public static void RecalcNodeList(int nn) { EnqueueNode(nn); if (!DeferRecalc) ProcessQueue(); }
+
+        /// <summary>Mark several nodes dirty and propagate to quiescence (unless DeferRecalc, then just enqueue).</summary>
         public static void RecalcNodeList(ReadOnlySpan<int> list)
         {
             foreach (int nn in list) EnqueueNode(nn);
-            ProcessQueue();
+            if (!DeferRecalc) ProcessQueue();
         }
 
         /// <summary>Re-evaluate every (non-supply) node — used at power-on after Reset(). Port of Wires::recomputeAllNodes.</summary>
@@ -30,7 +36,7 @@ namespace AprVisual.Sim
             ProcessQueue();
         }
 
-        private static void EnqueueNode(int nn)
+        internal static void EnqueueNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
             if (RecalcHashNext[nn] == 0)
@@ -40,12 +46,30 @@ namespace AprVisual.Sim
             }
         }
 
+        /// <summary>Process exactly the nodes currently enqueued (one BFS level) — re-derives each, enqueueing
+        /// its fan-out into the *next* level (which is left for a later ProcessQueue). Used by S2.4 driving mode
+        /// to flush the handler-chain's boundary changes (clk, …) into NodeStates before the IR evaluation.</summary>
+        internal static void ProcessQueueOneLevel()
+        {
+            if (RecalcListNextCount == 0) return;
+            int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
+            int* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+            RecalcListCount = RecalcListNextCount;
+            RecalcListNextCount = 0;
+            for (int i = 0; i < RecalcListCount; i++)
+            {
+                int nn = RecalcList[i];
+                if (RecalcHash[nn] != 0) { RecalcNode(nn); RecalcHash[nn] = 0; }
+            }
+            RecalcListCount = 0;
+        }
+
         // Hard cap on settle passes. MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
         // We keep a generous hard cap so a non-converging region can't hang the whole simulation —
         // the state is a heuristic anyway (see MD/struct/01 §11.2). If this trips routinely it's a bug.
         private const int MaxSettlePasses = 1000;
 
-        private static void ProcessQueue()
+        internal static void ProcessQueue()
         {
             int iteration = 0;
             while (RecalcListNextCount != 0)
@@ -81,7 +105,7 @@ namespace AprVisual.Sim
             InvokeCallbacks();   // WireCore.Handlers.cs — memory accesses etc. fire once the dust settles
         }
 
-        private static void RecalcNode(int nn)
+        internal static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
             byte newState = ComputeNodeGroup(nn);   // WireCore.Group.cs — fills _groupBuf / _groupCount / _groupFlags

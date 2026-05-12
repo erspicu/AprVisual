@@ -25,6 +25,7 @@ namespace AprVisual.Sim.Logic
         public static byte[] PrevStates = [];    // [nodeId]; snapshot of NodeStates at the start of the current half-cycle
         public static bool Built;
 
+        public static DriveInfo?[] Drive = [];   // [nodeId]; DriveAnalysis result (PullDown / PullUp / Passes) — kept so γ.2 can classify latch nodes
         public static int IrCoveredCount;        // # of nodes with NextExpr != null (checking-mode coverage)
         public static int CheckedCount;          // # of nodes actually compared in checking mode (IrCoveredCount minus the skipped placeholders)
         public static int[] EvalOrder = [];      // driving mode: node ids the IR evaluates, topo-sorted by the current-value dependency graph (deps first)
@@ -32,6 +33,7 @@ namespace AprVisual.Sim.Logic
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
         public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
+        public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — the clock-fanout "synchronous register" heuristic over-cuts (catches some dynamic transmission-gate latches whose consumers genuinely need the *current* value, not Prev → mismatches in the 6502 R/W-timing logic + a palette-RAM cascade). Needs a precise register-boundary analysis. With γ.0+γ.1 driving coverage is 79.3% (843 nodes still in 56 SCCs → S1).
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
@@ -54,6 +56,7 @@ namespace AprVisual.Sim.Logic
         {
             var g   = NetlistGraph.BuildFrom();
             var di  = DriveAnalysis.Analyze(g);
+            Drive   = di;
             var s2  = NextStateModel.Build(g, di);
             var scc = SccModel.Build(g, di, s2);
             NextExpr = scc.NextExpr;
@@ -224,16 +227,69 @@ namespace AprVisual.Sim.Logic
                 return resolved;
             }
 
-            BuildDepGraph(); RunTarjan();
-            for (int iter = 0; iter < 8; iter++)
+            // γ.2's "synchronous register" test: v is a pure transmission-gate dynamic latch (di[v].Passes > 0,
+            // no pull-down, no pull-up) AND at least one of its write ports is gated by a *clock-like* signal —
+            // a node that gates many pass transistors (a real clock phase distributes to dozens of latches; a
+            // random control signal gates a handful). This excludes domino/precharge nodes (they have a
+            // conditional pull-up + an evaluate pull-down, and change *within* a half-cycle — Prev(them) is the
+            // wrong value for a same-half-cycle consumer). The clock-fanout map is built once below.
+            var clockGateFanout = new Dictionary<int, int>();
+            foreach (var d in Drive) if (d != null) foreach (var pl in d.Passes) if (pl.Cond is NodeRefExpr cnr) clockGateFanout[cnr.Id] = clockGateFanout.GetValueOrDefault(cnr.Id) + 1;
+            const int ClockGateThreshold = 6;
+            bool LatchLike(int v)
             {
-                int r = ResolveSmallSccs();
-                if (r == 0) break;
-                Size2ResolvedCount += r;
-                BuildDepGraph(); RunTarjan();   // NextExpr changed — re-detect (some bigger SCCs may now be size-2)
+                if (v < 0 || v >= Drive.Length || Drive[v] is not { } d) return false;
+                if (d.PullDown != null || d.PullUp != PullUpKind.None || d.Passes.Count == 0) return false;
+                foreach (var pl in d.Passes) if (pl.Cond is NodeRefExpr nr && clockGateFanout.GetValueOrDefault(nr.Id) >= ClockGateThreshold) return true;
+                return false;
+            }
+
+            // γ.2: topological-loop breaker. The residual SCCs (≥3 nodes — and any size-2 γ.1 couldn't dissolve)
+            // are shift registers / phase rings / synchronous counters built from clock-gated pass-transistor
+            // latches; the cycle is the combinational side (carry chains, "counter == k" detectors, the next
+            // ring stage) reading the latches' *current* values while the latches feed back. Within an SCC, that
+            // current value is — physically — the register state at the start of the half-cycle (the synchronous
+            // Next-State function reads Current State): rewrite every SCC-internal NodeRef(latch) → Prev(latch).
+            // The clock-phase muxes keep Node(clk) (transmission gates are level-sensitive; the clock dividers'
+            // own loops were dissolved by γ.1 so Node(clk) is now an acyclic node). Only SCC-internal edges are
+            // touched — pure feed-forward data paths (master-slave pipelines) aren't in SCCs, so no over-cut.
+            // Returns # of (consumer, latch) NodeRef edges cut.
+            int Gamma2BreakLoops()
+            {
+                int cut = 0;
+                foreach (var comp in SccComponents)
+                {
+                    if (comp.Length < 2) continue;
+                    if (comp.Any(v => v < InScc.Length && !InScc[v])) continue;     // already dissolved this pass (γ.1)
+                    var latchMembers = new HashSet<int>(comp.Where(LatchLike));
+                    if (latchMembers.Count == 0) continue;                          // a pure-combinational cycle ⇒ can't break it this way (extraction artifact → S1)
+                    foreach (int v in comp)
+                    {
+                        if (NextExpr[v] is not { } e) continue;
+                        var refs = new HashSet<int>(); CollectNodeRefs(e, refs);
+                        int hit = refs.Count(latchMembers.Contains);
+                        if (hit == 0) continue;
+                        NextExpr[v] = Substitute(e, id => latchMembers.Contains(id) ? Expr.Prev(id) : null);
+                        if (v < IsSequential.Length) IsSequential[v] = true;
+                        if (v < Hybrid.Length) Hybrid[v] = false;
+                        cut += hit;
+                    }
+                }
+                return cut;
+            }
+
+            BuildDepGraph(); RunTarjan();
+            int gamma2Cuts = 0;
+            for (int iter = 0; iter < 16; iter++)
+            {
+                int r1 = ResolveSmallSccs();
+                int r2 = Gamma2Enabled ? Gamma2BreakLoops() : 0;
+                Size2ResolvedCount += r1; gamma2Cuts += r2;
+                if (r1 == 0 && r2 == 0) break;
+                BuildDepGraph(); RunTarjan();   // NextExpr changed — re-detect
             }
             ResidualSccNodes = 0; foreach (int s in sccSizes) ResidualSccNodes += s;
-            if (Size2ResolvedCount > 0) Console.Error.WriteLine($"IrEngine: γ.1 dissolved {Size2ResolvedCount} node(s) from size-1/2 SCCs (1-/2-step substitution)");
+            if (Size2ResolvedCount > 0 || gamma2Cuts > 0) Console.Error.WriteLine($"IrEngine: γ.1 dissolved {Size2ResolvedCount} node(s) (size-1/2 substitution); γ.2 cut {gamma2Cuts} latch back-edge(s) (Node→Prev)");
             if (ResidualSccNodes > 0)
                 Console.Error.WriteLine($"IrEngine: {sccSizes.Count} residual current-value SCC(s) (sizes {string.Join(",", sccSizes.OrderByDescending(s => s).Take(20))}{(sccSizes.Count > 20 ? "…" : "")}) — {ResidualSccNodes} node(s) → driving mode hands them to S1: {string.Join(", ", sampleScc)}{(ResidualSccNodes > 16 ? " …" : "")}");
 

@@ -30,33 +30,36 @@ namespace AprVisual.Sim.Logic
             var m = new NextStateModel { NextExpr = new Expr?[n], IsSequential = new bool[n] };
             for (int v = 0; v < n; v++)
             {
-                var d = di[v];
-                if (d == null) continue;            // Supply / Input
-                if (d.Hybrid) { m.NextExpr[v] = null; continue; }   // switch-level handles it
-
-                Expr puFallback = d.PullUp switch
-                {
-                    PullUpKind.StaticLoad or PullUpKind.StrongVcc => Expr.True,
-                    PullUpKind.Conditional => Expr.Mux(d.PullUpCond ?? Expr.True, Expr.True, Expr.Hold(v)),   // precharge: clock on → 1, else hold
-                    _ => Expr.Hold(v),              // pure dynamic
-                };
-
-                Expr passChain = puFallback;
-                for (int i = d.Passes.Count - 1; i >= 0; i--)        // assumes one-hot pass selects → fold order doesn't matter
-                {
-                    var p = d.Passes[i];
-                    if (p.OwnerDrives != false) continue;            // only inbound (Other → v) passes drive v's value
-                    passChain = Expr.Mux(p.Cond, Expr.Node(p.Other), passChain);
-                }
-
-                Expr next = d.PullDown == null ? passChain : Expr.Mux(d.PullDown, Expr.False, passChain);   // pull-down wins
-                m.NextExpr[v] = next;
-                m.IsSequential[v] = ReferencesHoldSelf(next, v);
+                var e = SynthOne(di, v);
+                m.NextExpr[v] = e;
+                m.IsSequential[v] = e != null && ReferencesHoldSelf(e, v);
             }
             return m;
         }
 
-        private static bool ReferencesHoldSelf(Expr e, int self) => e switch
+        /// <summary>Synthesise node v's next-state Expr from its DriveInfo (§1.1 of the S2.2 design). null = hybrid / Supply / Input.
+        ///   Re-runnable: S2.3 re-synths a node after editing its DriveInfo.Passes (the write-source-of-a-recovered-latch fixup).</summary>
+        internal static Expr? SynthOne(DriveInfo?[] di, int v)
+        {
+            var d = v >= 0 && v < di.Length ? di[v] : null;
+            if (d == null || d.Hybrid) return null;
+            Expr puFallback = d.PullUp switch
+            {
+                PullUpKind.StaticLoad or PullUpKind.StrongVcc => Expr.True,
+                PullUpKind.Conditional => Expr.Mux(d.PullUpCond ?? Expr.True, Expr.True, Expr.Hold(v)),   // precharge: clock on → 1, else hold
+                _ => Expr.Hold(v),                                       // pure dynamic
+            };
+            Expr passChain = puFallback;
+            for (int i = d.Passes.Count - 1; i >= 0; i--)                // assumes one-hot pass selects → fold order doesn't matter
+            {
+                var p = d.Passes[i];
+                if (p.OwnerDrives != false) continue;                    // only inbound (Other → v) passes drive v's value
+                passChain = Expr.Mux(p.Cond, Expr.Node(p.Other), passChain);
+            }
+            return d.PullDown == null ? passChain : Expr.Mux(d.PullDown, Expr.False, passChain);   // pull-down wins
+        }
+
+        internal static bool ReferencesHoldSelf(Expr e, int self) => e switch
         {
             HoldExpr h => h.Id == self,
             NotExpr x  => ReferencesHoldSelf(x.Operand, self),

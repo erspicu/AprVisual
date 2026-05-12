@@ -339,7 +339,7 @@ namespace AprVisual.Test
             Console.WriteLine($"  S2.2 (before):  combinational={s2c}  sequential={s2s}  hybrid={s2h}   IR coverage ≈ {covBefore:F1}%");
             Console.WriteLine($"  recovered cross-coupled latches (hybrid → sequential): {m.RecoveredLatches}");
             Console.WriteLine($"  S2.3a (after):  combinational={comb}  sequential={seq}  hybrid={hyb}   IR coverage ≈ {covAfter:F1}%");
-            Console.WriteLine($"  {(covAfter >= 85.0 ? "→ ≥ 85% — S2.3 done enough; Stages B–E (SCC graph + cross-phase break) deferred. Move to S2.4." : "→ < 85% — Stages B–E (dependency graph + Tarjan + cross-phase break) still needed; or loosen the recovery pattern.")}");
+            Console.WriteLine($"  {(covAfter >= 85.0 ? $"→ ≥ 85% — IR-coverage target met. Remaining {hyb} hybrid (mostly genuine multi-driver buses + a few unrecovered complex latches). Stages B–E (dependency graph + Tarjan + cross-phase-cycle break) would squeeze a few % more; or move to S2.4 — the per-node equivalence check there validates everything." : "→ < 85% — Stages B–E (dependency graph + Tarjan + cross-phase break) still needed; or loosen the recovery pattern.")}");
 
             Console.WriteLine("  sample recovered latches (nextExpr = Mux(.., Prev(self))):");
             int ns = 0;
@@ -629,8 +629,8 @@ namespace AprVisual.Test
             var s2 = AprVisual.Sim.Logic.NextStateModel.Build(g, di);
             var m = AprVisual.Sim.Logic.SccModel.Build(g, di, s2);
             int f = 0;
-            f += Check("q was hybrid in S2.2 (bidirectional pass between two driven nodes)",
-                       di[10]!.Hybrid && (di[10]!.HybridReason?.Contains("bidirectional pass between two driven nodes") ?? false));
+            f += Check("q was hybrid in S2.2 (bidirectional pass between two strongly-driven nodes)",
+                       di[10]!.Hybrid && (di[10]!.HybridReason?.Contains("strongly-driven nodes") ?? false));
             f += Check("S2.3a recovered q: nextExpr == Mux(n_we, n_data, Prev(q)), sequential, not hybrid",
                        m.NextExpr[10]!.Equals(AprVisual.Sim.Logic.Expr.Mux(AprVisual.Sim.Logic.Expr.Node(12), AprVisual.Sim.Logic.Expr.Node(13), AprVisual.Sim.Logic.Expr.Prev(10))) && m.IsSequential[10] && !m.Hybrid[10]);
             f += Check("/q stays Not(Node(q)), combinational, not hybrid",

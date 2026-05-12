@@ -167,7 +167,15 @@ namespace AprVisual.Sim.Logic
             }
 
             // ── pass 2: Passes (each Pass transistor processed once, at v == C1; recorded on both ends) ──
-            bool HasDriver(DriveInfo d) => (d.PullDown != null && !d.PullDown.IsComplex) || d.PullUp != PullUpKind.None;
+            // Drive-strength tiers for the direction heuristic: 2 = "strong" (a pull-down conduction
+            // path = a real conditional 0-driver, or a hard VCC tie) — NMOS passes a strong 0/1 with no
+            // loss, so a strong driver overpowers the other side; 1 = "weak" (only a static depletion
+            // load / a precharge pull-up — loses to a strong path through the pass); 0 = none (pure
+            // dynamic, holds on parasitic cap). A pass is *directed* when the two sides differ in tier
+            // (the stronger drives the weaker); same tier ⇒ a contention / charge-share ⇒ hybrid.
+            int Tier(DriveInfo d) =>
+                (d.PullDown != null && !d.PullDown.IsComplex) || d.PullUp == PullUpKind.StrongVcc ? 2 :
+                d.PullUp is PullUpKind.StaticLoad or PullUpKind.Conditional ? 1 : 0;
             void MarkHybrid(DriveInfo d, string reason) { if (!d.Hybrid) { d.Hybrid = true; d.HybridReason = reason; } }
             for (int tid = 0; tid < trans.Count; tid++)
             {
@@ -181,13 +189,14 @@ namespace AprVisual.Sim.Logic
                 if (da == null || db == null) { g.PassDirection[tid] = PassDir.Unknown; continue; }   // (shouldn't happen — Pass ends are signal nodes)
 
                 bool aBus = a < g.Role.Length && g.Role[a] == NodeRole.Bus, bBus = b < g.Role.Length && g.Role[b] == NodeRole.Bus;
-                bool aDr = HasDriver(da), bDr = HasDriver(db);
+                int ta = Tier(da), tb = Tier(db);
                 bool? aDrivesB; string? hyReason = null;
-                if (aBus || bBus)      { aDrivesB = null;  hyReason = "bidirectional pass touching a bus node"; }
-                else if (aDr && !bDr)  { aDrivesB = true;  }
-                else if (!aDr && bDr)  { aDrivesB = false; }
-                else if (aDr && bDr)   { aDrivesB = null;  hyReason = "bidirectional pass between two driven nodes"; }
-                else                   { aDrivesB = null;  hyReason = "pass between two floating dynamic nodes (charge sharing)"; }
+                if (aBus || bBus)   { aDrivesB = null; hyReason = "bidirectional pass touching a bus node"; }
+                else if (ta > tb)   { aDrivesB = true;  }      // a's stronger driver overpowers b through the pass
+                else if (tb > ta)   { aDrivesB = false; }
+                else if (ta == 2)   { aDrivesB = null; hyReason = "bidirectional pass between two strongly-driven nodes (latch / contention)"; }
+                else if (ta == 1)   { aDrivesB = null; hyReason = "pass between two weakly-pulled-up nodes"; }
+                else                { aDrivesB = null; hyReason = "pass between two floating dynamic nodes (charge sharing)"; }
 
                 g.PassDirection[tid] = aDrivesB == true ? PassDir.AtoB : aDrivesB == false ? PassDir.BtoA : PassDir.Bidirectional;
                 Expr cond = GateCond(t.Gate);

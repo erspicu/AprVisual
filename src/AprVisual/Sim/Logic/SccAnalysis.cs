@@ -40,36 +40,60 @@ namespace AprVisual.Sim.Logic
             static bool HasDriver(DriveInfo? d) =>
                 d != null && ((d.PullDown != null && !d.PullDown.IsComplex) || d.PullUp != PullUpKind.None || d.Passes.Exists(p => p.OwnerDrives == false));
 
-            // ── Stage A: 2-node cross-coupled latch + ratioed write pass ──
-            for (int q = 0; q < n; q++)
+            // ── Stage A: 2-node cross-coupled latch + write port (structure-based — independent of how the
+            //    pass-direction heuristic classified the write pass). A pair {a, b}: di[a].PullDown is exactly
+            //    NodeRef(b) and di[b].PullDown is exactly NodeRef(a) (a cross-coupled inverter pair). The
+            //    "state node" S = whichever of {a,b} has a Pass to a node ≠ partner (a write port) — if both,
+            //    pick a; if neither, S = a (a non-writable, power-up-held latch). Synthesise
+            //      nextExpr[S] = Mux(we1, Node(data1), Mux(…, Prev(S)))   (ratioed write — data overpowers the
+            //                                                              weak feedback; else the pair holds)
+            //      nextExpr[C(omplement)] = Not(Node(S))
+            //    Both leave the hybrid set. For each write-source `data` whose pass to S the direction
+            //    heuristic mis-pointed as "S drives data" (so `data` currently follows S) — flip that link in
+            //    di[data].Passes (data drives S) and re-synth data so it no longer follows the latch.
+            var dirtyData = new HashSet<int>();
+            for (int a = 0; a < n; a++)
             {
-                var dq = di[q];
-                if (dq is not { Hybrid: true }) continue;
-                if (dq.HybridReason is not string reason || !reason.Contains("bidirectional pass between two driven nodes")) continue;
+                var da = di[a];
+                if (da == null) continue;
+                int b = SoleNodeRef(da.PullDown);
+                if (b <= a || b >= n || di[b] == null) continue;        // process each pair once, with a < b
+                if (SoleNodeRef(di[b]!.PullDown) != a) continue;        // confirm the 2-node cross-couple
+                if (da.PullUp is not (PullUpKind.StaticLoad or PullUpKind.StrongVcc)) continue;   // a static cross-couple (dynamic-latch variant deferred)
 
-                int r = SoleNodeRef(dq.PullDown);                       // Q's pull-down must be exactly NodeRef(R)
-                if (r < 0 || r >= n || di[r] == null) continue;
-                if (SoleNodeRef(di[r]!.PullDown) != q) continue;        // … and R's pull-down must be exactly NodeRef(Q) — confirms the 2-node cross-couple
-                if (dq.PullUp is not (PullUpKind.StaticLoad or PullUpKind.StrongVcc)) continue;   // static pull-up ⇒ a static cross-couple (not a dynamic latch — deferred)
+                // each side's write ports = its Pass transistors to a node ≠ the partner
+                static List<PassLink> WritePorts(DriveInfo d, int partner) => d.Passes.FindAll(p => p.Other != partner);
+                var wa = WritePorts(da, b);
+                var wb = WritePorts(di[b]!, a);
+                int sNode, cNode; List<PassLink> wports;
+                if (wa.Count > 0) { sNode = a; cNode = b; wports = wa; }       // a is the state node (has a write port)
+                else if (wb.Count > 0) { sNode = b; cNode = a; wports = wb; }  // b is
+                else { sNode = a; cNode = b; wports = wa; }                    // neither — non-writable; S = a, nextExpr = Prev(a)
 
-                Expr next = Expr.Prev(q);
-                bool hasWritePort = false;
-                for (int i = dq.Passes.Count - 1; i >= 0; i--)          // fold the write port(s) — assumes one-hot write-enables
+                Expr next = Expr.Prev(sNode);
+                foreach (var p in wports)                                       // fold right-to-left (assumes one-hot write-enables)
                 {
-                    var p = dq.Passes[i];
-                    if (p.OwnerDrives != null) continue;                // a directed pass, not a ratioed write port
                     if (p.Other < 0 || p.Other >= n || !HasDriver(di[p.Other])) continue;
                     next = Expr.Mux(p.Cond, Expr.Node(p.Other), next);
-                    hasWritePort = true;
+                    if (di[p.Other] is { Hybrid: false }) dirtyData.Add(p.Other);   // its DriveInfo.Passes may need the S-direction flip + re-synth
                 }
-                if (!hasWritePort) continue;                            // no usable write port → leave it hybrid
-
-                m.NextExpr[q] = next;
-                m.IsSequential[q] = true;
-                m.Hybrid[q] = false;
+                m.NextExpr[sNode] = next; m.IsSequential[sNode] = true; m.Hybrid[sNode] = false;
+                m.NextExpr[cNode] = Expr.Not(Expr.Node(sNode)); m.IsSequential[cNode] = false; m.Hybrid[cNode] = false;
                 m.RecoveredLatches++;
-                // R: single-rail case → R isn't hybrid, S2.2 already gave it Not(Node(Q)); dual-rail (R also hybrid)
-                //    is left alone here (a more complex pattern — deferred).
+
+                // fix the write sources: in their DriveInfo.Passes, the link to the state node should be
+                // "data drives S" (OwnerDrives = true from data's side) — the direction heuristic may have
+                // pointed it the other way; flip it so the re-synth below doesn't make `data` follow the latch.
+                foreach (var p in wports)
+                    if (p.Other >= 0 && p.Other < n && di[p.Other] is { } dd)
+                        for (int i = 0; i < dd.Passes.Count; i++)
+                            if (dd.Passes[i].Other == sNode) { var pl = dd.Passes[i]; pl.OwnerDrives = true; dd.Passes[i] = pl; }
+            }
+            foreach (int data in dirtyData)
+            {
+                if (m.Hybrid[data]) continue;
+                m.NextExpr[data] = NextStateModel.SynthOne(di, data);
+                m.IsSequential[data] = m.NextExpr[data] is { } e && NextStateModel.ReferencesHoldSelf(e, data);
             }
             return m;
         }

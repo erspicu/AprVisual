@@ -181,4 +181,4 @@ User 在 firing 10 後明確（回應「S4.4c 是什麼」）：
 - 附帶好處：採「float-artifact 豁免」（允許跟 S1 差 ~0.07%、那是 S1 event-queue-order 的 artifact、非「正確答案」）—— 對 GPU bit-sliced 反而**更對**（忠於邏輯/物理 > 忠於 S1 的人為 settle 順序）。
 
 **一句話**：S4 完，這份 code「沒有任何天生不能上 GPU 的東西」了、bit-sliced 草稿也擺著；但「跑得動、驗過的 GPU 版」是 S4.6 的事，且若目標是「一台即時」，GPU 大概贏不過 LLVM / event-driven 的 CPU 版 —— 所以先擺著。
-| 2026-05-12 | `<pending>` | 文件 §12 GPU readiness | 補一段回答 user「S4 完 code 就 GPU-ready 了嗎」：IR/codegen 形式 GPU-ready（branch-free 直線 + 有界小迴圈、bit-sliced emit 是 kernel 草稿）但「跑得動的 GPU 版」是 parked 的 S4.6；分(a)多台(已砍)/(b)一台即時(latency 戰、GPU 不見得贏 LLVM/event-driven)；S4 沒給的（GPU runtime / memory transpose / GPU 等價驗證）。 |
+| 2026-05-12 | `cc2b6b5` | 文件 §12 GPU readiness | 補一段回答 user「S4 完 code 就 GPU-ready 了嗎」：IR/codegen 形式 GPU-ready（branch-free 直線 + 有界小迴圈、bit-sliced emit 是 kernel 草稿）但「跑得動的 GPU 版」是 parked 的 S4.6；分(a)多台(已砍)/(b)一台即時(latency 戰、GPU 不見得贏 LLVM/event-driven)；S4 沒給的（GPU runtime / memory transpose / GPU 等價驗證）。 |

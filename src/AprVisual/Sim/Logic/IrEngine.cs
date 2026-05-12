@@ -31,7 +31,7 @@ namespace AprVisual.Sim.Logic
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
-        public static int Size2ResolvedCount;    // S3 γ.1: # of size-2 SCC pairs dissolved by two-step substitution (= 2× this many nodes left InScc)
+        public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
@@ -182,31 +182,44 @@ namespace AprVisual.Sim.Logic
                 for (int v = 0; v < n; v++) if (NextExpr[v] != null && idx[v] < 0) StrongConnect(v);
             }
 
-            // γ.1: dissolve size-2 SCCs by two-step substitution. Returns # of pairs resolved this pass.
-            int ResolveSize2()
+            void MarkResolved(int v, Expr e)
+            {
+                NextExpr[v] = e; InScc[v] = false;
+                if (v < IsSequential.Length) IsSequential[v] = true;
+                if (v < Hybrid.Length) Hybrid[v] = false;
+            }
+
+            // γ.1: dissolve size-1 self-loops (1-step substitution) and size-2 cross-coupled cells (2-step
+            // substitution — a_next = f_a(f_b(Prev), Prev), the fixpoint of a bistable cell). Returns # resolved.
+            int ResolveSmallSccs()
             {
                 int resolved = 0;
                 foreach (var comp in SccComponents)
                 {
-                    if (comp.Length != 2) continue;
-                    int a = comp[0], b = comp[1];
-                    var ea = NextExpr[a]; var eb = NextExpr[b];
-                    if (ea is null or ComplexExpr || eb is null or ComplexExpr) continue;
-                    Expr Sub(Expr e, int x, Expr xr, int y, Expr yr) => Substitute(e, id => id == x ? xr : id == y ? yr : null);
-                    var innerB = Sub(eb!, a, Expr.Prev(a), b, Expr.Prev(b));        // b's value after one iteration from prev
-                    var innerA = Sub(ea!, b, Expr.Prev(b), a, Expr.Prev(a));        // a's value after one iteration from prev
-                    var nextA  = Sub(ea!, b, innerB, a, Expr.Prev(a));              // a's value after b updated   (= fixpoint for a size-2 bistable cell)
-                    var nextB  = Sub(eb!, a, innerA, b, Expr.Prev(b));
-                    var ra = new HashSet<int>(); CollectNodeRefs(nextA, ra);
-                    var rb = new HashSet<int>(); CollectNodeRefs(nextB, rb);
-                    if (ra.Contains(a) || ra.Contains(b) || rb.Contains(a) || rb.Contains(b)) continue;   // shouldn't happen — defensive
-                    NextExpr[a] = nextA; NextExpr[b] = nextB;
-                    InScc[a] = InScc[b] = false;
-                    if (a < IsSequential.Length) IsSequential[a] = true;
-                    if (b < IsSequential.Length) IsSequential[b] = true;
-                    if (a < Hybrid.Length) Hybrid[a] = false;
-                    if (b < Hybrid.Length) Hybrid[b] = false;
-                    resolved++;
+                    if (comp.Length == 1)
+                    {
+                        int a = comp[0]; var ea = NextExpr[a];
+                        if (ea is null or ComplexExpr) continue;
+                        var nextA = Substitute(ea!, id => id == a ? Expr.Prev(a) : null);   // a holds Prev(a) where its expr fed back
+                        var ra = new HashSet<int>(); CollectNodeRefs(nextA, ra);
+                        if (ra.Contains(a)) continue;                                        // shouldn't happen — defensive
+                        MarkResolved(a, nextA); resolved++;
+                    }
+                    else if (comp.Length == 2)
+                    {
+                        int a = comp[0], b = comp[1];
+                        var ea = NextExpr[a]; var eb = NextExpr[b];
+                        if (ea is null or ComplexExpr || eb is null or ComplexExpr) continue;
+                        Expr Sub(Expr e, int x, Expr xr, int y, Expr yr) => Substitute(e, id => id == x ? xr : id == y ? yr : null);
+                        var innerB = Sub(eb!, a, Expr.Prev(a), b, Expr.Prev(b));        // b's value after one iteration from prev
+                        var innerA = Sub(ea!, b, Expr.Prev(b), a, Expr.Prev(a));        // a's value after one iteration from prev
+                        var nextA  = Sub(ea!, b, innerB, a, Expr.Prev(a));              // a's value after b updated   (= fixpoint for a size-2 bistable cell)
+                        var nextB  = Sub(eb!, a, innerA, b, Expr.Prev(b));
+                        var ra = new HashSet<int>(); CollectNodeRefs(nextA, ra);
+                        var rb = new HashSet<int>(); CollectNodeRefs(nextB, rb);
+                        if (ra.Contains(a) || ra.Contains(b) || rb.Contains(a) || rb.Contains(b)) continue;   // shouldn't happen — defensive
+                        MarkResolved(a, nextA); MarkResolved(b, nextB); resolved += 2;
+                    }
                 }
                 return resolved;
             }
@@ -214,13 +227,13 @@ namespace AprVisual.Sim.Logic
             BuildDepGraph(); RunTarjan();
             for (int iter = 0; iter < 8; iter++)
             {
-                int r = ResolveSize2();
+                int r = ResolveSmallSccs();
                 if (r == 0) break;
                 Size2ResolvedCount += r;
                 BuildDepGraph(); RunTarjan();   // NextExpr changed — re-detect (some bigger SCCs may now be size-2)
             }
             ResidualSccNodes = 0; foreach (int s in sccSizes) ResidualSccNodes += s;
-            if (Size2ResolvedCount > 0) Console.Error.WriteLine($"IrEngine: γ.1 dissolved {Size2ResolvedCount} size-2 SCC pair(s) (2-step substitution)");
+            if (Size2ResolvedCount > 0) Console.Error.WriteLine($"IrEngine: γ.1 dissolved {Size2ResolvedCount} node(s) from size-1/2 SCCs (1-/2-step substitution)");
             if (ResidualSccNodes > 0)
                 Console.Error.WriteLine($"IrEngine: {sccSizes.Count} residual current-value SCC(s) (sizes {string.Join(",", sccSizes.OrderByDescending(s => s).Take(20))}{(sccSizes.Count > 20 ? "…" : "")}) — {ResidualSccNodes} node(s) → driving mode hands them to S1: {string.Join(", ", sampleScc)}{(ResidualSccNodes > 16 ? " …" : "")}");
 

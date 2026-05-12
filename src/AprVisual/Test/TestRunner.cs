@@ -34,7 +34,7 @@ namespace AprVisual.Test
             int traceCycles = 64;
             int shotFrames = 3;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false, dumpNext = false;
+            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false, dumpNext = false, dumpScc = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -57,6 +57,7 @@ namespace AprVisual.Test
                     case "--dump-graph":      dumpGraph = true; break;   // S2.0: NetlistGraph role/kind classification
                     case "--dump-drive":      dumpDrive = true; break;   // S2.1: DriveAnalysis (per-node drive structure)
                     case "--dump-next":       dumpNext = true; break;    // S2.2: NextStateBuilder (per-node next-state Expr)
+                    case "--dump-scc":        dumpScc = true; break;     // S2.3: SccAnalysis (cross-coupled latch recovery + SCC)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -69,7 +70,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !dumpNext && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !dumpNext && !dumpScc && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -82,6 +83,7 @@ namespace AprVisual.Test
             if (dumpGraph) return DumpGraph();
             if (dumpDrive) return DumpDrive();
             if (dumpNext) return DumpNext();
+            if (dumpScc) return DumpScc();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -316,6 +318,47 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── S2.3 acceptance harness: build NetlistGraph + DriveAnalysis + NextStateBuilder + SccAnalysis,
+        //    print how many cross-coupled latches got recovered (hybrid → sequential), the IR coverage
+        //    before/after, sample recovered latches, remaining hybrid, spot-checks. Doesn't touch the sim. ──
+        private static int DumpScc()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var s2 = AprVisual.Sim.Logic.NextStateModel.Build(g, di);
+            var (s2c, s2s, s2h, _, _, _, _, _, _) = s2.Stats(di);
+            var m = AprVisual.Sim.Logic.SccModel.Build(g, di, s2);
+            var (comb, seq, hyb, total) = m.Stats(di);
+            double covBefore = 100.0 * (s2c + s2s) / Math.Max(1, total);
+            double covAfter  = 100.0 * (comb + seq) / Math.Max(1, total);
+            Console.WriteLine($"S2.3 SccAnalysis — Stage A (2-node cross-coupled latch recovery)");
+            Console.WriteLine($"  {WireCore.LastLowerStats}");
+            Console.WriteLine($"  S2.2 (before):  combinational={s2c}  sequential={s2s}  hybrid={s2h}   IR coverage ≈ {covBefore:F1}%");
+            Console.WriteLine($"  recovered cross-coupled latches (hybrid → sequential): {m.RecoveredLatches}");
+            Console.WriteLine($"  S2.3a (after):  combinational={comb}  sequential={seq}  hybrid={hyb}   IR coverage ≈ {covAfter:F1}%");
+            Console.WriteLine($"  {(covAfter >= 85.0 ? "→ ≥ 85% — S2.3 done enough; Stages B–E (SCC graph + cross-phase break) deferred. Move to S2.4." : "→ < 85% — Stages B–E (dependency graph + Tarjan + cross-phase break) still needed; or loosen the recovery pattern.")}");
+
+            Console.WriteLine("  sample recovered latches (nextExpr = Mux(.., Prev(self))):");
+            int ns = 0;
+            for (int v = 3; v < m.NextExpr.Length && ns < 10; v++)
+                if (v < m.IsSequential.Length && m.IsSequential[v] && !m.Hybrid[v] && m.NextExpr[v] is MuxExpr && m.NextExpr[v]!.Pretty().Contains("prev(") && m.NextExpr[v]!.Pretty().Length < 90)
+                    { Console.WriteLine($"    {m.Describe(v)}"); ns++; }
+            Console.WriteLine("  remaining hybrid (first 15, with reason):");
+            int nh = 0;
+            for (int v = 0; v < m.Hybrid.Length && nh < 15; v++)
+                if (m.Hybrid[v]) { Console.WriteLine($"    {WireCore.GetNodeName(v)}#{v}  — {di[v]?.HybridReason}"); nh++; }
+            Console.WriteLine("  spot-checks:");
+            foreach (var nm in new[] { "cpu.a0", "cpu.x0", "cpu.p0", "ppu.io_ce", "cpu.db0" })
+            {
+                int id = WireCore.LookupNode(nm);
+                Console.WriteLine($"    {nm,-12} = {(id == WireCore.EmptyNode ? "(no such node)" : id < m.NextExpr.Length ? m.Describe(id) : "?")}");
+            }
+            return 0;
+        }
+
         // ── Step 4+5 acceptance harness: hand-built tiny netlists (inverter / NAND / pass transistor /
         //    dynamic hold) driven via SetHigh/SetLow, checked against their truth tables.
         //    (cf. MD/struct/04 §13.3 and ref/metalnes-main chip_tests.cpp's pslatch/4021.) ──
@@ -330,6 +373,7 @@ namespace AprVisual.Test
             fails += TestNetlistGraph();
             fails += TestDriveAnalysis();
             fails += TestNextState();
+            fails += TestSccAnalysis();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -562,6 +606,36 @@ namespace AprVisual.Test
                        AprVisual.Sim.Logic.Expr.Mux(E(1), AprVisual.Sim.Logic.Expr.False, E(2)).Equals(AprVisual.Sim.Logic.Expr.And(AprVisual.Sim.Logic.Expr.Not(E(1)), E(2)))
                     && AprVisual.Sim.Logic.Expr.Mux(E(1), AprVisual.Sim.Logic.Expr.True, AprVisual.Sim.Logic.Expr.False).Equals(E(1))
                     && AprVisual.Sim.Logic.Expr.Mux(E(1), E(2), E(2)).Equals(E(2)));
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // S2.3: a hand-built cross-coupled latch — q ⟷ /q (two cross-coupled inverters, each with a
+        // static-load pull-up), plus a ratioed write pass q ↔ data gated by we (data is a driven node).
+        // S2.1 flags q (and data) hybrid ("bidirectional pass between two driven nodes"); S2.3 Stage A must
+        // recover q → nextExpr[q] = Mux(n_we, n_data, Prev(q)), sequential, not hybrid; /q stays Not(n_q).
+        private static int TestSccAnalysis()
+        {
+            Console.WriteLine("SccAnalysis (S2.3, Stage A):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "q"); WireCore.AddNode(11, "nq"); WireCore.AddNode(12, "we"); WireCore.AddNode(13, "data"); WireCore.AddNode(14, "g_data");
+            WireCore.AddTransistor("pd_q",    gate: 11, c1: 10, c2: WireCore.Ngnd); WireCore.Nodes[10]!.Pullups = 1;   // q's feedback pull-down (gate = /q)
+            WireCore.AddTransistor("pd_nq",   gate: 10, c1: 11, c2: WireCore.Ngnd); WireCore.Nodes[11]!.Pullups = 1;   // /q's feedback pull-down (gate = q)
+            WireCore.AddTransistor("pd_data", gate: 14, c1: 13, c2: WireCore.Ngnd); WireCore.Nodes[13]!.Pullups = 1;   // data is a driven node
+            WireCore.AddTransistor("write",   gate: 12, c1: 10, c2: 13);                                                // q ↔ data, gated by we (ratioed write port)
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var s2 = AprVisual.Sim.Logic.NextStateModel.Build(g, di);
+            var m = AprVisual.Sim.Logic.SccModel.Build(g, di, s2);
+            int f = 0;
+            f += Check("q was hybrid in S2.2 (bidirectional pass between two driven nodes)",
+                       di[10]!.Hybrid && (di[10]!.HybridReason?.Contains("bidirectional pass between two driven nodes") ?? false));
+            f += Check("S2.3a recovered q: nextExpr == Mux(n_we, n_data, Prev(q)), sequential, not hybrid",
+                       m.NextExpr[10]!.Equals(AprVisual.Sim.Logic.Expr.Mux(AprVisual.Sim.Logic.Expr.Node(12), AprVisual.Sim.Logic.Expr.Node(13), AprVisual.Sim.Logic.Expr.Prev(10))) && m.IsSequential[10] && !m.Hybrid[10]);
+            f += Check("/q stays Not(Node(q)), combinational, not hybrid",
+                       m.NextExpr[11]!.Equals(AprVisual.Sim.Logic.Expr.Not(AprVisual.Sim.Logic.Expr.Node(10))) && !m.IsSequential[11] && !m.Hybrid[11]);
+            f += Check("RecoveredLatches == 1", m.RecoveredLatches == 1);
             WireCore.Shutdown();
             return f;
         }
@@ -941,6 +1015,7 @@ namespace AprVisual.Test
                   AprVisual --dump-graph                (S2.0) build the NetlistGraph and print the node-role / transistor-kind classification + SelfCheck
                   AprVisual --dump-drive                (S2.1) run DriveAnalysis and print per-node drive structure stats (PullDown / PullUp / passes / hybrid + coverage)
                   AprVisual --dump-next                 (S2.2) run NextStateBuilder and print per-node nextExpr stats (combinational / sequential / hybrid + IR coverage + shapes)
+                  AprVisual --dump-scc                  (S2.3) run SccAnalysis and print the cross-coupled latch recovery + IR coverage before/after
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor / static-merge circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
                     [--no-lower]                         skip the S1.5 netlist-lowering pass (A/B comparison)

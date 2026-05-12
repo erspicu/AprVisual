@@ -1,0 +1,200 @@
+Timestamp: 2026-05-12T11:12:40
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# S2.3 — 回授 / SCC 分析（S2.3a 帶條件依賴圖 + Tarjan；S2.3b 打斷假 SCC + cross-coupled latch 回收 → 序向）
+
+> S2 的第 3 步。S2.2 後我們有：~8875 個非 hybrid node 的 `nextExpr`（5455 組合 + 3420 序向（含 `Hold(self)`））+ **5774 個 hybrid node（`nextExpr == null`）—— 其中 5534 個是「bidirectional pass between two driven nodes」，絕大多數是 register-bit / flag 的 cross-coupled latch**（兩個 cross-coupled inverter + 一個 write pass 到 driven 的 data；S2.1 認不出方向就標 hybrid）。S2.3 要：① 從 `nextExpr` + `DriveInfo` 建**帶條件的依賴圖**、Tarjan 找 SCC、按結構分類；② 把 cross-coupled latch 那一坨從 hybrid **回收成序向**（合成 `nextExpr`、用 `Prev(...)` 打斷環）→ IR 覆蓋率跳上去；剩下打不開的 → 維持 hybrid。**不建 IR 直譯器（S2.4）；不改模擬行為。**
+>
+> 工作流程（`00_計畫總覽.md` §3）：① 設計描述 → ② 丟 Gemini → ③ 評估採用 → ④ 實作 → ⑤ 驗證。可分多 firing（①寫設計+丟Gemini ②S2.3a 實作 ③S2.3b 實作 ④收尾+驗證+commit）。
+>
+> **承接**：node 角色 Supply/Input/Bus/Internal；`DriveInfo`{PullDown, PullUpKind{None,StaticLoad,StrongVcc,Conditional}, PullUpCond, Passes{Other,Cond,`bool? OwnerDrives`}, Hybrid, HybridReason}；`NextStateModel`{`NextExpr[]`, `IsSequential[]`}；`Expr`{Const,NodeRef,Not,And,Or,Mux,Hold,Prev,Complex}；2A03/2C02 有明確的兩相時鐘（`clk0`/`clk1`，互斥）。
+
+---
+
+## ① 設計描述
+
+### 1.1 S2.3a — 帶條件的依賴圖（Conditional Dependency Graph）+ Tarjan SCC
+
+**為什麼不建純靜態圖**（Gemini 的 S2-總覽 review 已採用）：在 NMOS 網表上對純靜態圖跑 Tarjan 會得到「跨多個 latch」的巨大無意義 SCC —— 因為 pass transistor 在硬體上常雙向 / 串成環。要建**帶條件的依賴圖**：
+
+- **node 集合**：所有 `nextExpr[N] != null` 的 node（含 §1.2 回收進來的 cross-coupled latch）。hybrid 的（回收不了的）不進圖（它們走 switch-level）。
+- **邊 + 條件**：`nextExpr[N]` 裡每個 `NodeRef(M)` → 一條 `N → M` 的邊，**邊上帶這個引用的「啟用條件」**（在 `nextExpr` 的 AST 裡，這個 `NodeRef(M)` 出現在哪個 `Mux` 的哪一分支下 → 條件 = 那些 Mux cond 的 AND/它們的 Not 的組合；最外層無條件 → `True`）。`Hold(M)` / `Prev(M)` **不產生組合邊**（那是「上一輪的值」，跨 cycle）。
+- **Tarjan SCC**（對組合邊；忽略邊條件先找 SCC，再用條件判哪些是假環）。size-1 無自環 → 不算 SCC（純組合 node）；size-1 有自環（`nextExpr[N]` 引用 `NodeRef(N)` —— 不是 `Hold(N)` 的話 → 真的自己引用自己 → 怪，可能是 ratioed feedback → 標 hybrid 或當 latch）；size≥2 → SCC。
+
+### 1.2 cross-coupled latch 回收（從 hybrid → 序向）
+
+S2.1 把「bidirectional pass between two driven nodes」標 hybrid。其中最常見的是 **2-node cross-coupled latch + write pass**：node `Q` 有下拉（條件 `pd_Q`，通常 = `NodeRef(/Q)` 或一個含 `/Q` 的式子）、static pull-up、一個 pass 到 `data`（gated by `we`）；對稱地 `/Q` 有下拉 `pd_/Q`（含 `Q`）、static pull-up（可能沒有 write pass，或有第二個 pass）。
+
+**辨識 pattern**（保守 —— 認不出的維持 hybrid）：
+- `Q` 是 hybrid、`HybridReason` 含 "bidirectional pass between two driven nodes"；
+- `Q` 的 hybrid 來源 pass 連到 `data`、gated by `we`；`data` 是「有 driver 的真 node」（`HasDriver(di[data])`，非 hybrid 或就算 hybrid 也有值）；
+- `Q` 有下拉 `pd_Q`，且 `pd_Q` 引用某個 node `R`（= `/Q` 的角色），而 `R` 的下拉 `pd_R` 引用 `Q` → 確認是 2-node cross-couple；
+- `Q` 有 static pull-up（`PullUpKind.StaticLoad`/`StrongVcc`）—— 沒有的話可能是 dynamic latch，另一種 pattern。
+
+**合成**（把 `Q` 當「state node」—— 它有 write port）：
+- `nextExpr[Q] = Mux(we, Node(data), Not(prev_pd_Q))`，其中 `prev_pd_Q` = `pd_Q` 但裡面的 `NodeRef(R)`（= `/Q`）換成 `Prev(R)`（打斷環）。化簡：若 `pd_Q == NodeRef(R)`（最常見：Q 的下拉就是 /Q 一個 gate）→ `Not(Prev(R)) = Prev(Q)`（因 `R = !Q` 恆成立）→ **`nextExpr[Q] = Mux(we, Node(data), Prev(Q))`** = 標準 D-latch。
+- `R`（= `/Q`）：它沒 write port → 當組合，跟原本 S2.2 給的一樣（`nextExpr[R] = Not(pd_R)`，`pd_R` 引用 `Node(Q)` —— 讀 Q 的現值）。但 `R` 在 S2.1 也可能被標 hybrid（如果 `R` 也有個 bidirectional pass）—— 那 `R` 也要回收（對稱）。
+- `Q` 標序向（`IsSequential[Q] = true`）；`R` 標組合。
+- 把 `Q` 從 hybrid 名單拿掉（`di[Q].Hybrid = false`）；`nextExpr[Q]` 設成上面的。
+
+**其他 pattern**（先列、firing 看狀況做）：
+- **dynamic latch with feedback**（沒 static pull-up，但有個 feedback inverter 維持值 + write pass）—— 類似，`nextExpr[Q] = Mux(we, Node(data), Prev(Q))`。
+- **set/reset latch**（有兩個 input pass，set 和 reset）—— `nextExpr[Q] = Mux(set, True, Mux(reset, False, Prev(Q)))` 之類。
+- **多 write port**（一個 reg bit 被多個來源寫，各自的 we）—— `Mux(we1, data1, Mux(we2, data2, Prev(Q)))`（one-hot 假設，跟 S2.2 一樣）。
+- 認不出的 / >2-node 強耦合 / bus-style 回授 → **維持 hybrid**，記 reason。
+
+### 1.3 S2.3b — 打斷剩下的真 SCC
+
+回收完 cross-coupled latch 後，重建依賴圖，再 Tarjan。剩下的 SCC：
+- **cross-phase pipeline 假環**：環上有一條邊的條件需要 `clk0`（或含 `clk0` 的 AND）、另一條需要 `clk1`，而 `clk0`/`clk1` 互斥 → 這個環在邏輯上不存在（它是個跨 phase 的 pipeline，不是同一拍的組合回授）→ **打斷**：把環上「在 phase 邊界更新」的那些 node 標序向，環內引用換 `Prev(...)`。判定「`clk0`/`clk1` 互斥」：先找出 `clk0`/`clk1`（或它們的對應 node）—— 從 nodenames 或 from 「`clk1 = !clk0`」這種結構推；保守起見也可以只認「直接是 `clk0` 或 `Not(clk0)` / `clk1`」的條件。
+- **同 phase async loop（RS latch、真回授）**：環裡沒有 clock 互斥 → 真的是個 latch / 回授結構。若能認出「state node + set/reset/data input」→ 改寫成序向（同 §1.2 的精神）；認不出 → **維持 hybrid**（整個 SCC 的 node 都標 hybrid）。
+- **bus-style 回授 / >2 強耦合**（典型在 2C02 的 OAM bus / sprite bus）→ 維持 hybrid（沒 strength 維度，bus-fight 解不了）。
+
+### 1.4 程式落點
+
+- 新檔 `src/AprVisual/Sim/Logic/SccAnalysis.cs`：
+  ```csharp
+  internal sealed class SccModel
+  {
+      public int[] SccId = [];            // [nodeId]; -1 = not in any SCC (pure combinational) or hybrid; else SCC index
+      public List<int>[] Sccs = [];       // SCC index → node ids
+      public SccKind[] SccKind = [];      // per-SCC classification
+      // updated copies (S2.3 may add/rewrite these vs the S2.2 NextStateModel):
+      public Expr?[] NextExpr = [];        // recovered/rewritten — Prev(...) breaks loops; null = still hybrid
+      public bool[] IsSequential = [];
+      public bool[] Hybrid = [];           // updated hybrid set (cross-coupled latches removed)
+      public static SccModel Build(NetlistGraph g, DriveInfo?[] di, NextStateModel s2);
+      // stats / introspection
+  }
+  enum SccKind { CrossCoupledLatch, SetResetLatch, DynamicLatchFeedback, CrossPhasePipeline, BusFeedback, Unknown }
+  ```
+  - 一個帶條件的依賴圖建構 + Tarjan + 環條件分析；§1.2 的 latch-pattern 辨識 + 合成；§1.3 的 SCC 打斷。
+  - `Expr` 加 `SubstNodeRef(Expr, Func<int, Expr?> remap)` helper（把 `NodeRef(M)` 換成 `remap(M)` ?? 原樣 —— 給「`NodeRef(/Q)` → `Prev(/Q)`」用）。
+- `TestRunner` 加 `--dump-scc`（`ComposeSystem` → ... → `SccAnalysis.Build` → 印：SCC 數 / 大小分佈、各 `SccKind` 數、回收了多少 cross-coupled latch（hybrid → 序向）、新的 IR 覆蓋率、剩餘 hybrid 數 + 前 N 個 reason、spot-check（某 register bit 應該被認成 `CrossCoupledLatch`、`nextExpr` = `Mux(we, data, Prev(self))`））。
+- `--selftest` 加 `TestSccAnalysis`（手刻一個 cross-coupled latch（兩個 inverter cross-couple + 一個 write pass）→ 驗它被認成 `CrossCoupledLatch`、state node 的 `nextExpr == Mux(we, Node(data), Prev(state))` 且序向、另一半是組合 `Not(Node(state))`；再手刻一個 cross-phase pipeline（兩個 latch、phi1/phi2）→ 驗環被打斷；再手刻一個無法回收的（>2-node 強耦合）→ 維持 hybrid）。
+- **不碰 `WireCore` 執行期。**
+
+### 1.5 驗證計畫
+
+- `dotnet build` 0/0（Debug + Release）；`--selftest` 全 PASS（含新 `TestSccAnalysis`）；`--trace branch_timing/1.Branch_Basics.nes --cycles 12` 跟前一個 commit 一致（S2.3 不改模擬輸出）。
+- `--dump-scc`（整片 NES）：
+  - SCC 數 / 大小：回收前一大坨大 SCC（pass 串成的），回收 + 打斷後應該縮成「很多 2-node SCC（被 `Prev` 打斷成 DAG 後其實不算 SCC 了）+ 少數真 bus-style 大 SCC」。
+  - 回收的 cross-coupled latch 數：希望**幾千個**（register bit 那一坨；5534 個 hybrid「bidirectional pass between two driven nodes」裡能回收的比例越高越好）。
+  - **新 IR 覆蓋率**：希望從 ~60.6% 跳到 **~85-98%**（看回收率）；剩餘 hybrid 主要是 2C02 的 OAM/sprite bus（bus-style 回授）。
+  - spot-check：某 CPU register bit（`cpu.a0` 或某個 `cpu./xxx` reg）→ 被認成 `CrossCoupledLatch`、`nextExpr` ≈ `Mux(<write_enable>, Node(<data_src>), Prev(self))`、序向。
+
+### 1.6 開放問題（丟 Gemini）
+
+1. cross-coupled latch 的辨識 pattern（§1.2）—— 6502/2C02 的 register bit 實際長這樣嗎？「state node = 有 write pass 的那個」這個 heuristic 對嗎（會不會兩個都有 write pass、或 write port 不是 pass 而是某種 gate）？2C02 的 VRAM-addr / scroll / OAM-addr 那些 latch 結構一樣嗎？
+2. 合成 `nextExpr[Q] = Mux(we, Node(data), Prev(Q))` 對嗎？ratioed write（`data` 強驅動、weak pull-up + feedback inverter 輸給它）—— 我的 IR 沒有 strength 維度，這樣模型化（write 時 `data` 直接覆蓋）對嗎？6502 裡有沒有「write 但不是 ratioed、而是先把 feedback 切斷再寫」的 latch（那種更乾淨，但 pattern 不同）？
+3. set/reset latch / 多 write port / dynamic latch with feedback —— 6502/2C02 上常見嗎？該不該 S2.3 就做，還是先只做最簡單的 2-node cross-couple、其他維持 hybrid（等覆蓋率不夠再補）？
+4. 「cross-phase pipeline 假環」的判定（環上有邊需 clk0、有邊需 clk1，clk0/clk1 互斥）—— 怎麼穩健地識別 `clk0`/`clk1`？從 nodenames（`clk0`/`clk1` 直接有名字）？從「`clk1 = Not(clk0)`」的結構？2A03/2C02 的兩相時鐘實際是怎麼產生的（一個外部 `clk` → 內部分相？）—— 這影響我怎麼找它們。
+5. 剩餘的 bus-style / >2 強耦合 SCC 維持 hybrid —— 對嗎？還是有辦法把 2C02 的 OAM bus 那種也抽出來（例如把整個 bus 當一個「多 driver 的 wired node」、`nextExpr` = `Mux` 鏈 over 各 driver 的 enable）？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+---
+
+## ② Gemini 分析回饋
+
+（待填 —— `cat MD/impl/S2/04_S2.3_SCC分析_設計.md > temp/s2_review_prompt.txt` + 引導句 → `python tools/knowledgebase/gemini_query.py -f temp/s2_review_prompt.txt` → 把 `tools/knowledgebase/message/<ts>.txt` 的 RESPONSE 摘要貼這。）
+
+## ③ 建議評估 & 採用
+
+（待填）
+
+## ④ 實作筆記
+
+（待填）
+
+## ⑤ 驗證結果
+
+（待填）
+
+============================================================
+以上是「把 Visual6502 / MetalNES 風格的 switch-level 電晶體網表轉成高階布林邏輯 IR」這工具的 S2.3 步驟（回授/SCC 分析：建帶條件的依賴圖、Tarjan 找 SCC、把 cross-coupled latch 從 hybrid 回收成序向（用 Prev(...) 打斷環）、打斷 cross-phase pipeline 假環、剩下打不開的維持 hybrid；不建 IR 直譯器、不改模擬）的設計（繁體中文）。背景：S1（整片 NES 開關層級模擬器）+ S1.5 lowering + S2.0（NetlistGraph：node 角色 + transistor kind）+ S2.1（DriveAnalysis：每 node 的 PullDown 條件 / PullUpKind / Passes+方向 / Hybrid）+ S2.2（NextStateBuilder：nextExpr[N]，把 DriveInfo 合成布林表達式）都完成；目前 IR 覆蓋率 ~60.6%，其中 hybrid 5774 個（5534 個是「bidirectional pass between two driven nodes」= register-bit/flag 的 cross-coupled latch）；S1 的 group resolution 優先鏈 = GND 贏 → VCC/pull-up → 外部驅動 → 保留前值 → 0。
+
+請做務實、具體、不客套的技術 review，特別針對 §1.6 那 5 個開放問題 + 以下：
+- 6502/2A03/2C02 的 register bit 實際結構（cross-coupled inverter pair + write pass？write port 是 ratioed 還是 break-before-make？state node 怎麼挑？）—— 你知道的話講明。2C02 的 VRAM-addr loopy register（v/t/x/w 那套）、scroll latch、OAM addr latch、sprite shift register —— 這些結構各長怎樣、能不能用 §1.2 的 pattern 抽？
+- §1.3 「cross-phase pipeline 假環」用 clk0/clk1 互斥來打斷 —— 2A03/2C02 的兩相非重疊時鐘實際怎麼產生（外部 master clk → 內部分相？哪些 node 是 phi1/phi2）？我怎麼穩健地識別它們？
+- S2.3 該做到哪個程度才算「夠」進 S2.4（IR 直譯器）—— 只回收最簡單的 2-node cross-couple、其他維持 hybrid（覆蓋率 ~?%）夠嗎？還是該把 set/reset、多 write port、dynamic latch with feedback 都做？bus-style（2C02 OAM bus）那種維持 hybrid 對嗎？
+- 整個 S2.3 的演算法（帶條件依賴圖 → Tarjan → 環條件分析 → latch 回收 → 打斷）有沒有更好的作法、或漏掉的 corner case？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一份針對 S2.3 設計的技術 Review。你的 S2.3 思路非常精準，特別是「利用 `Mux(we, data, Prev(self))` 合成 ratioed write」以及「用條件依賴圖 + Tarjan 抓環」的策略。這個步驟是整個編譯器從「緩慢的電路模擬」跨越到「高速邏輯執行」的分水嶺。
+
+以下針對你的 5 個開放問題與整體演算法進行務實的技術檢討：
+
+---
+
+### 1. 6502/2A03/2C02 的 Register Bit 結構與寫入 (對應 Q1, Q2)
+
+**事實與知識：**
+6502 與 2C02（NMOS）的靜態暫存器（如 A, X, Y, PC 等）**絕大多數就是依靠 Ratioed Logic (比例邏輯) 來寫入的 cross-coupled inverter pair**。
+它們沒有所謂的 break-before-make（切斷回授再寫入）複雜結構，而是簡單粗暴的：**寫入端（Pass Transistor + 驅動源）的尺寸/驅動力被設計得比回授 Inverter 的 Pull-up/Pull-down 大得多**。當 `we` 打開時，外部訊號直接「蓋過」回授迴路的弱驅動，強行改變狀態。
+
+**對這個計畫的具體影響 / 該怎麼改：**
+*   **合成模型 `Mux` 完全正確：** 你提出的 `nextExpr[Q] = Mux(we, Node(data), Prev(Q))` 是對 Ratioed Write 最完美的高階邏輯抽象。在邏輯層面，它等同於「如果寫入致能，不管現值為何都覆蓋；否則保持上一拍的值」。**你不需在 IR 中引入強度（Strength）維度**，強度衝突在硬體上是靠物理尺寸解決，在 IR 裡靠 `Mux` 的分支優先級解決即可。
+*   **如何挑選 State Node：** 「有 write pass 連接的那個 node」就是 State Node (Master)。另一個只是組合邏輯的 `Not(State)`。你的 Pattern 辨識條件非常穩健，請直接採用。
+*   **2C02 的特例：** 2C02 的 VRAM-addr (v/t) 和 Sprite Shift Register 有很多是 **Dynamic Latch**（沒有 static pull-up，只靠寄生電容 hold 值，再過一個 Inverter 輸出）。對於這種，S2.2 可能根本沒有標為 Hybrid（如果只有單向 Pass 寫入），只會產生 `Hold(Q)`。若它們被誤判為 Hybrid，用你計畫中的 Dynamic Latch with feedback pattern 抽出來即可。
+
+### 2. S2.3 該做到哪個程度？ (對應 Q3)
+
+**事實與知識：**
+S2 的核心目標是「大幅度提高 IR 覆蓋率以換取效能」，而不是「100% 抹除 Hybrid」。5534 個 bidirectional pass 佔了 Hybrid node 的 95% 以上。
+
+**對這個計畫的具體影響 / 該怎麼改：**
+*   **先只做最簡單的 2-node cross-coupled + write pass**。把這幾千個 node 處理掉，覆蓋率就能從 60% 衝到 85~90% 以上。
+*   **暫緩 SR Latch、Multi-write 與 Dynamic Latch**。SR Latch 在 6502 中通常用於中斷觸發器 (NMI/IRQ) 等控制邏輯，數量不多（可能幾十個）。Multi-write 的暫存器如果不符合單純的 2-node 結構，留在 S2.3a 維持 Hybrid 跑 S1 switch-level 模擬，對整體效能的拖累微乎其微。
+*   **效益評估：** 做到 2-node 回收後，直接跑 `--dump-scc`。如果 IR 覆蓋率 >85%，直接收工進 S2.4。不要在這裡過度陷入 corner case 的泥淖。
+
+### 3. Cross-phase pipeline 假環的判定與時鐘識別 (對應 Q4)
+
+**事實與知識：**
+6502 的兩相時鐘 (phi1, phi2) 是由外部輸入的 `CLK0` 經過內部分相電路產生的**非重疊 (Non-overlapping) 時鐘**。這意味著在邏輯上 `phi1 AND phi2 == False` 永遠成立。如果一個環的前半段需要 `phi1` 打開，後半段需要 `phi2` 打開，這個環在同一個時間切片 (Tick) 內是不通的，這就是標準的跨相管線，本質是序向，不是組合回授。
+
+**對這個計畫的具體影響 / 該怎麼改：**
+*   **不要用語法結構硬推 Mutex：** 從 AST 裡推導 `Not(clk0)` 很脆弱，因為中間可能過了好幾個 gate。
+*   **作法：設定「Mutex Pair 名單」**。在你的系統配置 (或 `NetlistGraph` 的某個 Configuration) 中，直接**寫死輸入或關鍵 Clock Node 的 ID / Name**。例如：已知 6502 的 node `1234` 是 phi1，node `5678` 是 phi2。
+*   **打斷演算法：** 當 Tarjan 找出一個 SCC 後，走訪環上所有邊的啟用條件 (Condition)。如果邊 A 的條件包含 `NodeRef(phi1)`，邊 B 的條件包含 `NodeRef(phi2)`，且 `(phi1, phi2)` 在你的 Mutex 名單中，則判定為假環。
+*   **打斷點選擇：** 隨便挑環上一顆「由時鐘 gated」的 Node，將其引用改為 `Prev(...)`，標記為序向即可。
+
+### 4. Bus-style / 大於 2 的強耦合 SCC (對應 Q5)
+
+**事實與知識：**
+2C02 的 OAM Bus 和 Sprite 匯流排是靠多個驅動器進行 Wired-OR / Wired-AND 或具有複雜 Priority 結構的總線。如果沒有精細的強度模型與總線衝突解決機制，硬轉布林邏輯極易出錯（例如 sprite zero hit 的 timing 很容易爛掉）。
+
+**對這個計畫的具體影響 / 該怎麼改：**
+*   **絕對維持 Hybrid。** 完全不要試圖在 S2.3 把 2C02 的 OAM bus 抽成 IR。S1 (WireCore) 裡有完整的群組解析與 GND/VCC/Pull-up 優先鏈，這對於處理這種 bus fight 是完美的。這正是 S2 架構保留 Hybrid Fallback 的最大價值。
+*   一旦 Tarjan 找出的 SCC 不是你認識的 latch pattern，**直接將該 SCC 內的所有 Node 標記回 Hybrid**。
+
+### 5. 整體演算法流程的微調 (對應 Q6)
+
+你設計的流程（先建圖 -> Tarjan -> 條件分析 -> Latch 回收 -> 打斷）邏輯上可行，但**順序微調一下會更乾淨、效能更好**：
+
+**建議的 S2.3 執行順序：**
+
+1.  **階段 A：Pattern 靜態回收 (S2.3a 預處理)**
+    *   在建圖**之前**，直接遍歷所有的 Node。
+    *   利用 §1.2 的 Heuristic 找出 `CrossCoupledLatch`。
+    *   直接修改其 `NextExpr` 為 `Mux(we, data, Prev(Q))`，將對應 Node `IsSequential = true`，並從 `Hybrid` 集合中剔除。
+    *   *理由：* 這些 latch 的結構極度固定（就是兩個 Node 互相依賴），不需要動用 Tarjan 就能找出。提早回收可以大幅減少建圖與 Tarjan 的節點數。
+2.  **階段 B：建帶條件的依賴圖 (Conditional Dependency Graph)**
+    *   對剩下的 (包含非 Hybrid 與剛轉為序向的 Node) 建立有向圖。注意：`Prev(X)` **不產生邊**。
+3.  **階段 C：Tarjan 找 SCC**
+    *   這時候找到的環，就是「階段 A 漏掉的未知結構」或「Cross-phase 假環」。
+4.  **階段 D：SCC 條件分析與打斷 (S2.3b)**
+    *   檢查每個 SCC 的邊條件。若符合 Clock Mutex 規則（phi1/phi2 互斥），使用 `Prev()` 打斷，標記被切斷的節點為序向。
+5.  **階段 E：無解 SCC 退回 Hybrid**
+    *   剩下的 SCC（既不是 Mutex 假環，也解不開），代表這是複雜組合回授或 Bus 結構。
+    *   **將該 SCC 內的所有節點 `Hybrid = true`**，把它們丟回給 S1 的 WireCore 處理。
+
+### 總結
+
+你的設計方向非常務實且精準。請大膽實作 **2-node CrossCoupledLatch Pattern 匹配 + `Mux(we, data, Prev(Q))`**。這一步做完，NES 模擬的 IR 化就已經跨過最難的門檻，後續 S2.4 的直譯器效能將會有爆發性的成長。不用擔心漏掉少數複雜的 Latch，退回 Hybrid 是極其安全的容錯機制。

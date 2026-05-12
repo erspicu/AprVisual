@@ -760,9 +760,61 @@ namespace AprVisual.Sim.Logic
             }
             sb.AppendLine("    }");
             sb.AppendLine("  }");
+            // S4.2b — the inline bus resolver (the S0/S1/W1 wired-resolution block, MD/impl/S4/00 §10). NOTE: this
+            // is a codegen artifact — the runtime (StepOneDriving) does NOT call it (the ping-pong is parked: the
+            // "settle to fixpoint" model can't reproduce S1's within-half-cycle event sequencing for the PPU's
+            // precharged-dynamic readout — see firing 13; the runtime keeps S1's ProcessQueue for the bus/SCC).
+            // It's emitted for the S4.5 LLVM backend / a future GPU port. Handler injection (the memory handlers
+            // driving the data bus): the host must, before calling this, OR `1` into bus_s1[bi] for bus nodes the
+            // handler drives high and bus_s0[bi] for ones it drives low — that's the part the codegen tool can't
+            // know; Step A here uses `=` (overwrite), so a host that wants injection should pre-set + change to `|=`.
+            int N = BusNodes.Length;
+            string busT = T;
+            string OrAll(System.Collections.Generic.List<string> parts) => parts.Count == 0 ? (bitsliced ? "0UL" : "0") : parts.Count == 1 ? parts[0] : "(" + string.Join("|", parts) + ")";
+            sb.AppendLine($"  static {busT}[] bus_s0 = new {busT}[{N}], bus_s1 = new {busT}[{N}], bus_w1 = new {busT}[{N}], bus_s0n = new {busT}[{N}], bus_s1n = new {busT}[{N}], bus_w1n = new {busT}[{N}];");
+            sb.AppendLine($"  static void Resolve_Buses({busT}[] cur, {busT}[] prev) {{   // {N} hybrid pass-transistor-bus nodes, K_PASS={BusKPass}");
+            sb.AppendLine($"    // Step A — local candidate generation (per bus: S0 = PullDown | LogicPass→0; S1 = StrongVcc | PullUpCond | LogicPass→1; W1 = StaticLoad)");
+            for (int bi = 0; bi < N; bi++)
+            {
+                var bn = BusNodes[bi];
+                var s0p = new System.Collections.Generic.List<string>();
+                if (bn.PullDown != null) s0p.Add(CsExpr(bn.PullDown));
+                var s1p = new System.Collections.Generic.List<string>();
+                if (bn.StrongVcc) s1p.Add(bitsliced ? "~0UL" : "1");
+                if (bn.PullUpCond != null) s1p.Add(CsExpr(bn.PullUpCond));
+                foreach (var (cond, other) in bn.LogicPasses)
+                {
+                    string c = CsExpr(cond), o = CsExpr(Expr.Node(other));
+                    s0p.Add(bitsliced ? $"({c}&~{o})" : $"({c}&(1-{o}))");
+                    s1p.Add($"({c}&{o})");
+                }
+                sb.AppendLine($"    bus_s0[{bi}]={Cast(OrAll(s0p))}; bus_s1[{bi}]={Cast(OrAll(s1p))}; bus_w1[{bi}]={(bn.StaticLoad ? (bitsliced ? "~0UL" : "(byte)1") : (bitsliced ? "0UL" : "(byte)0"))};   // #{bn.Id} {WireCore.GetNodeName(bn.Id)}");
+            }
+            sb.AppendLine($"    // Step B — bus-to-bus propagation (K_PASS, double-buffered: a conducting pass merges the two buses' drives)");
+            sb.AppendLine($"    for (int k = 0; k < {BusKPass}; k++) {{");
+            sb.AppendLine($"      System.Array.Copy(bus_s0, bus_s0n, {N}); System.Array.Copy(bus_s1, bus_s1n, {N}); System.Array.Copy(bus_w1, bus_w1n, {N});");
+            for (int bi = 0; bi < N; bi++)
+                foreach (var (cond, oi) in BusNodes[bi].BusPasses)
+                {
+                    string c = CsExpr(cond);
+                    sb.AppendLine($"      bus_s0n[{bi}]|=({c})&bus_s0[{oi}]; bus_s1n[{bi}]|=({c})&bus_s1[{oi}]; bus_w1n[{bi}]|=({c})&bus_w1[{oi}];");
+                }
+            sb.AppendLine($"      (bus_s0,bus_s0n)=(bus_s0n,bus_s0); (bus_s1,bus_s1n)=(bus_s1n,bus_s1); (bus_w1,bus_w1n)=(bus_w1n,bus_w1);");
+            sb.AppendLine($"    }}");
+            sb.AppendLine($"    // Step C — resolution (GND wins → VCC/pull-up → depletion → hold(=carried-over cur))");
+            for (int bi = 0; bi < N; bi++)
+            {
+                int id = BusNodes[bi].Id;
+                string rhs = bitsliced
+                    ? $"(~bus_s0[{bi}]&bus_s1[{bi}])|(~bus_s0[{bi}]&~bus_s1[{bi}]&bus_w1[{bi}])|(~bus_s0[{bi}]&~bus_s1[{bi}]&~bus_w1[{bi}]&cur[{id}])"
+                    : $"bus_s0[{bi}]!=0?0:bus_s1[{bi}]!=0?1:bus_w1[{bi}]!=0?1:cur[{id}]";
+                sb.AppendLine($"    cur[{id}]={Cast(rhs)};");
+            }
+            sb.AppendLine("  }");
             sb.Append($"  public static void Step({T}[] cur, {T}[] prev) {{");
             for (int ci = 0; ci < nChunks; ci++) sb.Append($" Step_chunk_{ci}(cur,prev);");
             sb.Append(" Step_scc_fixedK(cur,prev);");
+            if (N > 0) sb.Append(" Resolve_Buses(cur,prev);");
             sb.AppendLine(" }");
             sb.AppendLine("}");
             return sb.ToString();

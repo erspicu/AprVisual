@@ -33,6 +33,8 @@ namespace AprVisual.Sim.Logic
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
+        public static int BusLoweredCount;       // S4 γ.4: # of hybrid pass-transistor-bus nodes given a wired-resolution pseudo-NextExpr (BusLowering.Apply)
+        public static bool EnableBusLowering = false; // S4 γ.4 (WIP, disabled): gives the ~1379 hybrid bus nodes a wired-AND pseudo-NextExpr → IR coverage 85%→99.5%, BUT (a) 2 rare checking-mode mismatches (the model is an approximation: io_db1, u1._d0 — handler-driven / multi-bus-floating-group edge cases), (b) the buses are so mutually pass-coupled that modelling them folds ~10K nodes into one giant SCC (driving-mode coverage 79%→31%; fixed-K (S4.3) would handle it but K may be large). Needs refinement (exclude handler-driven nodes; maybe a smarter model / leave the deepest data buses to S1).
         public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
         public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — dissolves 821/843 SCC nodes correctly (hpos counter, APU DMC, chroma ring, …) but still over-cuts ~2-3 spots (a 6502 pipeline register reading a non-stable data source, a palette-RAM cascade) → checking 2 mismatches + a driving cascade. Root issue: the "register reads Prev(data)" model assumes data is stable until the register's clock edge, which fails when data depends on a register clocked by an earlier derived phase within the same master half-cycle. Needs more thought (asking Gemini). With γ.0+γ.1 driving coverage is 79.3% (843 nodes in 56 SCCs → S1).
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
@@ -74,6 +76,7 @@ namespace AprVisual.Sim.Logic
             NextExpr = scc.NextExpr;
             IsSequential = scc.IsSequential;
             Hybrid = scc.Hybrid;
+            BusLoweredCount = EnableBusLowering ? BusLowering.Apply(NextExpr, Drive) : 0;   // S4 γ.4 (disabled — see EnableBusLowering): give hybrid pass-transistor-bus nodes a wired-resolution pseudo-NextExpr
             AliasedNodeCount = NodeAlias.Apply(NextExpr);   // S3 γ.0: fold pure buffer/inverter nodes out of the dependency graph (no NodeRef points at one) — shrinks SCCs before BuildEvalOrder / γ.1
             int n = Math.Max(NextExpr.Length, WireCore.NodeCount);
             PrevStates = new byte[n];

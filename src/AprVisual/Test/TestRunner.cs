@@ -33,7 +33,7 @@ namespace AprVisual.Test
             int traceCycles = 64;
             int shotFrames = 3;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false, dumpGraph = false;
+            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -54,6 +54,7 @@ namespace AprVisual.Test
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--dump-graph":      dumpGraph = true; break;   // S2.0: NetlistGraph role/kind classification
+                    case "--dump-drive":      dumpDrive = true; break;   // S2.1: DriveAnalysis (per-node drive structure)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -66,7 +67,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -77,6 +78,7 @@ namespace AprVisual.Test
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
             if (dumpGraph) return DumpGraph();
+            if (dumpDrive) return DumpDrive();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -233,6 +235,46 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── S2.1 acceptance harness: build NetlistGraph + DriveAnalysis from the lowered netlist, print
+        //    the drive-structure stats (PullDown some/none/complex, PullUp kinds, transmission-gate count,
+        //    Hybrid count + reasons, sample clean gates, spot-checks). Doesn't touch the sim. ──
+        private static int DumpDrive()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var (total, complexPd, hybrid, pdNull, pdSome, pu, passLinks, bidir) = AprVisual.Sim.Logic.DriveAnalysis.Stats(di, g);
+            Console.WriteLine($"S2.1 DriveAnalysis — from the lowered netlist + S2.0 graph");
+            Console.WriteLine($"  {WireCore.LastLowerStats}");
+            Console.WriteLine($"  nodes with DriveInfo: {total}  (Internal+Bus; Supply/Input skipped)");
+            Console.WriteLine($"  PullDown:  some={pdSome}  none={pdNull}  complex={complexPd}");
+            var puNames = Enum.GetNames<AprVisual.Sim.Logic.PullUpKind>();
+            Console.WriteLine($"  PullUp:    {string.Join("  ", puNames.Select((nm, i) => $"{nm}={pu[i]}"))}");
+            Console.WriteLine($"  transmission-gate passes: {passLinks}  (Bidirectional={bidir})");
+            Console.WriteLine($"  Hybrid nodes: {hybrid}  ({100.0 * hybrid / Math.Max(1, total):F1}%)   → S2.1 IR coverage ≈ {100.0 * (total - hybrid) / Math.Max(1, total):F1}%");
+
+            Console.WriteLine("  first hybrid nodes (with reason):");
+            int shown = 0;
+            for (int v = 0; v < di.Length && shown < 30; v++)
+                if (di[v] is { Hybrid: true } d) { Console.WriteLine($"    {WireCore.GetNodeName(v)}#{v}  — {d.HybridReason}"); shown++; }
+
+            Console.WriteLine("  sample clean gates (PullUp=StaticLoad, simple PullDown):");
+            int ns = 0;
+            for (int v = 3; v < di.Length && ns < 8; v++)
+                if (di[v] is { Hybrid: false, PullUp: AprVisual.Sim.Logic.PullUpKind.StaticLoad } d && d.PullDown != null && !d.PullDown.IsComplex && d.PullDown.Pretty().Length is > 4 and < 50)
+                    { Console.WriteLine($"    {AprVisual.Sim.Logic.DriveAnalysis.Describe(d, v)}"); ns++; }
+
+            Console.WriteLine("  spot-checks:");
+            foreach (var nm in new[] { "cpu.db0", "ppu.io_db0", "res", "clk" })
+            {
+                int id = WireCore.LookupNode(nm);
+                Console.WriteLine($"    {nm,-12} = {(id == WireCore.EmptyNode ? "(no such node)" : id < di.Length ? AprVisual.Sim.Logic.DriveAnalysis.Describe(di[id], id) : "?")}");
+            }
+            return 0;
+        }
+
         // ── Step 4+5 acceptance harness: hand-built tiny netlists (inverter / NAND / pass transistor /
         //    dynamic hold) driven via SetHigh/SetLow, checked against their truth tables.
         //    (cf. MD/struct/04 §13.3 and ref/metalnes-main chip_tests.cpp's pslatch/4021.) ──
@@ -245,6 +287,7 @@ namespace AprVisual.Test
             fails += TestCallback();
             fails += TestStaticMerge();
             fails += TestNetlistGraph();
+            fails += TestDriveAnalysis();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -402,6 +445,40 @@ namespace AprVisual.Test
             f += Check("a -> Input (only ever a gate)", g.Role[WireCore.LookupNode("a")] == AprVisual.Sim.Logic.NodeRole.Input);
             f += Check("y -> Internal (a channel end of pd_y/load_y)", g.Role[WireCore.LookupNode("y")] == AprVisual.Sim.Logic.NodeRole.Internal);
             f += Check("SelfCheck() == OK",         g.SelfCheck() == "OK");
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // S2.1: hand-built tiny netlist — inverter (y=!a, static-load pull-up), NAND (z=!(b&c) series stack
+        // with a transparent interior 'mid'), and a transmission-gate pass (r↔q gated by 'sel'; q drives a
+        // fake gate so q is NOT a stack interior → the pass is a mux; r has a pull-up so r drives q).
+        private static int TestDriveAnalysis()
+        {
+            Console.WriteLine("DriveAnalysis (S2.1):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "y");
+            WireCore.AddNode(12, "b"); WireCore.AddNode(13, "c"); WireCore.AddNode(14, "z"); WireCore.AddNode(15, "mid");
+            WireCore.AddNode(16, "sel"); WireCore.AddNode(17, "r"); WireCore.AddNode(18, "q"); WireCore.AddNode(19, "sink");
+            WireCore.AddTransistor("inv",   gate: 10, c1: 11, c2: WireCore.Ngnd);   WireCore.Nodes[11]!.Pullups = 1;   // y = !a
+            WireCore.AddTransistor("nand1", gate: 12, c1: 14, c2: 15);                                                  // b: z—mid
+            WireCore.AddTransistor("nand2", gate: 13, c1: 15, c2: WireCore.Ngnd);   WireCore.Nodes[14]!.Pullups = 1;   // c: mid—vss
+            WireCore.AddTransistor("pass_sel",   gate: 16, c1: 17, c2: 18);          WireCore.Nodes[17]!.Pullups = 1;   // sel: r <> q  (transmission gate; r driven)
+            WireCore.AddTransistor("fakegate_q", gate: 18, c1: 19, c2: WireCore.Ngnd); WireCore.Nodes[19]!.Pullups = 1; // q gates this → q is a real signal, not a stack node
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var dy = di[11]!; var dz = di[14]!; var dr = di[17]!; var dq = di[18]!;
+            int f = 0;
+            f += Check("y: pullDown == n_a, pullUp == StaticLoad, no passes, not hybrid",
+                       dy.PullDown!.Equals(AprVisual.Sim.Logic.Expr.Node(10)) && dy.PullUp == AprVisual.Sim.Logic.PullUpKind.StaticLoad && dy.Passes.Count == 0 && !dy.Hybrid);
+            f += Check("z: pullDown == (n_b & n_c), pullUp == StaticLoad, not hybrid",
+                       dz.PullDown!.Equals(AprVisual.Sim.Logic.Expr.And(AprVisual.Sim.Logic.Expr.Node(12), AprVisual.Sim.Logic.Expr.Node(13))) && dz.PullUp == AprVisual.Sim.Logic.PullUpKind.StaticLoad && !dz.Hybrid);
+            f += Check("'mid' classified as a stack interior (Gates.Count==0, no pull-up)",
+                       di[15] != null && di[15]!.PullDown != null && di[15]!.Passes.Count == 0);
+            f += Check("r↔q recorded as a transmission-gate pass on both ends (q.Passes→r, r.Passes→q), q has no pull-down",
+                       dq.Passes.Any(p => p.Other == 17) && dr.Passes.Any(p => p.Other == 18) && dq.PullDown == null);
+            f += Check("r↔q direction: r drives q (r has a pull-up; q is dynamic)",
+                       dr.Passes.Single(p => p.Other == 18).OwnerDrives == true && dq.Passes.Single(p => p.Other == 17).OwnerDrives == false);
             WireCore.Shutdown();
             return f;
         }
@@ -779,6 +856,7 @@ namespace AprVisual.Test
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual --dump-graph                (S2.0) build the NetlistGraph and print the node-role / transistor-kind classification + SelfCheck
+                  AprVisual --dump-drive                (S2.1) run DriveAnalysis and print per-node drive structure stats (PullDown / PullUp / passes / hybrid + coverage)
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor / static-merge circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
                     [--no-lower]                         skip the S1.5 netlist-lowering pass (A/B comparison)

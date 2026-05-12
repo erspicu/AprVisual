@@ -29,6 +29,7 @@ namespace AprVisual.Test
         {
             string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null, dumpEmittedLl = null, dumpEmittedVerilog = null, dumpEmittedHlsl = null;
             bool llvmCodegenTestFlag = false, dumpTopoLevels = false;
+            int gpuBenchN = 0;
             bool emitBitsliced = false;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -76,6 +77,7 @@ namespace AprVisual.Test
                     case "--llvm-spike":      return LlvmSpike();   // S4.5 phase 0: verify the LLVMSharp.Interop + libLLVM toolchain (build int add(int,int), JIT, run)
                     case "--gpu-spike":       { var (gok, gmsg) = AprVisual.Sim.Logic.GpuSpike.Run(); Console.WriteLine($"S4.6 G.0 GPU compute spike: {gmsg}"); return gok ? 0 : 1; }   // S4.6 phase 0: verify the D3D11 compute toolchain (runtime HLSL compile + dispatch + readback)
                     case "--dump-topo-levels": dumpTopoLevels = true; break;   // S4.6 G.1: report EvalOrder's topological-layer structure (how parallelizable the DAG is per half-cycle)
+                    case "--gpu-bench": { gpuBenchN = 5000; if (i + 1 < args.Length && int.TryParse(args[i + 1], out int gbn) && gbn > 0) { gpuBenchN = gbn; i++; } break; }   // S4.6 G.a: dispatch gpuRun() once (N half-cycles all on GPU, no CPU round-trip), report the rate (skips SCC/bus/handlers — DAG eval only ~ 80% of the work)
                     case "--llvm-no-opt":     AprVisual.Sim.Logic.LlvmCodegen.Optimize = false; break;   // S4.5: skip the (TODO) default<O3> pipeline before MCJIT
                     case "--dump-emitted-ll": dumpEmittedLl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.5: write the LLVM IR for `step` to a file ("-" = stdout)
                     case "--dump-emitted-verilog": dumpEmittedVerilog = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.6 bonus: write the Verilog module (IR → RTL) to a file ("-" = stdout)
@@ -111,6 +113,7 @@ namespace AprVisual.Test
             if (dumpEmittedVerilog != null) return DumpEmittedVerilog(dumpEmittedVerilog);
             if (dumpEmittedHlsl != null) return DumpEmittedHlsl(dumpEmittedHlsl);
             if (dumpTopoLevels) return DumpTopoLevels();
+            if (gpuBenchN > 0) return GpuBench(gpuBenchN);
             if (llvmCodegenTestFlag) return LlvmCodegenTest();
             if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
             if (traceCmpPath != null) return useIr ? TraceCmpDrive(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles)
@@ -384,6 +387,33 @@ namespace AprVisual.Test
             if (outPath == "-") Console.Out.Write(ir);
             else { File.WriteAllText(outPath, ir); Console.Error.WriteLine($"# written to {outPath}"); }
             return 0;
+        }
+
+        // S4.6 G.a — "speed-only" GPU benchmark: dispatch gpuRun() once (N half-cycles all on the GPU, no CPU
+        // round-trip), report the per-half-cycle rate + the extrapolated per-frame time. NOTE: gpuRun does only
+        // the DAG eval (~80% of the per-half-cycle work) — no SCC fixed-K / bus resolver / memory handlers — so
+        // the state goes garbage, but the compute time per half-cycle is roughly the real work.
+        private static int GpuBench(int n)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            try
+            {
+                if (!AprVisual.Sim.Logic.GpuRunner.Init()) { Console.Error.WriteLine($"GPU init failed: {AprVisual.Sim.Logic.GpuRunner.InitError}"); return 2; }
+                Console.WriteLine($"S4.6 G.a GPU \"speed-only\" benchmark — gpuRun() = {AprVisual.Sim.Logic.IrEngine.EvalOrder.Length}-node DAG eval (~80% of a half-cycle's work; no SCC/bus/handlers), 1 workgroup of {AprVisual.Sim.Logic.GpuCodegen.NumThreads}, {AprVisual.Sim.Logic.GpuCodegen.NumLevels} topo levels.  [adapter: {AprVisual.Sim.Logic.GpuRunner.AdapterName}]");
+                AprVisual.Sim.Logic.GpuRunner.RunGpuRunBench(Math.Min(200, n));   // warm-up
+                double secs = AprVisual.Sim.Logic.GpuRunner.RunGpuRunBench(n);
+                double perHc = secs / n;
+                const double frameHc = 654719.0, realFps = 60.0988;
+                double framePerS = frameHc * perHc;
+                double s1Frame = 14.5;   // S1's ~14.5 s/frame on this machine (branch_timing/1)
+                Console.WriteLine($"  {n} half-cycles (DAG eval only, on-GPU, no round-trip) in {secs * 1000:F1} ms  →  {perHc * 1e9:F0} ns / half-cycle  →  ~{1e-6 / perHc:F3} M hc/s");
+                Console.WriteLine($"  extrapolated: ~{framePerS:F1} s / frame ({frameHc:N0} half-cycles)  →  {1.0 / (framePerS * realFps) * 100:F1}% of real-time  |  S1 ≈ {s1Frame:F1} s/frame  →  GPU (DAG-only, no round-trip) is ~{framePerS / s1Frame:F1}x {(framePerS < s1Frame ? "FASTER" : "slower")} than S1");
+                Console.WriteLine($"  (note: a full half-cycle adds the SCC fixed-K + bus resolver + memory handlers — call it ~+25-40% — and the real GPU runtime also needs the framebuffer readback; this is the DAG-eval lower bound.)");
+                return 0;
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"GPU bench failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 2; }
         }
 
         // S4.6 G.1 — dump the HLSL compute-kernel (bytecode interpreter) + the schedule/bytecode stats.

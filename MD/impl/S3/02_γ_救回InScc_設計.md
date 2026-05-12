@@ -93,3 +93,18 @@
 - firing 28（γ ② part c）：實作 γ.2（`Gamma2BreakLoops` + `Drive` field + clock-fanout `LatchLike`）—— **over-cut → disabled**（`Gamma2Enabled=false`）；clock-fanout heuristic 不夠精準（把某些 dynamic transmission-gate latch 也當 synchronous register）；SCC 843→22 但有 2 個 mismatch（6502 R/W-timing + palette-RAM cascade）。**下個 firing：refine γ.2**（clock-fanout 分布分析 / 更高 threshold / 只切 DFS back-edge / 丟 Gemini）。目前 stable 狀態 = γ.0+γ.1：driving 79.3%、843 nodes 在 56 SCC → S1、等價 0 mismatch。
 
 (④⑤ 實作筆記 + 進度日誌 → 接在 `00_S3_效率與優化.md`。)
+
+---
+
+## 9. firing 29 後的決定：γ.2 暫停，方向轉到 codegen（Gemini `..._162049.txt`）
+
+γ.2 試了 3 版（v1 全切 / v2 DFS back-edge / v3 切 register 自己的 data 邊）—— v3 最好（843→22 個殘餘 SCC node，hpos counter / APU DMC / chroma ring / hvtog 都對），**但都還有 over-cut**（v3: 6502 pipeline register `9118` 讀 `n10390`、`n10390` 不是「edge 前穩定」的（依賴被「較早 derived phase」clock 的 register）→ checking 2 mismatch + palette-RAM cascade）。
+
+**Gemini 的判斷（採用）**：
+1. **停止 γ.2 的 over-cutting**（已 rollback、`Gamma2Enabled=false`，保留 γ.0+γ.1）。`Prev(data)` 的前提是「data 在 clock edge 前穩定」—— 但 derived clock（cclk/cp1/pclk）在同一半週期內從 master 衍生、訊號像水波一樣傳遞（ripple），不是原子更新 → 強行用 `Prev` 切會引入半週期延遲、在 pipeline/carry chain 致命。
+2. **不要試圖從 zero-delay netlist 自動推導 derived clock 的順序**（做不到；那是 STA 的 clock network delay，IR 裡所有 gate 都 0 延遲）。`9118`/`n10390` 的 mismatch 不是 register 判斷錯、是「假設同半週期 latch 更新原子」這個前提錯。
+3. **正解 = Fixed-K Micro-Evaluation**：把剩下的 56 個 SCC（~843 node，+ 之後的 ~2200 hybrid bus）不交給 S1、改成在 IR 裡編成一段「固定 K 次迭代」的 block —— 給 SCC 一個任意拓樸序，`val[node] = Prev[node]` 初始，`for k in 0..K (K=3~4)`：按固定序評估每個 node 的 NextExpr（`Node(x)` for SCC member 讀 `val[x]`）→ 寫回 `Node[node]=val[node]`。**GPU 友善**（每個 thread 無腦跑 K 次、零 divergence）、**物理正確**（完美吸收 settling ripple、不需要知道順序）、**開發成本低**。`#pragma unroll` 友善 = LLVM/C# 最容易優化的 linear code。
+4. **debug γ.2 cascade（如果以後要救 γ.2）= Delta Debugging（二分）**：記錄所有 cut 邊、二分（半切半保留）、跑 3000 半週期看 target node mismatch、log₂(N) 次跑檔定位兇手。
+5. **整體戰略：停止鑽 γ.2，立刻推進到 C# / LLVM bit-sliced codegen**。79.3% 純 IR + 21% Fixed-K IR-unrolled 在 CPU/GPU 上絕對比純 S1 快很多（消滅 S1 的 dynamic event queue overhead）。可能根本不需要把 coverage 推到 100% 效能就達標（2 frame benchmark 29.7s → 可能 < 1s）。**Action items**：(1) rollback γ.2 over-cut（done）；(2) γ.3 = Micro-block codegen（剩 56 SCC + 複雜 bus → `for(k=0;k<K;k++)` IR）；(3) 開始 C# / LLVM bit-slicing codegen（`UInt64`/`AVX2-512` → 64/256 個並行 NES instance）；(4) benchmark。
+
+→ 下一個主線：**S3.x codegen**（C# / LLVM，bit-sliced）。先寫設計（codegen 架構：flat program → bit-sliced ops；殘餘 SCC + hybrid bus → Fixed-K micro-block；C# Roslyn vs LLVM-via-.NET 後端）+ 丟 Gemini → 實作 → benchmark。這也就是「S3 完全結束」的路（有可用的快速後端 + 等價驗證 + benchmark 顯示提速）→ 然後 `CronDelete` 停 loop。

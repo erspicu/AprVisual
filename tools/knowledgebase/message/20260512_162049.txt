@@ -1,0 +1,136 @@
+Timestamp: 2026-05-12T16:20:49
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深硬體驗證/邏輯綜合/模擬器工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → GPU bit-slicing」管線的 review。需要你幫我把 γ.2（topological-loop breaker）的最後一個 over-cut 問題解掉。請用繁體中文、務實、給明確演算法。
+
+## 背景速覽
+
+每個 node 抽出 `NextExpr[v]` = 「下半週期 settle 後 v 的值」的 boolean 函數（`NodeRef(id)`=該 node current 值 / `Hold(id)`=該 node 上半週期值 / `Prev(id)`=同 Hold / `Mux/And/Or/Not/Const`）。driving 模式按 current-value dependency graph 的拓樸序評估（`NextExpr[v]` 引用 `NodeRef(M)` ⇒ 邊 v→M）。current-value SCC 裡的 node 沒法拓樸排序 → 交給 switch-level 引擎（S1）。GPU bit-slicing 跑不了 S1 的 BFS，所以要把所有 SCC 消掉。已完成：γ.0（Node Aliasing，折掉純 buffer/inverter）；γ.1（size-1/2 SCC 用 1/2 步代數代換求雙穩態 cell 的 fixpoint）→ SCC 5705→843 node（56 個 SCC）；driving coverage 79.3%。
+
+「半週期」= switch-level 模擬的一個 `Step()` = master clock 一次 toggle + settle 到 fixpoint。2A03 把 master 除 12 給 CPU、2C02 除 4 給 pixel clock。所以一個 master 半週期裡，derived clock phase（`clk0` → `clk0_int`/`/clk0_int` → `pclk0`/`pclk1`、CPU 的 `cclk`/`cp1`、APU 的 `apu_clk1` 等）會在同一次 settle 裡「edge」（它們是 divider 的輸出、組合性地從 master clock + divider state 衍生）。`NextExpr[v]` 表示的是「settle 完 v 的值」—— 它應該是「半週期開始時的值（= Prev）+ master clock toggle」的函數。
+
+## γ.2 已試過的（剩 22 個 node 在 3 個 SCC、但有 over-cut）
+
+剩下的 56 個 SCC 都是「clock-gated transmission-gate latch（register）+ 它的組合邏輯 next-state（carry chain / 'counter == k' detector / 下一級 ring stage）」串成的 ring/counter。我試了：
+
+- **v3（現用，但 disabled）**：對每個 SCC 裡的 register `reg`（判斷條件：`di[reg].Passes > 0 && PullDown == null && PullUp == None && 至少一個 pass port 的 gate 是「clock-like」（gate ≥ 6 個 pass transistor —— 真 clock phase gate 數百個，control 訊號 gate 幾個）），把 `reg` 自己的 `NextExpr` 裡所有 SCC-內部的 `NodeRef(x)` 換成 `Prev(x)`：`reg = Mux(Node(clk), Node(data), Hold(reg))` → `Mux(Node(clk), Prev(data), Hold(reg))`。物理上 register 在 clock edge 載入 `data` 的值；`data` 是其他 register 的組合邏輯、那些 register 在 edge 前都穩定 → `data` 在 edge 時的值 == `data` 半週期開始的值 == `Prev(data)`。組合 node（detector / carry / 下一級）保留 `Node(reg)`（它在下游、反映 reg 剛算出的新值）。這樣 register 變成 SCC 子圖的 source、SCC shatter 成 DAG。clk 保留 `Node(clk)`（transmission gate 是 level-sensitive；clock divider 的環已被 γ.1 解掉、clk 現在 acyclic）。
+
+**結果**：843 個 SCC node 裡 821 個正確 dissolve（hpos 計數器、APU DMC down-counter、PPU chroma phase ring、$2005/6 hvtog "w" register 都對）—— **但還是 over-cut ~2-3 處**：
+1. checking 模式 2 個 mismatch：`9118 = Mux(n9692=cclk, !Prev(n10390), Hold(9118))` —— `n10390` 是 6502 pipeline 裡的某個組合 node、它**不是**「edge 前穩定」的（它依賴某個被「較早的 derived clock phase」clock 的 register、那個 register 在這個半週期的 settle 裡比 `9118` 的 cclk edge 更早更新）→ `n10390` 在 `9118` 載入時的值 ≠ `Prev(n10390)` → `9118` 算錯（很罕見，3000 半週期裡 2 次）。
+2. driving 模式 cascade：`ppu.pal_ram_08_b4 = Mux(n5943=pal_row0, Node(n824), Prev(self))` —— `pal_ram_08_b4` 自己沒被 γ.2 改（它的 data `n824` 還是 `Node`），但 `n824`（palette 讀回資料路徑）被某個 γ.2-cut 的上游 node 算錯 → cascade。
+
+(之前的 v1 = 「對所有 SCC-內部 `Node(latch)` 全換 Prev」over-cut 更多（49 mismatch、切到 ALU carry）；v2 = 「DFS back-edge、只切 latch-target 的 back-edge」也還有 1+cascade。)
+
+## 我要問的（請逐題給明確演算法）
+
+1. **核心問題**：「register 載入 `data` 的值，`data` 在 clock edge 時的值」—— 我用 `Prev(data)` 近似，但當 `data` 依賴「比 `reg` 的 clock 更早的 derived phase」的 register 時就錯了。怎麼正確處理？選項：
+   - (a) 給 derived clock phase 一個「順序」（master clock 距離 / divider 層級）—— `reg` 載入 `data` 時，凡是被「比 `reg` 的 clock 早」的 register 影響的部分用 `Node`、其餘用 `Prev`？怎麼算這個順序？怎麼把 `data` 的 expr 拆成「早 register 影響的部分」和「其餘」？
+   - (b) 不要近似、直接代換：`reg = Mux(Node(clk), Node(data), Hold(reg))`，把 `Node(data)` 整個換成 `data` 的 `NextExpr`（即把 `data` 這個組合 node inline 進來）—— 然後 `data` 的 NextExpr 引用 `Node(other_reg)`，再 inline `other_reg` 的 NextExpr…… 一直 inline 到只剩 `Prev/Node(clk-tree)`？這會不會就是「對整個 SCC 做 fixpoint 迭代」（γ.1 的 size-2 代換的一般化）？對 size-380 的 SCC expr 會不會爆炸？有沒有辦法限制（只 inline「register 到 register 之間的組合邏輯」、不 inline 跨 register）？
+   - (c) 換個切法：不切 register 的 data 邊、改切「register `reg` 被其他 SCC-內 node 讀的地方」（`其他node 的 NextExpr: Node(reg) → Prev(reg)`）—— 但 v1 試過、那個會讓「組合 node 反映 reg 新值」的地方錯。除非……只切「真正閉合 cycle 的那條邊」（DFS back-edge）？v2 試過、還是有殘餘。問題是「哪條 back-edge 切了不會錯」似乎跟 clock phase 順序有關。
+   - (d) 接受 79.3%、剩 843 個 SCC node 交給 S1，GPU 那邊那 843 個 node（+ 2200 個 hybrid bus）用「per-warp 固定 K 次迭代」的 micro-block？你之前說極力避免，但如果只有 ~843+2200 個 node、且固定 K 次（無 divergence）……值不值得？
+2. **clock phase 順序**：在 NES 的 2A03/2C02 裡，derived clock phase 的「order」（誰先 edge）大概是：master → `clk0`（PPU /4 第一級）→ `clk0_int`/`/clk0_int` → `pclk0`/`pclk1`；CPU 那邊 master /12 → `cclk` → `cp1`/`cp2`。一個半週期裡這些都會 settle。**有沒有辦法從 netlist 自動推出這個順序**（例如：`g1` 在 `g2` 之前 ⟺ `g2` 的 NextExpr 依賴 `Node(g1)` 而 `g1` 不依賴 `Node(g2)`？—— 但它們互相依賴 Prev……）？還是說，實務上「derived phase 的 ordering」根本不該存在於正確的設計裡（master-slave 用非重疊的兩相、所以同一半週期裡同一條 cycle 上的兩個 register 不會「一個比另一個早」）—— 那 `9118`/`n10390` 那個 case 是不是表示我的 SCC 分組或 register 判斷有問題（`n10390` 其實該被當成另一個 register、或 `9118` 跟它該是同一個 size-2 SCC 被 γ.1 解掉）？
+3. **palette-RAM cascade**：`pal_ram_08_b4` 自己沒被改、但 `n824` 算錯。怎麼 debug「哪個 γ.2-cut 害的」—— 是不是該加一個「每 cut 一條邊就跑一次 checking 等價、退掉害事的那條」的 self-validating γ.2（成本高但保證對）？還是有更聰明的？
+4. 整體：你覺得 γ.2 值不值得繼續鑽（再投 1-3 個 firing），還是該接受 79.3%、先去做 C# / LLVM bit-sliced codegen（把那 21% 的 SCC+hybrid node 暫時當「外部黑盒」、之後再回來）？「整片 NES 跑快」的角度，79.3% IR + 21% S1-fallback 的混合模式在 CPU 上能不能比純 S1 快？（注：純 S1 跑 2 frame benchmark = 29.7s；目前 IR-driving + 21% fallback 還沒量過提速後的數字。）
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常經典的 EDA / 邏輯綜合邊界案例（Corner Case）。當你把 5705 個 SCC node 壓到剩下 843 個，並且達到 79.3% 的 topological driving coverage 時，**你的靜態分析已經做得非常出色了。**
+
+作為資深工程師，我給你的第一個也是最重要的務實建議是：**停下 γ.2 的過度切分（Over-cutting），擁抱 1(d) 的微型迭代（Micro-loop）。**
+
+你遇到的 `9118` mismatch 和 `n824` cascade，本質上揭示了 NMOS switch-level 模擬與零延遲（Zero-delay）Boolean IR 之間不可調和的矛盾。以下為你逐題拆解原因與明確的解法。
+
+---
+
+### 1. 核心問題：為什麼 `Prev(data)` 會錯？如何解？
+
+你把 `Node(data)` 換成 `Prev(data)` 的前提是「`data` 在 clock edge 前就穩定了」。
+但在 NES（特別是 NMOS 邏輯）中，derived clock（如 `cclk`, `cp1`）是在同一個半週期內從 master clock 衍生出來的。
+如果 `9118` 的 latch 在這個半週期是 **Transparent（導通的）**，且它上游的 register 也在這個半週期更新了值，那麼 `9118` 物理上**必須**捕捉到上游更新後的「新值」（`Node(data)`），而不是上個半週期的「舊值」（`Prev(data)`）。
+
+你強行用 `Prev` 切斷邊，等於人為引入了一個半週期（half-cycle）的延遲，這在 pipeline 或 carry chain 中是致命的。
+
+#### 務實解法：選 (d) - 在 IR 層級引入「固定 K 次微型迭代（Fixed-K Micro-Evaluation）」
+
+你擔心交給 GPU 會 divergence，但我們**不需要用 S1 引擎來 fallback**，我們可以直接**把這 843 個 SCC node 編譯成一段「固定迴圈次數」的 IR**。
+
+對於這 843 個 node（約 56 個 SCC，可以每個 SCC 獨立，或全包在一起），給定一個任意的拓樸序（因為有環，必定有 back-edge），我們在生成的 Code / IR 裡這樣寫：
+
+```csharp
+// 演算法：Fixed-K Relaxation 編譯生成
+// 對於一個包含 N 個 node 的 SCC：
+
+// 1. 準備 Current 陣列（初始值為上一半週期的狀態，或從拓樸上游剛算出的值）
+for node in SCC:
+    val[node] = Prev[node] // 或 Hold[node]
+
+// 2. 固定迭代 K 次（K=3 或 4 通常足以讓 Latch 環或 Carry Chain 穩定）
+// 【注意】這裡不用 while(changed)，直接 for 展開，GPU 最喜歡這種沒有 divergence 的寫法！
+#pragma unroll
+for (int k = 0; k < 3; k++) {
+    // 按照某個固定的順序評估
+    val[n_A] = Expr_A( val[n_B], Prev[n_C], ... ); // Node(x) 映射到 val[x]
+    val[n_B] = Expr_B( val[n_A], Prev[n_D], ... );
+    // ... 
+}
+
+// 3. 將最終結果寫出
+for node in SCC:
+    Node[node] = val[node]
+```
+
+**為什麼這極度划算？**
+* **GPU 友善**：843 個 node 對 GPU 來說連塞牙縫都不夠。Fixed 3 次 iteration 完全沒有 Branch Divergence（warp 裡的每個 thread 都無腦跑 3 次）。
+* **物理正確**：這完美模擬了電子的 Settling 過程。不管是誰先誰後，只要迭代 3 次，組合邏輯和 transparent latch 的訊號一定能傳遞並收斂。
+* **開發成本低**：你不需要再寫任何複雜的 Graph 演算法，直接把沒解掉的 SCC 打包輸出即可。
+
+---
+
+### 2. Clock Phase 順序：能自動推導嗎？該推導嗎？
+
+**不要試圖從零延遲（Zero-delay）的 Netlist 自動推導 Derived Clock 的精確拓樸序。**
+
+在 Static Timing Analysis (STA) 裡，這叫 Clock Network Delay。在我們從 switch-level 抽出來的 Boolean IR 裡，所有的 gate 都是 0 delay 的。
+* 物理上：`master` 變了 -> `divider` 狀態更新 -> 經過 2 個 NOR gate -> 產生 `cclk` -> 再經過 1 個 inverter -> 產生 `cp1`。
+* IR 上：它們都在同一個 `Step()` 內被求值。如果你用靜態的拓樸去硬切，遇到環就必須猜哪裡是「真正的」先後。
+
+`9118` 跟 `n10390` 的案例告訴我們：**你的暫存器判斷和 SCC 分組是沒錯的，錯的是「假設同一半週期內，所有 latch 更新都是同時/原子的」。** 事實上它是像水波一樣傳遞的。用上述的 **Fixed-K Relaxation** 就能完美吸收這種水波傳遞（Ripple），不需要知道順序。
+
+---
+
+### 3. Palette-RAM Cascade：如何 Debug `n824` 是被誰害的？
+
+如果你想為以後的開發留一個除錯工具，找出「到底是哪個 cut 導致了 cascade mismatch」，最聰明也最標準的演算法是 **Delta Debugging (自動二分法除錯)**。
+
+**自動化二分尋找兇手演算法（Self-Validating Bisection）：**
+1. **收集嫌疑犯**：記錄 γ.2 一共對多少條邊進行了 `Node -> Prev` 的替換（假設有 100 條邊）。
+2. **切分集合**：將這 100 條邊分成兩半（A 區 50 條，B 區 50 條）。
+3. **編譯與測試**：
+   * 只對 A 區的 50 條邊實施 γ.2 cut，其他邊保留環（跑 S1 或 Fixed-K）。
+   * 跑 3000 個半週期，看 `ppu.pal_ram_08_b4` 是否 mismatch。
+4. **二分縮小**：
+   * 如果 mismatch，說明「兇手」在 A 區。把 A 區再分一半（25/25）繼續遞迴。
+   * 如果沒 mismatch，說明 A 區的 cut 是安全的！兇手在 B 區。
+5. **定位**：大約只需要 $\log_2(100) \approx 7$ 次跑檔，你就能精確定位到是哪「一條」邊的 cut 導致了 `n824` 算錯。這比盯著波形圖看快 100 倍。
+
+---
+
+### 4. 整體戰略：γ.2 值得繼續鑽嗎？下一步去哪？
+
+**強烈建議：停止在 γ.2 上投入 firing，立刻推進到 C# / LLVM bit-sliced codegen。**
+
+從專案管理的角度來看：
+* 你已經拿下了 79.3% 的 Driving Coverage，這是一場大勝。剩下的 21%（包含 843 個 SCC nodes + 2200 個 hybrid buses）已經是 Highly Diminishing Returns（邊際效益遞減）的雷區。
+* **「79.3% 純 IR + 21% Fixed-K IR 展開」** 的組合，在 CPU/GPU 上絕對比純 S1 快非常多。因為你徹底消滅了 S1 的 dynamic event queue  overhead。
+* Hybrid buses (傳輸閘雙向匯流排) 和殘留的複雜 SCC，用 Fixed-K 微型迭代（例如 $K=4$）在 LLVM/C# 裡就是幾個連續的 assignment block，這對現代編譯器（Register Allocation, Instruction Pipelining）來說是最容易最佳化的 linear code。
+
+#### 你的下一步行動清單 (Action Items)：
+1. **Rollback γ.2**：把有副作用的 `Node -> Prev` 強制切斷拿掉。保留 γ.0 (Aliasing) 和 γ.1 (Size-1/2 Fixpoint)。
+2. **實作 γ.3 (Micro-block Codegen)**：把剩下的 56 個 SCC 和複雜 Bus 轉換成前述的 `for (int k=0; k<3; ++k)` IR 節點。
+3. **推進 Codegen 管線**：開始寫 C# 或 LLVM 的 Bit-slicing (例如 `UInt64` 或 `AVX2/AVX-512` 對應 64/256 個並行的 NES instance)。
+4. **效能驗證**：跑 Benchmark。你可能會發現，根本不需要把 Coverage 推到 100%，效能就已經達到你的目標（例如 2 frame 從 29.7s 降到 < 1s）。
+
+這是一個非常漂亮的轉折點。把數學上無法完美靜態解開的結，交給工程上成本極低的固定次數展開，這才是最高效的硬體驗證/模擬器開發策略。放手去做 Codegen 吧！

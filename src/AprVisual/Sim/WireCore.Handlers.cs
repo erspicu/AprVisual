@@ -133,11 +133,43 @@ namespace AprVisual.Sim
         // ───────────────────────────────────────────────────────────────────────
 
         /// <summary>The board's master clock: toggle the "clk" node every half-cycle. Port of handler_clock.</summary>
-        public static void AttachClockHandler()
+        public static void AttachClockHandler(string clkName = "clk")
         {
-            int clk = LookupNode("clk");
-            if (clk == EmptyNode) { Console.Error.WriteLine("AttachClockHandler: no 'clk' node — skipping"); return; }
+            int clk = LookupNode(clkName);
+            if (clk == EmptyNode) { Console.Error.WriteLine($"AttachClockHandler: no '{clkName}' node — skipping"); return; }
             AddHandler(() => { if (NodeStates[clk] != 0) SetLow(clk); else SetHigh(clk); });
+        }
+
+        // ── bare-2A03 rig (--system 2a03): a behavioral flat 64 KB RAM/ROM on cpu.ab[15:0] / cpu.db[7:0] /
+        //    cpu.rw / cpu.phi2. RAM_OE = rw & phi2 (Gemini's contention guard): the handler drives cpu.db
+        //    *only* on a read with phi2 high, floats it otherwise (the CPU owns it during writes / phi2-low). ──
+        private static bool _flatRamDriving;
+        public static void AttachFlatRamHandler()
+        {
+            int rw = LookupNode("cpu.rw"), phi2 = LookupNode("cpu.phi2");
+            var ab = new List<int>(); ResolveNodes("cpu.ab[15:0]", ab);
+            var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db);
+            if (rw == EmptyNode || phi2 == EmptyNode || ab.Count != 16 || db.Count != 8)
+            { Console.Error.WriteLine($"AttachFlatRamHandler: missing/short cpu.rw({rw}) / cpu.phi2({phi2}) / cpu.ab[]({ab.Count}) / cpu.db[]({db.Count}) — skipping"); return; }
+            foreach (int d in db) HandlerWrittenNodes.Add(d);   // analysis-only
+            int[] abArr = ab.ToArray(), dbArr = db.ToArray();
+            var trigger = new List<int> { rw, phi2 }; trigger.AddRange(ab); trigger.AddRange(db);
+            _flatRamDriving = false;
+            AddCallback(trigger, () =>
+            {
+                bool ramOE = NodeStates[rw] != 0 && NodeStates[phi2] != 0;          // read-enable: R/W high (read) AND phi2 high
+                if (ramOE)
+                {
+                    WriteBits(dbArr, _flatMem[ReadBits(abArr)]);                    // drive cpu.db with the byte
+                    _flatRamDriving = true;
+                }
+                else
+                {
+                    if (_flatRamDriving) { foreach (int d in dbArr) SetFloat(d); _flatRamDriving = false; }   // release cpu.db (let the CPU drive it)
+                    if (NodeStates[rw] == 0 && NodeStates[phi2] != 0)
+                        _flatMem[ReadBits(abArr)] = (byte)ReadBits(dbArr);          // write cycle: the CPU is driving cpu.db; capture it
+                }
+            });
         }
 
         /// <summary>Attach a behavioral RAM/ROM handler for every module that exposes a "func&lt;ram&gt;" / "func&lt;rom&gt;" hook node. Port of register_handlers&lt;handler_ram&gt;("*func&lt;ram&gt;") etc.</summary>

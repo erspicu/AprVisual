@@ -21,6 +21,10 @@ namespace AprVisual.Sim
         // switch-level *for the CPU alone*, without the 2C02's giant SCC tangle dragging the bridge down.
         public static bool UseBare2a03;
 
+        // True ⇒ the N_Res node is the chip's active-low /RES pin (the bare-2A03 rig drives cpu.res directly,
+        // no CIC inverter); false ⇒ the board's active-high "res" line. Controls the polarity ResetNes uses.
+        public static bool ResActiveLow;
+
         // ── cached nodes / registers / memory, resolved by ResolveCachedNodes() after the netlist is built ──
         public static int N_Res = EmptyNode;          // the board "res" line (→ CIC → cpu.res / ppu.res)
         public static int N_PpuInVblank = EmptyNode;  // rising edge = frame boundary
@@ -30,6 +34,11 @@ namespace AprVisual.Sim
         public static Memory? M_EramRam;              // cart.eram.ram — the $6000 work RAM used by blargg test ROMs
 
         private static NesRom? _rom;
+
+        // bare-2A03 rig (--system 2a03): the behavioral flat 64 KB RAM/ROM the AttachFlatRamHandler serves on
+        // cpu.ab[15:0] / cpu.db[7:0]. PRG is mapped at $8000-$FFFF (16 KB mirrored at $8000 & $C000); $0000-$7FFF
+        // is RAM (incl. the $6000 "work RAM" blargg test ROMs use for their PASS/FAIL signature).
+        internal static byte[] _flatMem = [];
 
         // ───────────────────────────────────────────────────────────────────────
 
@@ -98,6 +107,8 @@ namespace AprVisual.Sim
         /// </summary>
         public static void LoadSystem(NesRom rom)
         {
+            if (UseBare2a03) { LoadSystem2a03Bare(rom); return; }
+
             _rom = rom;
             bool chrIsRam = rom.ChrRom.Length == 0;
             bool isTestRom = rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
@@ -115,6 +126,26 @@ namespace AprVisual.Sim
             ResolveCachedNodes();
 
             ResetNes(full: true);     // clear RAMs + Reset() + alloc FrameBuffer + assert/run/deassert res
+        }
+
+        /// <summary>Build + power on the bare-2A03 CPU-only rig (--system 2a03): just the `2a03` module under
+        /// prefix "cpu" + a behavioral flat 64 KB RAM/ROM (PRG at $8000-$FFFF, RAM elsewhere). The reset line is
+        /// cpu.res; the clock is cpu.clk_in; nmi/irq idle high, dbg tied low (set up by ComposeSystem2a03Bare).</summary>
+        public static void LoadSystem2a03Bare(NesRom rom)
+        {
+            _rom = rom;
+            ComposeSystem2a03Bare();
+
+            _flatMem = new byte[65536];
+            int n = Math.Min(rom.PrgRom.Length, 32768);
+            if (n == 16384) { Array.Copy(rom.PrgRom, 0, _flatMem, 0x8000, 16384); Array.Copy(rom.PrgRom, 0, _flatMem, 0xC000, 16384); }
+            else if (n > 0) Array.Copy(rom.PrgRom, 0, _flatMem, 0x10000 - n, n);   // top-align so $FFFx (vectors) land at the end of the PRG image
+
+            AttachClockHandler("cpu.clk_in");
+            AttachFlatRamHandler();
+            ResActiveLow = true;      // N_Res will resolve to cpu.res (active-low /RES pin), not the board's active-high line
+            ResolveCachedNodes();     // PPU/board nodes → EmptyNode (no PPU/board); N_Res falls back to cpu.res
+            ResetNes(full: true);
         }
 
         private static void CopyRomBytes(NesRom rom)
@@ -140,7 +171,10 @@ namespace AprVisual.Sim
         private static void ResolveCachedNodes()
         {
             ClockNode      = LookupNode("clk");          // WireCore.Recalc.cs (reference only — toggled by the clock handler)
+            if (ClockNode == EmptyNode) ClockNode = LookupNode("cpu.clk_in");   // bare-2A03 rig
             N_Res          = LookupNode("res");
+            if (N_Res == EmptyNode) N_Res = LookupNode("cpu.res");              // bare-2A03 rig
+            if (N_Res == EmptyNode) N_Res = LookupNode("/res");
             N_PpuInVblank  = LookupNode("ppu.in_vblank");
             N_CpuSync      = LookupNode("cpu.sync");
             R_CpuA   = ResolveQuiet("cpu.a[7:0]");
@@ -181,9 +215,9 @@ namespace AprVisual.Sim
             }
             if (N_Res != EmptyNode)
             {
-                SetHigh(N_Res);
-                Step(12 * 8 * 2);                         // = 192 half-cycles with reset asserted
-                SetLow(N_Res);
+                if (ResActiveLow) SetLow(N_Res); else SetHigh(N_Res);   // assert reset
+                Step(12 * 8 * 2);                                        // = 192 half-cycles with reset asserted
+                if (ResActiveLow) SetHigh(N_Res); else SetLow(N_Res);   // deassert reset (the edge that starts the CPU's reset sequence)
             }
             else
             {

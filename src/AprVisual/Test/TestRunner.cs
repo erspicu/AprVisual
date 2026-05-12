@@ -27,7 +27,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null, dumpEmittedLl = null, dumpEmittedVerilog = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null, dumpEmittedLl = null, dumpEmittedVerilog = null, dumpEmittedHlsl = null;
             bool llvmCodegenTestFlag = false, dumpTopoLevels = false;
             bool emitBitsliced = false;
             string systemDefDir = WireCore.SystemDefDir;
@@ -78,6 +78,7 @@ namespace AprVisual.Test
                     case "--llvm-no-opt":     AprVisual.Sim.Logic.LlvmCodegen.Optimize = false; break;   // S4.5: skip the (TODO) default<O3> pipeline before MCJIT
                     case "--dump-emitted-ll": dumpEmittedLl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.5: write the LLVM IR for `step` to a file ("-" = stdout)
                     case "--dump-emitted-verilog": dumpEmittedVerilog = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.6 bonus: write the Verilog module (IR → RTL) to a file ("-" = stdout)
+                    case "--dump-emitted-hlsl": dumpEmittedHlsl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.6 G.1: write the HLSL `step` compute-kernel (bytecode interpreter) to a file ("-" = stdout)
                     case "--llvm-codegen-test": llvmCodegenTestFlag = true; break;   // S4.5: build the IR for nes-001, MCJIT it, report sizes — verify it compiles
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -107,6 +108,7 @@ namespace AprVisual.Test
             if (dumpEmittedCs != null) return DumpEmittedCs(dumpEmittedCs, emitBitsliced);
             if (dumpEmittedLl != null) return DumpEmittedLl(dumpEmittedLl);
             if (dumpEmittedVerilog != null) return DumpEmittedVerilog(dumpEmittedVerilog);
+            if (dumpEmittedHlsl != null) return DumpEmittedHlsl(dumpEmittedHlsl);
             if (dumpTopoLevels) return DumpTopoLevels();
             if (llvmCodegenTestFlag) return LlvmCodegenTest();
             if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
@@ -380,6 +382,22 @@ namespace AprVisual.Test
             Console.Error.WriteLine($"# emitted LLVM IR: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} EvalOrder nodes in {AprVisual.Sim.Logic.LlvmCodegen.ChunkCount} chunks; ~{AprVisual.Sim.Logic.LlvmCodegen.InstrCount} IR instrs; {lines} lines, {ir.Length} chars (unoptimized)");
             if (outPath == "-") Console.Out.Write(ir);
             else { File.WriteAllText(outPath, ir); Console.Error.WriteLine($"# written to {outPath}"); }
+            return 0;
+        }
+
+        // S4.6 G.1 — dump the HLSL compute-kernel (bytecode interpreter) + the schedule/bytecode stats.
+        private static int DumpEmittedHlsl(string outPath)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            var hlsl = AprVisual.Sim.Logic.GpuCodegen.EmitHlslCompute();
+            int lines = hlsl.Count(c => c == '\n');
+            var g = typeof(AprVisual.Sim.Logic.GpuCodegen);
+            int sccNodes = AprVisual.Sim.Logic.GpuCodegen.SccStart.Length > 0 ? AprVisual.Sim.Logic.GpuCodegen.SccStart[^1] - AprVisual.Sim.Logic.GpuCodegen.LevelStart[^1] : 0;
+            Console.Error.WriteLine($"# emitted HLSL: bytecode-interpreter `step` kernel ({lines} lines, {hlsl.Length} chars). Schedule: {AprVisual.Sim.Logic.IrEngine.EvalOrder.Length} EvalOrder nodes in {AprVisual.Sim.Logic.GpuCodegen.NumLevels} levels + {sccNodes} SCC nodes in {AprVisual.Sim.Logic.GpuCodegen.NumSccs} SCCs; {AprVisual.Sim.Logic.GpuCodegen.Bytecode.Length:N0} RPN bytecode words ({AprVisual.Sim.Logic.GpuCodegen.Bytecode.Length * 4 / 1024} KB); max stack depth {AprVisual.Sim.Logic.GpuCodegen.MaxStackDepth}; {AprVisual.Sim.Logic.GpuCodegen.NumThreads} threads/group.");
+            if (outPath == "-") Console.Out.Write(hlsl);
+            else { File.WriteAllText(outPath, hlsl); Console.Error.WriteLine($"# written to {outPath}"); }
             return 0;
         }
 

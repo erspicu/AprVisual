@@ -1,0 +1,284 @@
+Timestamp: 2026-05-12T10:02:05
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# S2 — netlist → 邏輯 IR：計畫總覽
+
+> 對應 `MD/struct/08` 四階段的 **S2**。S1（含 S1.5 lowering）已完成 —— 我們有一個整片板子的開關層級模擬器當 golden reference。S2 的任務：**從那張電晶體網表抽取出「每個 node 的 next-state 布林表達式（`Expr` IR）」**，用一個 IR 直譯器執行它，行為要跟 S1 開關層級直譯器**逐 node、逐 cycle 完全一致**。
+
+---
+
+## 0. 這份文件 & 文件結構
+
+- **本檔（`00_計畫總覽.md`）** = S2 的總覽：核心問題、我設計的步驟拆解（S2.0～S2.6）、每個 step 的工作流程（含 Gemini review 迴路）、等價驗證紀律、過關條件、不在 S2 範疇的東西。
+- S2 有多個 stage，**一個 stage 一個檔**：每個 stage 開工時建 `MD/impl/S2/0N_S2.N_<名稱>_設計.md`，內容包含：
+  1. **設計描述** —— 我構想的處理方式 / 資料結構 / 演算法（要先寫好才能丟 Gemini）。
+  2. **Gemini 分析回饋** —— 用 `tools/knowledgebase/gemini_query.py` 把設計描述丟給 Gemini，原文記下它的分析 + 建議。
+  3. **建議評估 & 採用** —— 逐條評估，**有正面性幫助的一律採用、寫進實作**；不採用的也記為什麼。
+  4. **實作筆記** —— 實際做了什麼、踩到什麼、跟原設計的偏離。
+  5. **驗證結果** —— 等價 gate、覆蓋率、效能對比的數字。
+- 進度日誌（哪個 step 到哪、commit hash）放在本檔末尾的「進度日誌」表。
+
+## 0.1 範疇（依 `MD/struct/08` 2026-05-12 路線圖調整）
+
+- **整片板子的網表**：2A03（CPU）+ 2C02（PPU）+ 板上 74xx 膠合（74LS373/139/368、74HC04）+ CIC（nes-cic1）+ 手把（nes-pad）+ NROM mapper 邏輯（nes-cart72 / cart-mmu0）。**不是「先 CPU 後 PPU」** —— 抽取是一套演算法跑整張圖；人為把 CPU/PPU 隔開反而要設計「IR 區 ↔ switch-level 區」的跨區協定（= 失敗點 #1 的溫床）。
+- **記憶體陣列維持行為級**（u1/u4 SRAM 的 2KB、cart PRG-ROM/CHR-ROM/CHR-RAM、`$6000` 工作 RAM）—— 它不是電晶體網表，是 `byte[]` + handler，是**模型的邊緣**；S2/S3/S4 都一樣 call out 到那個陣列。S2 不對它抽邏輯（它沒邏輯）。
+- **「分階段」按結構複雜度，不按晶片**：先抽良性結構（反相器 / NAND / NOR / 串並聯下拉網路 / 明確的 precharge-evaluate）→ 那一刀就 cover 晶片大部分 → 高覆蓋率 IR + 少數還沒處理的區域 fallback 回 switch-level（hybrid）→ 隨著處理更多結構類型，覆蓋率往 100% 爬。「最難的結構」（shift register / OAM DRAM / 共享 bus / 強耦合 dynamic）剛好大多落在 2C02。
+- 只 NROM（mapper 0）—— 跟 S1 一致。
+
+---
+
+## 1. 核心問題：怎麼從「開關層級網表」抽出「邏輯」？
+
+開關層級模型在每個瞬間做的事：給定所有 gate node 的狀態 → 整張網表依「目前導通的電晶體」分成連通群 → 每群的值 = `resolve(群裡所有 node 的 flags OR 起來)`（優先鏈：GND 贏 → VCC/pull-up → 外部驅動 → 保留前值 → 0）。
+
+「抽出邏輯」= 把這整套塌成「`next_state[每個 node] = f(current_state[每個 node], 外部輸入)`」，並把 `f` 表達成布林電路（`Expr` DAG）。對 NMOS 電路，`f` 的結構通常很乾淨：
+
+### 1.1 良性結構（佔晶片大部分）—— 「下拉網路 + 負載」
+
+一個標準 NMOS 邏輯閘 = 一個「**下拉網路**」（一堆電晶體串並聯接到 GND）+ 一個「**負載**」（depletion-load 弱拉高 / pull-up 接 VCC）。閘輸出 node `N`：
+
+```
+N = NOT( 下拉網路導通 )
+下拉網路導通 = 對 gate signals 的布林式（串聯 = AND、並聯 = OR）
+```
+
+- 反相器：`N = NOT(a)`（單顆下拉，gate = a）
+- NAND：`N = NOT(a AND b)`（兩顆串聯）
+- NOR：`N = NOT(a OR b)`（兩顆並聯）
+- AOI / OAI：`N = NOT((a AND b) OR c)` 之類（串並聯混合）
+
+→ 把「下拉網路」當「N 到 GND、邊權是 gate signal 的圖」做**串並聯歸約**就得到布林式；歸不出純串並聯（有橋接結構）就退一步用「N 到 GND 的路徑 OR、每條路徑上 gate 的 AND」（路徑數爆炸時 → 標 hybrid）。
+
+### 1.2 難的結構（少數、大多在 PPU，先 hybrid）
+
+- **pass transistor / transmission gate**：`N` 的「輸入」不是 VCC/GND，而是另一個**信號 node** `M`，透過一顆 gate=`en` 的電晶體連過來 → 這是 **mux**：`N = en ? M : HOLD(N)`。多顆 → mux 鏈。
+- **dynamic node（電容存值）**：`N` 沒有下拉路徑也沒 pull-up，只在某些 phase 被 pass 進來、其他時候靠寄生電容保持 → `next[N] = (有被驅動) ? 驅動值 : prev[N]` = `HoldExpr`。
+- **回授環（cross-coupled latch）**：兩個 node 互相當對方下拉網路的一部分 → SCC → 序向元件（register bit、SR latch）→ `next = sel ? data : prev`，表達式指回「上一輪狀態」（`NodeRefExpr`）。CPU/PPU 裡每個 register bit 都是這種。
+- **共享 bus / 強耦合 dynamic 叢集**：多個驅動者、可能 tri-state → 最難 → 先 hybrid。
+
+### 1.3 結論
+
+「抽邏輯」= 對每個 node 算出它的「驅動結構」（下拉式 / pull-up 有無 / pass 進來的 mux 分支），把良性的塌成 `Expr`，難的標 hybrid 或丟給 SCC 分析，最後得到一個「組合邏輯 DAG + 序向 node（在 clock edge 更新）」的 IR。
+
+---
+
+## 2. 我設計的 S2 步驟拆解
+
+> 編號 S2.0～S2.6，對應 `MD/struct/08` 的 S2.1～S2.7 但重新組織過（多了一個 S2.0 的「圖 + 角色標記」前置；hybrid bridge 獨立成一步）。每一步都有自己的設計檔 + Gemini review + 等價 gate。
+
+### S2.0 — 靜態圖 + 角色標記（無邏輯抽取）
+
+**做什麼**：從 lowered netlist（`_nodes`/`_transistors`，整片板子）建一個分析用的 `NetlistGraph`；標記每個 node 的**角色**：
+- `SUPPLY` = vcc / vss
+- `INPUT` = 從來不被網表本身驅動、只被外部碼（handler / reset）`SetHigh`/`SetLow` 的 node —— 至少 `clk`、`res`（可能還有幾個 config strap）。
+- `BUS` = 雙向（既被網表驅動、又被 handler 驅動，例如 `db[]`、PPU/RAM 的資料線）—— 標出來，可能初期 hybrid。
+- `INTERNAL` = 其餘。
+
+對每顆電晶體標：`PULLDOWN`（一個 channel 端是 GND，或經串聯鏈到 GND）/ `PULLUP`（channel 端是 VCC，或 weak/depletion）/ `PASS`（兩個 channel 端都是信號 node）。
+
+**資料結構草案**：`Sim/Logic/NetlistGraph.cs`（或 `Logic/` 子目錄），`NodeRole` enum、`TransistorKind` enum、per-node 鄰接（沿用 build-time 的 `Node.Gates`/`C1c2s` 但加角色標）。
+**驗證**：count 各角色的 node/transistor 數；spot-check（vcc/vss = SUPPLY、clk/res = INPUT、`cpu.db0` = BUS）。**還不影響模擬行為**。
+
+### S2.1 — 導通分析（每個 node 的「驅動結構」）
+
+**做什麼**：對每個非 INPUT/SUPPLY 的 node `N`，算出：
+- `pullDown : Expr` —— 「N 被拉到 GND」的布林條件（沿 PULLDOWN 電晶體做串並聯歸約 / 路徑展開；歸不出來 → 標 `Complex`）。
+- `hasPullUp : bool`（含 weak）。
+- `passes : List<(int otherNode, Expr cond)>` —— 透過 PASS 電晶體連到別的信號 node 的分支（cond = 那顆 PASS 電晶體的 gate 表達式）。
+
+**演算法草案**：對 PULLDOWN 子圖做「以 N 為源、GND 為匯」的串並聯偵測（識別 series 鏈、parallel 分支；遇到非串並聯的橋接 → 退 path-enumeration 並設爆炸上限）；PASS 電晶體單獨收集。
+**輸出**：`DriveInfo[nodeId]`。
+**驗證**：spot-check 已知閘 —— `cpu` 裡某個確定是反相器的 node：`pullDown == NodeRef(gate)`、`hasPullUp == true`、`passes` 空；某個 NAND：`pullDown == And(a, b)`。
+
+### S2.2 — `Expr` IR + 良性結構抽取
+
+**做什麼**：
+- 定義 `Expr` 型別：`ConstExpr(bool)` / `NodeRefExpr(int)` / `NotExpr` / `AndExpr` / `OrExpr` / `MuxExpr(cond, a, b)` / `HoldExpr(int)`（指回該 node 自己的上一輪值）。
+- 對 `DriveInfo` 是「下拉網路 + pull-up、無 pass」的 node → `nextExpr[N] = Not(pullDown)`（反相器/NAND/NOR/AOI）。
+- 對「純 pass fan-in」的 node（mux）→ `nextExpr[N] = Mux(cond1, M1, Mux(cond2, M2, ... Hold(N)))`。
+- 對「pull-up + 沒有下拉、沒 pass」（純被動上拉）→ `Const(true)`（除非是被 pass 驅動的 dynamic → Hold）。
+- 對抽不出乾淨式子的 → 標 `hybrid: keep switch-level`，記到 hybrid 名單。
+- 標每個 node：**組合**（nextExpr 只引用「同 phase 內穩定」的 node）vs **序向**（引用回自己 / 透過環 → 要前一輪值）—— 初判，S2.3 再精修。
+- 算**覆蓋率**：能抽出 `Expr` 的 node 數 / 全部。
+
+**輸出**：`Expr?[] nextExpr`（null = hybrid）、`bool[] isSequential`、覆蓋率。
+**驗證**：覆蓋率報告；dump 幾個 node 的 `Expr` 樹目視；spot-check 反相器/NAND/NOR 的式子。
+
+### S2.3 — 回授 / SCC 分析
+
+**做什麼**：建「依賴圖」（node `N → M` 若 `nextExpr[N]` 引用 `M`）→ Tarjan 找 SCC。
+- size-1 自引用 = 1-bit 儲存（latch）。
+- size-2 互引用 = cross-coupled latch（CPU/PPU 的 register bit、SR latch）。
+- 大 SCC = 共享 bus / 強耦合 dynamic。
+
+對每個 SCC 分類：**static latch**（環裡有清楚的 set/reset/hold 結構 → 改寫成 `next = sel ? data : prev`）/ **dynamic**（環只是 refresh 路徑 → `next = prev` 除非被驅動）/ **bus feedback**（多驅動 → 難 → hybrid）。良性 SCC → 改寫成序向 node（`nextExpr` 裡的環內引用換成 `prev[...]`）。處理完後，**剩下的圖（SCC 外）是 DAG → 可拓樸排序**。
+
+**輸出**：每個 SCC 的分類；改寫後的 `nextExpr`（環打斷）；拓樸序（組合部分）；序向 node 清單（精修版）。
+**驗證**：SCC 數 / 大小分佈；spot-check（某個 register bit 確實被認成 size-2 latch）；確認 SCC 外確實無環。
+
+### S2.4 — IR 直譯器
+
+**做什麼**：一個跟 S1 平行存在的 backend（`Sim/Logic/IrEngine.cs` 之類），共用 `NodeStates` 那個 byte 陣列（或自己一份 + prev 一份）：
+- 把「INPUT / BUS 被 handler·reset 設的值」當這一拍的輸入。
+- 對組合 node 按拓樸序 evaluate `nextExpr`（純讀現值）。
+- 在 clock phase 邊界對序向 node 做更新（讀 prev、寫 next）。
+- 兩相 master clock（clk0 high/low half-cycle）、half-cycle 推進 —— 對齊 S1 的 `Step()`。
+- handler chain（clock toggle、RAM/ROM、video）照跑（它們是「外部驅動者」）。
+- 若有殘餘組合回授（理論上 S2.3 後沒有）→ settle + cap-and-warn 像 S1。
+- hybrid node → 交給 S2.5 的 bridge。
+
+**輸出**：`IrEngine` + `--engine ir`（或類似）能跑 ROM。
+**驗證**：跑得通 S1 跑得過的 test ROM（先不要求逐 node 一致，那是 S2.6）；`--trace` 看 CPU state 像不像。
+
+### S2.5 — Hybrid bridge（fallback）
+
+**做什麼**：對標了 hybrid 的 node/區域，留在 switch-level 引擎裡跑；IR 引擎 + switch-level 引擎共用 node-state 陣列；每個 half-cycle：IR-eval IR node → switch-level-settle hybrid node → 來回迭代到一致。**注意**：這是**一個引擎內部**的橋接（IR 區 ↔ hybrid 區），不是「CPU vs PPU」的刻意切割；而且是**fallback** —— hybrid 名單應該隨 S2.2/S2.3 處理更多結構類型而縮向 0。
+
+**輸出**：hybrid bridge；hybrid 覆蓋率（希望 → 很小）。
+**驗證**：hybrid + IR 混跑的整體 trace；hybrid node 清單。
+
+### S2.6 — 等價 gate（S2 過關）
+
+**做什麼**：把 IR 引擎（+ hybrid）的 **node-state 陣列、每個 half-cycle、對全部 named node（或全部 node）**，跟 S1 開關層級引擎的逐一比對 —— 必須 **bit-identical**。任何不一致 → 回 S2.1/S2.2/S2.3 修。再加：所有 test ROM 仍 pass；dump `ir_debug.json`（每個 node 的 `nextExpr`、SCC 分類、組合/序向標記、hybrid 名單）供人工檢視。
+
+**過關條件**：
+- ✅ IR 抽取對整片板子完成，能 dump `ir_debug.json`。
+- ✅ IR 引擎跑得通 S1 跑得過的那批 test ROM。
+- ✅ IR 引擎與 S1 開關層級引擎的 trace **逐 node、逐 cycle 完全一致**（硬條件）。
+- ✅ 回授 / SCC 區域被正確分類（不會展開爆炸 / 不收斂）。
+- （放寬條款）若某些頑固區域抽不出乾淨 IR → 那些區域 hybrid，但要記清楚、標明 IR 覆蓋率 ≥ X%、整體 trace 仍一致。
+
+---
+
+## 3. 每個 step 的工作流程（含 Gemini review 迴路）
+
+> 由 user 指定：實作每個 step 前，先把構想的處理方式 / 設計方式描述給 Gemini 分析、給建議；評估建議，**有正面性幫助的一律採用、寫進實作**。
+
+對每個 step `S2.N`：
+
+1. **寫設計描述** → `MD/impl/S2/0N_S2.N_<名稱>_設計.md` 的「設計描述」段（演算法、資料結構、邊界情況、驗證計畫）。
+2. **丟 Gemini 分析**：
+   ```bash
+   python tools/knowledgebase/gemini_query.py "$(cat MD/impl/S2/0N_..._設計.md)  ——以上是我對某 switch-level 網表→邏輯 IR 抽取工具其中一個步驟的設計。請分析：演算法是否正確/有沒有漏掉的 corner case、資料結構是否合理、有沒有更好的作法、實作上要注意什麼。給具體建議。"
+   ```
+   把回應原文貼進設計檔的「Gemini 分析回饋」段（`gemini_query.py` 自己也會在 `tools/knowledgebase/message/` 留 log）。
+3. **評估 & 採用建議**：逐條判斷。**正面性幫助的 → 採用、改進設計、寫進實作**；不採用的 → 記為什麼（避免之後重複糾結）。寫進「建議評估 & 採用」段。
+4. **實作** → `src/AprVisual/Sim/Logic/...`（或約定的目錄）。
+5. **驗證**：`dotnet build` 0 warning / 0 error → 該 step 的功能驗證（spot-check / count / dump）→ 跟 S1 的等價對齊（到 S2.6 是逐 node、之前的 step 是「不破壞 S1」）。
+6. **更新文件**：設計檔的「實作筆記 / 驗證結果」段 + 本檔的進度日誌一行。
+7. **`git commit` + `git push`**（subject = `S2 step N: <what>`，body 列 real vs hybrid/TODO，結尾 `Co-Authored-By:` trailer）。
+
+> 順序：S2.0 → S2.1 → … → S2.6。每步過了自己的驗證才進下一步（S2.6 是整個 S2 的過關 gate）。S2.4（IR 直譯器）之前的 step 都不改 S1 的行為（只是建分析資料 / 平行的 backend）。
+
+## 4. 不在 S2 範疇
+
+- **IR 優化**（常數摺疊 `A && true ⇒ A`、CSE、死碼、攤平成線性指令拿掉指標間接）= **S3.1**。S2 只要**正確**的 IR + 直譯器；S3 才讓它快。
+- **codegen**（C++ / Verilog / CUDA bit-sliced）+ GPU 大規模平行 = **S4**。
+- **效率證明 / benchmark 報告**（IR-CPU ≫ netlist-CPU）= **S3**（不過 S2 過關後就可以順手用現有的 `--benchmark` 量一下 IR vs switch-level，當 S3 的前哨）。
+- mapper > 0、AI 大規模訓練環境、整顆 NES 常駐 GPU kernel = S4 之後 / stretch。
+
+## 5. 開工前
+
+S2.0 還沒開始。下一步：建 `MD/impl/S2/01_S2.0_靜態圖_設計.md`、寫設計描述、丟 Gemini、評估採用、實作、驗證、commit。
+
+（也可選擇先把這份**總覽計畫本身**丟一輪 Gemini 做整體 review —— 不是 step 工作流程的一部分，但若有結構性建議值得先吸收。）
+
+---
+
+## 進度日誌
+
+| 日期 | commit | 完成 | 備註 |
+|------|--------|------|------|
+| 2026-05-12 | （本次） | **建立 S2 計畫總覽** | `MD/impl/S2/00_計畫總覽.md`：核心問題（怎麼從開關層級抽邏輯：下拉網路+負載 / pass=mux / dynamic=Hold / 回授=SCC）、我設計的步驟拆解 S2.0～S2.6、每 step 的工作流程（含 Gemini review 迴路）、等價驗證紀律、過關條件、不在 S2 範疇的東西。文件結構：一個 stage 一個檔（`0N_S2.N_xxx_設計.md`）。S2.0 尚未開工 |
+| | | | |
+
+────────────────────────────────────────────────────────────
+以上是我（一個把 Visual6502 / MetalNES 風格的 switch-level 電晶體網表轉成高階布林邏輯 IR 的工具）對 S2 階段的整體實作計畫（繁體中文）。請做一個務實、具體的技術 review，不要客套：
+
+1. 步驟拆解 S2.0~S2.6 是否合理？有沒有漏掉的環節、順序問題、或某步驟其實該拆更細 / 合併？
+2. 各步驟的演算法 / 資料結構有沒有更好的作法？以及 NMOS switch-level → logic 抽取的「已知陷阱」我有沒有漏（pass-transistor 鏈、dynamic / pre-charged node、cross-coupled latch、shared / tri-state bus、非串並聯（橋接）下拉網路、charge sharing、ratioed logic、pass-transistor 造成的 X / 弱值、clock-gating / two-phase 時序、bootstrap node）—— 哪些在 6502/2A03/2C02 這種 1980 年代 NMOS 上實際會碰到？
+3. 「分階段按結構複雜度（不按晶片）+ hybrid（少數區域留 switch-level）當 fallback」這個策略，跟其他作法比（例如直接全網表做 BDD / SAT-based 等價、或先 levelization 再 codegen）的利弊？
+4. 等價驗證用「逐 node、逐 half-cycle 跟 switch-level golden reference 對照」夠不夠？有沒有更該注意的（X / floating 值怎麼比、初始化、非決定性、reset 序列）？
+5. 有沒有我該知道的相關研究 / 開源工具 / 經典作法（switch-level → logic、gate-level codegen、MOSSIM / COSMOS / IRSIM、netlist→Verilog reverse engineering、visual6502 衍生專案）？
+
+請給可執行的建議；每條建議標明「對我這個計畫的具體影響 / 該怎麼改」。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一份針對你 S2 階段「switch-level 網表轉邏輯 IR」計畫的技術審查。你的整體思路（分階抽取、hybrid fallback、逐 cycle/node 等價驗證）**非常務實且極具工業級模擬器開發的 sense**。相比於試圖用 BDD 或 SAT 硬解整張網表，你的 Hybrid 策略能保證專案不會死在 2C02 那些極度詭異的動態電路上。
+
+以下針對你的五個問題，進行不客套、直指核心的技術 review 與具體建議：
+
+---
+
+### 1. 步驟拆解 S2.0~S2.6 是否合理？
+
+整體合理，但 **S2.3（回授 / SCC 分析）** 的設計存在一個致命的盲點：**在 NMOS 網表中，直接對靜態依賴圖做 Tarjan 會得到巨大且無意義的 SCC。**
+
+在 6502/2C02 中，幾乎所有的 Latch 都是靠 pass transistor 隔離的。如果在靜態圖中，你把 `nextExpr[N]` 對 `M` 的依賴（例如 `N = Mux(phi1, M, Hold(N))`）視為一條 `N -> M` 的無條件邊，因為很多 pass transistor 在硬體上是雙向或串成環的，Tarjan 會把整條資料路徑（甚至跨越多個 Latch）包進同一個巨大的 SCC 中。
+
+*   **具體影響 / 該怎麼改**：
+    *   **將 S2.3 拆為 S2.3a（依賴條件提取）與 S2.3b（動態 SCC 打斷）**。
+    *   不要建純靜態圖，要建**帶條件的依賴圖**（Conditional Dependency Graph）。例如 `N -> M` 的邊上帶有條件 `phi1`。
+    *   在找 SCC 時，利用 2A03/2C02 明確的兩相時鐘（`clk0` / `clk1` 互斥）特性。如果一個環上有一條邊需要 `clk0 == 1` 且另一條邊需要 `clk1 == 1`，這個環在**邏輯上是不存在的**（它是一個跨 phase 的 pipeline，不是真的組合回授）。
+    *   將這類被 clock 打斷的環直接標記為**序向元件 (Sequential / Latch)**，將其打破，使圖轉為 DAG。真正的 SCC 應該只剩下那些同 phase 內不受 clock 隔離的 asynchronous loops（例如 RS Latch，這類才需要特殊改寫）。
+
+### 2. 演算法 / 資料結構與 NMOS 特有陷阱
+
+你在 S1.1~S1.3 提到的陷阱，在 6502 / 2C02 幾乎**全都會踩到**。以下是必須防禦的已知陷阱：
+
+*   **陷阱 A：Pass Transistor 的雙向性與 Mux 假設**
+    *   **問題**：你的設計說「純 pass fan-in = Mux」。但在真實 NMOS 中，pass transistor 沒有方向。如果 node A 和 B 中間夾一個 pass transistor，S1 模擬器是看「誰的驅動力強」來決定是 A 驅動 B 還是 B 驅動 A。如果你單純把它抽成 `B = Mux(en, A, Hold)`，萬一某些時候是 B 驅動 A 呢？
+    *   **具體影響 / 該怎麼改**：在 S2.1 必須加入**方向性推導 (Directionality Heuristics)**。通常，如果 A 側有 PULLDOWN 網路，B 側是 purely dynamic（純電容，只有 pass 連進來），則方向定為 A -> B。推導不出單一方向的 pass transistor 網路（如 2C02 OAM 讀寫匯流排），**不要硬轉 Mux，直接丟進 Hybrid 名單**。
+*   **陷阱 B：Superbuffers (Push-Pull Drivers)**
+    *   **問題**：6502 內部有幾種特殊的驅動器，不是單純的「下拉 + Pull-up load」。例如它的 clock generator 或 address pins，會用一顆 depletion NMOS 當作 active pull-up（gate 接信號而不是短路到 source），形成一個 Push-Pull 結構。
+    *   **具體影響 / 該怎麼改**：在 S2.0 的角色標記中，增加 `ACTIVE_PULLUP` 的辨識。S2.1 抽取時，如果一個 node 同時有 active pull-up 和 pulldown 網路，它的 `Expr` 應該是 `Mux(pullup_cond, 1, Mux(pulldown_cond, 0, Hold))`，並且要 assert `!(pullup_cond && pulldown_cond)`。
+*   **陷阱 C：Charge Sharing (電荷分享)**
+    *   **問題**：兩個 capacitance 不同的 dynamic nodes 透過 pass transistor 連接，沒有 VCC/GND 驅動，強電荷會覆蓋弱電荷（Visual6502 有 node area capacitance 概念）。
+    *   **具體影響 / 該怎麼改**：如果 S1 會依賴這個行為，IR 的 `HoldExpr` 就不能只是簡單的 `prev[N]`。但幸好 6502 依賴 charge sharing 決定邏輯值的場景極少（通常只用在預充放電）。建議初期遇到兩端都是 floating 的 pass 導通時，**標記警告並丟入 Hybrid**，觀察 test ROM 有沒有真的依賴這行為。
+*   **陷阱 D：Precharge-Evaluate (Domino Logic)**
+    *   **問題**：2C02 sprite 邏輯大量使用。Phase 1 透過 Pull-up 預充至 1，Phase 2 下拉網路開始求值。
+    *   **具體影響 / 該怎麼改**：你的 IR 引擎 (S2.4) 每一個 half-cycle 都要能重新 re-evaluate 這種 node。`Expr` 會長得像 `Mux(phi1, 1, Not(Pulldown_Eval))`。這完全落在你現有的設計支援範圍內，只需確保 S2.1 能正確把預充用的 pull-up 視為 conditional pull-up 而非 static load。
+
+### 3. 「複雜度分階 + Hybrid fallback」策略的利弊
+
+*   **利**：**這絕對是正確的選擇**。強行將 PPU OAM / VRAM data bus 這些 ratioed logic / tri-state bus 轉換為純布林代數，會導致 `Expr` 爆炸到無法閱讀，且容易出錯。Fallback 保證了專案的可推進性。
+*   **弊（效能隱患）**：Hybrid Bridge (S2.5) 的設計是 `IR -> S1 -> IR` 迭代至收斂。如果你的 Hybrid node 與 IR node 之間有緊密的同 cycle 組合邏輯回授，這個迭代圈數會很高，拖垮 S2 / S3 階段的模擬效能。
+*   **具體影響 / 該怎麼改**：
+    *   嚴格控制 Hybrid 的邊界。**盡量讓 Hybrid 區域的邊界落在 Latch (序向元件) 上**。
+    *   如果 Hybrid 區（如 PPU bus）的輸入/輸出都是在前一個 half-cycle 就穩定的 Latch 訊號，那麼在當前 half-cycle，IR 與 S1 各自 evaluation 一次即可，不需要「來回迭代到一致」。在 S2.5 實作時，加上**「迭代次數監控」**，如果發現某個 hybrid 區域每 cycle 都要迭代 5 次以上，優先把那個區域的連接節點人工標記 / 優化掉。
+
+### 4. 等價驗證：夠不夠？該注意什麼？
+
+「逐 node、逐 half-cycle」是金標準，但你會在**初始化 (Initialization)** 和 **Unknown (X) / High-Z (Z) 狀態** 遭遇巨大痛苦。
+
+*   **陷阱**：S1（開關層級）在剛開機時，node 可能是 floating / X 狀態，需要等幾個 clock cycle 才會全部初始化。如果你的 IR 引擎 `bool` 只有 true/false，開機前幾十個 cycle 絕對對不齊。
+*   **具體影響 / 該怎麼改**：
+    *   **選項 A（推薦）**：IR 引擎底層的 `NodeStates` 不要用純 `bool`，用 `byte`（支援 0, 1, X）。`Expr` 求值時，如果遇到 `Mux(X, ...)` 或 `And(1, X)`，實作三值邏輯 (Ternary Logic) 的擴展。這能完美對齊 S1。
+    *   **選項 B**：妥協做法。在前 100 個 reset cycle 關閉「逐 node 等價檢查」，只讓 S1 將網表跑到「所有 node 都有確定值」的穩態，然後抓取 S1 的 state array 整個蓋給 IR 當作初始狀態，**從穩態開始做逐 cycle 對齊**。
+    *   **浮接 (Floating) 處理**：當 S1 某節點失去所有驅動，它會依靠 node capacitance 保持前值 (Hold)。你的 `HoldExpr` 行為必須跟 S1 保持前值的衰減/覆蓋邏輯完全一致。
+
+### 5. 相關研究 / 開源工具與借鑒
+
+你的計畫其實走在一條前人踩過、但鮮少有人整理成系統性 IR 的路上。以下資源對你有直接幫助：
+
+1.  **Perfect6502 (Michael Steil)**：
+    *   這是 Visual6502 的 C 語言高效轉譯版。
+    *   **借鑒點**：去看它的 `netlist_to_c.py`。它裡面有一個非常實用的「節點狀態預先計算」與「Pass Transistor 網格化簡」的 heuristic。他們已經解決了 6502 內部網路的串並聯與雙向推導問題。
+2.  **Bryant's MOSSIM II (1984)**：
+    *   開關層級模擬的聖經。
+    *   **借鑒點**：MOSSIM 引入了 **Signal Strength (驅動強度)** 的概念（Driven, Pull-up, Floating/Capacitance）。你的 S1 應該已經有這個概念。在 S2.1 抽 `Expr` 時，遇到 Mux 衝突，勝負由 Strength 決定。如果你的 `Expr` IR 沒有 strength 的維度，處理 bus fight 會出錯。
+3.  **Javitto / QuietSnooze 的 2C02 分析**：
+    *   他們手動逆向了 2C02 的邏輯。
+    *   **借鑒點**：他們的文件裡清楚標示了哪些是 Dynamic Latch，哪些是 Domino Logic。當你的 S2.3 抓出詭異的 SCC 或 S2.2 標出 Hybrid 時，去對照他們的 schematic，能幫你快速判斷「這是演算法寫錯，還是這真的是一個需要 hybrid 的詭異類比電路」。
+
+### 總結給 S2.0 的 Action Item：
+在進入 S2.1 前，S2.0 的資料結構 `NetlistGraph` 必須擴充：
+1. `NodeRole` 加入 `ACTIVE_PULLUP`（針對 Superbuffer）。
+2. 在邊 (Edge / Transistor) 上增加預留欄位 `Direction`（Unknown, A_to_B, B_to_A），供 S2.1 推導使用。
+3. 確認 S1 與 IR 共享的 `NodeStates` 要採用什麼資料型別來容納開機的 `X` 狀態。
+
+計畫總體非常紮實，照這個路線推進並引入方向性推導與條件式 SCC 打斷，S2 絕對能成功過關。

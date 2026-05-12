@@ -401,6 +401,28 @@ namespace AprVisual.Test
                 string p = id < nx.Length && nx[id] != null ? nx[id]!.Pretty() : "(no NextExpr — hybrid/Input)";
                 Console.WriteLine($"      {nm}#{id}: in SCC of size {sccSize}; NextExpr = {(p.Length > 160 ? p[..160] + "…" : p)}");
             }
+            // ── S3 γ.2 planning: per-SCC node detail (pass ports / pull-down / pull-up / SCC-internal NodeRefs) ──
+            Console.WriteLine("  → residual multi-node SCC detail (γ.2 planning):");
+            foreach (var c in comps.Where(c => c.Length > 1).OrderByDescending(c => c.Length))
+            {
+                var memberSet = new HashSet<int>(c);
+                int withPass = c.Count(v => v < di.Length && di[v] is { } d && d.Passes.Count > 0);
+                int withPd   = c.Count(v => v < di.Length && di[v] is { PullDown: not null });
+                Console.WriteLine($"    SCC size {c.Length}: {withPass}/{c.Length} have pass ports, {withPd}/{c.Length} have a pull-down");
+                int shown = 0;
+                foreach (int v in c)
+                {
+                    if (shown++ >= 6) break;
+                    var d = v < di.Length ? di[v] : null;
+                    var intRefs = new HashSet<int>(); if (v < nx.Length && nx[v] is { } e) AprVisual.Sim.Logic.IrEngine.CollectIdsPublic(e, intRefs);
+                    var cyc = string.Join(",", intRefs.Where(memberSet.Contains).Select(WireCore.GetNodeName));
+                    string passes = d == null || d.Passes.Count == 0 ? "—" : string.Join(" ", d.Passes.Select(pl => $"[{pl.Cond.Pretty()}?{WireCore.GetNodeName(pl.Other)}{(pl.OwnerDrives == true ? "←" : pl.OwnerDrives == false ? "→" : "↔")}]"));
+                    string pd = d?.PullDown == null ? "—" : d.PullDown is ComplexExpr ? "<complex>" : d.PullDown.Pretty() is var s && s.Length > 50 ? s[..50] + "…" : d.PullDown.Pretty();
+                    string pu = d == null ? "?" : d.PullUp.ToString();
+                    string p = v < nx.Length && nx[v] != null ? nx[v]!.Pretty() : "(null)";
+                    Console.WriteLine($"      {WireCore.GetNodeName(v)}#{v}  cyc-edges→[{cyc}]  pass={passes}  pd={pd}  pu={pu}  next={(p.Length > 110 ? p[..110] + "…" : p)}");
+                }
+            }
             return 0;
         }
 

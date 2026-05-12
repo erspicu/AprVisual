@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The project plan is settled and implementation has started. The plan (`MD/struct/08`) has four stages:
+The plan (`MD/struct/08`) had four stages; the user later widened S3 from "CPU proof" to **whole-system optimization** (every chip, the whole NES's throughput — see `MD/impl/S3/00`). Current state (2026-05):
 
-- **S1 — C# rewrite of MetalNES** (the switch-level sim engine) → the foundation. **In progress.** The skeleton lives in `src/AprVisual` (.NET 10, WinForms, x64); the engine itself (`Sim/WireCore.*`) is stubbed with `NotImplementedException` + TODOs that point at the `ref/metalnes-main` functions to port.
-- **S2 — netlist → IR** (loop/SCC detection, boolean extraction into an `Expr` IR, an IR interpreter).
-- **S3 — CPU proof**: the IR interpreter must be correct *and* benchmarked as much faster than the raw switch-level interpreter (the go/no-go gate for S4).
-- **S4 — codegen + GPU**: emit C++/Verilog + a CUDA bit-sliced kernel; per-node equivalence with the CPU IR interpreter.
+- **S1 — C# rewrite of MetalNES** (the switch-level sim engine): **DONE.** `src/AprVisual/Sim/WireCore.*` — parser, module instancing, recalc/processQueue, group resolution LUT, handlers, system load, trace. Passes the blargg tests.
+- **S2 — netlist → boolean IR** (`Expr` records, DriveAnalysis, NextStateModel, SccModel, the `IrEngine` interpreter — checking mode + driving mode + hybrid bridge): **DONE.** The per-node equivalence gate passes (IR ≡ S1 in both modes).
+- **S3 — whole-system optimization → fast backend**: **IN PROGRESS.** Done: γ.0 (Node Aliasing), γ.1 (size-1/2 SCC solver) — IR driving-coverage 46.3% → **79.3%** (843 nodes still in 56 residual SCCs → S1, ~1379 hybrid multi-driver-bus nodes → S1). γ.2 (topological-loop breaker) — attempted, over-cuts, parked (`Gamma2Enabled=false`). **Next: codegen** (`MD/impl/S3/03`) — IR → an executable bit-sliced model (C# / LLVM-via-.NET), residual SCCs + hybrid buses as Fixed-K micro-blocks; then benchmark vs S1. See `MD/impl/S3/00_S3_效率與優化.md` (the operative S3 doc + the firing-by-firing progress log) and `01`/`02`/`03` (the per-step designs).
+- **S4 — GPU**: not started (the LLVM IR retargets to NVPTX/CUDA — that's the endgame).
 
-Each stage has a per-node equivalence gate before the next may begin. Scope: 2A03 first (PPU deferred), NROM only.
+Per-node equivalence gate between stages. Scope: 2A03 + 2C02, NROM only. (An autonomous `/loop` cron drove firings 13–29 of S3; the user stopped it at firing 30 to consolidate docs.)
 
 ## Goal of the project
 

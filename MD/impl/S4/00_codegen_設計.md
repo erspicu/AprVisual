@@ -1,6 +1,7 @@
-# S3.x — codegen 設計（IR → 可執行模型；C# / LLVM，bit-sliced）
+# S4 — codegen 設計（IR → 可執行 bit-sliced 模型；C# / LLVM）
 
-> 接 `02_γ_救回InScc_設計.md` §9（Gemini 判：停 γ.2 over-cutting、轉去 codegen）。這是「S3 完全結束」的路：有一個可用的快速後端（從 IR 產生可執行的 cycle-accurate 模擬器、最終能 GPU bit-slice）+ 等價驗證 + benchmark 顯示比 S1 快很多 → 然後 `CronDelete` 停 loop。user：codegen 用 C#；Gemini：後端推 LLVM-via-.NET（同一份 IR 能 retarget NVPTX(CUDA)）。
+> **這是 S4 的工作**（`MD/struct/08` 的四階段裡 **S4 = codegen + GPU**）。設計是在 S3 後期草擬的（Gemini 判：別繼續鑽 γ.2 over-cutting、把 codegen 提前 —— 但「提前」指的是「設計先想、實作先動」，不是把它重新歸到 S3；它在 chain 上仍是 S4）。S2 / S3 的中間產物已穩定（見下「§1 目前的 IR 資產」），S4 從那裡接手。
+> 接 `MD/impl/S3/02_γ_救回InScc_設計.md` §9。user：codegen 用 C#；Gemini：後端推 LLVM-via-.NET（同一份 IR 能 retarget NVPTX(CUDA)）。**狀態：未開始**（本檔只是設計草稿、§6 的問題還沒丟 Gemini）。
 
 ---
 

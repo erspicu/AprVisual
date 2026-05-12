@@ -25,10 +25,10 @@ Scope: the NES-001 board — the **2A03** (a modified 6502 + the APU) and the **
 |---|---|---|
 | **S1** | C# rewrite of the MetalNES switch-level engine (`WireCore`: `.js` module loader, instancing, recalc/processQueue, the 256-entry group-resolution LUT, behavioral RAM/ROM handlers, system load, tracing) | ✅ done — passes the blargg test ROMs |
 | **S2** | Netlist → boolean IR: `Expr` records (`NodeRef` / `Hold` / `Prev` / `Mux` / `And` / `Or` / `Not` / `Const`), `DriveAnalysis` (per-node pull-down / pull-up / transmission-gate ports), `NextStateModel`, `SccModel` (cross-coupled latch recovery), and the `IrEngine` interpreter — *checking mode* (verify IR ≡ S1 per node, per half-cycle) and *driving mode* (the IR drives the netlist, S1 only fills in the residue) | ✅ done — the equivalence gate passes in both modes |
-| **S3** | Whole-system optimization → a fast backend. **Done so far:** Node Aliasing (fold out buffer/inverter nodes) and a general size-1/2 SCC solver (two-step algebraic fixpoint) — IR driving-coverage **46% → ~85%** (12.5k of 14.7k nodes), residual = 843 nodes in 56 small SCCs (counters / shift registers / phase rings) + ~1.4k genuine multi-driver buses, all still handled by the S1 engine. A topological-loop breaker (γ.2) is parked (it over-cuts; the residue will instead be compiled as fixed-K micro-iteration blocks). **Next:** codegen — IR → an executable bit-sliced model. | 🚧 in progress |
+| **S3** | Whole-system optimization → a fast backend. **Done so far:** Node Aliasing (fold out buffer/inverter nodes) and a general size-1/2 SCC solver (two-step algebraic fixpoint) — IR driving-coverage **46% → ~85%** (12.5k of 14.7k nodes), residual = 843 nodes in 56 small SCCs (counters / shift registers / phase rings) + ~1.4k genuine multi-driver buses, all still handled by the S1 engine. A topological-loop breaker (γ.2) is parked (it over-cuts; the residue will instead be compiled as fixed-K micro-iteration blocks). **Next:** S4 codegen (codegen + GPU is the S4 link of the chain) — IR → an executable bit-sliced model. | 🚧 in progress |
 | **S4** | Emit C++ / Verilog / a CUDA bit-sliced kernel from the IR; per-node equivalence with the CPU IR. (The LLVM-IR path retargets straight to NVPTX.) | ⬚ not started |
 
-See [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md) for the live status snapshot, the firing-by-firing log, and the design docs (`01`–`03`).
+See [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md) for the live status snapshot, the firing-by-firing log, and the α/γ designs (`01`–`02`); the S4 codegen draft is at `MD/impl/S4/00_codegen_設計.md`.
 
 ---
 
@@ -66,7 +66,7 @@ src/AprVisual/        the C# project (single WinExe; see src/AprVisual/README.md
 MD/                   all planning & design docs — Traditional Chinese
   struct/               the plan (08 = the operative roadmap) + original analysis
   note/                 research notes on MetalNES (the S1 reference)
-  impl/S1, impl/S2, impl/S3   the implementation designs + firing-by-firing progress logs
+  impl/S1, impl/S2, impl/S3, impl/S4   the implementation designs + firing-by-firing progress logs
 data/                 runtime data drop point (system-def/) — see below
 ref/                  read-only third-party reference material — gitignored, not vendored (see below)
 tools/                helper scripts (e.g. tools/knowledgebase — querying Gemini for design reviews)
@@ -129,7 +129,7 @@ S1's switch-level engine is the reference semantics (itself a port of MetalNES's
 | **S3** | whole-system 最佳化 → 快速後端。**已完成**：Node Aliasing（折掉 buffer/inverter node）、通用 size-1/2 SCC solver（兩步代數定點）—— IR driving coverage **46% → ~85%**（14723 個 node 裡 12.5k 個 driving-evaluated），殘餘 = 843 個 node 在 56 個小 SCC（計數器 / 移位暫存器 / phase ring）+ ~1.4k 個真·多驅動匯流排 node，這些目前還是交給 S1。topological-loop breaker（γ.2）暫停（會 over-cut；殘餘改用 fixed-K 微型迭代 block 在 codegen 階段處理）。**下一步**：codegen —— IR → 可執行的 bit-sliced 模型。| 🚧 進行中 |
 | **S4** | 從 IR emit C++ / Verilog / CUDA bit-sliced kernel；逐 node 跟 CPU IR 等價（LLVM IR 路線直接 retarget NVPTX）| ⬚ 未開始 |
 
-詳細現況快照、firing-by-firing 進度日誌、各步驟設計 → 見 [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md) 及 `01`–`03`。
+詳細現況快照、firing-by-firing 進度日誌、各步驟設計 → 見 [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md)、`01`–`02`；S4 codegen 設計草稿在 `MD/impl/S4/00_codegen_設計.md`。
 
 ## 為什麼是「又慢又肥」的中間形狀（設計取捨）
 
@@ -169,7 +169,7 @@ src/AprVisual/        C# 專案（單一 WinExe；細節見 src/AprVisual/README
 MD/                   所有規劃 & 設計文件 —— 繁體中文
   struct/               計畫（08 = 操作中的路線圖）+ 原始分析
   note/                 對 MetalNES（S1 參考）的研究筆記
-  impl/S1, impl/S2, impl/S3   各階段的實作設計 + firing-by-firing 進度日誌
+  impl/S1, impl/S2, impl/S3, impl/S4   各階段的實作設計 + firing-by-firing 進度日誌
 data/                 runtime 資料投放點（system-def/）—— 見下
 ref/                  唯讀的第三方參考材料 —— gitignored、不 vendor（見下）
 tools/                輔助腳本（例如 tools/knowledgebase —— 拿設計去問 Gemini 做 review）

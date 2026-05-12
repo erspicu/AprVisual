@@ -149,3 +149,36 @@ User 在 firing 10 後明確（回應「S4.4c 是什麼」）：
 - ~~S4.4b / S4.4c~~ —— 取消（user：不做多台）。~~S4.6 GPU~~ —— 暫不比較。
 - **S4 之後（loop 外、另開 branch）**—— cpu-opt event-driven 版（dirty-set、只重算 input 變了的 node —— 「β」）：單台-on-CPU 的最快版本（從 ~S3 末某個 commit branch 出去，不帶 S4 的 codegen artifact）。
 | 2026-05-12 | `cb5a7fc` | **路線調整 #3（user）** | 砍 S4.4b/c（不做多台/bit-sliced runtime；S4.4a 的 bit-sliced emit 保留為 parked artifact）、GPU 暫不比較、float-artifact 允許豁免。修正後路線：S4.2b（runtime ping-pong bus resolver 取代 S1 bridge → 0 mismatch（豁免後）→ codegen emit → benchmark vs S1）→ S4.5（LLVM backend → benchmark S1/C#/LLVM）→ 之後 cpu-opt event-driven branch（loop 外）。loop 重開、目標 = 完成 S4.2b + S4.5。 |
+
+---
+
+## 12. GPU readiness —— S4 交付什麼、還缺什麼、為何 parked
+
+**問題**（user 2026-05-12）：「第四階段完成後 code 就能順利適合 GPU 了嗎？」
+
+**短答**：S4 做完後，**「IR / codegen 的形式」是 GPU-ready 的**，但**「有一個跑得動、驗過的 GPU 版本」不是 S4 交付的東西**（那是 S4.6，目前 parked）；而且要分清楚是哪一種 GPU 平行。
+
+### S4 之後 code 長怎樣（= 為何說它 GPU-ready）
+
+整片 nes-001 變成一段**完全 branch-free 的直線程式 + 幾個有界小迴圈**：
+
+- ~85%（~12.5K node）= flat DAG，照拓樸序 `EvalOrder[]` 一路算（零分支、`Mux(c,a,b)` → bit-sliced 版是 `(c&a)|(~c&b)`）。
+- 843 個殘餘 SCC node = `Step_scc_fixedK`（`for k in 0..K(=32)` 固定迴圈、Gauss-Seidel 順序、in-place）。
+- 2086 個 bus（S4.2b 後）= inline `Resolve_Buses()`（每 bus 3 個 bit-plane `S0/S1/W1`、bitwise 決議、含 `K_PASS≈3` 的 bus-to-bus 廣播）。
+- 整體 = ping-pong `for outer in 0..K_OUTER(≈3): { Eval_DAG(); Eval_SCCs(); FireHandlers(); Resolve_Buses(); }`。
+
+**沒有 event queue、沒有動態 group 計算（不像 S1 的 recalcNodeList/processQueue）、沒有遞迴、沒有 data-dependent 的迴圈次數**（只有固定 K 的有界迴圈）—— 這正是 GPU compute shader 要的形狀。`S4.4a` 已 emit 的 bit-sliced `ulong[]` 版（state 是 SoA `ulong[nodeCount]`、每 word = 64 lane、`& | ~` + `(c&a)|(~c&b)`）**幾乎就是 GPU kernel 的草稿**，只差：(1) 語法翻成 HLSL/GLSL/WGSL/CUDA；(2) per-lane/per-thread 的 64KB RAM/ROM + bit transpose（scatter/gather）；(3) handler chain（master clock toggle、memory R/W）的 GPU 化。
+
+### 「適合 GPU」≠「GPU 版本能跑」，而且分兩種平行
+
+- **(a) 很多台同時跑**（bit-sliced，每 GPU thread/lane 一台獨立 NES，跑各自的 ROM/輸入）—— embarrassingly parallel、最容易；`S4.4a` 的 bit-sliced emit 就是為它準備。**user 對多台沒興趣** → `S4.4b/c`（bit-sliced runtime + 64 台 vs S1 驗證）已取消、bit-sliced emit 保留為 parked artifact。
+- **(b) 一台 NES、用 GPU 加速、即時** —— 較尷尬：一台一個半週期內的邏輯是個深度 ~數十層的 DAG，GPU 只能做「每層的獨立 node 並行 → barrier → 下一層」（~12.5K node / ~數十層 ≈ 每層幾百 node），fixed-K SCC / bus ping-pong 也是有依賴的迭代。粗估比 scalar CPU 快 ~5–30×/半週期，但 kernel-launch / barrier 的 per-層（或 per-半週期）開銷會吃掉不少。即時門檻 ≈ 654719 半週期/幀 × 60 fps ≈ 39M 半週期/秒。**GPU 強在 throughput、弱在 latency；「一台即時」是 latency 戰** → GPU 不見得是對的工具，**LLVM -O3 原生碼（S4.5）+ event-driven（cpu-opt branch）那條路更可能打到即時**。這就是為何 user 確認「即時堪用就好、GPU 是 bonus」後，優先序排成 S4.2b → S4.5 → cpu-opt branch，GPU 暫 parked。
+
+### S4 沒給的（要真做 GPU 版還缺）
+
+- 實際 GPU runtime：compute shader host code、GPU 記憶體佈局、per-thread RAM/ROM、dispatch + barrier 迴圈 —— = `S4.6`（parked；若回頭做、參考 user 的 `AprNesAvalonia`「.NET 跑自訂 shader」的做法）。
+- GPU backend 自己的等價驗證（S4 改版後只驗 CPU 的 C# / LLVM 兩個 backend）。
+- 附帶好處：採「float-artifact 豁免」（允許跟 S1 差 ~0.07%、那是 S1 event-queue-order 的 artifact、非「正確答案」）—— 對 GPU bit-sliced 反而**更對**（忠於邏輯/物理 > 忠於 S1 的人為 settle 順序）。
+
+**一句話**：S4 完，這份 code「沒有任何天生不能上 GPU 的東西」了、bit-sliced 草稿也擺著；但「跑得動、驗過的 GPU 版」是 S4.6 的事，且若目標是「一台即時」，GPU 大概贏不過 LLVM / event-driven 的 CPU 版 —— 所以先擺著。
+| 2026-05-12 | `<pending>` | 文件 §12 GPU readiness | 補一段回答 user「S4 完 code 就 GPU-ready 了嗎」：IR/codegen 形式 GPU-ready（branch-free 直線 + 有界小迴圈、bit-sliced emit 是 kernel 草稿）但「跑得動的 GPU 版」是 parked 的 S4.6；分(a)多台(已砍)/(b)一台即時(latency 戰、GPU 不見得贏 LLVM/event-driven)；S4 沒給的（GPU runtime / memory transpose / GPU 等價驗證）。 |

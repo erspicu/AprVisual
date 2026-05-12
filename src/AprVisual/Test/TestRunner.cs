@@ -73,6 +73,7 @@ namespace AprVisual.Test
                     case "--bitsliced": emitBitsliced = true; break;   // S4.4: --dump-emitted-cs emits the bit-sliced (ulong[], 64 instances/word) variant
                     case "--selftest":        return SelfTest();
                     case "--llvm-spike":      return LlvmSpike();   // S4.5 phase 0: verify the LLVMSharp.Interop + libLLVM toolchain (build int add(int,int), JIT, run)
+                    case "--gpu-spike":       { var (gok, gmsg) = AprVisual.Sim.Logic.GpuSpike.Run(); Console.WriteLine($"S4.6 G.0 GPU compute spike: {gmsg}"); return gok ? 0 : 1; }   // S4.6 phase 0: verify the D3D11 compute toolchain (runtime HLSL compile + dispatch + readback)
                     case "--llvm-no-opt":     AprVisual.Sim.Logic.LlvmCodegen.Optimize = false; break;   // S4.5: skip the (TODO) default<O3> pipeline before MCJIT
                     case "--dump-emitted-ll": dumpEmittedLl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.5: write the LLVM IR for `step` to a file ("-" = stdout)
                     case "--llvm-codegen-test": llvmCodegenTestFlag = true; break;   // S4.5: build the IR for nes-001, MCJIT it, report sizes — verify it compiles

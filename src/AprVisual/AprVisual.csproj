@@ -32,6 +32,9 @@
          bundles libLLVM.dll (no separate LLVM install needed). Same versions as the user's AprGba. -->
     <PackageReference Include="LLVMSharp.Interop" Version="20.1.2" />
     <PackageReference Include="libLLVM.runtime.win-x64" Version="20.1.2" />
+    <!-- S4.6 — GPU compute (D3D11 compute shaders; runtime HLSL→DXBC via D3DCompiler). Vortice = the actively-maintained D3D bindings. -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
   </ItemGroup>
 
 </Project>

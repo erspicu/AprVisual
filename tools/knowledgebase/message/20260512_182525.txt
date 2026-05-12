@@ -1,0 +1,132 @@
+Timestamp: 2026-05-12T18:25:25
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深硬體驗證/邏輯綜合/模擬器工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → codegen」管線的 review。我在 S4.2（γ.4 hybrid multi-driver bus lowering）卡住了，需要你給方向。請用繁體中文、務實、給明確建議。
+
+## 背景速覽
+
+- S1：C# 重寫 MetalNES 的開關層級引擎（event-driven、recalc/processQueue、group resolution：把目前導通的 transistor 連通群合起來、群值 = resolve(GND wins → VCC/pull-up → external drive → hold-previous（寄生電容 → 最大電容 node 勝）→ 0)）—— golden reference。
+- S2：每個 node 抽出 `NextExpr[v]` = 「下半週期 settle 後 v 的值」的 boolean tree（`NodeRef(id)`=該 node 此半週期 current 值 / `Hold(id)`/`Prev(id)`=該 node 上半週期值 / `Mux/And/Or/Not/Const`）。
+- S3：IR 最佳化（Node Aliasing、size-1/2 SCC solver）—— driving coverage 46%→**85%**（整片 nes-001 = 14723 node，**12501 driving-evaluated**（有 NextExpr、acyclic、放進拓樸排序 EvalOrder）、**843 在 56 個小殘餘 SCC**（APU/PPU 的 counter/shift-reg/ring，最大 496）、**~1379 hybrid multi-driver tri-state bus node**（`NextExpr==null`：BD0-7 / cpu.db / ppu.io_db / exp_in 那種——DriveAnalysis 對它們吐不出乾淨函數，因為多個 pass-transistor driver + 雙向 bus 連線））。
+- driving 模式（已驗 0 mismatch）：每半週期 ① snapshot ② handler chain（master clock toggle + 行為式 64KB RAM/ROM —— byte[] + handler，是「模型的邊緣」、不抽 IR） ③ flush 一層 ④ compiled chunks 評估 EvalOrder 的 12501 個 node ⑤ S1 的 ProcessQueue 處理剩下的 843 SCC + 1379 bus + fanout。
+- S4 目標 = 把 IR 變成「全 codegen-able（GPU 友善的 acyclic DAG + fixed-K micro-block for 殘餘環）」。你之前（S4.0 review）建議：hybrid bus → γ.4 IR lowering（NMOS Wired-AND）、有環就丟進 SCC、fixed-K(S4.3) 處理；目標 IR coverage ~99-100%。
+
+## 我做了什麼（γ.4 v1）+ 卡在哪
+
+每個 `NextExpr==null` 的 bus node v（DriveAnalysis 給它 `Passes`=傳輸閘寫埠 list，每個 `{Other, Cond(=gate condition：NodeRef(gate) 或 True), OwnerDrives(true/false/null)}`、加 `PullDown`/`PullUp(None/StaticLoad/StrongVcc/Conditional)`/`PullUpCond`）→ 抽 pseudo-NextExpr：
+```
+has_pd = OrAll( PullDown,  各 pass i:  Cond_i & !Node(Other_i) )       // 任何 driver 輸出 0
+has_pu = OrAll( <PullUp: StaticLoad/StrongVcc→True, Conditional→PullUpCond, None→無>,  各 pass i:  Cond_i & Node(Other_i) )
+NextExpr[v] = Mux(has_pd, 0, Mux(has_pu, 1, Hold(v)))   // = !has_pd & (has_pu | Hold(v))
+```
+（也排除了 `u1.`/`u4.`/`cart.` 前綴的 node —— 那是 behavioral SRAM / cart ROM/RAM 模組的內部 node，由 memory handler 驅動、不該模型化。）
+
+**結果**：IR-covered 85%→**~99%**（14609/14723）✓，但兩個問題：
+
+1. **checking 模式 3 個 rare mismatch**：`ppu.io_db1#443` / `ppu.io_db3#106` / `ppu.io_db4#42`（各 ×1 over 3000 半週期 —— 即 `EvalExpr(NextExpr[io_db4])` 跟 S1 settle 後的 `io_db4` 值偶爾不一致）。`io_db4` 的 NextExpr（wired-AND 抽出來的）長這樣（`!nX & ...` 表示某 pass 的 `Cond = !nX`、`hold(n42)` = `Hold(io_db4)`）：
+   `!( (!n10465 & !n14370) | (!n10478 & !n14384) | (!n14278 & n14326) | (!n14668 & n14339) | (!n14698 & n14714) | n13632 | n1592 )  &  ( (!n10465 & n14370) | (!n10478 & n14384) | (n14278 & n14326) | (n14339 & n14668) | (n14698 & n14714) | hold(n42) | n11592 | n72 )`
+   —— 即 5 個 pass port（gate condition 分別是 `!n10465`、`!n10478`、`n14326`、`n14339`、`n14714`；Other 分別是 `n14370`、`n14384`、`n14278`、`n14668`、`n14698`）+ pull-down `(n13632 | n1592)` + conditional pull-up `(hold(n42) | n11592 | n72)`（pull-up 條件含 `Hold(self)` —— 一個 feedback keeper）。`io_db*` 是 PPU 的 I/O data bus bit —— 接 CPU 的 data bus（經板上的 74LS368 buffer）、PPU 內部的 io_db latch、OAM data、palette data 等，多個 driver。
+   - 我懷疑問題是：wired-AND 用「`Node(Other_i)` 是 0」近似「`Other_i` 是強 0-driver」—— 但 `Other_i` 可能是個浮接/弱 node（它自己也是 floating，跟 v 連起來是「兩個 floating node、最大電容勝」、不是「v 被強拉到 0」）。或者是 settle-order artifact（多 driver bus settle 時的瞬態）。
+   - 注意：在 S2 我們對「unnamed wire junction」node 採「我們抽 model 但不 gate 等價」的策略（settle-order artifact 邏輯上不可觀察）；但 `io_db*` 是 named bus、有 fanout —— 不該豁免。3 個 mismatch ×1 each over 3000 hc = ~0.07%。
+
+2. **模型化所有 bus → 一個 ~10K-node 巨型 SCC**：buses 互相 pass-coupled 太深（cpu.db ↔ ppu.io_db ↔ board BD ↔ ... + 讀/驅動 bus 的 ALU / address logic / OAM / palette / DL latch 都被吸進來）。所以 γ.4 ON 時：殘餘 SCC 從「843 個 node / 56 個小 SCC（最大 496）」變成「**10037 個 node / 1 個巨型 SCC** + 4 個小的」，driving coverage 79%→**31%**（大部分 node 進了那個巨型 SCC）。
+
+**所以 γ.4 v1 不能開**（破 checking gate + 巨型 SCC）。我已試了 2 個 firing 的 trial-and-error 沒搞定 → 需要你給方向。
+
+## 想問你的（請逐題給明確建議）
+
+1. **正確的 multi-driver tri-state bus next-state 模型是什麼？** 一個 bus node v：N 個 pass port（`Cond_i ? 連到 Node(Other_i)`）+ 一個 pull-down（active 時拉 0）+ 一個 conditional pull-up（active 時拉 1、條件含 `Hold(self)` 的 keeper）。switch-level 的真相：pass 導通時把 v 跟 Other_i merge 成同一群、群值 = GND-wins resolution。wired-AND `has_pd = OR(Cond_i & !Node(Other_i))` 的問題是它把「Other_i 是 0」當成「Other_i 是強 0-driver」—— 但 Other_i 可能是 floating/weak。怎麼修？(a) 用 `OwnerDrives` 區分（只把 `OwnerDrives != true` 的 pass 算 driver、`true` 的 Other 是 follower 不算）—— 但 io_db* 那種 bidirectional bus 的 OwnerDrives 大多是 `null`，幫不上？(b) 區分「Other_i 本身是 driven node（有自己的 pull-down / 是 logic gate 輸出）vs 是 floating bus」—— driven 的才算 driver，floating 的兩邊「最大電容勝」（這要 transitive，因為 Other_i 可能也是 bus）—— 複雜，怎麼做？(c) 接受 ~0.07% 的 mismatch、把這幾個 named bus node 從 gate 豁免（verification-boundary call）—— 但 codegen 要 100% == S1、所以 codegen 出來的 io_db4 也會 0.07% 錯，可接受嗎？(d) 別的？
+2. **那個 ~10K-node 巨型 SCC：fixed-K 划算嗎？** Gauss-Seidel（DFS 斷 back-edge 求拓樸序、in-place 更新）對一個 10K-node 的「buses + ALU + address logic + OAM + ...」混合 SCC，K（要幾次 iteration 收斂）大概多少？data bus 部分幾個 round（driver 驅動 → reader 反映 → 完），但組合邏輯部分 gate depth ~tens —— K ~tens（→ 每半週期 ~10K × tens = 數十萬 eval = 慢）？還是好的拓樸序讓 K ~2-8？如果 K 要 ~30，那 γ.4（→ 巨型 SCC）vs 「只模型化 leaf-ish buses（pass-neighbour 全是已模型化的非-bus node）、深度耦合的 data bus（cpu.db / ppu.io_db / board BD）留 S1」—— 哪個對？後者 IR coverage ~90%、有個 ~10% 的 S1-fallback。
+3. **GPU 那邊的 data-bus 怎麼辦？** 如果 data bus 留 S1（CPU codegen 90% emitted + 10% S1-called，還是比純 S1 快很多），那 GPU 版那 10% 怎麼辦 —— S1-fallback on GPU = warp divergence（致命）。有沒有辦法把「data bus resolution」做成一個**有界、branch-free 的 inline 計算**（不是 dependency graph 裡的 NextExpr、而是 codegen 時固定 emit 的一段 code：對每個 bus，從它的 pass-neighbour 的值 + pull-down/pull-up 算出 bus 值），然後跟 fixed-K SCC block **交錯跑幾輪**（flat program → [bus-resolve + SCC fixed-K] × K → 收斂）？這樣 bus 不污染 dependency graph（不進 SCC）、但語意上跟「bus 在 SCC 裡」一樣（都是 fixed-K 迭代到收斂）—— 對嗎？跟「直接模型化 bus 進巨型 SCC」有差別嗎（除了不污染 EvalOrder 拓樸排序）？
+4. **戰略**：我已花 2 個 firing 在 γ.4 沒落地。該 (a) 繼續啃（修 bus 模型 + 巨型 SCC）、(b) 退而求其次（85-90% IR coverage：flat program + 843-node fixed-K，data bus 留 S1 / 或上面 #3 的 inline bus-resolve），先推 S4.3(fixed-K)/S4.4(bit-slice)、之後再回來、(c) 別的？user 的目標是「正確 + 即時堪用」（不追求上千台並行）。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常經典的「Switch-level 抽象」撞上「Gate-level/RTL 抽象」的牆。
+
+你的分析非常精準：那 3 個 mismatch 不是偶然，10K 巨型 SCC 更是架構上的強烈警訊。**Bidirectional pass-transistor bus 在物理上是「動態的電路節點整併（Group Merge）與電容/驅動強度決議」，試圖把它壓平到純粹方向性的 `NextExpr` Boolean Logic，注定會產生假性循環（False Combinational Loops）並丟失強度資訊。**
+
+以下針對你的四個問題，給出明確、務實的工程建議：
+
+### 1. 正確的 multi-driver bus 模型是什麼？
+
+**解答：(d) 別的——放棄用靜態 Boolean Logic（Wired-AND）來逼近 bidirectional bus。改用「驅動強度 + 狀態」的分層解析（Strength-Aware Resolution）。**
+
+*   **為什麼 Wired-AND 會錯（0.07% mismatch 的真相）：** 
+    你的 `!Node(Other_i)` 條件把「對方是 0」等同於「對方正在強烈輸出 0」。但在 Switch-level 中，`Other_i` 可能只是一根懸空的線（Floating 0），而你的 Bus 是 Floating 1 且寄生電容比它大。物理上，Bus 的 1 會吃掉對方的 0；但你的 Wired-AND 邏輯卻判定 Bus 被拉成了 0。這就是產生 artifact 的根本原因。
+*   **正確的模型：** Bus 不是一個邏輯閘，而是一個**「多工器 + 強度比較器」**。
+    一個 Bus node 的值不只要傳遞 `0` 或 `1`，還必須帶有「強度（Strength）」。
+    Switch-level 的強度通常分 3~4 級：`GND/VCC (Strong)` > `Pull-up (Weak)` > `Capacitance (Hold)` > `High-Z`。
+    如果要在 IR 中表達，你需要將 Bus 相關節點的輸出從 `bool` 升級為 `int (2-bit)`（例如：`0=Float0, 1=Float1, 2=Drive0, 3=Drive1`）。但這會讓 IR 複雜度暴增。
+*   **結論：** **不要試圖把它變成 `NextExpr`。** Bus 就是 Bus，它在硬體架構中是特殊的互連線，在你的 Compiler 中也應該是特殊的 First-class citizen，而不是普通的 Boolean Node。
+
+### 2. 那個 ~10K-node 巨型 SCC：fixed-K 划算嗎？
+
+**解答：絕對不划算，這是災難。**
+
+*   **為什麼會變 10K？** 因為 Pass-transistor 的雙向性。`CPU_ALU -> CPU_DB <-> Board_DB <-> PPU_IO_DB -> PPU_OAM`。在 Boolean Graph 中，雙向連線會把原本單向的 Logic Cones 全部串成一個有向環（Cycle）。
+*   **K 會是多少？** Fixed-K 的 $K$ 值取決於 SCC 內最長的邏輯深度（包含 Feedback path）。ALU 的 carry chain 加上 bus 的 bounce，$K$ 可能高達 20~50。
+*   **效能代價：** 10,000 nodes $\times$ 30 (K) $\times$ 2 (半週期) = 每週期 600,000 次 node evaluation。就算在 GPU 上算也是極度浪費算力（且 register 壓力極大）。這違背了你 S2/S3 辛苦做 IR 最佳化（DAG 化）的初衷。
+
+### 3. GPU 那邊的 data-bus 怎麼辦？ (Inline bus-resolve)
+
+**解答：你的直覺完全正確！用「Inline, Branch-free Bus Resolver」切斷 Graph，把它當作執行期的迭代屏障（Iteration Barrier）。**
+
+這是解決 10K SCC 的完美方案。你可以這樣做：
+
+1.  **把 Bus 當作 Cut-points：** 在建構 IR Graph 時，**不要**把 `NextExpr == null` 的 bus 視為 Graph 的一般節點，也不要產生雙向 edge。把它們視為「邊界輸入/輸出」。這樣 10K 巨型 SCC 就會立刻碎裂回 843 個 node / 56 個小 SCC 的健康狀態。
+2.  **Codegen 一個獨立的 Bus-Resolve Block：** 對於那 1379 個 bus node，提取出它們的 Pass-neighbours（誰可能連到誰）和 Pull-up/down。
+    寫一段 **Branch-free 的 C#/GPU 程式碼** 來模擬 Group Merge。
+    *   *Branch-free 技巧：* 利用 Bitwise 運算。
+    *   每個 Bus 節點準備兩個變數：`Val` (0/1), `Strength` (0=Hold, 1=Pull, 2=Drive)。
+    *   Resolve 邏輯（偽碼）：
+        ```c
+        // 評估 pass 導通狀態
+        int pass_A_en = Eval(Cond_A); 
+        // 收集各方強度與值 (bitwise max 或查表)
+        int max_str = ...; 
+        int final_val = ...;
+        ```
+3.  **Flat Program 的交錯迭代架構 (Data-flow Ping-Pong)：**
+    你的 Main Loop 長這樣：
+    ```c
+    // 外層：處理 Bus 傳遞 (通常 Bus 延遲收斂極快，K_bus ≈ 2-3)
+    for (int b = 0; b < K_BUS; b++) {
+        // 1. 評估 Acyclic DAG (Logic cones driven by buses)
+        Eval_DAG_Nodes(); 
+        
+        // 2. 評估 小 SCCs (Fixed-K, K_scc ≈ 3-5)
+        for(int s = 0; s < K_SCC; s++) Eval_Small_SCCs(); 
+        
+        // 3. Inline Branch-free Bus Resolver
+        // 根據剛算完的 Node 值，重新決議 Bus 的值
+        Resolve_Buses(); 
+    }
+    ```
+*   **優勢：** 
+    *   沒有 Warp Divergence（全部都是 bitwise 運算和陣列讀寫）。
+    *   10K 巨型 SCC 被打破。
+    *   Bus 行為 100% 忠於物理現象（強度與電容決議可以直接寫進 `Resolve_Buses` 裡）。
+
+### 4. 戰略建議：下一步怎麼走？
+
+**解答：選擇 (b) 退而求其次的變體 —— 「撤銷 γ.4 的 boolean 化，改走 S4.2b (Bus Cut & Inline Resolver)」。**
+
+不要在 γ.4（Wired-AND boolean lowering）上繼續鑽牛角尖了，它破壞了 Checking Gate 也破壞了 Topology。
+
+**具體 Action Items (按順序)：**
+
+1.  **Rollback：** 把那 1379 個 hybrid bus node 恢復成 `NextExpr == null` 的狀態，讓驅動覆蓋率回到 **85%**，保持 56 個小 SCC（最大 496 node）的完美拓樸。
+2.  **實作 S4.3 (Fixed-K for small SCCs)：** 針對那 843 個殘餘 SCC node，先寫出 DFS in-place 的拓樸序與 Fixed-K 迴圈。驗證這 85% node 在 K=3~8 時能正確收斂。
+3.  **實作 S4.4 (Bit-slice / Codegen 雛形)：** 證明這 85% acyclic + SCC 的邏輯能在 CPU/GPU 上高速且正確跑起來。
+4.  **實作 S4.2b (Inline Bus Resolver)：** 
+    *   初期（求有）：把那 1379 個 bus 交給 S1 Engine 去算（你的 fallback 機制）。先讓整體 Emulator 跑起來，測一下 FPS。
+    *   後期（求好）：針對 GPU，把 S1 的 Group Resolution 邏輯「展開」成 Branch-free 的 `Resolve_Buses()` inline block。將它與前兩步的邏輯交錯放入 `K_BUS` 外層迴圈（如上題所述）。
+
+**總結你的盲點：**
+你一直想把「所有東西」都塞進 `NextExpr` IR 裡，這對一般的組合邏輯和 Latch 是對的，但對 **Bus** 是錯的。把 Bus 從 IR Graph 中「抽離」出來，當作連接各個 IR Sub-graphs 的「膠水層（Glue / Iteration Boundary）」，一切就會豁然開朗。
+
+放手去做 S4.3 吧！你的架構基礎非常扎實，走到這裡卡住只是因為遇到了 Switch-level 特有的領域限制。切斷 Bus dependency，這個管線就通了。

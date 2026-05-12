@@ -234,16 +234,19 @@ namespace AprVisual.Sim.Logic
                 if (aInt || bInt)
                 {
                     // A pass with a chain-interior end is "transparent" — counted in the parent's pull-down DFS,
-                    // not a write port — *except* that a chain-interior junction m sitting next to a pulled-up
-                    // node o gets an inbound write port o→m: when this pass conducts, m and o are one group and o
-                    // (which can drive high) carries the value, so m's nextExpr should follow Node(o). (o needs
-                    // no link back: o.PullDown already includes the path o—pass—m—…—vss from the DFS, so Node(o)
-                    // is exactly the settled group value.) Fixes NAND/NOR/AOI stack junctions floating high while
-                    // hold==0, the cart-glue latch node 14200 ↔ 13045, etc.
+                    // not a write port — *except* that a chain-interior junction m sitting next to a *drivable*
+                    // non-chain-interior node o (o has a pull-up *or* its own pull-down — it can pull the merged
+                    // group to a defined value: high via the pull-up, low via the clear) gets an inbound write
+                    // port o→m: when this pass conducts, m and o are one group and o carries the value, so m's
+                    // nextExpr should follow Node(o). (o needs no link back: o.PullDown already includes the
+                    // o—pass—m—…—vss path from the DFS, so Node(o) is exactly the settled group value.) Fixes
+                    // NAND/NOR/AOI stack junctions floating high while hold==0, the cart-glue latch 14200 ↔ 13045,
+                    // and chain-interior junctions hanging off a clearable latch.
+                    bool Drivable(int o) => o >= 0 && o < n && (hasAnyPullUp[o] || (o < di.Length && di[o] is { PullDown: not null }));
                     g.PassDirection[tid] = PassDir.Unknown;
                     var c0 = GateCond(t.Gate);
-                    if (aInt && !bInt && b < n && hasAnyPullUp[b] && di[a] is { } dia) { dia.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.BtoA; }
-                    if (bInt && !aInt && a < n && hasAnyPullUp[a] && di[b] is { } dib) { dib.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.AtoB; }
+                    if (aInt && !bInt && Drivable(b) && di[a] is { } dia) { dia.Passes.Add(new PassLink { Other = b, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.BtoA; }
+                    if (bInt && !aInt && Drivable(a) && di[b] is { } dib) { dib.Passes.Add(new PassLink { Other = a, Cond = c0, OwnerDrives = false }); g.PassDirection[tid] = PassDir.AtoB; }
                     continue;
                 }
                 var da = a < di.Length ? di[a] : null;
@@ -254,13 +257,15 @@ namespace AprVisual.Sim.Logic
                 bool aCl = IsClearableDynamic(a), bCl = IsClearableDynamic(b);
                 int ta = Tier(da), tb = Tier(db);
                 bool? aDrivesB; string? hyReason = null;
-                // The clearable-dynamic rule only applies when the *other* side isn't itself strongly driven
-                // (tier 2): a Pass between a clearable latch and another tier-2 node is a genuine merge /
-                // contention (e.g. cpu.##alucout ↔ cpu.short-circuit-branch-add) — fall to the tier rule, which
-                // marks it hybrid. The latch's "load port" sources are buses / precharged nodes — tier ≤ 1.
-                if (aBus || bBus)              { aDrivesB = null; hyReason = "bidirectional pass touching a bus node"; }
-                else if (aCl && !bCl && tb < 2){ aDrivesB = false; }   // a is a clearable dynamic latch ← this pass is a write into it from b
-                else if (bCl && !aCl && ta < 2){ aDrivesB = true;  }
+                // The clearable-dynamic rule only fires when the *other* side is a tier-1 driver — a bus / a
+                // precharged node, the legit "load source" that writes into the latch. If the other side is
+                // tier 2 it's a genuine merge / contention (e.g. cpu.##alucout ↔ cpu.short-circuit-branch-add)
+                // → fall to the tier rule (→ hybrid). If the other side is tier 0 (a pure floating dynamic node
+                // — no drive of its own) the *latch* drives *it* (tier rule: 2 > 0) — that node follows the
+                // latch's clear/hold, not the other way round (e.g. cpu node 10311 ↔ cpu.short-circuit-branch-add).
+                if (aBus || bBus)               { aDrivesB = null; hyReason = "bidirectional pass touching a bus node"; }
+                else if (aCl && !bCl && tb == 1){ aDrivesB = false; }   // a is a clearable dynamic latch ← this pass is a write into it from the tier-1 bus b
+                else if (bCl && !aCl && ta == 1){ aDrivesB = true;  }
                 else if (ta > tb)             { aDrivesB = true;  }    // a's stronger driver overpowers b through the pass
                 else if (tb > ta)             { aDrivesB = false; }
                 else if (ta == 2)             { aDrivesB = null; hyReason = "bidirectional pass between two strongly-driven nodes (latch / contention)"; }

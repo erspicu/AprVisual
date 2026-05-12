@@ -44,6 +44,8 @@ Thumbs.db
 
 # --- 輸出與快取 ---
 output/
+temp/
+tools/knowledgebase/message/   # gemini_query.py 的問答 log（執行時生成；可能含查詢內容）
 *.log
 *.out
 

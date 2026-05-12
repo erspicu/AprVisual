@@ -248,6 +248,7 @@ namespace AprVisual.Test
             var (total, complexPd, hybrid, pdNull, pdSome, pu, passLinks, bidir) = AprVisual.Sim.Logic.DriveAnalysis.Stats(di, g);
             Console.WriteLine($"S2.1 DriveAnalysis — from the lowered netlist + S2.0 graph");
             Console.WriteLine($"  {WireCore.LastLowerStats}");
+            Console.WriteLine($"  RefineBuses: promoted {AprVisual.Sim.Logic.DriveAnalysis.LastBusesRefined} `_d[]` pin node(s) Internal→Bus");
             Console.WriteLine($"  nodes with DriveInfo: {total}  (Internal+Bus; Supply/Input skipped)");
             Console.WriteLine($"  PullDown:  some={pdSome}  none={pdNull}  complex={complexPd}");
             var puNames = Enum.GetNames<AprVisual.Sim.Logic.PullUpKind>();

@@ -42,7 +42,12 @@ namespace AprVisual.Sim
 
         private static readonly List<CallbackInfo> _callbacks = new();
 
-        internal static void ResetHandlers() { _handlerChain = null; _callbacks.Clear(); }
+        // Nodes a behavioral handler drives via WriteBits (the RAM/ROM data-out pins). Analysis-only —
+        // never read by the runtime; S2.1's BusResolver.RefineBuses uses it to find the true bidirectional
+        // bus nodes (netlist-driven ∩ handler-driven). Populated by AttachRamLikeHandler; cleared on reset.
+        internal static readonly HashSet<int> HandlerWrittenNodes = new();
+
+        internal static void ResetHandlers() { _handlerChain = null; _callbacks.Clear(); HandlerWrittenNodes.Clear(); }
 
         /// <summary>
         /// Fire <paramref name="cb"/> (once, after the next settle) whenever any of <paramref name="watchedNodes"/>
@@ -158,6 +163,7 @@ namespace AprVisual.Sim
             var dataBus = new List<int>(); ResolveNodes(Full("d[]"), dataBus);       // external data pins (for the trigger)
             if (cs == EmptyNode || addr.Count == 0 || dataOut.Count == 0)
             { Console.Error.WriteLine($"memory handler '{prefix}': missing cs/a[]/_d[7:0]"); return; }
+            foreach (int id in dataOut) HandlerWrittenNodes.Add(id);                  // analysis-only; see HandlerWrittenNodes
 
             var trigger = new List<int> { cs };
             if (we != EmptyNode) trigger.Add(we);

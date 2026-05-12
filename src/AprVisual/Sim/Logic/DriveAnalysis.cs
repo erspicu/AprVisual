@@ -46,9 +46,40 @@ namespace AprVisual.Sim.Logic
         public const int MaxPaths = 32;   // >32 simple paths node→vss ⇒ Complex (likely a mis-classified pass network)
         private const int Npwr = WireCore.Npwr, Ngnd = WireCore.Ngnd;
 
+        /// <summary>The number of node roles RefineBuses() promoted to Bus on the last Analyze() call (for --dump-drive).</summary>
+        public static int LastBusesRefined;
+
+        // BusResolver: a behavioral RAM/ROM handler drives the chip's `_d[7:0]` pins (on a read); those pins
+        // are also driven by the netlist (the CPU on a write, via the chip's I/O pass transistors) → they're
+        // genuine bidirectional bus nodes. Find them (without needing the handlers attached — resolve the
+        // `*func<ram>` / `*func<rom>` hooks ourselves) and re-mark them Bus, so the drive analysis treats
+        // them (and any pass touching them) as hybrid. Called at the start of Analyze().
+        public static int RefineBuses(NetlistGraph g)
+        {
+            int added = 0;
+            static string PrefixOf(string nm) { int d = nm.LastIndexOf('.'); return d < 0 ? "" : nm.Substring(0, d + 1); }
+            void MarkDpins(string hookPattern)
+            {
+                var hooks = new List<int>();
+                WireCore.ResolveNodes(hookPattern, hooks, quiet: true);
+                foreach (int hook in hooks)
+                {
+                    var dpins = new List<int>();
+                    WireCore.ResolveNodes(WireCore.CombinePrefix(PrefixOf(WireCore.GetNodeName(hook)), "_d[7:0]"), dpins, quiet: true);
+                    foreach (int id in dpins)
+                        if (id >= 0 && id < g.Role.Length && g.Role[id] == NodeRole.Internal) { g.Role[id] = NodeRole.Bus; added++; }
+                }
+            }
+            MarkDpins("*func<ram>");
+            MarkDpins("*func<rom>");
+            return added;
+        }
+
         /// <summary>Analyze the netlist (after NetlistGraph.BuildFrom). Returns DriveInfo per node id; null for Supply/Input.</summary>
         public static DriveInfo?[] Analyze(NetlistGraph g)
         {
+            LastBusesRefined = RefineBuses(g);   // promote handler-driven `_d[]` pins to Bus before we use g.Role
+
             var nodes = WireCore.Nodes;
             var trans = WireCore.Transistors;
             int n = nodes.Count;

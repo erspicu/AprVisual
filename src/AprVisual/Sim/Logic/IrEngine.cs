@@ -111,6 +111,8 @@ namespace AprVisual.Sim.Logic
                 if (observable) CheckedCount++;
             }
             _validBuf = new byte[n]; SccFixedKMismatchCount = 0; SccFixedKMaxK = 0;
+            { int nb = BusNodes.Length; _busS0 = new byte[nb]; _busS1 = new byte[nb]; _busW1 = new byte[nb]; _busS0n = new byte[nb]; _busS1n = new byte[nb]; _busW1n = new byte[nb]; _busVal = new byte[nb]; }
+            BusMismatchCount = 0; BusFloatExemptCount = 0; BusKPassMax = 0; FirstBusMismatchNode = -1; FirstBusMismatchTime = -1;
             MismatchCount = 0; FirstMismatchTime = -1; FirstMismatchNode = -1; MismatchByNode.Clear();
             Built = true;
         }
@@ -437,6 +439,68 @@ namespace AprVisual.Sim.Logic
         };
         static byte[] _validBuf = [];
         public static long SccFixedKMismatchCount;   // S4.3 validation: # of (SCC node, half-cycle) where the fixed-K (K=FixedKScc) micro-block disagreed with S1 (in checking mode)
+
+        // ── S4.2b — inline bus resolver (the S0/S1/W1 model, MD/impl/S4/00 §10) + its validation ─────────────
+        public const int BusKPass = 8;             // bus-to-bus propagation iterations (validation upper bound; BusKPassMax = the depth actually needed)
+        static byte[] _busS0 = [], _busS1 = [], _busW1 = [], _busS0n = [], _busS1n = [], _busW1n = [], _busVal = [];
+        public static long BusMismatchCount;       // S4.2b validation: # of (bus node, half-cycle) where the resolver disagreed with S1 AND the bus had a driver (S0|S1|W1 != 0) — a real model error
+        public static long BusFloatExemptCount;    // S4.2b validation: ditto but the bus was floating (S0==S1==W1==0 — in Hold) — the floating-cap "largest-cap wins" we deliberately don't model; an unobservable transient — exempt
+        public static int  BusKPassMax;            // S4.2b validation: max bus-to-bus propagation iterations any half-cycle actually needed before fixpoint
+        public static int  FirstBusMismatchNode = -1; public static long FirstBusMismatchTime = -1;
+
+        /// <summary>S4.2b validation — after step 5 (the settled NodeStates), recompute every bus node with the inline
+        /// S0/S1/W1 wired-resolution model and compare to S1. Run-path unchanged for now; once this validates ~0 real
+        /// mismatches, a later firing replaces step 5 with the ping-pong "chunks + fixed-K SCC + ResolveBuses" loop.</summary>
+        static void ValidateBusResolver()
+        {
+            var bns = BusNodes; int nb = bns.Length;
+            int F_SetHigh = (int)WireCore.NodeFlags.SetHigh, F_SetLow = (int)WireCore.NodeFlags.SetLow;
+            // Step A — local candidate generation (PullDown / PullUp / handler injection / single-direction logic passes)
+            for (int bi = 0; bi < nb; bi++)
+            {
+                var bn = bns[bi];
+                int fl = WireCore.GetNodeFlags(bn.Id);
+                byte s0 = (byte)(((bn.PullDown != null && EvalExpr(bn.PullDown) != 0) || (fl & F_SetLow) != 0) ? 1 : 0);
+                byte s1 = (byte)((bn.StrongVcc || (bn.PullUpCond != null && EvalExpr(bn.PullUpCond) != 0) || (fl & F_SetHigh) != 0) ? 1 : 0);
+                byte w1 = (byte)(bn.StaticLoad ? 1 : 0);
+                foreach (var (cond, other) in bn.LogicPasses)
+                    if (EvalExpr(cond) != 0) { if (WireCore.NodeStates[other] != 0) s1 = 1; else s0 = 1; }
+                _busS0[bi] = s0; _busS1[bi] = s1; _busW1[bi] = w1;
+            }
+            // Step B — bus-to-bus propagation (double-buffered; a conducting pass merges the two buses' drives — full strength, no decay)
+            int kUsed = 0;
+            for (int k = 0; k < BusKPass; k++)
+            {
+                Array.Copy(_busS0, _busS0n, nb); Array.Copy(_busS1, _busS1n, nb); Array.Copy(_busW1, _busW1n, nb);
+                bool changed = false;
+                for (int bi = 0; bi < nb; bi++)
+                    foreach (var (cond, oi) in bns[bi].BusPasses)
+                        if (EvalExpr(cond) != 0)
+                        {
+                            if (_busS0[oi] != 0 && _busS0n[bi] == 0) { _busS0n[bi] = 1; changed = true; }
+                            if (_busS1[oi] != 0 && _busS1n[bi] == 0) { _busS1n[bi] = 1; changed = true; }
+                            if (_busW1[oi] != 0 && _busW1n[bi] == 0) { _busW1n[bi] = 1; changed = true; }
+                        }
+                (_busS0, _busS0n) = (_busS0n, _busS0); (_busS1, _busS1n) = (_busS1n, _busS1); (_busW1, _busW1n) = (_busW1n, _busW1);
+                kUsed = k + 1;
+                if (!changed) break;
+            }
+            if (kUsed > BusKPassMax) BusKPassMax = kUsed;
+            // Step C — resolution (GND wins → VCC/pull-up → depletion → hold) + compare to S1
+            for (int bi = 0; bi < nb; bi++)
+            {
+                int id = bns[bi].Id;
+                byte s0 = _busS0[bi], s1 = _busS1[bi], w1 = _busW1[bi];
+                byte hold = id < PrevStates.Length ? PrevStates[id] : (byte)0;
+                byte v = s0 != 0 ? (byte)0 : s1 != 0 ? (byte)1 : w1 != 0 ? (byte)1 : hold;
+                _busVal[bi] = v;
+                if (v != WireCore.NodeStates[id])
+                {
+                    if (s0 == 0 && s1 == 0 && w1 == 0) BusFloatExemptCount++;
+                    else { BusMismatchCount++; if (FirstBusMismatchTime < 0) { FirstBusMismatchTime = WireCore.Time; FirstBusMismatchNode = id; } }
+                }
+            }
+        }
         public static int  SccFixedKMaxK;            // S4.3: the most iterations any SCC actually needed to reach a fixpoint, observed in checking mode (≤ FixedKScc means K is enough)
 
         /// <summary>Compile EvalOrder's Expr trees into the flat stack-machine program (_flatOp/_flatArg).
@@ -726,6 +790,7 @@ namespace AprVisual.Sim.Logic
             if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();        // 4. IR-evaluate every node in EvalOrder (topo order). S4.1: compiled chunked delegates (JIT'd IL); fallback = the S3.1 stack-machine interpreter. Writes the changed nodes back via SetNodeState + EnqueueNode.
             WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
             WireCore.SkipRecalcOf = null;
+            if (BusNodes.Length > 0) ValidateBusResolver();                      // S4.2b: validate the inline S0/S1/W1 bus resolver against the just-settled NodeStates (run-path unchanged — to be wired into a ping-pong replacing step 5)
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.
         }

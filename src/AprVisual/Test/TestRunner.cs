@@ -1248,6 +1248,10 @@ namespace AprVisual.Test
                 for (int t = 0; t < cycles; t++) { AprVisual.Sim.Logic.IrEngine.StepOneDriving(); ir[t] = new byte[n]; new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(ir[t]); }
             }
             finally { WireCore.Shutdown(); }
+            {
+                long bmm = AprVisual.Sim.Logic.IrEngine.BusMismatchCount, bex = AprVisual.Sim.Logic.IrEngine.BusFloatExemptCount;
+                Console.WriteLine($"  S4.2b inline bus resolver ({AprVisual.Sim.Logic.IrEngine.BusNodes.Length} bus nodes, K_PASS≤{AprVisual.Sim.Logic.IrEngine.BusKPass}, max actually needed {AprVisual.Sim.Logic.IrEngine.BusKPassMax}): {(bmm == 0 ? "reproduces S1 for every driven bus" : $"{bmm} REAL disagreement(s) with S1 (first: {WireCore.GetNodeName(AprVisual.Sim.Logic.IrEngine.FirstBusMismatchNode)}#{AprVisual.Sim.Logic.IrEngine.FirstBusMismatchNode} @ t≈{AprVisual.Sim.Logic.IrEngine.FirstBusMismatchTime})")}; {bex} float-exempt (S0==S1==W1==0 — unobservable transient, the floating-cap case we don't model)");
+            }
             long mm = 0; int firstT = -1, firstV = -1; var byNode = new Dictionary<int, long>();
             for (int t = 0; t < cycles; t++)
                 for (int v = 0; v < n; v++)

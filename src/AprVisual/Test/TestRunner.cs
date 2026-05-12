@@ -95,7 +95,7 @@ namespace AprVisual.Test
             if (probePath != null) return Probe2002(probePath);
             if (probeVblPath != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName != null) return DumpNode(dumpNodeName);
-            if (benchPath != null) return Benchmark(benchPath, shotFrames);
+            if (benchPath != null) return Benchmark(benchPath, shotFrames, useIr);
 
             if (romPath != null)
             {
@@ -712,21 +712,23 @@ namespace AprVisual.Test
         //    (S3 baseline — the switch-level interpreter's speed, before the IR backend exists to beat it.)
         //    Constants: 2A03 clk0 toggles every 24 master half-cycles ⇒ 1 simulated CPU cycle = 24 steps;
         //    one NTSC frame ≈ 357366 master clocks = 714732 half-cycles; CPU 1.789773 MHz; 60.0988 Hz.
-        private static int Benchmark(string romPath, int frames)
+        private static int Benchmark(string romPath, int frames, bool useIr = false)
         {
-            if (frames < 4) frames = 12;
+            if (frames < 1) frames = 12;
             var rom = NesRom.LoadFromFile(romPath);
             if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
-            Console.WriteLine($"# benchmark: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper}) — {frames} frame(s) headless, Release build recommended");
+            Console.WriteLine($"# benchmark: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper}) — {frames} frame(s) headless, Release build recommended{(useIr ? "  [engine: IR (S2.4 driving mode)]" : "  [engine: S1 switch-level]")}");
             try
             {
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
+                if (useIr) { AprVisual.Sim.Logic.IrEngine.Build(); Console.WriteLine($"# IR build: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} node(s) IR-driven ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, WireCore.NodeCount):F1}%), {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in SCCs → S1, rest hybrid → S1"); }
                 swLoad.Stop();
 
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                if (useIr) for (int f = 0; f < frames; f++) AprVisual.Sim.Logic.IrEngine.RunFrameDriving();
+                else       for (int f = 0; f < frames; f++) WireCore.RunFrame();
                 sw.Stop();
 
                 long halfCycles = WireCore.Time - t0;

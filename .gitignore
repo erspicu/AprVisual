@@ -44,7 +44,8 @@ Thumbs.db
 
 # --- 輸出與快取 ---
 output/
-out/        # generated artifacts: emitted Verilog/C#/LLVM/HLSL (--dump-emitted-*), Yosys opt output, stats — regenerable, not vendored
+# out/ = generated artifacts: emitted Verilog/C#/LLVM/HLSL (--dump-emitted-*), Yosys opt output, stats — regenerable, not vendored
+out/
 temp/
 *.log
 *.out

@@ -13,10 +13,16 @@
 
 ## 2. 目標 / milestone
 
-- **M_codegen-cpu**：從 IR 產生一個 C# 的 `Step(state)` 函數（per-instance，先非 bit-sliced），跑 benchmark vs S1（2 frame branch_timing = 29.7s）。要 100% 等價（每個 observable node 跟 S1 一致）。
-- **M_bitslice-cpu**：把 `Step` bit-sliced（`UInt64` → 64 個並行 NES instance，或 AVX2/512），證明吞吐量隨並行度 scale。
-- **M_gpu**（最後）：同一份邏輯 retarget CUDA/NVPTX（這就是 LLVM-via-.NET 的賣點）。
-- 「S3 完全結束」≈ M_codegen-cpu 或 M_bitslice-cpu（有可用快速後端 + 等價 + benchmark 提速）；M_gpu 算 bonus / S4。
+**最終目標（user 確認 2026-05）= 正確 + 即時堪用**（不追求上千台並行）。最終會有兩個執行版本（共用 S1/S2/S3 的 IR、在「執行模型」分岔）：
+
+- **(A) GPU bit-sliced 版 = S4，先做** —— brute-force flat program + 殘餘環 fixed-K + bit-sliced。
+  - **M_codegen-cpu**：IR → 一個 C# 的 `Step(...)`（per-instance，先非 bit-sliced），benchmark vs S1（2 frame branch_timing = 29.7s）。100% 等價。
+  - **M_codegen-llvm**：同上但 LLVM 後端（emit LLVM IR → `-O3` → JIT/AOT）。benchmark 跟 C#-emit 版對照。
+  - **M_bitslice-cpu**：把 `Step` bit-sliced（`ulong` → 64 台 / AVX2-512 更多），證明吞吐量隨並行度 scale。
+  - **M_gpu**（最後、target 待定）：同一份邏輯 retarget GPU（NVPTX-via-LLVM、或 compute shader —— 見 §4b）。
+- **(B) CPU-optimized 版 = S4 之後、從較早 commit branch** —— event-driven IR 直譯器（β：dirty-set、只重算 input 變了的 node、hybrid bus 仍 S1 group resolution）。在「單實例 CPU」前提下盡可能快（互動式使用 / debug / 不開 GPU 的場景）。**M_cpuopt**：等價 gate vs S1；benchmark 單實例 vs S1，目標心理值 ≥ 5-10×。為什麼 branch 而非接 S4：S4 為 GPU 把 IR 攤平 / fixed-K / bit-sliced 改了很多對 CPU event-driven 反而是負擔的東西；(B) 想要「乾淨 IR + S1 風格 event loop」。詳見 `MD/struct/08` 的「目標與最終形態」+「S4 之後」段。
+
+註：對電晶體級準確度，**單實例「即時」≈ ~43M 半週期/sec，比目前 S1 的 ~46k/sec 快 ~900-1000×** —— 這是硬目標；兩版一起逼近（GPU 版 = 多台 + 確認管線、CPU-opt 版 = 單實例最快）。
 
 ## 3. codegen 要處理的三類 node
 

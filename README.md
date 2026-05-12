@@ -1,6 +1,6 @@
 # AprVisual
 
-**Turning a Visual6502-style switch-level NES netlist into an analyzable, verifiable, executable logic model — and ultimately a bit-parallel kernel that simulates many NES instances at once.**
+**Turning a Visual6502-style switch-level NES netlist into an analyzable, verifiable, executable logic model — fast enough to be real-time-usable.** Goal = *correctness + real-time*; running thousands of instances in parallel would be a bonus, not the point.
 
 The interesting part isn't the simulator; it's the **translation pipeline**:
 
@@ -26,7 +26,8 @@ Scope: the NES-001 board — the **2A03** (a modified 6502 + the APU) and the **
 | **S1** | C# rewrite of the MetalNES switch-level engine (`WireCore`: `.js` module loader, instancing, recalc/processQueue, the 256-entry group-resolution LUT, behavioral RAM/ROM handlers, system load, tracing) | ✅ done — passes the blargg test ROMs |
 | **S2** | Netlist → boolean IR: `Expr` records (`NodeRef` / `Hold` / `Prev` / `Mux` / `And` / `Or` / `Not` / `Const`), `DriveAnalysis` (per-node pull-down / pull-up / transmission-gate ports), `NextStateModel`, `SccModel` (cross-coupled latch recovery), and the `IrEngine` interpreter — *checking mode* (verify IR ≡ S1 per node, per half-cycle) and *driving mode* (the IR drives the netlist, S1 only fills in the residue) | ✅ done — the equivalence gate passes in both modes |
 | **S3** | Whole-system optimization → a fast backend. **Done so far:** Node Aliasing (fold out buffer/inverter nodes) and a general size-1/2 SCC solver (two-step algebraic fixpoint) — IR driving-coverage **46% → ~85%** (12.5k of 14.7k nodes), residual = 843 nodes in 56 small SCCs (counters / shift registers / phase rings) + ~1.4k genuine multi-driver buses, all still handled by the S1 engine. A topological-loop breaker (γ.2) is parked (it over-cuts; the residue will instead be compiled as fixed-K micro-iteration blocks). **Next:** S4 codegen (codegen + GPU is the S4 link of the chain) — IR → an executable bit-sliced model. | 🚧 in progress |
-| **S4** | Emit C++ / Verilog / a CUDA bit-sliced kernel from the IR; per-node equivalence with the CPU IR. (The LLVM-IR path retargets straight to NVPTX.) | ⬚ not started |
+| **S4** | IR → an executable bit-sliced model. Two CPU backends built in parallel for a perf comparison — a C# one (Roslyn-emit) and an LLVM one (LLVMSharp / LLVM-C → LLVM IR → `-O3`); the codegen tool itself stays C#. Residual SCCs + hybrid buses become fixed-K micro-blocks. GPU target TBD (CUDA isn't the only option — GPU compute shaders are a candidate). Per-node equivalence with the CPU IR. | ⬚ not started |
+| *(after S4)* | A `cpu-opt` branch (forked from ~end of S3): an *event-driven* IR interpreter (dirty-set; re-eval only nodes whose inputs changed) — the fastest single-instance-on-CPU version. | ⬚ later |
 
 See [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md) for the live status snapshot, the firing-by-firing log, and the α/γ designs (`01`–`02`); the S4 codegen draft is at `MD/impl/S4/00_codegen_設計.md`.
 
@@ -103,7 +104,7 @@ S1's switch-level engine is the reference semantics (itself a port of MetalNES's
 
 # AprVisual（中文說明）
 
-**把 Visual6502 式的開關層級 NES 網表，變成可分析、可驗證、可執行的邏輯模型 —— 最終做成一個「位元平行（bit-parallel）」的 kernel，一次模擬大量 NES 實例。**
+**把 Visual6502 式的開關層級 NES 網表，變成可分析、可驗證、可執行的邏輯模型 —— 快到「即時堪用」。** 目標 = *正確 + 即時*；同時跑上千台只是 bonus、不是重點。
 
 重點不是「又一個 NES 模擬器」，而是這條**翻譯管線（translation pipeline）**：
 
@@ -127,7 +128,8 @@ S1's switch-level engine is the reference semantics (itself a port of MetalNES's
 | **S1** | 用 C# 重寫 MetalNES 的開關層級引擎（`WireCore`：`.js` 模組載入器、實例化、recalc/processQueue、256-entry 群組解析 LUT、行為式 RAM/ROM handler、系統載入、tracing）| ✅ 完成 —— 過 blargg 測試 ROM |
 | **S2** | 網表 → 布林 IR：`Expr` records（`NodeRef`/`Hold`/`Prev`/`Mux`/`And`/`Or`/`Not`/`Const`）、`DriveAnalysis`（每個 node 的 pull-down / pull-up / 傳輸閘寫埠）、`NextStateModel`、`SccModel`（cross-coupled latch 復原）、`IrEngine` 直譯器 —— *checking 模式*（驗證 IR ≡ S1，逐 node 逐半週期）+ *driving 模式*（IR 驅動網表、S1 只補殘餘）| ✅ 完成 —— 兩種模式的等價 gate 都過 |
 | **S3** | whole-system 最佳化 → 快速後端。**已完成**：Node Aliasing（折掉 buffer/inverter node）、通用 size-1/2 SCC solver（兩步代數定點）—— IR driving coverage **46% → ~85%**（14723 個 node 裡 12.5k 個 driving-evaluated），殘餘 = 843 個 node 在 56 個小 SCC（計數器 / 移位暫存器 / phase ring）+ ~1.4k 個真·多驅動匯流排 node，這些目前還是交給 S1。topological-loop breaker（γ.2）暫停（會 over-cut；殘餘改用 fixed-K 微型迭代 block 在 codegen 階段處理）。**下一步**：codegen —— IR → 可執行的 bit-sliced 模型。| 🚧 進行中 |
-| **S4** | 從 IR emit C++ / Verilog / CUDA bit-sliced kernel；逐 node 跟 CPU IR 等價（LLVM IR 路線直接 retarget NVPTX）| ⬚ 未開始 |
+| **S4** | IR → 可執行的 bit-sliced 模型。**做兩份 CPU 後端互相做效能對照** —— C# 後端（Roslyn-emit）+ LLVM 後端（LLVMSharp / LLVM-C → LLVM IR → `-O3`）；codegen 工具本身都用 C# 寫。殘餘 SCC + hybrid bus 編成 fixed-K micro-block。GPU target 待定（CUDA 不是唯一選項 —— GPU compute shader 也是候選）。逐 node 跟 CPU IR 等價。| ⬚ 未開始 |
+| *(S4 之後)* | 一個 `cpu-opt` 分支（從 ~S3 結束 commit fork）：*event-driven* IR 直譯器（dirty-set；只重算 input 變了的 node）—— 單實例 CPU 上最快的版本。| ⬚ 之後 |
 
 詳細現況快照、firing-by-firing 進度日誌、各步驟設計 → 見 [`MD/impl/S3/00_S3_效率與優化.md`](MD/impl/S3/00_S3_效率與優化.md)、`01`–`02`；S4 codegen 設計草稿在 `MD/impl/S4/00_codegen_設計.md`。
 

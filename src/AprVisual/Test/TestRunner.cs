@@ -385,6 +385,16 @@ namespace AprVisual.Test
             // S2.4 / S3 picture: build the full IR engine (BuildEvalOrder + residual-SCC detection + the flat program)
             AprVisual.Sim.Logic.IrEngine.Build();
             Console.WriteLine($"  → IR engine: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount} IR-covered ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%), {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} driving-evaluated, {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in residual SCCs → S1, {AprVisual.Sim.Logic.IrEngine.SkippableInRecalcCount} bridge-skippable, {AprVisual.Sim.Logic.IrEngine.FlatInstrCount:N0} flat instrs; {WireCore.NonNullNodeCount} nodes total{(WireCore.UseBare2a03 ? "  [bare-2A03 rig]" : "")}");
+            // S4.2b — the hybrid pass-transistor-bus cut-points (BusResolver.Build): to be resolved by an inline S0/S1/W1 ping-pong, not the IR graph.
+            {
+                var bn = AprVisual.Sim.Logic.IrEngine.BusNodes;
+                int lp = 0, bp = 0, npd = 0, nsv = 0, nsl = 0, npc = 0;
+                foreach (var b in bn) { lp += b.LogicPasses.Count; bp += b.BusPasses.Count; if (b.PullDown != null) npd++; if (b.StrongVcc) nsv++; if (b.StaticLoad) nsl++; if (b.PullUpCond != null) npc++; }
+                Console.WriteLine($"  → S4.2b bus cut-points: {bn.Length} bus nodes  ({lp} LogicPasses + {bp} BusPasses; {npd} w/ PullDown, {nsv} StrongVcc, {nsl} StaticLoad, {npc} conditional pull-up)");
+                int ne = 0;
+                for (int i = 0; i < bn.Length && ne < 8; i++)
+                    if (bn[i].BusPasses.Count > 0) { Console.WriteLine($"      {WireCore.GetNodeName(bn[i].Id)}#{bn[i].Id}  — {bn[i].LogicPasses.Count} logic-pass + {bn[i].BusPasses.Count} bus-pass{(bn[i].PullDown != null ? " +pd" : "")}{(bn[i].StrongVcc ? " +vcc" : "")}{(bn[i].StaticLoad ? " +load" : "")}{(bn[i].PullUpCond != null ? " +pu?" : "")}"); ne++; }
+            }
 
             // ── S3 γ planning: anatomy of the residual SCCs ──
             var comps = AprVisual.Sim.Logic.IrEngine.SccComponents;

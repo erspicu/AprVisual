@@ -34,6 +34,8 @@ namespace AprVisual.Sim.Logic
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
         public static int BusLoweredCount;       // S4 γ.4: # of hybrid pass-transistor-bus nodes given a wired-resolution pseudo-NextExpr (BusLowering.Apply)
+        public static BusNode[] BusNodes = [];   // S4.2b: the hybrid pass-transistor-bus cut-points (NextExpr==null, di.Hybrid, has Passes, not behavioral-memory) + their drive structure (BusResolver.Build) — to be resolved by an inline S0/S1/W1 ping-pong block, not the IR graph
+        public static bool[] IsBusNode = [];     // S4.2b: [nodeId] — true if this node is one of BusNodes
         public static bool EnableBusLowering = false; // S4 γ.4 — ABANDONED (Gemini, firing 6, log 20260512_182525): a bidirectional pass-transistor bus is a "mux + strength comparator", not a Boolean node — the wired-AND lowering loses strength info (rare mismatches on io_db*) and folds ~10K nodes into one giant false-loop SCC. The replacement is S4.2b (Inline Bus Resolver: buses are cut-points, not graph nodes; a separate branch-free Resolve_Buses() block with value+strength, ping-pong-iterated with the fixed-K SCC block). BusLowering.cs is kept (disabled) as a documented dead end. Default false; set true only to inspect the dead-end model.
         public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
         public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — dissolves 821/843 SCC nodes correctly (hpos counter, APU DMC, chroma ring, …) but still over-cuts ~2-3 spots (a 6502 pipeline register reading a non-stable data source, a palette-RAM cascade) → checking 2 mismatches + a driving cascade. Root issue: the "register reads Prev(data)" model assumes data is stable until the register's clock edge, which fails when data depends on a register clocked by an earlier derived phase within the same master half-cycle. Needs more thought (asking Gemini). With γ.0+γ.1 driving coverage is 79.3% (843 nodes in 56 SCCs → S1).
@@ -80,6 +82,7 @@ namespace AprVisual.Sim.Logic
             Hybrid = scc.Hybrid;
             BusLoweredCount = EnableBusLowering ? BusLowering.Apply(NextExpr, Drive) : 0;   // S4 γ.4 (disabled — see EnableBusLowering): give hybrid pass-transistor-bus nodes a wired-resolution pseudo-NextExpr
             AliasedNodeCount = NodeAlias.Apply(NextExpr);   // S3 γ.0: fold pure buffer/inverter nodes out of the dependency graph (no NodeRef points at one) — shrinks SCCs before BuildEvalOrder / γ.1
+            (BusNodes, IsBusNode) = BusResolver.Build(NextExpr, Drive);   // S4.2b: classify the hybrid pass-transistor-bus cut-points + collect their drive structure (LogicPasses / BusPasses / PullDown / PullUp) — the runtime/codegen resolve them with an inline S0/S1/W1 ping-pong (not the IR graph)
             int n = Math.Max(NextExpr.Length, WireCore.NodeCount);
             PrevStates = new byte[n];
             CheckInChecking = new bool[NextExpr.Length];

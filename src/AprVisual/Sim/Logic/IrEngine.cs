@@ -473,18 +473,25 @@ namespace AprVisual.Sim.Logic
                 MuxExpr m      => Expression.Condition(Expression.NotEqual(Emit(m.Cond), Expression.Constant(0)), Emit(m.A), Emit(m.B)),
                 _              => Expression.Constant(0),   // ComplexExpr — shouldn't appear in EvalOrder
             };
+            // Leading length-guard so RyuJIT's bounds-check elimination can drop the per-access checks: after
+            // `if (cur.Length < n || prev.Length < n) throw;`, every cur[id]/prev[id] with id < n is provably in
+            // bounds. (n = the state-array length; all node ids the chunks touch are < n.)
+            var guard = Expression.IfThen(
+                Expression.OrElse(Expression.LessThan(Expression.ArrayLength(curP),  Expression.Constant(n)),
+                                  Expression.LessThan(Expression.ArrayLength(prevP), Expression.Constant(n))),
+                Expression.Throw(Expression.New(typeof(IndexOutOfRangeException))));
             var chunks = new List<Action<byte[], byte[]>>();
             for (int start = 0; start < EvalOrder.Length; start += ChunkSize)
             {
                 int end = Math.Min(start + ChunkSize, EvalOrder.Length);
-                var stmts = new List<Expression>(end - start);
+                var stmts = new List<Expression>(end - start + 1) { guard };
                 for (int i = start; i < end; i++)
                 {
                     int v = EvalOrder[i];
                     Expression rhs = (v < NextExpr.Length && NextExpr[v] is { } e) ? Emit(e) : Expression.Constant(0);
                     stmts.Add(Expression.Assign(Expression.ArrayAccess(curP, Expression.Constant(v)), Expression.Convert(rhs, typeof(byte))));
                 }
-                Expression body = stmts.Count == 0 ? Expression.Empty() : stmts.Count == 1 ? stmts[0] : Expression.Block(stmts);
+                Expression body = Expression.Block(stmts);
                 chunks.Add(Expression.Lambda<Action<byte[], byte[]>>(body, curP, prevP).Compile());
             }
             CompiledChunks = chunks.ToArray();

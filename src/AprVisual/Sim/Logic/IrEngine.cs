@@ -28,8 +28,9 @@ namespace AprVisual.Sim.Logic
         public static int IrCoveredCount;        // # of nodes with NextExpr != null (checking-mode coverage)
         public static int CheckedCount;          // # of nodes actually compared in checking mode (IrCoveredCount minus the skipped placeholders)
         public static int[] EvalOrder = [];      // driving mode: node ids the IR evaluates, topo-sorted by the current-value dependency graph (deps first)
-        public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a residual current-value SCC ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
-        public static int ResidualSccNodes;      // # of nodes flagged InScc (S2.3 didn't break the cycle)
+        public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
+        public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
+        public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
@@ -88,15 +89,19 @@ namespace AprVisual.Sim.Logic
 
         /// <summary>Build EvalOrder[] (driving mode) — the IR-evaluated nodes topo-sorted by the current-value
         /// dependency graph (edge v→M iff NextExpr[v] references NodeRef(M) for an IR-covered M; Hold/Prev don't
-        /// count — they read the prev-half-cycle snapshot). Nodes that are genuinely in a cycle S2.3 didn't break
-        /// (a Tarjan SCC of size > 1, or a self-loop) are flagged InScc — driving mode then lets S1's ProcessQueue
-        /// compute them (NextExpr is left alone, so checking mode still uses it; deps-on-an-SCC-node read S1's
-        /// settled value). Only the cycle nodes are flagged, not their (acyclic) dependents.</summary>
+        /// count — they read the prev-half-cycle snapshot). Recursive Tarjan finds the residual cycles S2.3 (incl.
+        /// Stage A2) didn't break; the cycle nodes get InScc[v] = true — driving mode lets S1's ProcessQueue
+        /// compute those (NextExpr is left alone, so checking mode still uses it; deps-on-an-SCC-node read S1's
+        /// settled value). Only the cycle nodes are flagged, not their (acyclic) dependents.
+        /// (Stage D — Prev-cutting the back-edges — was tried and reverted: it's only correct for pure pass-
+        /// through pipelines, but most residual cycles are stateful — the 2C02 clock dividers, whose extracted
+        /// NextExpr is itself wrong — so Prev-cutting yields a wrong model. Needs a "is this cycle a pipeline?"
+        /// classifier; deferred. See MD/impl/S2/05 §"firing 12".)</summary>
         static void BuildEvalOrder()
         {
             int n = NextExpr.Length;
             InScc = new bool[n];
-            // deps[v] = the IR-covered NodeRef ids in NextExpr[v]; dependents[M] = the v's that depend on M.
+            StageDBrokenEdges = 0;
             var deps = new List<int>?[n];
             var dependents = new List<int>[n];
             for (int v = 0; v < n; v++)
@@ -110,12 +115,12 @@ namespace AprVisual.Sim.Logic
                 deps[v] = d;
             }
 
-            // Tarjan SCC over the IR-covered subgraph → flag the nodes that are in a real cycle (InScc).
+            // Tarjan SCC over the IR-covered subgraph → flag the cycle nodes (InScc). recursive — DFS depth =
+            // the spanning-tree depth of the dependency DAG (gate depth, tens; paths terminate at hybrid/Input/
+            // sequential leaves), so plain recursion is safe.
             int[] idx = new int[n], low = new int[n]; Array.Fill(idx, -1);
             bool[] onStk = new bool[n]; var stk = new Stack<int>(); int nextIdx = 0;
             var sccSizes = new List<int>(); var sampleScc = new List<string>();
-            // recursive Tarjan — DFS depth = the spanning-tree depth of the dependency DAG (gate depth, tens;
-            // paths terminate at hybrid/Input/sequential leaves), so plain recursion is safe.
             void StrongConnect(int v)
             {
                 idx[v] = low[v] = nextIdx++; stk.Push(v); onStk[v] = true;
@@ -129,8 +134,7 @@ namespace AprVisual.Sim.Logic
                     }
                 if (low[v] == idx[v])
                 {
-                    var comp = new List<int>(); int w;
-                    do { w = stk.Pop(); onStk[w] = false; comp.Add(w); } while (w != v);
+                    var comp = new List<int>(); int w; do { w = stk.Pop(); onStk[w] = false; comp.Add(w); } while (w != v);
                     if (comp.Count > 1 || selfLoop)
                     {
                         sccSizes.Add(comp.Count);
@@ -141,9 +145,9 @@ namespace AprVisual.Sim.Logic
             for (int v = 0; v < n; v++) if (NextExpr[v] != null && idx[v] < 0) StrongConnect(v);
             ResidualSccNodes = 0; foreach (int s in sccSizes) ResidualSccNodes += s;
             if (ResidualSccNodes > 0)
-                Console.Error.WriteLine($"IrEngine: {sccSizes.Count} residual current-value SCC(s) (sizes {string.Join(",", sccSizes.OrderByDescending(s => s).Take(20))}{(sccSizes.Count > 20 ? "…" : "")}) — {ResidualSccNodes} node(s), S2.3 didn't break → driving mode hands them to S1: {string.Join(", ", sampleScc)}{(ResidualSccNodes > 16 ? " …" : "")}");
+                Console.Error.WriteLine($"IrEngine: {sccSizes.Count} residual current-value SCC(s) (sizes {string.Join(",", sccSizes.OrderByDescending(s => s).Take(20))}{(sccSizes.Count > 20 ? "…" : "")}) — {ResidualSccNodes} node(s) → driving mode hands them to S1: {string.Join(", ", sampleScc)}{(ResidualSccNodes > 16 ? " …" : "")}");
 
-            // Kahn topo sort over the remaining acyclic IR nodes (NextExpr != null && !InScc).
+            // Kahn topo sort over the IR nodes (NextExpr != null && !InScc) — acyclic.
             bool Drivable(int v) => v >= 0 && v < n && NextExpr[v] != null && !InScc[v];
             var indeg = new int[n];
             var order = new List<int>(n);
@@ -151,7 +155,7 @@ namespace AprVisual.Sim.Logic
             for (int v = 0; v < n; v++)
             {
                 if (!Drivable(v)) continue;
-                int k = 0; if (deps[v] is { } dl2) foreach (int m in dl2) if (Drivable(m)) k++;   // count only deps the IR will evaluate
+                int k = 0; if (deps[v] is { } dl2) foreach (int m in dl2) if (Drivable(m)) k++;
                 indeg[v] = k;
                 if (k == 0) queue.Enqueue(v);
             }

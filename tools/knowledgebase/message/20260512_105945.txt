@@ -1,0 +1,182 @@
+Timestamp: 2026-05-12T10:59:45
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# S2.2 — `Expr` next-state 抽取（`nextExpr[N]`）
+
+> S2 的第 2 步：把 S2.1 的 `DriveInfo[N]`（`PullDown` 條件 / `PullUpKind` / `Passes`+方向 / `Hybrid` 旗標）合成成 **`nextExpr[N]`** —— node N 下一拍的值的布林表達式。順便：標每個 node **組合 vs 序向**（初判，S2.3 精修）；算 **IR 覆蓋率**。**還不碰 SCC（S2.3）；不建 IR 直譯器（S2.4）；不改模擬行為。**
+>
+> 工作流程（`00_計畫總覽.md` §3）：① 設計描述 → ② 丟 Gemini → ③ 評估採用 → ④ 實作 → ⑤ 驗證。
+>
+> **承接 S2.0/S2.1**：node 角色 Supply/Input/Bus/Internal；transistor kind Pass/PullDown/PullUp{Strong,Load,Active}/Dead；depletion load = `node.Pullups` 標記不是電晶體；`DriveInfo` 14649 個（Internal+Bus）；`PullDown` complex=0（全乾淨串並聯）；`PullUp` None=7488/StaticLoad=6396/StrongVcc=5/Conditional=760；transmission-gate pass 7924（Bidir 5574）；**Hybrid 5774（39.4%）**（主因 cross-coupled latch —— S2.3 會 reclassify）；`RefineBuses` 把 40 個 `_d[]` pin 標 Bus。
+
+---
+
+## ① 設計描述
+
+### 1.1 合成規則（依 NMOS 解析優先鏈：GND 贏 → VCC/pull-up → 外部驅動 → 保留前值 → 0）
+
+對 node N（有 `DriveInfo` di）：
+
+**(A) `di.Hybrid` → `nextExpr[N] = null`**（= 這個 node 由 S2.5 的 hybrid bridge 用 switch-level 算；IR 引擎看到 `nextExpr == null` 就知道）。
+
+**(B) 非 hybrid**：拆 di 的「驅動源」，照優先序組：
+- `pd = di.PullDown`（可能 `null` = 無下拉路徑，或一個 `Expr`；不會是 `Complex` —— Complex 已被標 hybrid）。
+- `inPasses` = `di.Passes` 裡 `OwnerDrives == false` 的（= 對方驅動 N）；非 hybrid 的 N，passes 的 `OwnerDrives` 都非 null（null 的那些 —— bidirectional / charge-sharing / 碰 bus —— 都已 `MarkHybrid`）。`OwnerDrives == true` 的（N 驅動對方）不影響 N 的值，忽略。
+- `puFallback` = pull-up 帶來的「沒被下拉、沒被 pass 驅動時」的值：
+  - `StaticLoad` / `StrongVcc` → `Const(true)`（恆拉高；弱或強對布林值都一樣）
+  - `Conditional` → `Mux(di.PullUpCond, Const(true), Hold(N))`（precharge：clock on → 1，否則 hold —— domino 求值後保持的 1）
+  - `None` → `Hold(N)`（純 dynamic：沒驅動就 hold）
+- **組起來**：
+  - `passChain` = `inPasses` 由後往前折：`fallback`；對每個 `(M, cond)` → `Mux(cond, Node(M), 上一層)`。沒 inPasses → `passChain = puFallback`。
+    - ≥2 個 inPasses：first-wins 近似（真正並導通是 contention，但乾淨設計不會 —— 它們是 mux，互斥）。**S2.2 先這樣，note 一下。**（→ 也許 Gemini 建議：≥2 inPasses 且條件非顯然互斥 → 標 hybrid？）
+  - `pd == null` → `nextExpr[N] = passChain`（沒下拉路徑 → 永遠不會被拉 0）。
+  - `pd != null` → `nextExpr[N] = Mux(pd, Const(false), passChain)`（下拉導通 → 0；GND 贏，蓋過 pull-up 和 pass —— 因為導通的 pass 把 M 併進同一個 group，但 N 自己的下拉讓 group 有 Gnd flag → 0）。
+- **特例化（讓常見情況的 Expr 乾淨）**：
+  - `pd != null && pu ∈ {StaticLoad, StrongVcc} && inPasses 空` → `nextExpr[N] = Not(pd)` ← 教科書 inverter / NAND / NOR / AOI（`Mux(pd, false, true)` 由 `Mux` 的 smart ctor 收成 `Not(pd)`）。
+  - `pd == null && pu ∈ {StaticLoad, StrongVcc} && inPasses 空` → `Const(true)`（恆拉高、無下拉）。
+  - 其餘照上面的通式。
+
+> 關鍵語義（為什麼 pull-down 蓋過 pass、pass 蓋過 pull-up）：switch-level 裡導通的 pass 把 N 和 M 併成同一個 group → group 值 = `resolve(group 內所有 flag)`。N 自己的下拉導通 → group 有 Gnd flag → 0（不管 M）。N 沒下拉但 pass 導通 → group = {N, M}，N 的 pull-up 是弱 flag、M 的值是 State/PullUp/Gnd flag → M 的值蓋過 N 的弱 pull-up（M=0 → 0；M=1 → 1）。N 沒下拉、pass 沒導通 → group = {N}，pull-up → 1（或 hold）。
+
+### 1.2 組合 vs 序向（初判；S2.3 精修）
+
+- N 是**序向**若 `nextExpr[N]` 裡出現 `Hold(N)`（它保留自己的前值 → latch）。
+- 否則 N 暫標**組合**。
+- **註**：cross-coupled latch（N 的 expr 引用 /N、/N 的 expr 引用 N —— 誰都沒 `Hold(self)`，但兩個合起來是個環）—— 這需要 dependency graph + SCC，是 **S2.3** 的事。S2.2 只做「有 `Hold(self)` → 序向」的初判；S2.3 會把 SCC 裡的 node 也標序向、把環打斷成 `Prev(...)`。
+- hybrid node（`nextExpr == null`）→ 既不算組合也不算序向（它走 switch-level）。
+
+### 1.3 IR 覆蓋率
+
+- `coverage = #(nextExpr != null) / #(有 DriveInfo 的 node)` = `1 - hybrid率`。S2.2 不改 hybrid 集合（S2.1 標的那些）→ 覆蓋率 ≈ 60.6%（跟 S2.1 一致；S2.3 處理 SCC 後才會跳上去 —— 那些 cross-coupled latch 目前被標 hybrid，S2.3 reclassify 成序向後就「有 nextExpr」了）。
+- 也報：`Hold(self)` 引用了哪些 node（序向 node 初判數）、`nextExpr` 是 `Const`/`Not(...)`/`Mux(...)`/`Hold(...)` 各幾個（結構分佈）。
+
+### 1.4 程式落點
+
+- `Expr.cs` 加 smart ctor：`Expr.Mux(cond, a, b)`（`Mux(True,a,b)=a`、`Mux(False,a,b)=b`、`Mux(c,a,a)=a`、`Mux(c, True, False)=c`、`Mux(c, False, True)=Not(c)`、`Mux(c,a,b)` 其餘 → `new MuxExpr(c,a,b)`；`Complex` 傳染）、`Expr.Hold(id)`（→ `new HoldExpr(id)`）、`Expr.Prev(id)`（→ `new PrevExpr(id)`，給 S2.3 用）。`And`/`Or` 已有。`Not` 已有。`Pretty()` 已涵蓋 `Mux`/`Hold`/`Prev`。
+- 新檔 `src/AprVisual/Sim/Logic/NextStateBuilder.cs`：
+  ```csharp
+  internal sealed class NextStateModel
+  {
+      public Expr?[] NextExpr = [];     // [nodeId]; null = hybrid (use switch-level) or no DriveInfo (Supply/Input)
+      public bool[] IsSequential = [];  // [nodeId]; true if NextExpr[id] references Hold(id) (S2.3 will add the SCC ones)
+      public static NextStateModel Build(NetlistGraph g, DriveInfo?[] di);
+      // stats
+      public (int total, int comb, int seq, int hybrid, int constE, int notE, int muxE, int holdE, int other) Stats();
+      public string Describe(int nodeId);
+  }
+  ```
+- `TestRunner` 加 `--dump-next`（`ComposeSystem` → `NetlistGraph.BuildFrom` → `DriveAnalysis.Analyze` → `NextStateBuilder.Build` → 印：comb / seq / hybrid 數、IR 覆蓋率、`nextExpr` 結構分佈、sample exprs（幾個 `Not(...)` 的 = 邏輯閘、幾個 `Mux(...)` 的 = dynamic/precharge）、spot-check（`ppu.io_ce` 應該 = `Not(n14327)`、某 dynamic latch、某 hybrid node = null）。
+- `--selftest` 加 `TestNextState`（手刻 inverter `y=!a` → `nextExpr[y] == Not(Node(a))`；NAND `z=!(b&c)` → `nextExpr[z] == Not(And(Node(b),Node(c)))`；一個 dynamic latch（`d --[ph]--> q`，q 無 pull-up、q 驅動一個假閘）→ `nextExpr[q] == Mux(Node(ph), Node(d), Hold(q))` 且 `IsSequential[q]`；一個 hybrid node（bidirectional pass）→ `nextExpr == null`；precharge node（有 PullUpActive + 串聯下拉）→ `nextExpr == Mux(pd, False, Mux(precharge_cond, True, Hold(self)))`）。
+- **不碰** `WireCore` 執行期。
+
+### 1.5 驗證計畫
+
+- `dotnet build` 0/0（Debug + Release）；`--selftest` 全 PASS（含新 `TestNextState`）；`--trace branch_timing/1.Branch_Basics.nes --cycles 12` 跟 commit `3ee16fc` 一致（S2.2 不改模擬輸出）。
+- `--dump-next`（整片 NES）：
+  - comb / seq / hybrid 加起來 = 14649（= 有 DriveInfo 的 node）；hybrid = 5774（跟 S2.1 一致）；IR 覆蓋率 ≈ 60.6%。
+  - `nextExpr` 結構：`Not(...)` 一大票（邏輯閘 —— 應該幾千個，跟「`pd != null && StaticLoad` 的 node 數」同量級）；`Mux(...)` 一些（dynamic / precharge / pass-mux）；`Hold(...)`（純 dynamic 無 pull-up）；`Const(true)`（恆拉高無下拉，少）。
+  - 序向 node（初判，`Hold(self)`）數：應該不少（每個 dynamic latch + 純 dynamic node），但**比真正的 register-bit 數少**（cross-coupled latch 那些目前是 hybrid，S2.3 才會把它們算進序向）。
+  - spot-check：`ppu.io_ce`#36 → `nextExpr == Not(n14327)`（= `!io_ce_pulldown_gate`，跟 S2.1 的 `pullDown=n14327` 一致）；`cpu.db0`/`ppu.io_db0` → `null`（hybrid bus）；隨便挑一個 S2.1 報 `pullUp=StaticLoad`、`pullDown=(nX | nY)` 的 → `nextExpr == Not((nX | nY))`。
+
+### 1.6 開放問題（丟 Gemini）
+
+1. 合成規則（§1.1）對嗎？特別是「pull-down 蓋過 pass、pass（M 的值）蓋過 pull-up」這個優先序 —— 對應 chipsim 的 group resolution 嗎？有沒有漏掉的情況（N 同時有 inbound pass 和 conditional pull-up？N 有 inbound pass 但對方 M 也是 hybrid？）？
+2. ≥2 個 inbound pass 的 first-wins 近似 —— 在 6502/2C02 上會碰到嗎（一個 node 被多個 mux 分支驅動）？該不該標 hybrid（保守）還是 first-wins（樂觀，靠「乾淨設計裡互斥」）？有沒有更好的（把多個 inbound pass 折成「resolve 多個條件驅動」的 Expr）？
+3. 「pull-up 帶來的 fallback」對 `Conditional`（precharge）：`Mux(precharge_cond, True, Hold(N))` —— 對嗎？precharge node 在「clock on（precharge phase）」是 1、「clock off（evaluate phase）且下拉不導通」hold 那個 1、「下拉導通」是 0 —— 所以完整是 `Mux(pd, False, Mux(precharge_cond, True, Hold(N)))`。precharge_cond 是 `di.PullUpCond`（= OR of PullUpActive gates）—— 但 PullUpActive 的 gate 可能不是「乾淨的 clock」而是個推導出來的訊號，這樣 OK 嗎？
+4. 組合 vs 序向的初判（只看 `Hold(self)`）—— 夠嗎？有沒有「nextExpr 沒 `Hold(self)` 但其實是序向」的情況（除了 cross-coupled SCC，那個 S2.3 處理）？
+5. `Expr` 的 smart ctor（`Mux` 收 `Mux(c,True,False)=c` / `Mux(c,False,True)=Not(c)` 之類）—— 夠嗎？要不要更多（`Mux(c, a, Hold(self))` 之類的 idiom）？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+---
+
+## ② Gemini 分析回饋
+
+（待填 —— 用 `cat MD/impl/S2/03_S2.2_NextState抽取_設計.md > temp/s2_review_prompt.txt` + 引導句 → `python tools/knowledgebase/gemini_query.py -f temp/s2_review_prompt.txt` → 把 `tools/knowledgebase/message/<ts>.txt` 的 RESPONSE 摘要貼這。）
+
+## ③ 建議評估 & 採用
+
+（待填）
+
+## ④ 實作筆記
+
+（待填 —— 下個 firing）
+
+## ⑤ 驗證結果
+
+（待填）
+
+════════════════════════════════════════════════════════════
+以上是「把 Visual6502 / MetalNES 風格的 switch-level 電晶體網表轉成高階布林邏輯 IR」這工具的 S2.2 步驟（把 S2.1 的 per-node DriveInfo —— PullDown 條件 / PullUpKind{None,StaticLoad,StrongVcc,Conditional} / Passes+方向 / Hybrid 旗標 —— 合成成 nextExpr[N]，並標組合 vs 序向、算 IR 覆蓋率；不碰 SCC、不建 IR 直譯器、不改模擬）的設計（繁體中文）。背景：S1（整片 NES 開關層級模擬器，可當 golden reference）+ S1.5 lowering + S2.0（NetlistGraph）+ S2.1（DriveAnalysis）都完成；S1 的 group resolution 優先鏈是「GND 贏 → VCC/pull-up → 外部驅動 → 保留前值（capacitance）→ 0」（chipsim.js/MetalNES 那套）。
+
+請做務實、具體、不客套的技術 review，特別針對 §1.6 那 5 個開放問題 + 以下：
+- §1.1 的合成規則對嗎？「pull-down 蓋過 pass，pass（M 的值）蓋過 pull-up」這個優先序對應 switch-level 的 group resolution 嗎？（我的推理：導通的 pass 把 N、M 併成同一 group → N 自己的下拉導通 → group 有 Gnd flag → 0（不管 M）；N 沒下拉但 pass 導通 → group={N,M}、N 的弱 pull-up 輸給 M 的 State/PullUp/Gnd flag → N = M 的值；都沒有 → group={N}、pull-up → 1（或 hold）。）有沒有漏掉的情況？
+- ≥2 個 inbound pass（一個 node 被多個 mux 分支驅動）—— 6502/2C02 上會碰到嗎？first-wins 近似 vs 標 hybrid vs 折成「條件驅動的 resolve」哪個對？
+- precharge/domino node 的 nextExpr = Mux(pd, False, Mux(precharge_cond, True, Hold(N)))（pd=下拉條件、precharge_cond=OR of PullUpActive gates）—— 對嗎？2C02 的 sprite/OAM domino 邏輯實際長這樣嗎？
+- 組合 vs 序向只看「nextExpr 含 Hold(self)」夠嗎？
+- Expr 的 smart constructor 要不要更多 idiom？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一份針對 S2.2 設計的務實、具體的技術 review。整體來說，S2.2 的邊界劃分得非常乾淨（明確把 SCC 和模擬器建置推遲到後續步驟），這能讓這個步驟專注於「單一節點的本機邏輯推導」。
+
+針對你的 5 個開放問題與設計細節，以下是具體評估與建議：
+
+### 1. 合成規則（§1.1）與優先序：Pull-down > Pass > Pull-up
+**結論：完全正確，精準對應 Switch-level 的 Group Resolution，不用改。**
+
+*   **原理解析：**
+    *   當 Pass 導通時，N 與 M 被併入同一個 Group。
+    *   如果 **N 自己有 Pull-down 導通**：整個 Group 會獲得強烈的 Ground Flag（因為 NMOS 傳遞 0 是無損的）。此時無論 M 那邊傳來什麼（即使 M 有 Pull-up 或被其他邏輯驅動為 1），強 0 都會贏。所以 `pd != null -> 0` 是對的，PD 絕對蓋過 Pass。
+    *   如果 **N 沒 Pull-down 但 Pass 導通**：N 的弱 Pull-up（如果有）會被 M 傳遞過來的 Driven State (0 或 1) 蓋過。所以 Pass 蓋過 Pull-up 是對的。
+    *   如果 **都沒導通**：退回 N 自己的 Pull-up 或 Hold。
+*   **有沒有漏掉的情況？**
+    如果 M 本身也是 floating 或只有弱 Pull-up 怎麼辦？你在 S2.1 的 `OwnerDrives` 與 `Hybrid` 標記已經防堵了這個問題。非 Hybrid 的 node，其 inbound pass 對方必定有明確的強驅動值。這套邏輯完美自洽。
+
+### 2. ≥2 個 inbound pass 的處理（First-wins vs Hybrid vs 條件 Resolve）
+**結論：使用 First-wins（巢狀 `Mux`）是正確且最佳的選擇。不要標 Hybrid。**
+
+*   **為什麼 6502/2C02 會有這個？** 這是標準的 Multiplexer (Mux) 結構。例如 ALU 的輸入選擇、或多個暫存器寫入同一條內部 bus。
+*   **為什麼 First-wins 是對的？** 在乾淨的數位設計中，這類 Mux 的控制訊號**必然是互斥的（One-hot）**。如果同時有兩個導通且值不同，在實體電路上就是 Short-circuit（Contention）。既然控制條件互斥，那麼 `Mux(cond1, M1, Mux(cond2, M2, fallback))` 的**順序根本不重要**，結果邏輯上是等價的。
+*   **對計畫的影響 / 具體行動：** 照你的計畫寫 `passChain` 迴圈摺疊即可。在註解標明「Assumes mutually exclusive pass selects (one-hot)」。不要為此 fallback 到 Hybrid，否則你的 IR 覆蓋率會大幅下降（很多純邏輯的資料路徑會被誤判）。
+
+### 3. Precharge/Domino Node 的公式
+**結論：公式 `Mux(pd, False, Mux(precharge_cond, True, Hold(N)))` 完全正確。**
+
+*   **2C02 的實際情況：** 2C02 的 OAM/Sprite 邏輯中，確實有大量 Domino logic。`precharge_cond` 通常來自時鐘（如 `clk0`）或由時鐘 gating 出來的訊號。在預充期（Precharge phase），Pull-down 路徑的求值電晶體通常會被 Clock 關閉（互斥），所以 `pd` 和 `precharge_cond` 在正常運作下不會同時為 True。
+*   **公式的防禦性：** 如果因為某種怪異情況導致 `pd` 和 `precharge_cond` 同時為 True，你的公式讓 `pd` (False) 贏。這符合 NMOS 下拉強於 PMOS/Depletion 上拉的物理特性（Ground 贏 VCC）。
+*   **具體行動：** OK，照做。這個公式非常漂亮且通用。
+
+### 4. 組合 vs 序向的初判（只看 `Hold(self)` 夠嗎？）
+**結論：對於 S2.2 來說，絕對夠了。**
+
+*   **邏輯分析：** 在排除 Cross-coupled 迴圈（S2.3 負責）的前提下，一個節點如果能「記住前一拍的狀態」，在布林邏輯中**唯一的表現形式**就是它的 Next-state 表達式依賴於它自己（即 `Hold(self)`）。這涵蓋了所有 Dynamic Latches（純靠寄生電容 hold 值的地方）。
+*   **對計畫的影響：** 這樣做能清楚分離「Dynamic Latch（本機即可判定）」與「Static Latch / SRAM（需要全域圖論分析）」。S2.2 的職責很清晰。
+
+### 5. `Expr` 的 Smart Constructor (idioms)
+**結論：需要補上與 `False/True` 結合的邏輯閘化簡，這對降低 IR 複雜度極度重要。**
+
+你已經提了 `Mux(c, True, False) = c` 和 `Mux(c, False, True) = Not(c)`。
+但因為你有 `Mux(pd, False, passChain)` 這種結構，當 `passChain` 被化簡為某個訊號時，會出現大量 `Mux(cond, False, B)` 的形式。請務必補上以下 Idioms：
+
+*   **具體行動：在 `Expr.Mux` 裡加入這 4 條化簡規則：**
+    1.  `Mux(c, False, b)  => And(Not(c), b)`    *(如果 c 發生則為 0，否則看 b)*
+    2.  `Mux(c, a, False)  => And(c, a)`         *(如果 c 發生看 a，否則為 0)*
+    3.  `Mux(c, True, b)   => Or(c, b)`          *(如果 c 發生則為 1，否則看 b)*
+    4.  `Mux(c, a, True)   => Or(Not(c), a)`     *(如果 c 發生看 a，否則為 1)*
+*   **為什麼重要？** 很多標準的 AOI/OAI 閘或帶有 Enable 的邏輯，在經過 Pull-down 樹和 Pass 樹的解析後，最初會長得像巢狀 Mux。這些規則能把它們瞬間壓平成標準的 `And/Or/Not` 樹，不僅印出來可讀性大增（給 Spot-check 用），S2.4 直譯器的效能也會更好。
+*   至於 `Mux(c, a, Hold(self))`，**不要化簡**，保留 Mux 語義，這是 D-Latch / Enable-Latch 的標準特徵，保持原樣對後續分析最有利。
+
+---
+
+### 總結與綠燈放行
+
+你的 S2.2 設計邏輯無懈可擊。特別是將 Switch-level 的 Group Resolution 轉換為 `Mux(pd, 0, Mux(pass, M, pu))` 的優先權鏈結，是非常精準的 Abstraction。
+
+**下一步實作建議（Reviewer 視角）：**
+你可以直接按照目前的計畫進入 ④ 實作。實作時，記得加上上述建議的 4 個 `Expr.Mux` 化簡規則。Spot-check 時，你會發現那些 `pullUp=StaticLoad` 且 `pullDown=(A|B)` 的節點，因為 `Mux((A|B), False, True)` 的化簡，會直接漂亮地吐出 `Not(Or(A, B))`（即 NOR 閘），這會證明你的合成規則完全正確發揮了作用。

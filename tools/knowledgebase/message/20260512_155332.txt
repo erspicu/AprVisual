@@ -1,0 +1,148 @@
+Timestamp: 2026-05-12T15:53:32
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深硬體驗證/邏輯綜合/模擬器工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → 最終 GPU bit-slicing」管線的 review。前情：S2 抽出每個 node 的 `NextExpr`（boolean IR：`Const` / `NodeRef(id)`=該 node 的 current 值 / `Not` / `And` / `Or` / `Mux(cond,a,b)` / `Hold(id)`=該 node 上半週期值 / `Prev(id)`=同 Hold（loop-breaking 用）/ `Complex`）；γ.0 = Node Aliasing（把純 buffer/inverter node 折掉）；γ.1 = 通用 size-1/size-2 SCC solver（1/2 步代數代換求雙穩態 cell 的 fixpoint）。現在 driving-mode IR coverage 79.3%（11680/14723 個 node 進拓樸排序的 EvalOrder），**剩 843 個 node 在 56 個 multi-node 的 current-value SCC 裡 → 交給 S1 的 switch-level BFS**。GPU bit-slicing 跑不了 BFS，所以要把這 56 個 SCC 全消掉（變 acyclic）。請用繁體中文、務實、給明確的演算法。
+
+## 剩下的 56 個 SCC 是什麼（剛量出來的）
+
+size 分布：**496**（最大）/ 34 / 29 / 26 / 17 / 13 / 11 / 10 / 6×3 / 5×~10 / …。**每一個都是「用 clock-gated pass-transistor latch 串成的 shift-register / ripple-counter / phase-ring」**。clock 訊號就那幾個：PPU 的 `pclk0`(n115)/`pclk1`(n82)（2-phase pixel clock，互補）、`clk0_int`(n160)/`/clk0_int`(n182)（互補）；APU 的 `n11206`/`n11258`/`n11259`/`n11107`/`n11112`（也是互補對）。典型 node 形狀（取自診斷輸出，`hold(nX)` = `Prev(X)`）：
+
+PPU chroma phase ring（SCC size 11，是個環）：
+```
+chroma_ring5_save#1714  pass=[n182?ppu.chroma_ring5←]   next=(n182 ? n147 : hold(n1714))      # transmission-gate latch：clk=n182 高→load n147，否則 hold
+/chroma_ring_delayed5#168  (沒 pass、有 pull-down)        next=!(n1714 | n202)                  # 純組合邏輯 NOR
+1628#1628  pass=[n160?ppu./chroma_ring_delayed5←]        next=(n160 ? n168 : hold(n1628))      # latch：clk=n160（互補 phase）
+chroma_ring4#148  (沒 pass、有 pull-down)                next=!(n140 | n1628)                  # 純組合 NOR
+chroma_ring4_save#1715  pass=[n182?ppu.chroma_ring4←]    next=(n182 ? n148 : hold(n1715))      # latch：clk=n182
+```
+→ 整個環：`chroma_ring5_save → n147 → ... → chroma_ring4_save → chroma_ring4 → 1628 → /chroma_ring_delayed5 → 202 → ... → chroma_ring5_save`。是設計上就是個 ring（色彩副載波 phase）。cycle 之所以存在 = 每個 latch 的 NextExpr 用 `Node(data)`（current 值）引用前一級 → 繞回來。
+
+APU noise timer（SCC size 29，是 down-counter / shift-register chain）：
+```
+13237#13237  pass=[n11258?11323←] [n11259?cpu.noi_t8←]   next=(n11258 ? n11323 : (n11259 ? !n13225 : hold(n13237)))    # 2-input latch（兩個互補 clock phase）
+13252#13252  pass=[n11206?cpu.noi_/t9←]                   next=(n11206 ? !n13237 : hold(n13252))
+13262#13262  pass=[n11258?11328←] [n11259?cpu.noi_t9←]    next=(n11258 ? n11328 : (n11259 ? !n13252 : hold(n13262)))
+13278#13278  pass=[n11206?cpu.noi_/t10←]                  next=(n11206 ? !n13262 : hold(n13278))
+11243#11243  (沒 pass、有 pull-down 14 項)                next=!(big NOR of !n13054 | !n13072 | ...)                     # 「counter==某值」的 detector（讀所有 bit）→ 這個就是讓整個 counter 變成一個 SCC 的元兇（它讀所有 bit 的 current 值，bit 又讀它）
+```
+
+APU DMC（SCC size 496）：類似，一堆 `pcm_tN` down-counter bit（每個是 `(clk ? data : hold(self))` 的 latch）+ carry chain + reload detector（`w4014` / `apureg_wr` 那些讀所有 bit 的大 NOR）+ `apureg_wr`（APU register write strobe，被一堆 reg 讀）。
+
+PPU hvtog（"w" register，SCC size 10）：
+```
+1634#1634  pass=[n159?ppu.hvtog←] [n187?ppu./hvtog_inv←]  next=(n159 ? n163 : (!n159 ? !n1641 : hold(n1634)))
+hvtog_inv#1641  (沒 pass、有 pull-down)                   next=!((n129 | n153) | n1634)
+177#177  pass=[n187?ppu./hvtog_inv←] [n159?ppu./hvtog←]   next=(!n159 ? !n1641 : (n159 ? !n163 : hold(n177)))
+_io_ab_2-0_eq_6_and_/io_rw_and_hvtog#229  (沒 pass、有 pull-down)  next=!((((!n163 | !n89) | !n91) | n101) | n90)         # 讀 hvtog → 又被 1634 讀 → cycle
+```
+
+**共通結構**：每個 SCC 裡，「latch 類 node」的 NextExpr 已經是正確的 `Mux(clk_phase, Node(data), Prev(self))` 形（S2.2 抽對了）；「組合邏輯 node」（NOR/AND detector）的 NextExpr 是純組合（讀 latch 的 `Node` 值）。cycle = 組合邏輯讀 latch 的 current 值、latch 又讀組合邏輯的 current 值（或前一級 latch）—— 繞成環。clock 訊號（pclk0/pclk1/clk0_int/...）本身也在更外面的 SCC 或已被 γ.1 解掉（clk0_int↔/clk0_int 是 γ.1 解的 size-2）。
+
+## 我要問的（請逐題給明確演算法）
+
+1. **怎麼斷環？** 你之前說「找 register boundary（被 clock-like pass-transistor 驅動的 latch）、cut 它的輸出邊、標 `Prev()`」。具體：
+   - 對一個「latch 類 node」`v`（`di[v].Passes.Count > 0`、`di[v].PullUp == None`、NextExpr 是 `Mux(clk, Node(data), Prev(v))` 形），是不是「在所有其他 node 的 NextExpr 裡把 `Node(v)` 換成 `Prev(v)`」就對了？這樣這個 latch 的輸出在任何讀它的地方都被當成「半週期開始時的值」。對 master-slave shift register（相鄰 latch 用互補 phase）這應該對（讀它的下一級 latch 此刻在 hold、所以 `Node(v) == Prev(v)`）；但對「同 phase 的兩個 latch」會錯（它們同時 load）。**問題**：我怎麼知道一個 latch 的「下游讀者」是不是用互補 phase？還是說 —— 因為 NES 的設計都是 master-slave（不可能有同 phase 直連的 race），所以「把所有 pass-transistor latch 的輸出 `Node→Prev`」一律安全？
+   - 另一種：只 cut「環上的一條邊」（每個 SCC 找一條 feedback edge、把那個 `Node(w)` 換 `Prev(w)`），而不是把某個 latch 的所有輸出都改。哪種對？
+2. **clock 訊號 `clk_phase`（n82/n115/n160/n182/...）在 `Mux(clk_phase, ..., ...)` 裡，要用 `Node(clk_phase)`（current）還是 `Prev(clk_phase)`？** clk_phase 是 divider 的輸出（也是個 latch），半週期內它會變（master clock 一 toggle、divider 就更新）—— 那 latch 該看「這半週期更新後的 clk」還是「上半週期的 clk」？實體上 transmission gate 是 level-sensitive、看 current 的 clk level。但如果用 `Node(clk_phase)` 而 clk_phase 又在另一個 SCC 或剛被 γ.1 解掉…… 會不會又繞回 cycle？（clk0_int 已被 γ.1 解成只依賴 Prev + 外部、所以讀 `Node(clk0_int)` 沒問題；但要先確認所有 clock 訊號都不在剩下的 56 個 SCC 裡。）
+3. **「組合邏輯 node」（NOR detector，沒 pass、有 pull-down）怎麼辦？** 它讀一堆 latch 的 `Node` 值。如果我把 latch 的輸出全 `Node→Prev`，那這些 detector 就讀 `Prev(latch)` → 它們自己就不再造成 cycle、變成純組合（依賴 Prev + 外部）→ 自動脫離 SCC。對嗎？（但「counter==0 的 reload detector」讀的是 counter 的 current 還是 prev 值？counter 在這個 clock edge 上更新；reload 條件是「更新前的值」還是「更新後的值」？實體上是更新前 → 用 Prev → ✓。但如果 detector 讀的是「同一半週期內已經 ripple 過的中間值」就會錯。）
+4. **DMC 的 496-node SCC**：它有 carry chain（ripple）—— `bit_i` 讀 `bit_{i-1}` 的 carry。如果 `bit_i = Mux(tick, !bit_i ^ carry, Prev(bit_i))` 而 carry 讀 `Node(bit_{i-1})`、`bit_{i-1}` 又讀 `Prev(bit_{i-1})`（因為它被 Node→Prev 了）—— 那 `bit_i` 讀的是 `Prev(bit_{i-1})`？但 ripple counter 在一個 clock edge 上是「同時」decrement 所有 bit、用更新前的值算 carry → 所以 carry 應該用 `Prev(bit_{i-1})` → ✓。所以「把所有 pass-transistor latch 輸出 `Node→Prev`」對 ripple counter 也對？還是有坑（例如某些 bit 是 dynamic、carry 是即時 ripple 的）？
+5. **實作位置**：在 `IrEngine.BuildEvalOrder` 的 γ.1 迴圈後面再加一個 γ.2 pass（先做 γ.0+γ.1、剩下的 SCC 才做 γ.2）？還是 γ.2 要在更早（建 dep graph 前）對「所有 pass-transistor latch」一律 Node→Prev、然後 γ.0/γ.1 看到的圖就乾淨多了？
+6. **判斷「這是 pass-transistor latch」的條件**：`di[v].Passes.Count > 0 && di[v].PullUp == None && NextExpr[v] 是 Mux(g, ..., Hold(v)/Prev(v)) 形` —— 夠不夠？要不要再要求 `g` 是「clock-like」（怎麼判斷 clock-like：fanout 大？是某個 divider chain 的輸出？還是不用判斷、任何 pass-transistor latch 都算）？有沒有「假 latch」（看起來像但不是）會被誤判？
+7. **會不會 over-cut**：如果某個 `Node(v)` 引用其實是「組合邏輯讀 latch 的 current 值且該 latch 這半週期確實 load 了新值」（不是 master-slave 的 hold 那種）—— 把它改成 `Prev(v)` 就引入了一個半週期的延遲、變慢一拍。NES 的設計有沒有這種「組合邏輯即時讀剛 load 的 latch」的 case？等價 gate（checking 模式）會抓到、但我想先知道風險多大。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常經典且令人興奮的編譯器/模擬器挑戰！從 switch-level netlist 抽出 Boolean IR，並且要在靜態編譯期（為 GPU bit-slicing 準備）把動態的 clock-gated cycle 全數展平。
+
+你目前的進度非常漂亮，$\gamma.1$ 解掉 size-1/2 的雙穩態 SCC 是最關鍵的一步（解決了真正的物理 feedback）。剩下的這 56 個 SCC（size 5 ~ 496）都是**拓樸環（Topological Loops）**，也就是靠 clock phases 隔離的 shift-registers、phase rings，以及讀取所有 bit 的 synchronous counters。
+
+針對你的問題，我給出明確的演算法設計與物理語意釐清：
+
+---
+
+### 1. 怎麼斷環？(Global `Prev` vs. Targeted Cut)
+
+**絕對不要對所有 pass-transistor latch 全局一律 `Node → Prev`**，這會引發嚴重的 over-cut（導致 data-path 的半週期延遲，破壞 critical path）。
+
+**務實的演算法：Targeted SCC Back-edge Cut**
+你需要利用圖論（DFS back-edge）只針對這 56 個 SCC 進行精準打擊。
+
+1. 對每一個剩下的 SCC，隨機（或 heuristic，見下）選定一個起點做 DFS 遍歷，標記出所有的**回邊（Back-edges）** $u \rightarrow v$。
+2. 檢查回邊的源頭 $u$：如果 $u$ 符合「latch 類 node」的特徵，就把這條回邊切斷。
+3. **切斷的具體操作**：在目標節點 $v$（以及 SCC 內其他引用 $u$ 的 current 值且構成環的節點）的 `NextExpr` 中，把 `NodeRef(u)` 替換成 `Prev(u)`。
+4. **Heuristic（選誰當回邊最安全）**：
+   - 最佳切點是：**Latch $\rightarrow$ 組合邏輯（Detector）** 的邊。
+   - 其次是：**Latch $\rightarrow$ 異相 Latch** 的邊（例如 `pclk0` latch 輸出給 `pclk1` latch）。
+   - 對於 APU counter / DMC（496-node），環的成因是 detector（組合邏輯）讀 latch，latch 又吃 detector。只要在 detector 裡把讀取 Latch 的 `NodeRef` 換成 `Prev`，環瞬間就解開了。
+
+### 2. Clock 訊號在 `Mux(clk_phase, ...)` 裡該用 `Node` 還是 `Prev`？
+
+**必須一律使用 `Node(clk_phase)`（Current Value）。**
+
+*   **物理原因**：Transmission gate 是 level-sensitive，它的透明與否取決於**此時此刻**（這個半週期求值後）的 clock level。如果你用了 `Prev(clk)`，等於你的 latch 永遠看「上一個半週期的 clock」，這會導致所有資料的載入慢半拍，嚴重的會漏掉只有一個 half-cycle 寬的 clock pulse。
+*   **會不會繞回 Cycle？**：極大概率不會。因為 clock 產生器（divider chain）通常是單向 feed-forward 給這些 counter 和 register 的。即使 clock 產生器自己也是個 phase ring（例如 Johnson counter），它自己的內部 SCC 會被上一題的機制解掉。解掉後，它對外輸出的 `Node(clk)` 已經是 acyclic 的 DAG 節點，直接讀取絕對安全。
+
+### 3. 「組合邏輯 node」（NOR detector）怎麼辦？
+
+你推測得完全正確：**讓 Detector 讀 `Prev(latch)`，它們就會自動變成 acyclic，這是 physically correct 的。**
+
+*   **物理驗證**：Counter 在 clock edge 發生時更新（load 新值）。Reload detector 的條件（例如 counter == 0）必須在 clock edge **來臨前**就 evaluate 完畢並穩定。
+*   因此，Detector 讀取的本來就是「Counter 更新前的穩態值」。在你的 IR 語意下，目前半週期的「更新前穩態值」就是 `Prev(latch)`。
+*   把你找到的回邊（通常就是 Latch 灌給 Detector 的邊）改成 `Prev`，Detector 就只依賴上一狀態，不再跟 Latch 的 current 值打架，SCC 瞬間瓦解。
+
+### 4. DMC 的 496-node SCC（包含 Carry Chain）
+
+**NES 的 APU down-counters 絕大多數是 Synchronous Counters，而非 Asynchronous Ripple Counters。**
+
+*   仔細看你抓出來的 log：`13237` 和 `13262` 吃的 clock 都是 `[n11258, n11259]`。這證明了整個 counter chain 的每一個 bit 都是**同相/同步**更新的！
+*   所謂的「Carry chain」其實是組合邏輯：`carry_i = carry_{i-1} & bit_{i-1}`。
+*   **結論**：因為所有 bit 同步 load，所以 Carry 邏輯必須根據**更新前的狀態**來計算。
+*   **演算法套用**：在 SCC 中，把 Latch 灌給 Carry 邏輯（和 Reload 邏輯）的邊切成 `Prev`。由於 Carry chain 內部純粹是組合邏輯（`carry_i` 依賴 `carry_{i-1}` 的 current 值），這部分**不用切**，它本來就是一條單向的 acyclic chain。只切 Latch $\rightarrow$ 組合邏輯 的源頭，整個 496-node SCC 就會漂亮地展開成一棵巨大的 DAG。
+
+### 5. 實作位置（$\gamma.2$ 應該放哪？）
+
+**唯一正解：放在 $\gamma.1$ 迴圈後面，作為專屬的 $\gamma.2$ pass。**
+
+*   **流程**：
+    1. 跑完 $\gamma.0$ (Aliasing) 和 $\gamma.1$ (Size-1/2 static loop solver)。
+    2. 建 Dep Graph，跑 Tarjan 找 SCC。
+    3. 對於 Size $\ge$ 3 的 SCC，啟動 $\gamma.2$：
+    4. 在 SCC 內部跑 DFS，找到 Back-edges。
+    5. 篩選 Back-edge $u \rightarrow v$ 且 $u$ 為 Latch 且 $v$ 在 SCC 內。
+    6. 將 $v$ 內部的 `Node(u)` 替換為 `Prev(u)`。
+    7. 修改完畢後，重新建圖，直到沒有 SCC 為止。
+*   **為什麼不提早做？**：提早對所有 Latch 做 Node $\rightarrow$ Prev 會把本來沒形成環的純 forward master-slave pipelining 也給打散，引入不必要的延遲（風險見第 7 題）。留給 $\gamma.2$ 處理，能保證「只對真正形成環的拓樸結構動刀」。
+
+### 6. 判斷「這是 Pass-transistor Latch」的條件
+
+你給的條件已經**非常完美且足夠**了：
+`di[v].Passes.Count > 0 && di[v].PullUp == None && NextExpr[v] 是 Mux(g, ..., Hold(v)/Prev(v)) 形`
+
+*   **不需要**判斷 `g` 是否為 clock-like。在 NES 的 NMOS 邏輯中，如果一個 pass-transistor 被接成這種 feedback holding 結構，它在語意上**就是一個 transparent latch**。不管它的 gate 端是真正的 clock 還是 random control logic，它都具備狀態保持（Stateful）特性，切換成 `Prev` 來斷環在邏輯上是唯一解。
+*   假 Latch 風險極低：因為 S2.2 已經嚴格驗證了它具有 `Hold/Prev(v)` 的 feedback behavior 才會產生這種 IR。
+
+### 7. 會不會 Over-cut？(NES 的即時讀取 Edge Cases)
+
+**如果你用 DFS Back-edge 只切 SCC 內部的邊，Over-cut 的機率是 0。**
+
+*   **危險的反例（全局替換的風險）**：假設有一個純 Data-path：Latch A (clocked by $\phi_1$) $\rightarrow$ 組合邏輯 B $\rightarrow$ 輸出給外面。如果在 $\phi_1$ 剛 high 時，Latch A load 了新值，組合邏輯 B 應該在**同一個半週期**立刻反應並傳遞下去。如果你全局把 Latch A 的輸出改成 `Prev`，B 就要等到下個半週期才會有反應。這在 CPU ALU 或 Address Decoder 中會是致命傷。
+*   **安全的保證（SCC 回邊策略）**：因為 $\gamma.2$ **只針對 SCC 內部的 Back-edge** 進行切斷，純 Data-path（如上述的反例）根本不在 SCC 裡！
+*   那些被困在 56 個 SCC 裡的組合邏輯，必定是環路的一部分（例如 Counter reload/Carry）。對這些形成環的邏輯來說，它們本質上就是在求「Next State 函數」，Next State 本來就應該依賴 Current State（即 `Prev`），所以對回邊使用 `Prev` 恰好還原了 Edge-triggered / Synchronous 系統的設計初衷。
+
+---
+
+### 總結給你的實作 Action Items:
+
+1.  新增一隻 `PassGamma2_TopologicalLoopBreaker`。
+2.  輸入：經過 $\gamma.1$ 處理後剩餘的 SCC 列表。
+3.  對每個 SCC：
+    *   計算 SCC 內的 DFS Tree（建議從純組合邏輯 node 開始 DFS，這樣 back-edge 自然會落在 Latch 上）。
+    *   收集所有的 Back-edges `(u -> v)`。
+    *   過濾出 `u` 是 Latch 的邊。
+    *   在 `v` 的 `NextExpr` AST 裡做 Visitor 替換：`NodeRef(u)` $\rightarrow$ `Prev(u)`。
+4.  修改完 IR 後，重跑 Tarjan。這 56 個 SCC 應該會瞬間灰飛煙滅，直接進入 GPU 的 TopoSort EvalOrder！
+
+這套編譯管線設計得非常精巧，祝 GPU bit-slicing 順利！有遇到任何邊緣 case 隨時討論。

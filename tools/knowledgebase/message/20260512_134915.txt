@@ -1,0 +1,88 @@
+Timestamp: 2026-05-12T13:49:15
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+## firing 14 起：**S3.0 —— driving 模式 bridge 瘦身**（不要 re-derive IR-covered node）→ 把 ~8× 慢拉回 ~par 甚至更快
+
+> firing 13 的 benchmark：driving 模式比 S1 慢 ~8×。瓶頸 = `StepOneDriving` 把值有變的 IR node `SetNodeState(v,nv)+EnqueueNode(v)` → gate fan-out（含一堆 IR-covered node）全 enqueue → step 5 的 `ProcessQueue` 對 queue 裡的東西全跑 `RecalcNode`=`ComputeNodeGroup`（group-BFS）→ 等於把 IR 已經算對的 node 再用 switch-level 重算一遍（無變化、不傳播，但 `ComputeNodeGroup` 的成本付了）。**S3.0 = 讓 ProcessQueue 跳過「IR 已算對、不需要它」的 node**。先設計 + 丟 Gemini（firing 14），再實作（firing 15+）。
+
+### ① 設計描述
+
+**核心**：`ProcessQueue` 在 driving 模式裡只該做兩件事 —— (a) 算 hybrid + InScc node（IR 沒模型化的），(b) 觸發 callback（memory / video）。對「IR-covered（`NextExpr != null && !InScc`）且沒有 callback flag」的 node `nn`，`RecalcNode(nn)` = `ComputeNodeGroup(nn)`（昂貴）→ 算出跟 IR 一樣的值 → `SetNodeState` no-op → 不傳播；唯一「有用」的副作用是 callback-enqueue，但 `nn` 沒 callback flag 所以也沒這個。→ **這種 node 在 ProcessQueue 裡可以直接 skip**（不 `ComputeNodeGroup`）。
+
+**為什麼安全（callback 不會漏）**：memory callback 監看 `{cs, /we, addr[], dataBus[]}`（這些 node 有 `HasCallback` flag）。callback 在「某個含 callback-node 的 group 被 `RecalcNode`」時被 enqueue。一個 callback-node `c`（如 `addr_i` = `BA_i` = `u2.q_i`，74LS373 latch 輸出）值有變時：step 4 的 IR eval 算到它（它在 `EvalOrder`、`NextExpr` 是 Stage A2 給的）→ `SetNodeState(c, nv)` + （因為 `c` 有 callback flag）`EnqueueNode(c)` → `ProcessQueue` 的 `RecalcNode(c)` 跑（`c` 有 callback flag、不 skip）→ callback enqueue。✓ 所以 callback-node 自己**直接被 enqueue + recalc**（不依賴「它 group 裡的某個鄰居被 recalc 順便帶到它」）→ 即使 skip 掉那些鄰居（IR-covered no-callback node），callback 還是會 fire（addr 變 → callback fire；addr 沒變 → callback 不該重 fire，skip 也對；就算 S1 在「addr group 裡別的 node 變但 addr 沒變」時會冗餘 fire，少 fire 那次也無害 —— memory callback 重讀同位址 = no-op）。
+
+**改動**：
+1. `IrEngine.Build()` 算 `bool[] OkToSkipInRecalc` —— `v` 是 IR-covered（`NextExpr[v] != null && !InScc[v]`）**且** 沒有 `HasCallback` flag（`(WireCore.NodeInfos[v].Flags & HasCallback) == 0`）。
+2. `StepOneDriving` step 4：`for v in EvalOrder: { nv = EvalExpr(NextExpr[v]); if (NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); if (!OkToSkipInRecalc[v]) WireCore.EnqueueNode(v); } }` —— `SetNodeState` 寫值 + enqueue `v` 的 gate fan-out（hybrid 傳播需要、便宜）；只有「不該 skip 的」（= hybrid/InScc/有 callback 的，這在 `EvalOrder` 裡其實只有 callback node）才 `EnqueueNode(v)` 讓 `RecalcNode(v)` 跑。
+3. `WireCore.ProcessQueue`：driving 模式時（一個新 flag `WireCore.SkipRecalcOf` = `IrEngine.OkToSkipInRecalc` 或 null）—— 處理 queue 裡的 `nn` 時若 `SkipRecalcOf?[nn] == true` → `RecalcHash[nn]=0; continue;`（跳過 `RecalcNode`）。`StepOneDriving` step 5 前設 `WireCore.SkipRecalcOf = OkToSkipInRecalc`，step 5 後設回 null（讓 S1 的正常 `Step` 路徑不受影響）。
+4. 不碰 S1 的 `Step`/`RunFrame`/handler 邏輯（`SkipRecalcOf` 預設 null → ProcessQueue 行為不變）。
+
+**驗證**：`--trace-cmp --engine ir`（driving）仍 **0 mismatch**（skip 的 node IR 已算對；callback 仍 fire）；`--benchmark --engine ir` —— 看快多少（預期 ~5-8×、回到 par 附近）；`--trace-cmp`（checking 模式）不受影響（這只改 driving 路徑）；`--selftest` 全 PASS；`--trace`（S1）跟前一個 commit 一致。
+
+**開放問題（丟 Gemini）**：
+1. 「skip IR-covered no-callback node 的 `RecalcNode`」—— callback 安全性的推理（callback-node 自己直接被 enqueue+recalc，所以 skip 鄰居無害；S1 的「冗餘 fire」少了也無害）對嗎？有沒有漏掉的情況（例如：某個 hybrid node `h` 的 group 裡有一個 IR-covered no-callback node `m` —— 我 skip 了 `m` 的 `RecalcNode`，但 `h` 的 `ComputeNodeGroup` 還是會走到 `m`（讀 `NodeStates[m]` = step 4 的 IR 值）→ 沒問題吧？skip 的是 `RecalcNode(m)`、不是「把 `m` 從 `h` 的 group 拿掉」）？
+2. 還有沒有更省的（例如：根本不要 enqueue `v` 的 gate fan-out，改成 step 5 只 enqueue「值有變且 gates 到某個 hybrid/InScc-相關 transistor 的 IR node」+ 所有 callback node + 所有值會變的 hybrid node —— 但「值會變的 hybrid node」要先算才知道、雞生蛋）？還是「`SetNodeState` 的 gate-fanout enqueue 全留、`ProcessQueue` 跳過 IR-covered no-callback」這個 cut 就夠好（簡單、安全）？
+3. 預期：這個 cut 後 driving 模式相對 S1 大概多快？瓶頸會移到哪（hybrid+InScc 的 `ComputeNodeGroup` ~6500 個/step？IR eval 的 Expr 樹遞迴 ~50K visit/step？）—— 下一步該往哪打（提升 IR coverage 減少 hybrid？攤平 IR eval？）？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+────────────────────
+背景：把 switch-level 網表（2A03+2C02+板上 TTL）轉成布林邏輯 IR 的 pipeline。S1=開關級 sim（chipsim.js/MetalNES 的 wire_compute：節點 group、`RecalcNode(nn)`=`ComputeNodeGroup(nn)`（group-BFS）→ 對 group 每個 member `SetNodeState`；`ProcessQueue` 跑到 queue 空、末 `InvokeCallbacks()`（memory/video callback —— callback 監看的 node 有 `HasCallback` flag，`RecalcNode` 處理含 callback-node 的 group 時就 enqueue 那 callback）；`SetNodeState(nn,v)` 寫 `NodeStates[nn]` + 若 `nn` gate transistor 就 enqueue 那些 channel-end；handler chain（clock toggle、memory）每 half-cycle 跑一次）。S2.4 的 driving 模式：IR 拓樸序 evaluate non-hybrid node（`StepOneDriving`：① 快照 prevStates ② DeferRecalc handler chain ③ ProcessQueueOneLevel flush boundary ④ EvalOrder 拓樸序 `SetNodeState(v, EvalExpr(NextExpr[v]))`+`EnqueueNode(v)` ⑤ `ProcessQueue()` bridge ⑥ trace+Time++），其餘（hybrid 847 + 在 SCC 裡的 5705 + 它們的 dependent）交 S1 的 ProcessQueue。問題：driving 模式比 S1 慢 ~8×（瓶頸 = ⑤ 的 ProcessQueue re-derive 一堆 IR 已算對的 node）。上面是 bridge 瘦身的設計（讓 ProcessQueue 跳過 IR-covered no-callback node）。請逐一回答「開放問題」的 3 條，每條標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常精準且切中要害的優化（S3.0）。你準確地抓出了 `driving` 模式之所以比純 S1 慢 8 倍的「元兇」—— **IR 算完後，因為 `SetNodeState` 的副作用，導致 S1 的 `ProcessQueue` 把已經算好且不需要傳播的 IR Node 全部拿去跑昂貴的 switch-level BFS (`ComputeNodeGroup`)**。
+
+你的 S3.0 設計邏輯嚴密，利用 `SkipRecalcOf` 陣列在 `ProcessQueue` 階段進行攔截，既避開了改動 S1 核心邏輯的風險，又精準去除了冗餘計算。
+
+以下針對你的 3 個開放問題逐一回答：
+
+### 1. 關於「skip IR-covered no-callback node 的 `RecalcNode`」的安全性與 Hybrid 互動
+**結論：設計完全 OK，推理正確，沒有漏掉的情況，不需要改。**
+
+*   **對 callback 的安全性**：你的推理無懈可擊。S1 的 callback 觸發機制是「當含有 callback node 的 group 被計算時，標記 callback 為需要執行」。既然你的 IR 在 step 4 遇到 `addr_i` 改變時，因為它有 `HasCallback` flag 所以 **不 skip** 它，它會被 enqueue，隨後在 `ProcessQueue` 被 dequeue 並執行 `RecalcNode(addr_i)`。這時 `ComputeNodeGroup` 會以 `addr_i` 為起點（或者說包含它）跑一遍，完美觸發 callback。就算它的 IR-covered 鄰居被 skip 了，也不影響它自己被計算並觸發 callback。少掉的「冗餘 fire」反而符合真實硬體行為（值沒變就不該觸發 memory write/read 等動作）。
+*   **對 Hybrid 節點的互動**：你舉的例子很好。Hybrid 節點 `h` 的 group 裡有 IR-covered 節點 `m`。當 `ProcessQueue` 在算 `h` 時（因為 `h` 不是 IR-covered，所以不會被 skip），`ComputeNodeGroup(h)` 會往外 BFS 找邊界。當它碰到 `m` 時，它需要知道 `m` 的狀態。**因為你在 step 4 的 `EvalOrder` 已經呼叫過 `SetNodeState(m, nv)`，此時 `NodeStates[m]` 已經是最新的、正確的 IR 計算結果。** S1 的 BFS 只是「讀取」這個狀態作為邊界條件（當作 VCC/GND 或特定電位），並不需要 `m` 自己主動去 `RecalcNode`。所以 skip `m` 的 `RecalcNode` 絕對安全，不會破壞 switch-level 對 IR 結果的依賴。
+
+**具體影響 / 該怎麼改**：
+影響：確保了這刀切下去不會導致模擬器破圖或 crash。
+改法：**維持原設計，直接實作。**
+
+---
+
+### 2. 關於「更省的作法：連 `SetNodeState` 的 gate-fanout enqueue 都省掉」
+**結論：目前的 `ProcessQueue` 跳過法（Cut）已經夠好（Sweet Spot），不需要為了省 enqueue 搞複雜。**
+
+*   **成本分析**：在 C# 裡，把一個整數丟進 Queue（`EnqueueNode`）然後再馬上拿出來（`Dequeue`），如果立刻遇到 `if (SkipRecalcOf[nn]) continue;`，這個操作的成本是 **O(1) 的陣列存取，耗時在幾個 nanosecond 級別**。但是，跑一次 `ComputeNodeGroup`（BFS、HashSet 分配、尋訪節點網路）的成本是 **microsecond 級別**，相差了成百上千倍。
+*   **複雜度考量**：如果你要在 `SetNodeState` 階段就不 enqueue，你需要靜態分析「這個 IR node 的 fan-out gate 所控制的 channel，是否屬於 hybrid / InScc 網路」。這不僅需要龐大的預處理（雞生蛋問題），而且可能需要修改 `SetNodeState` 的簽名或寫一個 `SetNodeStateDriving`，嚴重破壞 S1 的乾淨度。
+*   **80/20 法則**：你現在的設計把 99% 的「計算瓶頸」（`ComputeNodeGroup`）砍掉了，留下的 1% 是「佇列進出」的微小 overhead。為了這 1% 去破壞架構不值得。
+
+**具體影響 / 該怎麼改**：
+影響：避免過度工程（Over-engineering），保持 S1 邏輯獨立性。
+改法：**不需要改。**「`ProcessQueue` 跳過 IR-covered no-callback」這個 cut 是目前最聰明、CP 值最高的解法。
+
+---
+
+### 3. 預期效能與下一步瓶頸分析
+**結論：預期效能會回到 ~par (1x S1) 附近。下一個瓶頸會是「IR Eval 的 Expr 樹遞迴 (AST pointer chasing)」，接著才是「InScc 的 Switch-level 計算」。**
+
+*   **預期速度**：砍掉這上萬個冗餘的 `ComputeNodeGroup` 後，driving 模式應該會從 8 倍慢，瞬間拉回接近 S1 原速（甚至快一點點）。
+*   **瓶頸轉移分析**：
+    1.  **IR Eval 的 AST 遞迴（~50K visit/step）**：這絕對會成為最刺眼的瓶頸。C# 中 50,000 次基於物件樹的虛擬函式呼叫（Virtual Method Call）、指標跳躍（Pointer Chasing），會把 CPU 的 L1/L2 Cache 擊穿（Cache Miss）。這在現代 CPU 上是非常昂貴的。
+    2.  **Hybrid + InScc 的 `ComputeNodeGroup`（~6500 個/step）**：雖然數量減少了，但 Switch-level 的 BFS 天生就很慢。
+*   **下一步往哪打（S4.0 的方向）**：
+    *   **首選（低垂果實）：攤平 IR Eval（Flattening / JIT）**。
+        *   既然拓樸序是固定的，**不要用樹狀物件遞迴**。把 `NextExpr` 編譯成一個扁平的「指令陣列 (Instruction Array)」或「位元運算陣列 (Bitwise Array)」。
+        *   例如：轉成一個巨大的 `struct Instruction { Opcode op; int arg1; int arg2; int dest; }` 陣列，然後寫一個簡單的 `for` 迴圈搭配 `switch(op)`。這對 CPU Branch Predictor 和 Cache 極度友好，速度可以再提升 5x~10x 以上（這就是傳統 Bytecode VM 或 Logic Simulator 快的原因）。
+    *   **次選（提升 Coverage）：消滅 InScc 節點**。
+        *   目前有 5705 個節點卡在 SCC（強連通分量）裡。這些通常是 Latch（交叉耦合反相器）或 Pass-transistor 回圈。
+        *   推動 Stage B：將這些 SCC 識別為有狀態的布林邏輯（例如把交叉反相器辨識為 `Q = D` 或保持原狀的 D-Latch），把它們從 InScc 拯救出來變成 IR-covered，這能大幅減少那 6500 個必須依賴 Switch-level 的節點數量。
+
+**具體影響 / 該怎麼改**：
+影響：明確 S3.0 之後的 Roadmap。
+改法：**Firing 14 / 15 專心把 S3.0 (Skip Queue) 實作完並 Benchmark。驗證通過後，下一個 Firing (S4.0) 直接鎖定「Flatten IR Eval (攤平 AST 變成陣列)」**。
+
+### 總結
+大膽去實作 Firing 15！這個設計極度優雅，邏輯自洽，沒有破綻。等你的 Benchmark 捷報！

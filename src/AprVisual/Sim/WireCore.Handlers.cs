@@ -28,7 +28,7 @@ namespace AprVisual.Sim
         // ── per-half-cycle handler chain ──
         private static Action? _handlerChain;
         public static void AddHandler(Action h) => _handlerChain = _handlerChain is null ? h : _handlerChain + h;
-        private static void RunHandlerChain() => _handlerChain?.Invoke();
+        internal static void RunHandlerChain() => _handlerChain?.Invoke();
 
         // ── callbacks (node-change watchers) ──
         internal sealed class CallbackInfo

@@ -240,5 +240,45 @@ namespace AprVisual.Sim.Logic
             }
             return WireCore.Time - start;
         }
+
+        // ── driving mode (S2.4 proper + S2.5 bridge): the IR *replaces* S1's settle; only the hybrid + InScc
+        //    nodes (and the IR nodes adjacent to them) are computed by S1's group-BFS. See MD/impl/S2/05 "firing 8". ──
+
+        /// <summary>One half-cycle, driving mode. The IR engine owns the chip.</summary>
+        public static void StepOneDriving()
+        {
+            if (!Built) Build();
+            int n = WireCore.NodeCount;
+            new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (start of this half-cycle — Hold/Prev read this)
+            WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
+            WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
+            foreach (int v in EvalOrder)                                         // 4. IR-evaluate, topo order (deps already done; reads NodeStates' fresh boundary + earlier IR values, prevStates for Hold/Prev)
+            {
+                byte nv = (byte)EvalExpr(NextExpr[v]!);
+                if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }   // SetNodeState writes + enqueues v's gate fan-out (incl. hybrid nodes that depend on v); EnqueueNode(v) so ProcessQueue's RecalcNode(v) also services v's own group callbacks (memory/video)
+            }
+            WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
+            if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
+            WireCore.Time++;                                                     // 6.
+        }
+
+        public static void StepDriving(int count) { for (int i = 0; i < count; i++) StepOneDriving(); }
+
+        /// <summary>Driving-mode RunFrame: step until the PPU's in-vblank flag rises, or maxHalfCycles.</summary>
+        public static long RunFrameDriving(long maxHalfCycles = 1_200_000)
+        {
+            long start = WireCore.Time;
+            int vbl = WireCore.N_PpuInVblank;
+            if (vbl == WireCore.EmptyNode) { StepDriving((int)Math.Min(maxHalfCycles, 714_736)); return WireCore.Time - start; }
+            bool prev = WireCore.NodeStates[vbl] != 0;
+            for (long i = 0; i < maxHalfCycles; i++)
+            {
+                StepOneDriving();
+                bool now = WireCore.NodeStates[vbl] != 0;
+                if (!prev && now) break;
+                prev = now;
+            }
+            return WireCore.Time - start;
+        }
     }
 }

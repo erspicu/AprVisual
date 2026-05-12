@@ -119,7 +119,7 @@ namespace AprVisual.Sim
                 }
         }
 
-        private static void SetNodeState(int nn, byte newState)
+        internal static void SetNodeState(int nn, byte newState)
         {
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;

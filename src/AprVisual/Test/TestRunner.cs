@@ -34,7 +34,7 @@ namespace AprVisual.Test
             int traceCycles = 64;
             int shotFrames = 3;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false, dumpNext = false, dumpScc = false;
+            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false, dumpNext = false, dumpScc = false, useIr = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -45,6 +45,7 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--trace-cmp":       if (i + 1 < args.Length) traceCmpPath = args[++i]; break;   // S2.4/2.6: IR vs S1 per-node per-half-cycle
+                    case "--engine":          if (i + 1 < args.Length && args[++i] == "ir") useIr = true; break;   // "ir" → use the S2.4 IR-driving engine instead of S1's switch-level
                     case "--diag-node":       if (i + 1 < args.Length) int.TryParse(args[++i], out AprVisual.Sim.Logic.IrEngine.DiagNode); break;  // with --trace-cmp: print details on each mismatch of this node id
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
@@ -86,8 +87,9 @@ namespace AprVisual.Test
             if (dumpDrive) return DumpDrive();
             if (dumpNext) return DumpNext();
             if (dumpScc) return DumpScc();
-            if (tracePath != null) return Trace(tracePath, traceCycles);
-            if (traceCmpPath != null) return TraceCmp(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles);
+            if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
+            if (traceCmpPath != null) return useIr ? TraceCmpDrive(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles)
+                                                   : TraceCmp(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath != null) return Probe2002(probePath);
@@ -1004,20 +1006,22 @@ namespace AprVisual.Test
         // ── Step 7 / S1 exit-gate harness: load a ROM, power-on reset, step N CPU cycles (≈ N*24 half-cycles),
         //    and dump the CPU's named-state nodes each cycle — for eyeballing / comparing against
         //    MetalNES / chipsim.js / Perfect6502. ──
-        private static int Trace(string path, int cycles)
+        private static int Trace(string path, int cycles, bool useIr = false)
         {
             var rom = NesRom.LoadFromFile(path);
             if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {path}"); return 2; }
-            Console.WriteLine($"# {Path.GetFileName(path)}  (PRG {rom.PrgRom.Length / 1024} KB, CHR {rom.ChrRom.Length / 1024} KB, mapper {rom.Mapper})");
+            Console.WriteLine($"# {Path.GetFileName(path)}  (PRG {rom.PrgRom.Length / 1024} KB, CHR {rom.ChrRom.Length / 1024} KB, mapper {rom.Mapper}){(useIr ? "  [engine: IR (S2.4 driving mode)]" : "")}");
             try
             {
                 WireCore.LoadSystem(rom);
+                if (useIr) { AprVisual.Sim.Logic.IrEngine.Build(); Console.WriteLine($"# IR: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} node(s) IR-driven / {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in SCCs → S1, rest hybrid"); }
                 Console.WriteLine($"# after power-on reset: {WireCore.DumpCpuState()}");
                 int prevSync = -1;
                 int instrCount = 0;
                 for (int c = 0; c < cycles; c++)
                 {
-                    WireCore.Step(12 * 2);          // one 6502 cycle = 12 master cycles = 24 half-cycles
+                    if (useIr) AprVisual.Sim.Logic.IrEngine.StepDriving(12 * 2);
+                    else       WireCore.Step(12 * 2);          // one 6502 cycle = 12 master cycles = 24 half-cycles
                     string line = WireCore.DumpCpuState();
                     // mark instruction-fetch cycles (cpu.sync high) for readability
                     bool sync = line.Contains("(fetch)");
@@ -1062,6 +1066,51 @@ namespace AprVisual.Test
                 return 1;
             }
             finally { WireCore.Shutdown(); }
+        }
+
+        // ── S2.4/S2.6 driving-mode equivalence: run S1 N half-cycles snapshotting NodeStates each step, reset,
+        //    run the IR-driving engine N half-cycles snapshotting each step, then diff — for every observable
+        //    node (drives a transistor gate, or named), the two must be bit-identical. ──
+        private static unsafe int TraceCmpDrive(string romPath, int cycles)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            cycles = Math.Min(cycles, 30000);   // memory cap: cycles × NodeCount bytes × 2
+            Console.WriteLine($"# --trace-cmp --engine ir {Path.GetFileName(romPath)} — {cycles} half-cycles, driving-mode equivalence (IR-driven NodeStates vs S1-driven, per node per half-cycle)");
+            byte[][] s1 = new byte[cycles][], ir = new byte[cycles][];
+            int n;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                n = WireCore.NodeCount;
+                for (int t = 0; t < cycles; t++) { WireCore.Step(1); s1[t] = new byte[n]; new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(s1[t]); }
+            }
+            finally { WireCore.Shutdown(); }
+            // observable[v] = drives a transistor gate, or has a semantic name (matches IrEngine.Build's verification boundary)
+            bool[] observable;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                if (WireCore.NodeCount != n) { Console.Error.WriteLine($"node count changed between runs ({n} → {WireCore.NodeCount})"); return 2; }
+                AprVisual.Sim.Logic.IrEngine.Build();
+                Console.WriteLine($"  IR-driven nodes: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount}  /  {n}   ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, n):F1}%)   — {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} node(s) in residual SCCs → S1, rest hybrid → S1");
+                observable = new bool[n];
+                for (int v = 0; v < n; v++) observable[v] = WireCore.Nodes[v] is { } nd && (nd.Gates.Count > 0 || WireCore.GetNodeName(v) != v.ToString());
+                for (int t = 0; t < cycles; t++) { AprVisual.Sim.Logic.IrEngine.StepOneDriving(); ir[t] = new byte[n]; new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(ir[t]); }
+            }
+            finally { WireCore.Shutdown(); }
+            long mm = 0; int firstT = -1, firstV = -1; var byNode = new Dictionary<int, long>();
+            for (int t = 0; t < cycles; t++)
+                for (int v = 0; v < n; v++)
+                    if (observable[v] && s1[t][v] != ir[t][v]) { mm++; byNode[v] = byNode.GetValueOrDefault(v) + 1; if (firstT < 0) { firstT = t; firstV = v; } }
+            if (mm == 0) { Console.WriteLine($"  ✓ NO MISMATCHES over {cycles} half-cycles — IR-driven ≡ S1-driven for every observable node. (S2.6 driving-mode equivalence gate PASSED for this ROM.)"); return 0; }
+            int distinct = byNode.Count;
+            Console.WriteLine($"  ✗ {mm} node-mismatch(es) over {cycles} half-cycles, across {distinct} distinct observable node(s).");
+            Console.WriteLine($"    first: t={firstT}, node {WireCore.GetNodeName(firstV)}#{firstV}  nextExpr = {(firstV < AprVisual.Sim.Logic.IrEngine.NextExpr.Length ? AprVisual.Sim.Logic.IrEngine.NextExpr[firstV]?.Pretty() ?? "(hybrid/InScc)" : "?")}");
+            Console.WriteLine($"    top mismatching nodes (id — # half-cycles — nextExpr):");
+            foreach (var kv in byNode.OrderByDescending(p => p.Value).Take(25))
+                Console.WriteLine($"      {WireCore.GetNodeName(kv.Key)}#{kv.Key}  — {kv.Value} — {(kv.Key < AprVisual.Sim.Logic.IrEngine.NextExpr.Length ? AprVisual.Sim.Logic.IrEngine.NextExpr[kv.Key]?.Pretty() ?? "(hybrid/InScc)" : "?")}");
+            return 1;
         }
 
         private static void PrintUsage()

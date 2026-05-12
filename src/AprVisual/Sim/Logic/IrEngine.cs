@@ -45,6 +45,9 @@ namespace AprVisual.Sim.Logic
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
         public static bool[] OkToSkipInRecalc = []; // [nodeId]; true = the driving-mode bridge ProcessQueue may skip RecalcNode(this) — IR-covered, not InScc, channel-graph component all-IR, and NodeRef dep-closure all-IR (see BuildOkToSkip). DEBUG-gated by IrEngine.DebugSkipRecalc / --debug-skip-recalc for now.
+        public static bool[] SkipInBridge = [];     // S4.2b: [nodeId]; OkToSkipInRecalc ∪ InScc ∪ IsBusNode — what the bridge ProcessQueue (step 5) skips when the ping-pong is on (RunFixedKScc / ResolveBusesRun own those)
+        public static bool PingPongEnabled = false; // S4.2b: replace the bridge ProcessQueue's SCC+bus settling with the ping-pong "for outer: { RunCompiledStep; RunFixedKScc; ResolveBusesRun }" — DISABLED: first cut breaks the PPU palette readout path (~1647 nodes, from t≈6; needs debugging — probably the SCC/bus interleave order or step-5-skip-too-much). --pingpong / --no-pingpong to toggle.
+        public const int PingPongK = 4;             // S4.2b: ping-pong outer iterations (Gemini: ≈3; +1 margin; bump if --trace-cmp finds it short)
         public static int SkippableInRecalcCount; // # of nodes with OkToSkipInRecalc == true
         // ── flattened driving-mode IR program (S3.1): EvalOrder's Expr trees compiled to one stack-machine
         //    instruction stream — a tight loop over arrays beats recursing object trees (cache-friendly, no
@@ -88,6 +91,12 @@ namespace AprVisual.Sim.Logic
             CheckInChecking = new bool[NextExpr.Length];
             BuildEvalOrder();          // current-value dependency graph → break residual cycles (hybrid-ize) → topo sort → EvalOrder[] (driving mode)
             BuildOkToSkip(n);          // which IR nodes the bridge ProcessQueue can skip RecalcNode for
+            // S4.2b: when the ping-pong is on, the bridge ProcessQueue (step 5) also skips the residual-SCC + bus
+            // nodes (RunFixedKScc / ResolveBusesRun compute those) — leaving step 5 to do just InvokeCallbacks +
+            // the behavioral-memory hybrids (u1/u4/cart internals) + any leftover non-IR/SCC/bus fan-out.
+            SkipInBridge = new bool[Math.Max(OkToSkipInRecalc.Length, n)];
+            for (int v = 0; v < SkipInBridge.Length; v++)
+                SkipInBridge[v] = (v < OkToSkipInRecalc.Length && OkToSkipInRecalc[v]) || (v < InScc.Length && InScc[v]) || (v < IsBusNode.Length && IsBusNode[v]);
             CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
             CompileChunkedStep();      // S4.1: compile EvalOrder into chunked Action<byte[],byte[]> delegates (JIT'd IL — straight-line, no interpreter dispatch)
             IrCoveredCount = 0; CheckedCount = 0;
@@ -627,6 +636,62 @@ namespace AprVisual.Sim.Logic
             }
         }
 
+        // ── S4.2b — runnable fixed-K residual-SCC micro-block + the inline bus resolver (the run versions of the
+        //    S4.3 / S4.2b-validation code; these REPLACE S1's ProcessQueue settling of the SCC + bus nodes when
+        //    the ping-pong is enabled). RunFixedKScc: Gauss-Seidel (writes NodeStates as it goes, so later nodes
+        //    in an SCC see this iteration's earlier updates). ResolveBusesRun: the S0/S1/W1 model from §10.
+        static void RunFixedKScc()
+        {
+            for (int k = 0; k < FixedKScc; k++)
+                foreach (var o in SccEvalOrders)
+                    foreach (int v in o)
+                        if (v < NextExpr.Length && NextExpr[v] is { } e)
+                        {
+                            byte nv = (byte)EvalExpr(e);
+                            if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }
+                        }
+        }
+
+        static void ResolveBusesRun()
+        {
+            var bns = BusNodes; int nb = bns.Length;
+            int F_SetHigh = (int)WireCore.NodeFlags.SetHigh, F_SetLow = (int)WireCore.NodeFlags.SetLow;
+            for (int bi = 0; bi < nb; bi++)
+            {
+                var bn = bns[bi];
+                int fl = WireCore.GetNodeFlags(bn.Id);
+                byte s0 = (byte)(((bn.PullDown != null && EvalExpr(bn.PullDown) != 0) || (fl & F_SetLow) != 0) ? 1 : 0);
+                byte s1 = (byte)((bn.StrongVcc || (bn.PullUpCond != null && EvalExpr(bn.PullUpCond) != 0) || (fl & F_SetHigh) != 0) ? 1 : 0);
+                byte w1 = (byte)(bn.StaticLoad ? 1 : 0);
+                foreach (var (cond, other) in bn.LogicPasses)
+                    if (EvalExpr(cond) != 0) { if (WireCore.NodeStates[other] != 0) s1 = 1; else s0 = 1; }
+                _busS0[bi] = s0; _busS1[bi] = s1; _busW1[bi] = w1;
+            }
+            for (int k = 0; k < BusKPass; k++)
+            {
+                Array.Copy(_busS0, _busS0n, nb); Array.Copy(_busS1, _busS1n, nb); Array.Copy(_busW1, _busW1n, nb);
+                bool changed = false;
+                for (int bi = 0; bi < nb; bi++)
+                    foreach (var (cond, oi) in bns[bi].BusPasses)
+                        if (EvalExpr(cond) != 0)
+                        {
+                            if (_busS0[oi] != 0 && _busS0n[bi] == 0) { _busS0n[bi] = 1; changed = true; }
+                            if (_busS1[oi] != 0 && _busS1n[bi] == 0) { _busS1n[bi] = 1; changed = true; }
+                            if (_busW1[oi] != 0 && _busW1n[bi] == 0) { _busW1n[bi] = 1; changed = true; }
+                        }
+                (_busS0, _busS0n) = (_busS0n, _busS0); (_busS1, _busS1n) = (_busS1n, _busS1); (_busW1, _busW1n) = (_busW1n, _busW1);
+                if (!changed) break;
+            }
+            for (int bi = 0; bi < nb; bi++)
+            {
+                int id = bns[bi].Id;
+                byte s0 = _busS0[bi], s1 = _busS1[bi], w1 = _busW1[bi];
+                byte hold = id < PrevStates.Length ? PrevStates[id] : (byte)0;
+                byte v = s0 != 0 ? (byte)0 : s1 != 0 ? (byte)1 : w1 != 0 ? (byte)1 : hold;
+                if (WireCore.NodeStates[id] != v) { WireCore.SetNodeState(id, v); WireCore.EnqueueNode(id); }
+            }
+        }
+
         /// <summary>S4.1/S4.4: emit the C# source for the compiled step (for inspection / a Roslyn backend / a GPU
         /// compute-shader prototype). One `Step_chunk_N(cur, prev)` per ChunkSize EvalOrder nodes + the fixed-K
         /// residual-SCC block + a `Step` that calls them. <paramref name="bitsliced"/>=false ⇒ scalar `byte[]`
@@ -784,13 +849,28 @@ namespace AprVisual.Sim.Logic
             if (!Built) Build();
             int n = WireCore.NodeCount;
             new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (start of this half-cycle — Hold/Prev read this)
-            WireCore.SkipRecalcOf = OkToSkipInRecalc;                            //    bridge thinning (S3.0): ProcessQueue skips RecalcNode of nodes the IR already computed (channel-component & dep-closure all-IR) — see BuildOkToSkip
+            bool pp = PingPongEnabled && (BusNodes.Length > 0 || SccEvalOrders.Length > 0);
+            WireCore.SkipRecalcOf = pp ? SkipInBridge : OkToSkipInRecalc;        //    bridge thinning: ProcessQueue skips RecalcNode of nodes the IR already computed (S3.0); + when the ping-pong is on, also the SCC + bus nodes (S4.2b) — see BuildOkToSkip / SkipInBridge
             WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
             WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
             if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();        // 4. IR-evaluate every node in EvalOrder (topo order). S4.1: compiled chunked delegates (JIT'd IL); fallback = the S3.1 stack-machine interpreter. Writes the changed nodes back via SetNodeState + EnqueueNode.
-            WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
+            if (pp)                                                             // 4b. S4.2b ping-pong: settle the residual-SCC + bus nodes inline (replaces what the bridge ProcessQueue used to do for them) — for outer: { fixed-K SCC; bus S0/S1/W1; re-eval EvalOrder (now seeing the new SCC/bus values) }
+                for (int outer = 0; outer < PingPongK; outer++)
+                {
+                    if (SccEvalOrders.Length > 0) RunFixedKScc();
+                    if (BusNodes.Length > 0) ResolveBusesRun();
+                    if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();
+                }
+            WireCore.ProcessQueue();                                             // 5. the bridge: with the ping-pong on, skips IR/SCC/bus → just the behavioral-memory hybrids (u1/u4/cart) + leftover fan-out + InvokeCallbacks (memory/video). The memory handlers may have driven the data bus via SetHigh/SetLow → re-settle:
+            if (pp)
+                for (int outer = 0; outer < PingPongK; outer++)
+                {
+                    if (SccEvalOrders.Length > 0) RunFixedKScc();
+                    if (BusNodes.Length > 0) ResolveBusesRun();
+                    if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();
+                }
             WireCore.SkipRecalcOf = null;
-            if (BusNodes.Length > 0) ValidateBusResolver();                      // S4.2b: validate the inline S0/S1/W1 bus resolver against the just-settled NodeStates (run-path unchanged — to be wired into a ping-pong replacing step 5)
+            if (!pp && BusNodes.Length > 0) ValidateBusResolver();              // S4.2b: (only when the ping-pong is OFF) validate the inline S0/S1/W1 bus resolver against the S1-settled NodeStates
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.
         }

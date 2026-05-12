@@ -65,6 +65,8 @@ namespace AprVisual.Test
                     case "--dump-scc":        dumpScc = true; break;     // S2.3: SccAnalysis (cross-coupled latch recovery + SCC)
                     case "--dump-emitted-cs": dumpEmittedCs = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;  // S4.1: write IrEngine.EmitCsharpSource() (the codegen output) to a file ("-" = stdout)
                     case "--no-compiled-step": AprVisual.Sim.Logic.IrEngine.UseCompiledStep = false; break;   // S4.1 A/B: use the stack-machine interpreter instead of the compiled chunks
+                    case "--no-pingpong": AprVisual.Sim.Logic.IrEngine.PingPongEnabled = false; break;   // S4.2b A/B: skip the inline SCC/bus ping-pong, fall back to the pure S1 bridge ProcessQueue
+                    case "--pingpong": AprVisual.Sim.Logic.IrEngine.PingPongEnabled = true; break;       // S4.2b A/B: enable the inline SCC/bus ping-pong (replaces step-5's SCC/bus settling) — WIP, has a bug
                     case "--enable-bus-lowering": AprVisual.Sim.Logic.IrEngine.EnableBusLowering = true; break;   // S4.2 γ.4 A/B: give hybrid bus nodes a wired-AND pseudo-NextExpr
                     case "--bitsliced": emitBitsliced = true; break;   // S4.4: --dump-emitted-cs emits the bit-sliced (ulong[], 64 instances/word) variant
                     case "--selftest":        return SelfTest();

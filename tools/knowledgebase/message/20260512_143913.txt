@@ -1,0 +1,85 @@
+Timestamp: 2026-05-12T14:39:13
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+## firing 19 起：**S3.2 —— bare-2A03 CPU-only 測試平台**（「S3 CPU proof」的正確量測對象）
+
+> firing 18 的決策：S3 per-instance 加速 = 開放問題。重新審視 —— CLAUDE.md 寫 **「S3 — CPU proof: the IR interpreter must be ... benchmarked as much faster than the raw switch-level interpreter」**。關鍵字 **CPU proof** —— S3 量的是 **2A03（CPU）** 的 IR vs switch-level，不是整片 `nes-001`（CPU + 2C02 + 板間 TTL）。但目前 `--engine ir` driving 整片板子 → 2C02 那 ~703-node tangle + 一堆 InScc node 把 IR coverage 拉到 46.3%、bridge 變重 → 拖慢。**bare-2A03 rig** = 只 compose `2a03` 模組（modified 6502 + APU die）+ 一個 behavioral flat 64KB RAM/ROM handler + 把 `nmi`/`irq` 綁高（inactive）+ clock handler → 一個 headless 2A03。沒有 2C02 → InScc 大幅減少（2C02 tangle 沒了）→ IR coverage 對 CPU 應該 ~90%+ → bridge 只剩 CPU 自己的 buses（db/sb/adl/adh/idb + 資料 latch）~幾百個 hybrid node → bridge 輕得多 → IR-driving 對 CPU 應該 ≥ par 甚至 > S1。**這才是「S3 CPU proof」該量的東西**。也獨立有用：`--test` blargg 跑得快很多（沒 2C02 的 settle 負擔）、CPU bug 隔離。
+
+### ① 設計描述
+
+**`2a03` 模組的 pins**（`ref/metalnes-main/data/system-def/2a03.js`）：`ab0..ab15`（位址匯流排，輸出）、`db0..db7`（資料匯流排，雙向）、`rw`（R/W，輸出 —— high=read）、`phi2`（M2 記憶體時鐘，輸出）、`nmi`/`irq`（中斷，active-low 輸入）、`clk_in`（master clock 輸入）、`dbg`（debug 腳）、`snd1`/`snd2`（音訊輸出）、`res`（reset，active-low 輸入）、$4016/$4017 控制器相關（輸出 strobe / 寫腳）。VCC=pin40, VEE=pin20（地）。
+
+**`ComposeSystem2a03Bare()`**（`WireCore.System.cs` 新增）：`ResetBuild()` → `LoadModuleDef(SystemDefDir, "2a03")` → `AddInstance(2a03def, "")`（prefix 空 → pin 名直接是 `clk_in`/`ab0`/`db0`/…）→ `if (EnableLowering) LowerNetlist()`。**不**載 `nes-001`/`cart-mmu0`/2C02。
+
+**新 handler：`AttachFlatRamHandler(int sizeBytes = 65536)`**（`WireCore.Handlers.cs` 新增）：一個 behavioral 64KB array（`byte[] _flatMem`）；`AddCallback(trigger = ab[15:0] + rw + db[7:0], () => { int a = ReadBits(ab); if (NodeStates[rw] != 0) WriteBits(db, _flatMem[a]); else _flatMem[a] = (byte)ReadBits(db); })` —— read：把 `_flatMem[a]` 推上 `db`；write：把 `db` 存進 `_flatMem[a]`。（觸發在 `ab`/`rw`/`db` 任一變 —— 跟現有的 `AttachRamLikeHandler` 同套路、但沒 `cs`、addr 是全 16-bit。）
+
+**`LoadSystem2a03Bare(NesRom rom)`**（`WireCore.System.cs` 新增）：`ComposeSystem2a03Bare()` → 把 `rom.PrgRom` copy 進 `_flatMem`（16KB → mirror 到 $8000 跟 $C000；32KB → $8000-$FFFF；其餘清 0）→ `AttachClockHandler()`（改成找 `clk_in`，或加參數 `AttachClockHandler(string nodeName = "clk")`）→ `AttachFlatRamHandler()` → `ResolveCachedNodes()` → `ResetNes(full: true)`（reset 序列在 `res` 上；reset 前先把 `nmi`/`irq` 綁高 —— 用 `pullups`？不行，`ResetBuild` 後才有 node；改成 `ResetNes` 裡 reset 完 `SetHigh("nmi"); SetHigh("irq")`，或在 compose 後給那兩個 node 一個 forced-high flag）。
+
+**CLI**：`--system 2a03`（或 `--cpu-only`）—— `--test`/`--trace`/`--trace-cmp`/`--benchmark` 都查這個 flag、改用 `LoadSystem2a03Bare` 而非 `LoadSystem`。
+
+**S3 量測**：`--benchmark <blargg.nes> --system 2a03`（S1）vs `--benchmark <blargg.nes> --system 2a03 --engine ir`（IR-driving）→ 看 IR-driving 對 CPU-alone 多快（預期 ≥ par、希望 > S1 —— 這就是 S3 CPU proof）。`--test <blargg.nes> --system 2a03`（S1 + IR 都跑、比 $6000 簽章）確認功能對。`--trace-cmp <rom> --engine ir --system 2a03` 確認 IR-driving 對 CPU-alone 0 mismatch。
+
+**開放問題（丟 Gemini）**：
+1. `2a03` 模組的 pin 接法 —— `nmi`/`irq` 綁高（inactive）、`phi2` 是 CPU 輸出（flat RAM handler 要不要 trigger 在 `phi2` 邊緣，還是 `ab`/`rw`/`db` 變就夠？）、$4016/$4017 控制器讀 —— bare rig 沒控制器，讀 $4016/$4017 會返回 flat RAM 的 garbage（blargg CPU 測試不讀控制器 → OK）對嗎？`dbg` 腳要不要綁？`snd1`/`snd2` 不接 OK 嗎（它們是輸出）？
+2. flat RAM handler —— trigger 在 `ab + rw + db` 任一變（跟 `AttachRamLikeHandler` 同）—— 會不會有「write 時 `db` 是 CPU 在驅動、read 時 handler 在驅動 `db`」的 contention（在 S1 的 group 解析裡，handler `WriteBits(db, ...)` = `SetHigh/SetLow(db_i)` → 那是個強驅動；CPU 也驅動 `db` —— read cycle 時 CPU 的 `db` driver 應該是 hi-Z/弱）？這在現有 `AttachRamLikeHandler`（驅動 `_d[]` 內部匯流排、不是外部 `db` 腳）裡是怎麼處理的 —— bare rig 直接驅動外部 `db` 腳會不會不一樣？
+3. `--system 2a03` 是否就是「S3 CPU proof」該量的對象 —— 還是該量「2a03 + 2C02 但不含板間 TTL」之類的中間配置？（我覺得 bare-2A03 + flat RAM 是最乾淨的「CPU only」—— TTL/2C02 都是 CPU 外的東西。）
+4. 預期：bare-2A03 的 IR coverage（vs 整片 46.3%）、InScc 數（vs 5705）、bridge 大小（vs 6552 hybrid+InScc）—— 我猜 IR coverage ~90%+、InScc ~少數百、hybrid ~幾百（CPU 的 buses）。對嗎？driving 對 CPU-alone 會 > S1 嗎（瓶頸 = ~幾百個 bus `ComputeNodeGroup`/step vs S1 的 ~幾百-幾千）？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+────────────────────
+背景：把 Visual6502 風格的 switch-level 網表轉成布林邏輯 IR 的 pipeline（MetalNES C# 重寫）。S1=開關級 sim（chipsim.js/MetalNES 的 wire_compute）。S2 已把整片 `nes-001`（2A03 CPU + 2C02 PPU + 板間 TTL + cart）抽成 IR、checking+driving 兩個等價 gate 都過，但 driving 模式（IR 算 ~46% node、其餘 5705 個在 SCC 裡的 + 847 hybrid bus 交 S1 的 ProcessQueue bridge）比純 S1 慢 ~5.4×（瓶頸 = bridge re-derive 一堆 IR node 的 group-BFS；大半 InScc node 在 2C02 的 tangle）。上面是「bare-2A03 CPU-only 測試平台」的設計（只 compose `2a03` 模組 + 一個 behavioral flat 64KB RAM + 綁 nmi/irq 高 + clock handler → headless 2A03 → 沒 2C02 → IR coverage 對 CPU 應該高很多、bridge 輕很多 → 這才是「S3 CPU proof」該量的對象，也順便讓 `--test` 跑得快）。`AttachClockHandler` 現在找 "clk" node、`AttachRamLikeHandler` trigger 在 `cs + /we + a[] + d[]`、`AddCallback(watchedNodes, cb)` 把 `cb` 的 trigger 接成 fake transistor、handler 用 `SetHigh/SetLow` 驅動 node。請逐一回答「開放問題」的 4 條，每條標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這個「bare-2A03 CPU-only」測試平台的決策**非常精準且極具戰略價值**。它完美切中了 S3 的核心目標：證明 IR 引擎在面對「正常數位邏輯」時能超越傳統 Switch-level 模擬器。把 2C02 這個充滿巨型 Tangle (SCC) 的「特例」剝離，我們才能真正測量出 IR 引擎的 Baseline 效能。
+
+以下針對你的 4 個開放問題逐一解答與具體建議：
+
+### 1. `2a03` 模組的 Pin 接法
+**對這個計畫的具體影響**：接錯腳位會導致 CPU 亂跳中斷（nmi/irq 浮接）或無法開機。
+**該怎麼改**：
+*   **`nmi` / `irq` / `res`**：**必須綁高 (Inactive)**。建議在 `ResetNes` 的最後，或者 compose 完直接給這三個 Node 強制塞高電位（`SetHigh` 或掛一個永遠導通到 VCC 的 Fake Transistor）。`res` 在需要 Reset 時才拉低。
+*   **`phi2`**：這是 CPU 的**輸出**。你的 Flat RAM Handler **必須把 `phi2` 加入 Trigger 名單**（見第 2 點解釋）。
+*   **`dbg`**：測試模式腳，通常在真實 NES 裡是接地的。**建議綁低 (GND)**，避免觸發 CPU 內部的奇怪測試行為。
+*   **$4016/$4017**：**OK 不用改**。Blargg 的 `instr_test-v5` 等純 CPU 測試完全不會去讀手把。就算讀了，Flat RAM 吐 Garbage 給它也不會影響 CPU 指令集測試的正確性。
+*   **`snd1` / `snd2`**：**OK 不用改**。模擬器不在乎輸出腳懸空 (Floating)，不接完全沒問題。
+
+### 2. Flat RAM Handler 與 `db` 的 Contention (總線衝突)
+**對這個計畫的具體影響**：**極其致命**。如果你在 `rw == 0` (Write) 時，Handler 還試圖驅動 `db`，會跟 CPU 內部的 `db` Driver 產生 Contention（變成 `X` 態或拉扯拖慢模擬），會直接導致測試失敗或效能雪崩。
+**該怎麼改**：
+*   **加入 `phi2` 檢查，嚴格控制「何時驅動」與「何時讀取」**。
+*   在真實硬體中，CPU 在 `phi2 == 0` 時會切換 Address，這時 `db` 是無效/高阻態的。
+*   **Read Cycle (`rw == 1`)**：Handler **只在 `phi2 == 1` 時**驅動 `db`。當 `phi2 == 0` 時，Handler 必須「放開 (Float)」`db`。
+*   **Write Cycle (`rw == 0`)**：Handler **絕對不能**驅動 `db`。它應該在 `phi2` 的下降沿（或 `phi2 == 1` 的後半段）去讀取 `db` 的值並存入 `_flatMem[a]`。
+*   **實作細節**：現有的 `AttachRamLikeHandler` 通常是透過 `AddCallback` 建立 Fake Transistor，把 `db` 連到 VCC/GND，並由一個「Gate 節點」控制。你的 Flat RAM Handler 需要構造一個虛擬的 `RAM_OE` (Output Enable) 邏輯：`RAM_OE = rw AND phi2`。只有當 `RAM_OE` 為 True 時，Handler 才對 `db` 施加強驅動 (`SetHigh`/`SetLow` 對應的 Fake Transistor 導通)；否則 Fake Transistor 必須關閉，讓 `db` 回歸高阻態由 CPU 驅動。
+
+### 3. `--system 2a03` 是否就是「S3 CPU proof」該量的對象？
+**對這個計畫的具體影響**：決定了我們 S3 報告的說服力與效能指標的基準。
+**該怎麼改 / 評價**：**OK，這就是完美的量測對象。**
+*   「CPU proof」的意義在於：證明這套從 Switch-level 提煉 IR 的 **Pipeline 本身是高效的**。
+*   2C02 的 703-node Tangle 是「硬體電路設計」帶來的邊界挑戰（Sprite Eval 的巨大 Pass-transistor 網路），它測量的是「我們處理極端 SCC 的能力」。
+*   如果連單純的 2A03 (大部分是標準邏輯閘、PLA、簡單 Latch) 轉成 IR 都跑不贏 S1，那代表 IR 引擎的架構有根本性缺陷；如果 2A03 跑贏了 S1，就證明 **IR 引擎成功了**，後續全系統變慢單純是 2C02 SCC Bridge 的鍋，可以留到 S4 去解。
+*   所以，**Bare-2A03 + Flat RAM 就是最乾淨、最科學的 CPU-only 對照組**。
+
+### 4. 預期數據 (Coverage, InScc, Bridge Size, Speedup) 對嗎？
+**對這個計畫的具體影響**：建立正確的 Expectation，避免除錯時找錯方向。
+**評價與預測**：
+*   **IR Coverage (預估 > 85% ~ 90%)**：**正確**。2A03 內部除了少數 APU 計數器或特殊 Latch 外，大部分都是可以被 DAG 化的。你不會看到 2C02 那種牽一髮動全身的幾百個 Node 連動。
+*   **InScc (預估從 5705 降到 幾百甚至幾十)**：**正確**。CPU 內部的 Feedback loop 通常很小（幾顆 Transistor 組成的 SRAM Cell 或 Latch）。
+*   **Bridge 大小 (預估幾百)**：**正確**。因為 SCC 變少，Hybrid Node 大幅減少。剩下的 Hybrid Node 大多就是那 16 根 Address 腳、8 根 Data 腳、控制腳，以及少數內部的 Latch 邊界。
+*   **Driving 對 CPU-alone 會 > S1 嗎？**：**極大概率會**。
+    *   在目前的 46.3% 覆蓋率 (全系統) 下，Bridge 要頻繁觸發 2C02 的巨型 Graph 重新計算。
+    *   在 Bare-2A03 中，85% 以上的 Node 被 IR 用 Bitwise 瞬間算完，剩下的 Bridge 呼叫 S1 時，S1 的 `ComputeNodeGroup` 只要遍歷極小的 Graph（因為沒有 2C02 拖累）。
+    *   只要你的 Flat RAM Handler 沒有產生無謂的 Contention（見第 2 點），**這組測試絕對有機會證明 IR driving > S1 的 Switch-level 計算**。
+
+---
+
+### 總結下一步行動：
+1. 實作 `ComposeSystem2a03Bare()`，並綁定 `nmi`, `irq`, `res` (High), `dbg` (Low)。
+2. 實作 `AttachFlatRamHandler()`，**務必確保它有類似 `RAM_OE = rw & phi2` 的防 Contention 機制**，Write Cycle 時絕對不能驅動 `db`。
+3. 實裝 `--system 2a03` CLI 參數。
+4. 跑 `--benchmark blargg.nes --system 2a03` (S1) vs `--engine ir`，見證 S3 CPU Proof 的誕生。

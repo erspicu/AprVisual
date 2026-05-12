@@ -1,0 +1,110 @@
+Timestamp: 2026-05-12T13:22:55
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+## firing 11 起：**S2.3b —— 殘餘 SCC 處理**（Stage A2 cross-coupled-with-load latch + Stage D feedback-edge 打斷）→ 把 driving coverage 從 ~45% 拉向 checking 的 85%
+
+> driving 模式（firing 10）已過等價 gate，但 IR 只直譯 ~45% node、其餘 ~55%（hybrid 847 + InScc 5824 + 它們的 dependent）丟給 S1。瓶頸 = 那 5824 個 residual SCC node（S2.3 的 Stage A 只抓「`PullDown` 恰為 `NodeRef(partner)`」的乾淨 cross-couple，沒抓「load 路徑混進 PullDown」的（74LS373 那種）、也沒抓多 node 的 SCC（2C02 的 divider/counter））。S2.3b = 把這些環打斷 → IR 直譯更多 node → driving coverage 上去（也是 S3 加速的底子 —— IR 區越大、ProcessQueue 越輕）。先設計 + 丟 Gemini（firing 11），再實作（firing 12+）。
+
+### ① 設計描述
+
+殘餘 SCC 觀察（`--trace-cmp branch_timing/1`）：`2300 SCC(s)`、`5824 node(s)`、最大 713、然後 79/54/40/26/20/14/13/12×3/9×2/7×5/6×2/…（長尾大多 size-2 = cross-coupled gate pair）。
+
+**Stage A2 —— cross-coupled-NOR/NAND-with-load latch 回收**（接在 `SccModel.Build` 的 Stage A 之後）：
+
+一對 `{a, b}`（`a < b`），若：
+- `di[a].PullDown` **含** `NodeRef(b)` 當它的一個 OR-term（即 `PullDown` 是 `NodeRef(b)`，或 `Or(…, NodeRef(b), …)` —— Stage A 只接受**恰為** `NodeRef(b)` 的；Stage A2 接受「OR-term 之一」），且 `di[b].PullDown` **含** `NodeRef(a)` 當它的 OR-term，且
+- `di[a].PullUp` 跟 `di[b].PullUp` 都是 `StaticLoad`（或 `StrongVcc`）—— 一個 NOR-NOR latch（兩個 depletion-load NOR 互咬）。
+
+→ 它是個 cross-coupled latch、load 路徑混進了 PullDown（`a = !(b | load_a)`、`b = !(a | load_b)`）。`rest_a = di[a].PullDown` 把 `NodeRef(b)` 那個 OR-term 拿掉（若 `PullDown == NodeRef(b)` 恰好 → `rest_a = False`）；`rest_b` 同。挑 state node `S = a`、complement `C = b`（或：挑命名的那個當 S？或挑 `rest` 比較簡單的？第一刀就 `S = a`）：
+```
+NextExpr[S] = Mux(rest_a, False, Mux(rest_b, True, Prev(S)))   // rest_a on → S=0；否則 rest_b on → S=1；否則 hold
+NextExpr[C] = Not(Node(S))
+```
+兩者離開 hybrid。例：74LS373 bit `q = !(/q | (LE & !D))`、`/q = !(q | (LE & D))` → `rest_q = LE & !D`、`rest_/q = LE & D` → `NextExpr[q] = Mux(LE & !D, 0, Mux(LE & D, 1, Prev(q)))`（= `LE ? D : prev(q)` 化簡後）、`NextExpr[/q] = Not(Node(q))`。**注意**：跟 Stage A 不同 —— Stage A2 沒有「另外一條 write pass」（load 不是 pass、是混進 PullDown），所以不用 flip PassLink、不用 re-synth write source。比 Stage A 簡單。
+
+（NAND-NAND latch（`PullUp` 那邊互咬）—— 開放問題 Q1。）
+
+**Stage D —— 一般 SCC 的 feedback-edge `Prev` 打斷**（接在 `IrEngine.BuildEvalOrder` 的 Tarjan 之後，標 InScc 之前；Stage A/A2 在 `SccModel` 已先 reclassify 一批）：
+
+對 Tarjan 找出的每個 size>1 SCC（Stage A/A2 之後剩的）：在 SCC 的子圖上做一次 DFS，找一條 **back-edge**（指回 DFS 樹上祖先的邊）`v → M` → 在 `NextExpr[v]` 裡把那個 `NodeRefExpr(M)` 換成 `PrevExpr(M)`（v 的 next-state 改讀 M 的 half-cycle 初值 → 打斷環、v 變序向）→ 重跑 Tarjan（環少了一些）。迭代到沒 SCC（或迭代上限 → 剩的 SCC 全標 InScc，交 S1）。
+
+理由：真實硬體沒有 within-phase 組合回授，所以「現值依賴圖上的環」一定是 (a) cross-coupled latch（Stage A/A2 已處理大部分；Stage D 的 `Prev` 打斷對乾淨的 cross-couple 也對 —— `a=!b`、`b=!a` 打斷 `a→b` → `NextExpr[a]=!Prev(b)`→ a hold ✓）或 (b) cross-phase pipeline（看起來像環是因為分析沒看到 clk0/clk1 互斥 —— `Prev` 打斷就是把它正確地當序向）。`Prev` 打斷只在「真 within-phase 組合回授」會錯，而那不存在。
+
+**開放問題（丟 Gemini）**：
+1. Stage A2 的 pattern 判據 —— 「`PullDown` 的某個 OR-term 是 `NodeRef(partner)`、兩邊有 static pull-up」對嗎？要不要也處理 NAND-NAND latch（`PullUp` 互咬，但我們的 `DriveInfo` 沒模型化「PullUp 路徑經過 partner」—— `PullUp` 只有 `StaticLoad`/`StrongVcc`/`Conditional`，沒有「pull-up 條件含 NodeRef(partner)」）？6502/2C02 的 latch 是 NOR-NOR 還是 NAND-NAND 為主？
+2. Stage A2 的 model `Mux(rest_a, 0, Mux(rest_b, 1, Prev(S)))` —— `rest_a` 跟 `rest_b` 同時為 1（同時 load 0 又 load 1 = contention）時 model 給 0（取第一個 branch）。S1 的 group 解析在那種 contention 下也是 GND wins → 0。所以對嗎？還有 `rest_a`/`rest_b` 會不會引用 `Node(a)` 或 `Node(b)`（造成新的環）？—— 我覺得不會（`rest` 是 load 路徑、不含 latch 自己），但確認一下。
+3. Stage D 的 blind back-edge `Prev` 打斷 —— 安全嗎？打斷哪條 back-edge 重要嗎（任一條都能打斷環、但選不同的 → `NextExpr` 形狀不同、有沒有「比較對」的選法）？要不要用 clk0/clk1 互斥來挑「跨 phase 的那條邊」（值得這個複雜度嗎，還是先 blind 打斷看結果）？
+4. 結構：Stage A2 放 `SccModel.Build`（用 `DriveInfo`）、Stage D 放 `IrEngine.BuildEvalOrder`（用現值依賴圖）—— OK 嗎？還是兩個都放一處（要把 `di` 傳給 `BuildEvalOrder`）？
+5. 預期：Stage A2 + Stage D 之後 residual SCC node 數會掉到多少？713-node 的大 SCC（2C02 tangle）—— 是「被幾個沒打斷的 2-cycle 黏在一起」（那 Stage A2 打斷那些 2-cycle 後就散了）還是「真的有 713-deep 的環」（那 Stage D 要打斷很多條 back-edge）？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+────────────────────
+背景：把 switch-level 網表（2A03=NES 的 6502 + 2C02 PPU + 板上 TTL 晶片）轉成布林邏輯 IR 的 pipeline。S1=開關級 sim（chipsim.js/MetalNES 的 wire_compute：節點 group、GND wins → VCC/pull-up → external drive → hold-previous → 0）。已抽出每個 node 的 next-state Expr（`Const`/`NodeRef`(現值)/`Not`/`And`/`Or`/`Mux`/`Hold`(parasitic-cap保值=上一拍)/`Prev`(上一拍，打斷環)/`Complex`）；`DriveInfo` per node 有 `PullDown`(Expr，OR of paths)/`PullUp`(`None`/`StaticLoad`/`StrongVcc`/`Conditional`+cond)/`Passes`(transmission-gate write ports)。S2.3 的 Stage A 已回收「`PullDown` 恰為 `NodeRef(partner)` 且有 static pull-up 且有獨立 write pass」的 cross-coupled latch（SRAM cell）→ `Mux(we, Node(data), Mux(…, Prev(S)))`/`Not(Node(S))`。但 driving 模式（IR 拓樸序 evaluate non-hybrid node、其餘交 S1）發現現值依賴圖上還有 2300 個 SCC / 5824 node（74LS373 那種 load 混進 PullDown 的 cross-couple、2C02 的 clock divider/counter…），這些 node 只能丟 S1 → driving coverage 只 ~45%（checking 模式 85%）。上面是把它們打斷的設計（Stage A2 + Stage D）。請逐一回答「開放問題」的 5 條，每條標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常精準且具備極高可行性的優化計畫。從 Stage A（乾淨 SRAM cell）推進到 Stage A2（混入 load 的 NOR-NOR latch），再用 Stage D（拓樸學上的暴力解環）來收底，完全符合 EDA 工具（如 Verilator）處理 switch-level 或 un-clocked netlist 的標準降階策略。
+
+針對你的 5 個開放問題，以下是逐一的深入分析與具體建議：
+
+### 1. Stage A2 的 pattern 判據與 NAND-NAND 支援
+*   **分析**：6502 與 2C02 都是 **NMOS 製程**。NMOS 的基本邏輯閘是 NOR（多個 transistor 並聯下地），串聯（NAND）會造成電壓降與速度變慢，因此 NMOS 晶片裡絕大多數的 latch 都是 **NOR-NOR cross-coupled**。至於板上的 TTL 晶片（如 74LS373），雖然邏輯上可能是 NAND-NAND 構成，但在 Visual6502/chipsim 的 switch-level 萃取下，很多時候也被等效成了 pull-down 網路配上 static load。我們目前的 `DriveInfo` 缺乏「PullUp 依賴 partner」的表達能力（NMOS 的 PullUp 通常只是 depletion mode FET，永遠導通）。
+*   **對計畫的影響**：若硬要支援 NAND-NAND，會需要大改 `DriveInfo` 的萃取邏輯，投資報酬率極低。
+*   **該怎麼改**：**維持現狀，只抓 NOR-NOR。** Stage A2 專心抓「`PullDown` 含 `NodeRef(partner)` 且有 static pull-up」的 pattern 就足夠吃下 6502/2C02 絕大多數的殘餘 latch。漏網的（或 TTL 的特例）直接放給 Stage D 去暴力打斷即可。
+
+### 2. Stage A2 的 contention model 與 Circular Risk
+*   **分析**：你提出的 model 是 `NextExpr[S] = Mux(rest_a, 0, Mux(rest_b, 1, Prev(S)))` 與 `NextExpr[C] = Not(Node(S))`。
+    *   **Contention 議題**：當 `rest_a` 與 `rest_b` 同時為 1（兩邊 PullDown 同時導通），真實硬體（GND wins）會讓 a 和 b 都變成 0。但在你的 model 裡，S 會變 0，而 C 被強制 `Not(S)` 變成了 1。這在暫態（transient state）會產生一個與真實 S1 不同的行為。
+    *   **Circular Risk 議題**：`rest_a` 確實有可能不小心引用了 `a` 自己的狀態（雖然少見），若發生，直接代入會產生自己依賴自己的 cycle。
+*   **對計畫的影響**：`Not(S)` 在極端寫入衝突時可能導致錯誤狀態鎖死。
+*   **該怎麼改**：
+    1.  **放棄 `Not(Node(S))`，改採對稱生成**：
+        `NextExpr[a] = Mux(rest_a, 0, Mux(rest_b, 1, Prev(a)))`
+        `NextExpr[b] = Mux(rest_b, 0, Mux(rest_a, 1, Prev(b)))`
+        這樣當兩邊 `rest` 都為 1 時，a 和 b 都會 evaluation 出 0，完美符合 GND wins 的物理現實，也省去區分誰是 S、誰是 C 的麻煩。
+    2.  **加入防禦性檢查**：在 Stage A2 決定套用前，掃描提取出的 `rest_a` 與 `rest_b` Expr，若發現裡面含有 `NodeRef(a)` 或 `NodeRef(b)`，則 **放棄該 pair，交給 Stage D**。
+
+### 3. Stage D 的 blind back-edge `Prev` 打斷
+*   **分析**：這一步非常聰明，也是 Verilator 等工具處理 combinational loop 的做法。在沒有 true within-phase 組合邏輯迴圈的前提下，環一定是「跨 cycle 延遲」或「被漏掉的 latch」。
+    *   **Blind DFS 選邊安全嗎？** 安全。在一個環狀結構中，切斷「任何一條邊」並補上 `Prev`，在數學上等同於在該處插入一個 1-tick delay（在我們的系統中就是半個 clock phase）。因為狀態最終會收斂，切斷哪條邊頂多影響該半週期的「暫態傳遞速度」，不會改變穩態結果。
+    *   **需要引入 clk0/clk1 互斥來挑邊嗎？** 不需要。這會大幅增加複雜度，且違反了 IR engine 作為 local 拓樸分析的純粹性。
+*   **對計畫的影響**：Blind 打斷效能極高，實作簡單，能完美切開剩下的 pipeline 環。
+*   **該怎麼改**：**維持 Blind 打斷的設計。** 不用花時間去算哪條 back-edge 比較「對」。直接在 Tarjan DFS 中遇到 `visited` 但還沒 `finished` 的 node 時（這就是 back-edge 的定義），將該 NodeRef 替換為 PrevExpr 即可。
+
+### 4. Pipeline 結構的放置位置
+*   **分析**：Stage A2 依賴電氣特性（`DriveInfo` 的 PullDown/Up），屬於語意層次；Stage D 依賴圖論拓樸（Tarjan SCC），屬於結構層次。
+*   **對計畫的影響**：放對位置會讓程式碼解耦（Decoupling），易於維護與除錯。
+*   **該怎麼改**：**你的設計完全正確，不用改。**
+    *   Stage A2 放在 `SccModel.Build`：在這裡它能輕易存取 `DriveInfo`，做完後標記為 Hybrid 移出待處理清單。
+    *   Stage D 放在 `IrEngine.BuildEvalOrder`：在這裡專心算圖論，不需要知道 `DriveInfo` 是什麼，只要看到環就砍。
+
+### 5. 關於預期：713-node 大 SCC 的真面目
+*   **分析**：在 2C02 這種晶片中，出現 713 個 node 的 SCC，絕對不會是一個 713-deep 的真實邏輯環。這通常被稱為 **"Tangle"（糾纏區）**。它的成因是：
+    1.  未被打斷的 2-cycle latch 彼此透過雙向 pass-transistor（傳輸閘）或 bus 網路連在一起。
+    2.  多相位時脈（phi1/phi2）控制的交錯 shift-register（例如 2C02 的背景渲染 pipeline），因為 IR 看不到時脈互斥，導致 A → B → C → A 在無條件評估下形成巨大迴圈。
+*   **對計畫的影響**：
+    *   Stage A2 會像拆解積木一樣，把這個 713-node tangle 裡面的「節點黏合劑」（NOR-NOR latch）大量消除。
+    *   做完 Stage A2 後，713 很可能會立刻碎裂成數個 10~50 node 的中型 SCC。
+    *   接著 Stage D 的 DFS 進場，會在這些剩下的中/大型 SCC 中找到 back-edge 砍斷，幾輪 Tarjan 迭代後就會完全消滅。
+*   **預期指標**：預計 Stage A2 + Stage D 實作後，residual SCC node 數量會從 5824 驟降至 **0**（或者非常接近 0 的邊緣 case）。IR driving coverage 會非常順利地衝破 80% 甚至更高。
+
+---
+
+### 結論與行動清單 (for firing 12+)
+
+你的設計已經非常成熟，可以直接進入實作階段。綜合上述微調，實作重點如下：
+
+1.  **Stage A2**：
+    *   專注於 `DriveInfo` 的 NOR-NOR 萃取。
+    *   Model 改用**對稱設計**：`NextExpr[x] = Mux(rest_x, 0, Mux(rest_y, 1, Prev(x)))`，避免 contention 狀態分歧。
+    *   加入防禦：確保 `rest_x` 不含 `NodeRef(x)` 或 `NodeRef(y)`。
+2.  **Stage D**：
+    *   在 Tarjan 內實作純 **Blind back-edge** 打斷（遇到 `NodeRef(M)` 就原地換成 `PrevExpr(M)`）。
+    *   加上一個迭代外迴圈：重新跑 Tarjan，直到沒有 size > 1 的 SCC（設個防無窮迴圈上限如 10 次，剩下的標 InScc）。
+3.  **架構**：維持 Stage A2 於 `SccModel`，Stage D 於 `IrEngine` 的漂亮解耦。
+
+直接丟給 Gemini 實作這兩個 Stage 吧，這個方向絕對會帶來 coverage 的大幅躍進！

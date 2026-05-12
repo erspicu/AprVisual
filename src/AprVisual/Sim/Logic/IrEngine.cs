@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace AprVisual.Sim.Logic
 {
@@ -46,6 +47,17 @@ namespace AprVisual.Sim.Logic
         const byte OpLoadNode = 0, OpLoadPrev = 1, OpConst0 = 2, OpConst1 = 3, OpNot = 4, OpAnd = 5, OpOr = 6, OpMux = 7, OpStore = 8;
         static byte[] _flatOp = []; static int[] _flatArg = []; static int _flatLen; static byte[] _flatStk = [];
         public static long FlatInstrCount;        // # of instructions in the driving-mode flat program (diagnostic)
+        // ── S4.1 codegen: EvalOrder compiled to chunked `Action<byte[] cur, byte[] prev>` delegates (System.Linq.
+        //    Expressions → JIT'd IL — straight-line per-node assignments, no interpreter dispatch). Chunked
+        //    (~ChunkSize nodes / method) so RyuJIT doesn't blow up on a single huge method. cur = a snapshot of
+        //    NodeStates at step-4 (so NodeRef(x) for x earlier in EvalOrder reads its freshly-computed value, for
+        //    x outside EvalOrder reads the step-4 value); prev = PrevStates. After the chunks run, the EvalOrder
+        //    nodes that changed are pushed back via SetNodeState + EnqueueNode (the bridge then propagates them).
+        public const int ChunkSize = 512;
+        public static Action<byte[], byte[]>[] CompiledChunks = [];
+        public static int CompiledChunkCount;
+        public static bool UseCompiledStep = true;  // S4.1: step-4 = the compiled chunks; set false to A/B vs the stack-machine interpreter (RunFlatProgram)
+        static byte[] _evalCur = [];
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
         public static int  FirstMismatchNode = -1;
@@ -69,6 +81,7 @@ namespace AprVisual.Sim.Logic
             BuildEvalOrder();          // current-value dependency graph → break residual cycles (hybrid-ize) → topo sort → EvalOrder[] (driving mode)
             BuildOkToSkip(n);          // which IR nodes the bridge ProcessQueue can skip RecalcNode for
             CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
+            CompileChunkedStep();      // S4.1: compile EvalOrder into chunked Action<byte[],byte[]> delegates (JIT'd IL — straight-line, no interpreter dispatch)
             IrCoveredCount = 0; CheckedCount = 0;
             var nodes = WireCore.Nodes;
             for (int v = 0; v < NextExpr.Length; v++)
@@ -437,6 +450,106 @@ namespace AprVisual.Sim.Logic
             }
         }
 
+        /// <summary>S4.1: compile EvalOrder into chunked Action&lt;byte[] cur, byte[] prev&gt; delegates via
+        /// System.Linq.Expressions (JIT'd IL — straight-line per-node assignments, no interpreter dispatch).
+        /// Mirrors EvalExpr's semantics; all sub-exprs are computed as `int` (byte → int on read, int → byte on store).</summary>
+        static void CompileChunkedStep()
+        {
+            int n = Math.Max(NextExpr.Length, WireCore.NodeCount);
+            if (PrevStates.Length > n) n = PrevStates.Length;
+            _evalCur = new byte[n];
+            var curP  = Expression.Parameter(typeof(byte[]), "cur");
+            var prevP = Expression.Parameter(typeof(byte[]), "prev");
+            Expression Rd(Expression arr, int id) => Expression.Convert(Expression.ArrayIndex(arr, Expression.Constant(id)), typeof(int));
+            Expression Emit(Expr e) => e switch
+            {
+                ConstExpr c    => Expression.Constant(c.Value ? 1 : 0),
+                NodeRefExpr nr => Rd(curP, nr.Id),
+                HoldExpr h     => Rd(prevP, h.Id),
+                PrevExpr p     => Rd(prevP, p.Id),
+                NotExpr x      => Expression.Subtract(Expression.Constant(1), Emit(x.Operand)),
+                AndExpr a      => Expression.And(Emit(a.L), Emit(a.R)),
+                OrExpr  o      => Expression.Or (Emit(o.L), Emit(o.R)),
+                MuxExpr m      => Expression.Condition(Expression.NotEqual(Emit(m.Cond), Expression.Constant(0)), Emit(m.A), Emit(m.B)),
+                _              => Expression.Constant(0),   // ComplexExpr — shouldn't appear in EvalOrder
+            };
+            var chunks = new List<Action<byte[], byte[]>>();
+            for (int start = 0; start < EvalOrder.Length; start += ChunkSize)
+            {
+                int end = Math.Min(start + ChunkSize, EvalOrder.Length);
+                var stmts = new List<Expression>(end - start);
+                for (int i = start; i < end; i++)
+                {
+                    int v = EvalOrder[i];
+                    Expression rhs = (v < NextExpr.Length && NextExpr[v] is { } e) ? Emit(e) : Expression.Constant(0);
+                    stmts.Add(Expression.Assign(Expression.ArrayAccess(curP, Expression.Constant(v)), Expression.Convert(rhs, typeof(byte))));
+                }
+                Expression body = stmts.Count == 0 ? Expression.Empty() : stmts.Count == 1 ? stmts[0] : Expression.Block(stmts);
+                chunks.Add(Expression.Lambda<Action<byte[], byte[]>>(body, curP, prevP).Compile());
+            }
+            CompiledChunks = chunks.ToArray();
+            CompiledChunkCount = CompiledChunks.Length;
+        }
+
+        /// <summary>S4.1 step-4: snapshot NodeStates → cur, run the compiled chunks (in EvalOrder order), then
+        /// push the changed EvalOrder nodes back (SetNodeState + EnqueueNode, so the bridge propagates them).
+        /// Equivalent to RunFlatProgram.</summary>
+        static void RunCompiledStep()
+        {
+            int n = WireCore.NodeCount;
+            new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(_evalCur);   // cur := NodeStates snapshot (rest stays 0, same as PrevStates)
+            var chunks = CompiledChunks; var prev = PrevStates; var cur = _evalCur;
+            for (int i = 0; i < chunks.Length; i++) chunks[i](cur, prev);
+            var order = EvalOrder;
+            for (int i = 0; i < order.Length; i++)
+            {
+                int v = order[i]; byte nv = cur[v];
+                if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }
+            }
+        }
+
+        /// <summary>S4.1: emit the equivalent C# source for the compiled step (for inspection / a future Roslyn
+        /// backend / a GPU compute-shader prototype — Gemini: this scalar chunked code is essentially the GPU
+        /// kernel). One `static void Step_chunk_N(byte[] cur, byte[] prev)` per ChunkSize EvalOrder nodes + a
+        /// `Step` that calls them. `cur[id]` = NodeRef, `prev[id]` = Hold/Prev, `(c)!=0?(a):(b)` = Mux.</summary>
+        public static string EmitCsharpSource()
+        {
+            string CsExpr(Expr e) => e switch
+            {
+                ConstExpr c    => c.Value ? "1" : "0",
+                NodeRefExpr nr => $"cur[{nr.Id}]",
+                HoldExpr h     => $"prev[{h.Id}]",
+                PrevExpr p     => $"prev[{p.Id}]",
+                NotExpr x      => $"(1-{CsExpr(x.Operand)})",
+                AndExpr a      => $"({CsExpr(a.L)}&{CsExpr(a.R)})",
+                OrExpr  o      => $"({CsExpr(o.L)}|{CsExpr(o.R)})",
+                MuxExpr m      => $"({CsExpr(m.Cond)}!=0?{CsExpr(m.A)}:{CsExpr(m.B)})",
+                _              => "0",
+            };
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("// auto-generated by IrEngine.EmitCsharpSource — the S4.1 codegen (scalar, chunked).");
+            sb.AppendLine("// cur[i] = node i's current value (0/1); prev[i] = node i's start-of-half-cycle value.");
+            sb.AppendLine("static class GeneratedIrStep {");
+            int nChunks = (EvalOrder.Length + ChunkSize - 1) / ChunkSize;
+            for (int ci = 0; ci < nChunks; ci++)
+            {
+                sb.AppendLine($"  static void Step_chunk_{ci}(byte[] cur, byte[] prev) {{");
+                int start = ci * ChunkSize, end = Math.Min(start + ChunkSize, EvalOrder.Length);
+                for (int i = start; i < end; i++)
+                {
+                    int v = EvalOrder[i];
+                    string rhs = (v < NextExpr.Length && NextExpr[v] is { } e) ? CsExpr(e) : "0";
+                    sb.AppendLine($"    cur[{v}]=(byte)({rhs});");
+                }
+                sb.AppendLine("  }");
+            }
+            sb.Append("  public static void Step(byte[] cur, byte[] prev) {");
+            for (int ci = 0; ci < nChunks; ci++) sb.Append($" Step_chunk_{ci}(cur,prev);");
+            sb.AppendLine(" }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
         public static int DiagNode = -1;        // if ≥0: on each mismatch of this node, print t / Pretty / ir / s1 / referenced-node values
 
         public static void CollectIdsPublic(Expr e, HashSet<int> ids) => CollectIds(e, ids);   // for TestRunner's diag
@@ -513,7 +626,7 @@ namespace AprVisual.Sim.Logic
             WireCore.SkipRecalcOf = OkToSkipInRecalc;                            //    bridge thinning (S3.0): ProcessQueue skips RecalcNode of nodes the IR already computed (channel-component & dep-closure all-IR) — see BuildOkToSkip
             WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
             WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
-            RunFlatProgram();                                                    // 4. IR-evaluate every node in EvalOrder (topo order; flat stack-machine program — S3.1); writes back via SetNodeState + EnqueueNode if changed
+            if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();        // 4. IR-evaluate every node in EvalOrder (topo order). S4.1: compiled chunked delegates (JIT'd IL); fallback = the S3.1 stack-machine interpreter. Writes the changed nodes back via SetNodeState + EnqueueNode.
             WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
             WireCore.SkipRecalcOf = null;
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();

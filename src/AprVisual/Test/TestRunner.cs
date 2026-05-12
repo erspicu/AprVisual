@@ -27,7 +27,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -62,6 +62,8 @@ namespace AprVisual.Test
                     case "--dump-drive":      dumpDrive = true; break;   // S2.1: DriveAnalysis (per-node drive structure)
                     case "--dump-next":       dumpNext = true; break;    // S2.2: NextStateBuilder (per-node next-state Expr)
                     case "--dump-scc":        dumpScc = true; break;     // S2.3: SccAnalysis (cross-coupled latch recovery + SCC)
+                    case "--dump-emitted-cs": dumpEmittedCs = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;  // S4.1: write IrEngine.EmitCsharpSource() (the codegen output) to a file ("-" = stdout)
+                    case "--no-compiled-step": AprVisual.Sim.Logic.IrEngine.UseCompiledStep = false; break;   // S4.1 A/B: use the stack-machine interpreter instead of the compiled chunks
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -88,6 +90,7 @@ namespace AprVisual.Test
             if (dumpDrive) return DumpDrive();
             if (dumpNext) return DumpNext();
             if (dumpScc) return DumpScc();
+            if (dumpEmittedCs != null) return DumpEmittedCs(dumpEmittedCs);
             if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
             if (traceCmpPath != null) return useIr ? TraceCmpDrive(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles)
                                                    : TraceCmp(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles);
@@ -327,6 +330,20 @@ namespace AprVisual.Test
         // ── S2.3 acceptance harness: build NetlistGraph + DriveAnalysis + NextStateBuilder + SccAnalysis,
         //    print how many cross-coupled latches got recovered (hybrid → sequential), the IR coverage
         //    before/after, sample recovered latches, remaining hybrid, spot-checks. Doesn't touch the sim. ──
+        // S4.1: write IrEngine.EmitCsharpSource() (the codegen output — chunked scalar C# `Step`) to a file ("-" = stdout).
+        private static int DumpEmittedCs(string outPath)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            var src = AprVisual.Sim.Logic.IrEngine.EmitCsharpSource();
+            int lines = src.Count(c => c == '\n');
+            Console.Error.WriteLine($"# emitted C# step: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} EvalOrder nodes in {AprVisual.Sim.Logic.IrEngine.CompiledChunkCount} chunks ({AprVisual.Sim.Logic.IrEngine.ChunkSize} nodes/chunk); {lines} lines, {src.Length} chars");
+            if (outPath == "-") Console.Out.Write(src);
+            else { File.WriteAllText(outPath, src); Console.Error.WriteLine($"# written to {outPath}"); }
+            return 0;
+        }
+
         private static int DumpScc()
         {
             try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }

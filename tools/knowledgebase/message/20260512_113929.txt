@@ -1,0 +1,179 @@
+Timestamp: 2026-05-12T11:39:29
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# S2.4 — IR 直譯器（`IrEngine`）+ S2.5 hybrid bridge（合併到這步做）+ S2.6 等價 gate
+
+> S2 的第 4 步（+ 5、6 合併）。S2.0~S2.3 已產出：`nextExpr[N]`（per node 的布林 next-state Expr，~94.2% 的 node 有；hybrid 的 `null`）+ `IsSequential[]` + `Hybrid[]`（847 個 hybrid，主要是真 multi-driver bus）。S2.4 = 一個跟 S1 平行存在的 backend：用 IR evaluate 那 ~94% 的 node、hybrid 的 847 個跑 S1 的 switch-level recalc（= S2.5 的 bridge），兩者共用 `WireCore.NodeStates`，handler chain（clock / RAM/ROM / video）照跑。然後 S2.6 = 逐 node、逐 half-cycle 跟 S1 對照（這就是整個 S2 的過關 gate）。**不改 S1 既有行為**（IrEngine 是新增的；S1 的 `Step()` 路徑不動）。
+>
+> 工作流程（`00_計畫總覽.md` §3）：① 設計描述 → ② 丟 Gemini → ③ 評估採用 → ④ 實作 → ⑤ 驗證。可分多 firing（①寫設計+丟Gemini ②topo+SCC+evaluator ③Step 迴圈+bridge ④等價 harness+驗證+commit）。
+>
+> **承接**：`Expr`{Const,NodeRef(現值),Not,And,Or,Mux,Hold(電容保值=上一拍值),Prev(上一拍值，打斷環),Complex}；S1 的 `Step(count)` = 每次 `RunHandlerChain(); if(TraceLevel) CaptureTraceLine(); Time++;`（clock handler 翻 clk）；`ResetNes(full)` = 清 RAM + `Reset()` + `RecomputeAllNodes()`（S1 settle 到決定性穩態）+ assert/run/deassert res；`WireCore.NodeStates` 是 `byte* 0/1`；`RecalcNodeList(span)` / `ProcessQueue` 是 S1 的 recalc。
+
+---
+
+## ① 設計描述
+
+### 1.1 IR build（一次性，`LoadSystem` 後 / `IrEngine.Build()`）
+
+從目前的 `WireCore` 網表（已 compose + lowering）：`NetlistGraph.BuildFrom()` → `DriveAnalysis.Analyze()` → `NextStateModel.Build()` → `SccModel.Build()` → 得 `nextExpr[]`、`isSequential[]`、`hybrid[]`。然後：
+
+1. **建「現值依賴圖」**：`nextExpr[v]` 裡每個 `NodeRef(M)` → 一條 `v → M` 的依賴（`Hold(M)`/`Prev(M)` **不算**邊 —— 那是上一拍）。hybrid node（`nextExpr == null`）不在圖裡（它走 switch-level；但別人引用它的 *現值* 是 OK 的 —— bridge 會把它的現值放在 `NodeStates`）。
+2. **Tarjan 找殘餘 SCC**（size>1，或 size-1 但 `nextExpr[v]` 引用 `NodeRef(v)`）—— 這些是 S2.3 沒打斷的（複雜回授 / cross-phase pipeline）。第一刀：**把殘餘 SCC 的所有 node 標 hybrid**（`nextExpr[v] = null`、`hybrid[v] = true`），丟回 switch-level。（之後可選做 S2.3 的 Stage D —— 用 `clk0`/`clk1` 互斥認出「假環」、用 `Prev` 打斷 —— 來救回一些；先看殘餘 SCC 有多少。）
+3. **拓樸排序剩下的 non-hybrid node**（依現值依賴圖；hybrid 不在裡面）→ `evalOrder[]`（一個 node id 的陣列，按「先算被依賴的、後算依賴別人的」）。
+4. **`compactExpr`**：把每個 non-hybrid node 的 `nextExpr` 攤平成「一串 stack-machine 指令」或一棵小樹的指標形式 —— 第一刀直接用 `Expr` 樹 + 遞迴 eval（簡單；S3 才優化成攤平）。
+5. **hybrid node 清單** + 「IR node 中引用了 hybrid node 現值的」清單（bridge 用）。
+
+### 1.2 evaluate 一個 node（`EvalExpr(Expr e)`）
+
+遞迴：`Const(b)` → `b ? 1 : 0`；`NodeRef(m)` → `NodeStates[m]`（現值）；`Hold(m)` / `Prev(m)` → `prevStates[m]`（上一拍值）；`Not(x)` → `1 - eval(x)`；`And(l,r)` → `eval(l) & eval(r)`；`Or(l,r)` → `eval(l) | eval(r)`；`Mux(c,a,b)` → `eval(c) != 0 ? eval(a) : eval(b)`（short-circuit OK）；`Complex` → 不該出現（hybrid 的 `nextExpr` 是 null 不是 Complex）。
+
+### 1.3 `Step(1)` 一次（mirror S1 的 `Step` 但用 IR）
+
+```
+RunHandlerChain();                              // clock toggle / RAM-ROM callbacks / video — 跟 S1 一樣，會直接寫 NodeStates（外部驅動 + override）
+Array.Copy(NodeStates, prevStates, NodeCount);  // 快照「這一拍開始時」的狀態 → Hold/Prev 讀這個
+foreach v in evalOrder: NodeStates[v] = EvalExpr(nextExpr[v]);   // 一遍：按拓樸序算 non-hybrid node（讀 NodeStates 的現值 + prevStates 的上一拍值）
+// ── bridge：hybrid node 還沒算；用 S1 的 switch-level recalc 補 ──
+//   enqueue：(a) handler 改過的 node（handler 內部已 SetHigh/Low → 已 enqueue 了？要確認 handler 路徑），(b) 上面 IR-eval 改了值的 node（讓 ProcessQueue 從它們傳播到相連的 hybrid node），(c) hybrid node 本身（讓它們被重算）。
+//   ProcessQueue();   // S1 的 recalc：會 re-settle hybrid node（用 group-BFS）；對 non-hybrid node 它會 re-derive，理論上跟 IR 算的一樣 → 不變 → 不再傳播 → 收斂快。
+if (TraceLevel != 0) CaptureTraceLine();
+Time++;
+```
+細節要小心：(1) handler（`SetHigh`/`SetLow`）會走 S1 的 `SetNodeState` → 已經 enqueue 了相鄰 node。所以 handler 改完後 recalc queue 裡已經有東西。(2) IR-eval 直接寫 `NodeStates[v]` —— 沒走 `SetNodeState` → 沒 enqueue。所以 IR-eval 完要把「值有變的 IR node」手動 enqueue（`EnqueueNode(v)`）。(3) 然後 `ProcessQueue()` 跑 S1 的 recalc —— 它會處理 queue 裡的（handler 改的 + IR 改的 + 連帶 enqueue 的 hybrid node），用 group-BFS re-settle。對 non-hybrid node：ProcessQueue 會用 `ComputeNodeGroup` re-derive 它的值 —— 如果 IR 算對了，結果跟現值一樣 → `SetNodeState` 不觸發變化 → 不傳播。對 hybrid node：ProcessQueue 第一次算它（從 raw 0/pull-up 狀態？不對 —— `prevStates` / `NodeStates` 已有它上一拍的值；ProcessQueue 的 `getNodeValue` 對「無 flag 的浮島」會回 `_maxState`（最大 cap 的 node 的現值）= 上一拍值 —— 所以 hybrid node 的 hold 行為由 S1 的浮島機制自然處理）。→ 整個收斂後 `NodeStates` 就是這一拍的正確結果。
+- **第一刀的「ProcessQueue 也 re-derive non-hybrid node」是浪費**（IR 已經算對了）—— 但**正確**，而且 ProcessQueue 對「值沒變」的 node 不傳播 → 不會無限。S3 才優化（讓 ProcessQueue 只碰 hybrid 區）。S2.4 要的是「跑得對」。
+- **更大的擔心**：IR-eval 的「一遍拓樸序」夠不夠？non-hybrid node 之間 —— topo 排好了 → 一遍夠。但 non-hybrid node 引用 hybrid node 的*現值* —— hybrid node 是 ProcessQueue 之後才算的，IR-eval 時 hybrid node 還是上一拍值。所以 IR node 用了「上一拍的 hybrid 值」算自己 → 然後 ProcessQueue 算 hybrid → hybrid 變了 → ProcessQueue 傳播到相連的 IR node → 那個 IR node 被 ProcessQueue re-derive（用 group-BFS，不是 IR）→ 變對。Hmm —— 所以「IR node 緊鄰 hybrid node」的會被 ProcessQueue 用 switch-level 重算。OK，正確（只是那些 node 沒享受到 IR 加速）。或者：IR-eval → ProcessQueue → 再 IR-eval（吃 ProcessQueue 算好的 hybrid 現值）→ 再 ProcessQueue → 迭代到收斂。第一刀先用「IR-eval 一遍 → ProcessQueue 一遍」+ cap-and-warn（若 ProcessQueue 改了 > N 個 IR node，警告 —— 表示 IR/hybrid 邊界耦合太緊，要看）。
+
+### 1.4 等價（S2.5/S2.6）
+
+- **初值**：IrEngine 跟 S1 共用 `NodeStates`。`LoadSystem` 跑完（含 `ResetNes(full)` 的 S1 settle）後，`NodeStates` 是決定性穩態；IrEngine 接手 —— `prevStates` 初值 = `NodeStates`。
+- **`--engine ir`**（CLI flag）：`LoadSystem` 後若 `--engine ir` → 用 `IrEngine.Step` 取代 `WireCore.Step`（`RunFrame` / `--test` / `--trace` / `--ppu-dump` 都改吃 IrEngine.Step）。
+- **`--trace-cmp <rom> [--cycles N]`**：跑 S1 N 個 half-cycle、每拍快照 `NodeStates` 進 list；`ResetNes(full)`；跑 IrEngine N 拍、每拍快照；diff 兩個 list → 報第一個不一致的 half-cycle + 哪些 node + 它們的名字/`nextExpr`。N capped（~2000，記憶體 ~30MB；夠涵蓋 reset 序列 + 幾百個指令）。長跑用 `--test --engine ir` / `--trace --engine ir`（功能比對：blargg `$6000` 簽章、CPU state）。
+- **S2 過關條件**：`--trace-cmp` 對某 ROM 前 ~2000 half-cycle bit-identical；`--test --engine ir` 跑得通 S1 跑得過的 test ROM；hybrid 覆蓋率記下（94.2%）；dump `ir_debug.json`（每 node 的 `nextExpr` / 組合-序向 / hybrid / evalOrder）。
+
+### 1.5 程式落點
+
+- 新檔 `src/AprVisual/Sim/Logic/IrEngine.cs`：`IrEngine`（static partial，跟 `WireCore` 同 assembly）：
+  - `Build()`：跑 S2.0~S2.3 的 pipeline + Tarjan 殘餘 SCC → hybrid → topo sort → `nextExpr[]` / `evalOrder[]` / `hybrid[]` / `prevStates[]`（alloc）。需要 `WireCore` 暴露 `NodeCount` / `NodeStates`（已有）/ `EnqueueNode` / `ProcessQueue`（internal? 可能要 `internal static`）。
+  - `Step(int count)` / `StepOne()`：§1.3。
+  - `RunFrame(maxHalfCycles)`：watch `WireCore.N_PpuInVblank`（共用）。
+  - 一個 `Engine` enum 或 `bool UseIrEngine` 旗標，`TestRunner` 的 `RunFrame`/`Step` 呼叫處 dispatch。
+- `WireCore`：可能要把 `EnqueueNode` / `ProcessQueue` / `RecalcNodeList` 改 `internal`（給 IrEngine 用）；加個 `Step` 的 dispatch（或讓 `TestRunner` dispatch）。
+- `TestRunner`：`--engine interp|ir`、`--trace-cmp`、`--ir-dump`（dump `ir_debug.json`）。`--selftest` 加 `TestIrEngine`（手刻一個小電路 —— inverter + dynamic latch —— 用 IrEngine 跑、跟手算的真值比；不需要整台 NES）。
+- **不碰** S1 的 `Step()` / `Reset()` / handler 邏輯本身（只可能把幾個 method 從 private 改 internal）。
+
+### 1.6 驗證計畫
+
+- `dotnet build` 0/0；`--selftest` 全 PASS（含新 `TestIrEngine`）；`--trace branch_timing/1 --cycles 12`（**不帶** `--engine ir`，跑 S1）跟前一個 commit 一致（S2.4 不改 S1）。
+- `--ir-dump`：non-hybrid node 數 ≈ 13802（94.2%）、殘餘 SCC 數（Tarjan）—— 希望少（若多，記下，考慮做 Stage D）、`evalOrder` 長度 = non-hybrid node 數、hybrid 數（847 + 殘餘 SCC 的）。
+- `--trace-cmp branch_timing/1.Branch_Basics.nes --cycles 2000`：**前 2000 half-cycle 跟 S1 bit-identical**（若不是 → 報第一個發散的 half-cycle + node → debug：常見原因 = nextExpr 錯（pass 方向錯、tier heuristic 錯）、hybrid bridge 的迭代不夠、`Hold`/`Prev` 語義不對、handler 的 enqueue 漏了）。
+- `--test --engine ir <某 blargg test ROM>`：跟 `--test`（S1）結果一致（PASS/FAIL + 簽章文字）。
+- `--benchmark <rom> --engine ir`：順手量一下 IR vs interp 的吞吐量（S3 的前哨 —— 第一刀因為「ProcessQueue 也跑」可能沒快多少；S3 才優化）。
+
+### 1.7 開放問題（丟 Gemini）
+
+1. hybrid bridge 的「IR-eval 一遍 → ProcessQueue 一遍」第一刀 —— 對嗎？會不會收斂不了 / 漏算？「IR node 緊鄰 hybrid node」的會被 ProcessQueue 用 switch-level 重算（沒享受 IR 加速）—— 可接受嗎？要不要「IR-eval → ProcessQueue → IR-eval → … 迭代到收斂」？
+2. 殘餘 SCC（S2.3 Stages B-E 沒做 → S2.4 用 Tarjan 找出來 → 標 hybrid）—— 6502/2C02 上會有多少？有沒有一定是「cross-phase 假環」（用 `clk0`/`clk1` 互斥能打斷）的？該不該 S2.4 就做那個 Stage D（找 clk0/clk1、打斷假環、用 `Prev`）來救回，還是先全標 hybrid 看數量？
+3. `Hold(M)` vs `Prev(M)` —— 我把它們都當「上一拍（這一拍 IR-eval 開始前）的值」= 讀 `prevStates`。對嗎？有沒有情況 `Hold` 該是「這一拍內被驅動前的值」（更細的時間粒度）？6502 的 dynamic latch（`Mux(we, data, Hold(self))`）—— `Hold(self)` = 上一個 half-cycle 的值，對嗎？
+4. `--engine ir` 的 `Step` 跟 S1 的 `Step` —— S1 的 `Step` 是 `RunHandlerChain(); ...; Time++`，沒有顯式 recalc（recalc 是 handler 的 `SetHigh`/`SetLow` 觸發的 `SetNodeState` → enqueue → 然後... 等等，ProcessQueue 什麼時候跑？）。我得先搞清楚 S1 的 `Step` 裡 recalc 是在哪一步跑的（`RunHandlerChain` 內？還是 `SetNodeState` 馬上 settle？）—— 這影響 IrEngine.Step 的結構。
+5. 等價 harness：snapshot-compare（跑 S1 全程快照 → reset → 跑 IR 全程快照 → diff）vs lockstep（兩個 NodeStates 同步比）—— 共用 `NodeStates` 的話只能 snapshot-compare、N capped。夠嗎？長跑只比 CPU state 夠嗎？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+---
+
+## ② Gemini 分析回饋
+
+（待填 —— `cat MD/impl/S2/05_S2.4_IR直譯器_設計.md > temp/s2_review_prompt.txt` + 引導句 → `python tools/knowledgebase/gemini_query.py -f temp/s2_review_prompt.txt` 1>/dev/null 2>&1 → 把 `tools/knowledgebase/message/<ts>.txt` 的 RESPONSE 摘要貼這。）
+
+## ③ 建議評估 & 採用
+
+（待填）
+
+## ④ 實作筆記
+
+（待填）
+
+## ⑤ 驗證結果
+
+（待填）
+
+============================================================
+以上是「把 Visual6502 / MetalNES 風格的 switch-level 電晶體網表轉成高階布林邏輯 IR」這工具的 S2.4 步驟（IR 直譯器 IrEngine：用抽出來的 nextExpr[N] evaluate ~94% 的 node、剩 ~6% hybrid 的跑 S1 的 switch-level recalc 當 bridge，兩者共用 NodeStates，handler chain 照跑；+ S2.6 等價 gate：逐 node 逐 half-cycle 跟 S1 對照）的設計（繁體中文）。背景：S1（整片 NES 開關層級模擬器，可當 golden reference）+ S1.5 lowering + S2.0~S2.3 都完成；S2.3 後 IR 覆蓋率 94.2%（13802 node 有 nextExpr，847 個 hybrid 主要是真 multi-driver bus）；S1 的 Step(1) = RunHandlerChain(); if(trace) capture; Time++（clock handler 翻 clk node；recalc 是 handler 的 SetHigh/SetLow 觸發的）；S1 的 group resolution 浮島會回「最大 cap 的 node 的現值」（= dynamic hold）。
+
+請做務實、具體、不客套的技術 review，特別針對 §1.7 那 5 個開放問題 + 以下：
+- hybrid bridge 的「IR-eval 拓樸序一遍 → 把改了值的 IR node enqueue → S1 的 ProcessQueue 一遍（re-settle hybrid node + 邊界）」第一刀 —— 正確嗎？會收斂嗎？「IR node 緊鄰 hybrid node 的會被 ProcessQueue 用 switch-level 重算」可接受嗎？該不該 IR↔ProcessQueue 迭代到收斂？
+- S1 的 Step 裡 recalc 到底在哪一步跑（handler 內的 SetHigh/SetLow 馬上 settle？還是 enqueue 完之後某處 ProcessQueue？）—— 我得搞清楚才知道 IrEngine.Step 怎麼擺 ProcessQueue。MetalNES / chipsim 的 stepCycle 是怎麼做的？
+- Hold(M) / Prev(M) 都當「上一個 half-cycle 的值」（讀 prevStates 快照）—— 對嗎？6502 dynamic latch 的 Hold(self) 語義？
+- 等價 harness：snapshot-compare（跑完 S1 全程快照 → reset → 跑 IR 全程快照 → diff），N capped ~2000；長跑只比 CPU state。夠嗎？有沒有更好的（例如讓 IrEngine 用自己的 NodeStates 副本 + 跟 S1 lockstep？但 handler 寫的是 WireCore.NodeStates...）？
+- 把 S2.4/S2.5/S2.6 合併成一步做（IrEngine 一出來就含 bridge + 等價 harness）—— 合理嗎？還是該分？
+
+每條建議標明「對這個計畫的具體影響 / 該怎麼改」。某設計 OK 不用改也直說。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一份針對 S2.4 ~ S2.6 設計的技術 review。整體來說，**你的方向非常準確，將 IR 直譯、Hybrid bridge 與等價驗證合併在一步做是唯一合理的選擇**（因為沒有 bridge 整個網表會爛掉，沒有等價閘無法證明 IR 正確）。
+
+以下針對你的開放問題與疑慮，提供務實、不客套的具體建議：
+
+---
+
+### 1. Hybrid Bridge：IR-eval 一遍 → ProcessQueue 一遍（無迭代）
+**設計評估：完全 OK，第一刀就該這樣做。**
+*   **會不會收斂？** 會。因為 `ProcessQueue` 跑的是 S1 的 Switch-level group-BFS，S1 本身就會收斂。IR 只是幫 94% 的 Node 提供了「預先算好的精確值」。
+*   **IR 緊鄰 Hybrid 的 Node 被 ProcessQueue 重算，可接受嗎？** **完全可接受**。這在功能上叫做「IR 預測，Switch-level 校正」。雖然這些邊界 Node 沒享受到 IR 加速，但確保了絕對的物理正確性。
+*   **該不該 IR↔ProcessQueue 迭代？** **絕對不要**。這會讓系統變得極度複雜且難以 debug（可能引發無窮震盪）。S2 的目標是「驗證 IR 邏輯的正確性」，不是壓榨極致效能。
+*   **對計畫的具體影響 / 該怎麼改**：
+    維持 `IR 拓樸一遍` → `Enqueue 變動的 IR Node` → `ProcessQueue() 跑到底`。
+    **額外加一行 Log**：統計 `ProcessQueue` 改變了多少個 *Non-hybrid (IR)* node 的值。如果數量很少（< 50），代表 IR 的邊界預測很準；如果數量極大，記下來留到 S3 再看，S2 不去修效能。
+
+### 2. S1 Step 中的 Recalc 時機（關鍵行為確認）
+**設計評估：這會是你實作時最大的地雷，必須先看 Code。**
+*   **分析**：在 Visual6502 / MetalNES 架構中，外部 Handler（例如 Clock toggle 或外部 RAM 餵資料）通常是呼叫 `SetHigh(clk)` 或 `SetNodeState()`。**通常這些函式內部就會直接觸發 `ProcessQueue` 或 `Recalc()`**。
+*   如果 S1 的 Handler 已經觸發了 Recalc，那當你執行 `RunHandlerChain()` 後，**整個晶片其實已經由 S1 算完一遍並收斂了**。如果此時你再跑 IR Eval，你只是在「重新證明一次 S1 算出來的值是對的」，這對驗證沒差，但這表示 IR 根本沒在「驅動」網表。
+*   **對計畫的具體影響 / 該怎麼改**：
+    去查 S1 的 `SetNodeState` 或 `Handler`。
+    *   **情況 A（最好）**：Handler 只負責 `Enqueue`，外部 `Step()` 才顯式呼叫 `ProcessQueue`。那你的 `IrEngine.Step` 就照你的計畫：`Handlers` → `快照 prevStates` → `IR` → `Enqueue` → `ProcessQueue`。
+    *   **情況 B（常見）**：Handler 寫值會立刻 settle 網表。如果不能改 S1，那你就在 `IrEngine.Step` 裡照跑 Handler（讓 S1 settle 局部），然後**強行快照 `prevStates`**，接著跑 IR，如果 IR 算出來跟 S1 有差異，覆寫它，最後再 call 一次 `ProcessQueue` 確保 Hybrid 區段同步。S2 先求對，S3 再來砍 S1 的多餘 Recalc。
+
+### 3. Hold(M) 與 Prev(M) 的語意（讀 prevStates 快照）
+**設計評估：OK 不用改，你的理解是正確的。**
+*   **分析**：
+    *   `Prev(M)` 用來打斷假環，讀上一個 Half-cycle 的值，這毫無懸念。
+    *   `Hold(M)` 是 Pass transistor 關閉時的電容保值。你的 IR 是 `Mux(we, data, Hold(self))`。在一個拓樸排序、零延遲的 Boolean 網路中，如果 `we` (Write Enable) 是 1，它選 `data`（當前拍的最新值）；如果 `we` 是 0，它必須維持「這一拍開始前」的值。
+    *   如果在同一個 Half-cycle 內讀取 `Hold(M)`，它**絕對不該**讀到同一個 Half-cycle 內其他分支對 M 的臨時修改（因為拓樸排序不保證同層的先後順序）。
+*   **對計畫的具體影響 / 該怎麼改**：
+    維持現狀。`Hold(M)` 和 `Prev(M)` 在 Eval 時統一讀取 `prevStates[M]`（Half-cycle 初的快照）。這對於 6502 的 Dynamic latch 行為是嚴格正確的。
+
+### 4. 等價 Harness：Snapshot-compare vs Lockstep
+**設計評估：Snapshot-compare 是最優解，OK 不用改。**
+*   **分析**：Lockstep（跑兩份 NodeStates 陣列）會牽扯到 Handler 改寫硬體狀態的巨大重構。你不想改 S1 既有行為，所以 Snapshot-compare 是唯一解。
+*   2000 個 Half-cycle 聽起來很少（約 300 個 CPU 指令），但對於 Switch-level to Boolean 轉換的 Bug 來說，**只要有錯，通常在 Reset 序列的前 50 拍就會全面炸裂**（例如某個 Bus 衝突沒解好、某個 Latch 寫錯邊）。
+*   **對計畫的具體影響 / 該怎麼改**：
+    *   **N-capped Snapshot (2000拍)**：專門用來抓 IR 邏輯轉譯錯誤。發生 Mismatch 時，印出「哪一拍、哪幾個 Node、該 Node 的 nextExpr 是什麼」，這對 Debug 是救命神器。
+    *   **長跑測試**：用 `--test --engine ir` 跑 blargg test ROM。只要 CPU state（A, X, Y, PC, 記憶體簽章）是對的，就代表整個 NES 邏輯完美等價。不需要在長跑時比對每一個內部 Node。
+
+### 5. 殘餘 SCC 與 Tarjan（S2.3 D 階段的取捨）
+**設計評估：先全部標為 Hybrid，S2.4 不做 Stage D。**
+*   **分析**：如果你現在卡下去做 clk0/clk1 的互斥分析（Stage D），你會迷失在圖論演算法裡，而延誤了最核心的 IR Engine 驗證。
+*   **對計畫的具體影響 / 該怎麼改**：
+    S2.4 中，Tarjan 掃出 Size > 1 或自我引用的 SCC，**無腦把它們全部標記為 Hybrid**（`nextExpr = null`）。
+    這可能會讓你的 Hybrid Node 數量從 847 暴增到 2000，**這完全沒關係**。只要 `ProcessQueue` Bridge 能正常工作，跑起來功能正確，你的 S2 就過關了。把「消滅殘餘 SCC」留到確保這套系統能動之後（S2.7 或 S3）再做。
+
+### 6. 合併 S2.4, S2.5, S2.6 成一步
+**設計評估：必須合併，分開無法驗證。**
+*   **分析**：IR Engine (S2.4) 算出來的值必須透過 Bridge (S2.5) 餵給 Hybrid 網路，否則 Hybrid 網路處於浮接狀態，下一拍系統直接崩潰。沒有等價驗證 (S2.6)，你根本不知道 S2.4 寫對了沒。
+*   **對計畫的具體影響 / 該怎麼改**：
+    當作同一個 PR/Commit 來做。開發順序建議：
+    1. 實作 `IrEngine.Build()` (Tarjan + Topo Sort + prevStates 配置)。
+    2. 實作 Snapshot-compare 的 Test Runner（先拿 S1 自己比自己確保 Harness 沒寫錯）。
+    3. 實作 `IrEngine.EvalExpr()` 與 `Step()`。
+    4. 掛上去跑，看 2000 拍能過幾拍，開始無窮盡的 Debug。
+
+### 總結 Actions：
+1. **去查 S1 的 `SetNodeState`/Handler 到底在哪裡觸發 Recalc**，這決定了你 `IrEngine.Step` 的順序。
+2. **照原計畫使用 Snapshot-compare**，不搞 Lockstep，不搞 IR/ProcessQueue 迭代。
+3. **殘餘 SCC 直接判死刑（標 Hybrid）**，不要在此刻優化它。
+4. **`Hold/Prev` 統一吃 `prevStates` 快照**。

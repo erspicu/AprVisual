@@ -45,6 +45,7 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--trace-cmp":       if (i + 1 < args.Length) traceCmpPath = args[++i]; break;   // S2.4/2.6: IR vs S1 per-node per-half-cycle
+                    case "--diag-node":       if (i + 1 < args.Length) int.TryParse(args[++i], out AprVisual.Sim.Logic.IrEngine.DiagNode); break;  // with --trace-cmp: print details on each mismatch of this node id
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;

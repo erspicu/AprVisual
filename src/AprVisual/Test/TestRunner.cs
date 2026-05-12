@@ -27,7 +27,8 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null, dumpEmittedLl = null;
+            bool llvmCodegenTestFlag = false;
             bool emitBitsliced = false;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -71,6 +72,9 @@ namespace AprVisual.Test
                     case "--bitsliced": emitBitsliced = true; break;   // S4.4: --dump-emitted-cs emits the bit-sliced (ulong[], 64 instances/word) variant
                     case "--selftest":        return SelfTest();
                     case "--llvm-spike":      return LlvmSpike();   // S4.5 phase 0: verify the LLVMSharp.Interop + libLLVM toolchain (build int add(int,int), JIT, run)
+                    case "--llvm-no-opt":     AprVisual.Sim.Logic.LlvmCodegen.Optimize = false; break;   // S4.5: skip the (TODO) default<O3> pipeline before MCJIT
+                    case "--dump-emitted-ll": dumpEmittedLl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.5: write the LLVM IR for `step` to a file ("-" = stdout)
+                    case "--llvm-codegen-test": llvmCodegenTestFlag = true; break;   // S4.5: build the IR for nes-001, MCJIT it, report sizes — verify it compiles
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -97,6 +101,8 @@ namespace AprVisual.Test
             if (dumpNext) return DumpNext();
             if (dumpScc) return DumpScc();
             if (dumpEmittedCs != null) return DumpEmittedCs(dumpEmittedCs, emitBitsliced);
+            if (dumpEmittedLl != null) return DumpEmittedLl(dumpEmittedLl);
+            if (llvmCodegenTestFlag) return LlvmCodegenTest();
             if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
             if (traceCmpPath != null) return useIr ? TraceCmpDrive(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles)
                                                    : TraceCmp(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles);
@@ -351,6 +357,44 @@ namespace AprVisual.Test
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"LLVM spike FAILED: {ex.GetType().Name}: {ex.Message}");
+                return 2;
+            }
+        }
+
+        // S4.5 — dump the LLVM IR for the `step` function (the EvalOrder chunks).
+        private static int DumpEmittedLl(string outPath)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            string ir;
+            try { ir = AprVisual.Sim.Logic.LlvmCodegen.EmitIR(); }
+            catch (Exception ex) { Console.Error.WriteLine($"LLVM emit failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            int lines = ir.Count(c => c == '\n');
+            Console.Error.WriteLine($"# emitted LLVM IR: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} EvalOrder nodes in {AprVisual.Sim.Logic.LlvmCodegen.ChunkCount} chunks; ~{AprVisual.Sim.Logic.LlvmCodegen.InstrCount} IR instrs; {lines} lines, {ir.Length} chars (unoptimized)");
+            if (outPath == "-") Console.Out.Write(ir);
+            else { File.WriteAllText(outPath, ir); Console.Error.WriteLine($"# written to {outPath}"); }
+            return 0;
+        }
+
+        // S4.5 — build the IR for nes-001, MCJIT it (with -O3), confirm it compiles.
+        private static int LlvmCodegenTest()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                AprVisual.Sim.Logic.LlvmCodegen.Compile();
+                sw.Stop();
+                bool ok = AprVisual.Sim.Logic.LlvmCodegen.Compiled && AprVisual.Sim.Logic.LlvmCodegen.StepAddr != 0;
+                Console.WriteLine($"S4.5 LLVM codegen: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} EvalOrder nodes / {AprVisual.Sim.Logic.LlvmCodegen.ChunkCount} chunks / ~{AprVisual.Sim.Logic.LlvmCodegen.InstrCount} IR instrs → MCJIT in {sw.ElapsedMilliseconds}ms → step fn @ 0x{AprVisual.Sim.Logic.LlvmCodegen.StepAddr:X}  {(ok ? "OK" : "FAIL")}");
+                return ok ? 0 : 1;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"LLVM codegen FAILED: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
                 return 2;
             }
         }

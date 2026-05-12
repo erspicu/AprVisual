@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using AprVisual.Rom;
 using AprVisual.Sim;
@@ -32,7 +33,7 @@ namespace AprVisual.Test
             int traceCycles = 64;
             int shotFrames = 3;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false;
+            bool benchmark = false, dumpSystem = false, dumpGraph = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -52,6 +53,7 @@ namespace AprVisual.Test
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
+                    case "--dump-graph":      dumpGraph = true; break;   // S2.0: NetlistGraph role/kind classification
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -64,7 +66,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -74,6 +76,7 @@ namespace AprVisual.Test
 
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
+            if (dumpGraph) return DumpGraph();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -200,6 +203,36 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── S2.0 acceptance harness: build the NetlistGraph from the lowered netlist, print the
+        //    role / transistor-kind classification + SelfCheck() + spot-checks. Doesn't touch the sim. ──
+        private static int DumpGraph()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            Console.WriteLine($"S2.0 NetlistGraph — from the lowered netlist ({WireCore.NonNullNodeCount} nodes, {WireCore.TransistorBuildCount} transistors)");
+            Console.WriteLine($"  {WireCore.LastLowerStats}");
+            var (s, i, b, n) = g.CountByRole();
+            Console.WriteLine($"  node roles:       Supply={s}  Input={i}  Bus={b}  Internal={n}");
+            var ck = g.CountByKind();
+            var kindNames = Enum.GetNames<AprVisual.Sim.Logic.TransistorKind>();
+            Console.WriteLine($"  transistor kinds: {string.Join("  ", kindNames.Select((nm, idx) => $"{nm}={ck[idx]}"))}");
+            Console.WriteLine($"  SelfCheck:        {g.SelfCheck()}");
+
+            Console.WriteLine("  spot-checks:");
+            foreach (var nm in new[] { "vcc", "vss", "clk", "res", "cpu.db0", "cpu.db7", "ppu.io_db0" })
+            {
+                int id = WireCore.LookupNode(nm);
+                Console.WriteLine($"    {nm,-12} = {(id == WireCore.EmptyNode ? "(no such node)" : g.Describe(id))}");
+            }
+            var inputs = new System.Collections.Generic.List<string>();
+            for (int id = 0; id < g.Role.Length && inputs.Count < 20; id++)
+                if (g.Role[id] == AprVisual.Sim.Logic.NodeRole.Input) inputs.Add($"{WireCore.GetNodeName(id)}#{id}");
+            Console.WriteLine($"  Input nodes ({(inputs.Count < 20 ? inputs.Count.ToString() : "first 20")}): {string.Join(", ", inputs)}");
+            return 0;
+        }
+
         // ── Step 4+5 acceptance harness: hand-built tiny netlists (inverter / NAND / pass transistor /
         //    dynamic hold) driven via SetHigh/SetLow, checked against their truth tables.
         //    (cf. MD/struct/04 §13.3 and ref/metalnes-main chip_tests.cpp's pslatch/4021.) ──
@@ -211,6 +244,7 @@ namespace AprVisual.Test
             fails += TestPassTransistor();
             fails += TestCallback();
             fails += TestStaticMerge();
+            fails += TestNetlistGraph();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -338,6 +372,37 @@ namespace AprVisual.Test
             WireCore.SetLow ("a"); f += Check("a = 0 -> out = 1 (again)", WireCore.IsNodeHigh("out"));
             WireCore.Shutdown();
             WireCore.EnableLowering = savedLower;
+            return f;
+        }
+
+        // S2.0: a hand-built tiny netlist (PullDown / depletion-load / PullUpStrong / PullUpActive / Pass,
+        // plus a node that's only ever a gate → Input) — NetlistGraph.BuildFrom() must classify it right + SelfCheck() pass.
+        private static int TestNetlistGraph()
+        {
+            Console.WriteLine("NetlistGraph (S2.0):");
+            WireCore.ResetBuild();   // creates vcc=1, vss=2
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "y"); WireCore.AddNode(12, "en");
+            WireCore.AddNode(13, "in"); WireCore.AddNode(14, "out"); WireCore.AddNode(15, "clk");
+            WireCore.AddNode(16, "x"); WireCore.AddNode(17, "w");
+            WireCore.AddTransistor("pd_y",     gate: 10, c1: 11, c2: WireCore.Ngnd);                 // [0] PullDown
+            WireCore.AddTransistor("load_y",   gate: 11, c1: 11, c2: WireCore.Npwr, isWeak: true);   // [1] PullUpLoad (gate == source)
+            WireCore.AddTransistor("strong_x", gate: WireCore.Npwr, c1: 16, c2: WireCore.Npwr);      // [2] PullUpStrong
+            WireCore.AddTransistor("active_w", gate: 10, c1: 17, c2: WireCore.Npwr);                 // [3] PullUpActive (gate is a signal)
+            WireCore.AddTransistor("pass_en",  gate: 12, c1: 13, c2: 14);                            // [4] Pass
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            int f = 0;
+            f += Check("pd_y -> PullDown",          g.Kind[0] == AprVisual.Sim.Logic.TransistorKind.PullDown);
+            f += Check("load_y -> PullUpLoad",      g.Kind[1] == AprVisual.Sim.Logic.TransistorKind.PullUpLoad && g.TransIsWeak[1]);
+            f += Check("strong_x -> PullUpStrong",  g.Kind[2] == AprVisual.Sim.Logic.TransistorKind.PullUpStrong);
+            f += Check("active_w -> PullUpActive",  g.Kind[3] == AprVisual.Sim.Logic.TransistorKind.PullUpActive);
+            f += Check("pass_en -> Pass, dir Unknown", g.Kind[4] == AprVisual.Sim.Logic.TransistorKind.Pass && g.PassDirection[4] == AprVisual.Sim.Logic.PassDir.Unknown);
+            f += Check("vcc / vss -> Supply",       g.Role[WireCore.Npwr] == AprVisual.Sim.Logic.NodeRole.Supply && g.Role[WireCore.Ngnd] == AprVisual.Sim.Logic.NodeRole.Supply);
+            f += Check("clk -> Input (only a node, no channel/pull-up)", g.Role[WireCore.LookupNode("clk")] == AprVisual.Sim.Logic.NodeRole.Input);
+            f += Check("a -> Input (only ever a gate)", g.Role[WireCore.LookupNode("a")] == AprVisual.Sim.Logic.NodeRole.Input);
+            f += Check("y -> Internal (a channel end of pd_y/load_y)", g.Role[WireCore.LookupNode("y")] == AprVisual.Sim.Logic.NodeRole.Internal);
+            f += Check("SelfCheck() == OK",         g.SelfCheck() == "OK");
+            WireCore.Shutdown();
             return f;
         }
 
@@ -713,6 +778,7 @@ namespace AprVisual.Test
                     [--benchmark]                       also time each test (cycles/sec)
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
+                  AprVisual --dump-graph                (S2.0) build the NetlistGraph and print the node-role / transistor-kind classification + SelfCheck
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor / static-merge circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
                     [--no-lower]                         skip the S1.5 netlist-lowering pass (A/B comparison)

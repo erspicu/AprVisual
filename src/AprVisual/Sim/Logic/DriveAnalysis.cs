@@ -205,6 +205,15 @@ namespace AprVisual.Sim.Logic
                 if (hyReason != null) { MarkHybrid(da, hyReason); MarkHybrid(db, hyReason); }
             }
 
+            // ── pass 3: a precharge/domino node (PullUpKind.Conditional — clocked pull-up, no static load) that is
+            //    *also* pass-connected to other signal nodes is a multi-driver structure (clear / set / precharge /
+            //    the eval network / several pass writes, all conditional) whose resolution priority is timing-
+            //    sensitive — the pass-direction heuristic can't pick the right priority chain (e.g. the 2C02
+            //    sprite/OAM `*_int` nodes). Hand it to S1's switch-level group resolution (the hybrid fallback). ──
+            for (int v = 0; v < n; v++)
+                if (di[v] is { PullUp: PullUpKind.Conditional, Hybrid: false } d2 && d2.Passes.Count > 0)
+                { d2.Hybrid = true; d2.HybridReason = "precharge/domino node with pass connections (multi-driver — switch-level handles the priority)"; }
+
             return di;
         }
 

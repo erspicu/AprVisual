@@ -20,10 +20,12 @@ namespace AprVisual.Sim.Logic
         public static Expr?[] NextExpr = [];     // [nodeId]; null = hybrid / Supply / Input — not IR-covered (S1 owns it)
         public static bool[] IsSequential = [];
         public static bool[] Hybrid = [];
+        public static bool[] CheckInChecking = []; // [nodeId]; false = skip the IR-vs-S1 check (an un-modelled internal placeholder — nextExpr == Hold(self), Gates.Count == 0, unnamed)
         public static byte[] PrevStates = [];    // [nodeId]; snapshot of NodeStates at the start of the current half-cycle
         public static bool Built;
 
         public static int IrCoveredCount;        // # of nodes with NextExpr != null
+        public static int CheckedCount;          // # of nodes actually compared in checking mode (IrCoveredCount minus the skipped placeholders)
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
         public static int  FirstMismatchNode = -1;
@@ -41,8 +43,22 @@ namespace AprVisual.Sim.Logic
             Hybrid = scc.Hybrid;
             int n = Math.Max(NextExpr.Length, WireCore.NodeCount);
             PrevStates = new byte[n];
-            IrCoveredCount = 0;
-            for (int v = 0; v < NextExpr.Length; v++) if (NextExpr[v] != null) IrCoveredCount++;
+            CheckInChecking = new bool[NextExpr.Length];
+            IrCoveredCount = 0; CheckedCount = 0;
+            var nodes = WireCore.Nodes;
+            for (int v = 0; v < NextExpr.Length; v++)
+            {
+                var e = NextExpr[v];
+                if (e == null) continue;
+                IrCoveredCount++;
+                // skip un-modelled internal placeholders: nextExpr == Hold(self), nothing reads this node (Gates.Count == 0),
+                // and it's unnamed (a named node — a pin / observable signal — we DO want to check, even if its model is wrong).
+                bool placeholder = e is HoldExpr h && h.Id == v
+                                   && v < nodes.Count && nodes[v] is { Gates.Count: 0 }
+                                   && WireCore.GetNodeName(v) == v.ToString();
+                CheckInChecking[v] = !placeholder;
+                if (!placeholder) CheckedCount++;
+            }
             MismatchCount = 0; FirstMismatchTime = -1; FirstMismatchNode = -1; MismatchByNode.Clear();
             Built = true;
         }
@@ -71,7 +87,7 @@ namespace AprVisual.Sim.Logic
             for (int v = 0; v < NextExpr.Length && v < n; v++)
             {
                 var e = NextExpr[v];
-                if (e == null) continue;                                         // hybrid / not IR-covered — S1 owns it
+                if (e == null || !CheckInChecking[v]) continue;                   // hybrid / not IR-covered / un-modelled placeholder — S1 owns it
                 if (EvalExpr(e) != WireCore.NodeStates[v])
                 {
                     MismatchCount++;

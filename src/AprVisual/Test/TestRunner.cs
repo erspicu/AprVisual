@@ -1042,7 +1042,7 @@ namespace AprVisual.Test
             {
                 WireCore.LoadSystem(rom);
                 AprVisual.Sim.Logic.IrEngine.Build();
-                Console.WriteLine($"  IR-covered nodes: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount}  /  {WireCore.NonNullNodeCount}  ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%)");
+                Console.WriteLine($"  IR-covered nodes: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount}  /  {WireCore.NonNullNodeCount}  ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%)   — checked: {AprVisual.Sim.Logic.IrEngine.CheckedCount} (the rest are un-modelled internal placeholders, skipped)");
                 AprVisual.Sim.Logic.IrEngine.Step(cycles);
                 long mm = AprVisual.Sim.Logic.IrEngine.MismatchCount;
                 if (mm == 0)

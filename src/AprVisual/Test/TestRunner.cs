@@ -27,7 +27,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -44,6 +44,7 @@ namespace AprVisual.Test
                     case "--test":            if (i + 1 < args.Length) testPath     = args[++i]; break;
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
+                    case "--trace-cmp":       if (i + 1 < args.Length) traceCmpPath = args[++i]; break;   // S2.4/2.6: IR vs S1 per-node per-half-cycle
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
@@ -70,7 +71,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !dumpNext && !dumpScc && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && traceCmpPath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !dumpNext && !dumpScc && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -85,6 +86,7 @@ namespace AprVisual.Test
             if (dumpNext) return DumpNext();
             if (dumpScc) return DumpScc();
             if (tracePath != null) return Trace(tracePath, traceCycles);
+            if (traceCmpPath != null) return TraceCmp(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath != null) return Probe2002(probePath);
@@ -374,6 +376,7 @@ namespace AprVisual.Test
             fails += TestDriveAnalysis();
             fails += TestNextState();
             fails += TestSccAnalysis();
+            fails += TestIrEngine();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -636,6 +639,38 @@ namespace AprVisual.Test
             f += Check("/q stays Not(Node(q)), combinational, not hybrid",
                        m.NextExpr[11]!.Equals(AprVisual.Sim.Logic.Expr.Not(AprVisual.Sim.Logic.Expr.Node(10))) && !m.IsSequential[11] && !m.Hybrid[11]);
             f += Check("RecoveredLatches == 1", m.RecoveredLatches == 1);
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // S2.4: build the IR engine over a hand-built tiny netlist (inverter y=!a + a dynamic latch q
+        // written by `we` from `data`), drive the inputs, and verify checking-mode finds zero mismatches —
+        // i.e. EvalExpr(nextExpr[v]) agrees with S1's value for every IR-covered node, every half-cycle.
+        private static int TestIrEngine()
+        {
+            Console.WriteLine("IrEngine (S2.4, checking mode):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "y");                // y = !a
+            WireCore.AddNode(12, "we"); WireCore.AddNode(13, "data"); WireCore.AddNode(14, "g_data"); WireCore.AddNode(15, "q"); WireCore.AddNode(16, "qsink");
+            WireCore.AddTransistor("inv",   gate: 10, c1: 11, c2: WireCore.Ngnd); WireCore.Nodes[11]!.Pullups = 1;
+            WireCore.AddTransistor("pd_data", gate: 14, c1: 13, c2: WireCore.Ngnd); WireCore.Nodes[13]!.Pullups = 1;   // data is driven
+            WireCore.AddTransistor("wr",     gate: 12, c1: 13, c2: 15);                                                 // data --[we]--> q  (q dynamic)
+            WireCore.AddTransistor("qg",     gate: 15, c1: 16, c2: WireCore.Ngnd); WireCore.Nodes[16]!.Pullups = 1;     // q gates qsink → q is a real signal node
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            AprVisual.Sim.Logic.IrEngine.Build();
+            int f = 0;
+            f += Check("IrEngine built, IR-covered nodes > 0", AprVisual.Sim.Logic.IrEngine.IrCoveredCount > 0);
+            // drive a few input transitions; checking-mode StepOne() settles S1 and verifies the IR each time
+            WireCore.SetLow("we"); WireCore.SetLow("g_data");
+            WireCore.SetLow("a");       AprVisual.Sim.Logic.IrEngine.StepOne();
+            WireCore.SetHigh("a");      AprVisual.Sim.Logic.IrEngine.StepOne();
+            WireCore.SetHigh("we");     AprVisual.Sim.Logic.IrEngine.StepOne();   // we on while g_data low ⇒ data=1 ⇒ q ← 1
+            WireCore.SetLow("we");      AprVisual.Sim.Logic.IrEngine.StepOne();   // we off ⇒ q holds 1
+            WireCore.SetHigh("g_data"); AprVisual.Sim.Logic.IrEngine.StepOne();   // data → 0 but we off ⇒ q still 1
+            WireCore.SetLow("a");       AprVisual.Sim.Logic.IrEngine.StepOne();
+            f += Check("no IR-vs-S1 mismatches over 6 half-cycles", AprVisual.Sim.Logic.IrEngine.MismatchCount == 0);
+            f += Check("S1 sanity: a=0 ⇒ y=1, q held 1", WireCore.IsNodeHigh("y") && WireCore.IsNodeHigh("q"));
             WireCore.Shutdown();
             return f;
         }
@@ -995,6 +1030,38 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
+        // ── S2.4/S2.6: the IR-vs-S1 equivalence gate. Build the IR engine (IrEngine), then run it in
+        //    "checking mode" for N half-cycles — each half-cycle, S1 settles the chip and the IR's
+        //    nextExpr[v] is verified against S1's result for every IR-covered node v. Report any mismatch. ──
+        private static int TraceCmp(string romPath, int cycles)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# --trace-cmp {Path.GetFileName(romPath)} — {cycles} half-cycles, checking mode (IR vs S1, per node per half-cycle)");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                AprVisual.Sim.Logic.IrEngine.Build();
+                Console.WriteLine($"  IR-covered nodes: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount}  /  {WireCore.NonNullNodeCount}  ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%)");
+                AprVisual.Sim.Logic.IrEngine.Step(cycles);
+                long mm = AprVisual.Sim.Logic.IrEngine.MismatchCount;
+                if (mm == 0)
+                {
+                    Console.WriteLine($"  ✓ NO MISMATCHES over {cycles} half-cycles ({WireCore.Time} t) — IR ≡ S1 for every IR-covered node. (S2.6 equivalence gate PASSED for this ROM.)");
+                    return 0;
+                }
+                int fn = AprVisual.Sim.Logic.IrEngine.FirstMismatchNode;
+                int distinct = AprVisual.Sim.Logic.IrEngine.MismatchByNode.Count;
+                Console.WriteLine($"  ✗ {mm} node-mismatch(es) over {cycles} half-cycles, across {distinct} distinct node(s).");
+                Console.WriteLine($"    first: t={AprVisual.Sim.Logic.IrEngine.FirstMismatchTime}, node {WireCore.GetNodeName(fn)}#{fn}  nextExpr = {AprVisual.Sim.Logic.IrEngine.NextExpr[fn]?.Pretty()}");
+                Console.WriteLine($"    top mismatching nodes (id — # half-cycles — nextExpr):");
+                foreach (var kv in AprVisual.Sim.Logic.IrEngine.MismatchByNode.OrderByDescending(p => p.Value).Take(25))
+                    Console.WriteLine($"      {WireCore.GetNodeName(kv.Key)}#{kv.Key}  — {kv.Value} — {AprVisual.Sim.Logic.IrEngine.NextExpr[kv.Key]?.Pretty()}");
+                return 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static void PrintUsage()
         {
             Console.WriteLine("""
@@ -1002,6 +1069,7 @@ namespace AprVisual.Test
 
                   AprVisual --rom <game.nes>            show a window; CPU state in the title bar (video output: WIP)
                   AprVisual --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
+                  AprVisual --trace-cmp <rom> [--cycles N]  (S2.4/S2.6) IR vs S1 equivalence: run the IR engine N half-cycles (default 2000) in checking mode, report any node-mismatch
                   AprVisual --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3, out=screenshot.png)
                   AprVisual --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pixel-clock samples
                   AprVisual --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS (6502 cyc/s), raw step rate (default N=12; use a Release build)

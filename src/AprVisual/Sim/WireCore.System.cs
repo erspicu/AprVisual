@@ -55,6 +55,11 @@ namespace AprVisual.Sim
 
             AddInstance(nes001, "");
             AddInstance(cartMmu0, "cart");
+
+            // S1.5: collapse always-on shorts + drop dead transistors + compact ids (behaviour-preserving;
+            // also the canonical netlist S2 will work on). Toggle off with WireCore.EnableLowering / --no-lower.
+            if (EnableLowering) LowerNetlist();
+            else LastLowerStats = "(lowering disabled — --no-lower)";
         }
 
         // ───────────────────────────────────────────────────────────────────────

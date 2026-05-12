@@ -54,6 +54,7 @@ namespace AprVisual.Test
                     case "--dump-system":     dumpSystem = true; break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
+                    case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--benchmark":
@@ -164,6 +165,7 @@ namespace AprVisual.Test
             Console.WriteLine($"transistors:        {WireCore.TransistorBuildCount}  (incl. {WireCore.ConnectionTransistorCount} connection-transistors)");
             Console.WriteLine($"forceCompute nodes: {WireCore.ForceComputeList.Count}");
             Console.WriteLine($"memories:           {string.Join(", ", WireCore.MemoryNames)}");
+            Console.WriteLine($"S1.5 {WireCore.LastLowerStats}");
 
             Console.WriteLine("\nlookups:");
             foreach (var p in new[] { "clk", "res", "vcc", "vss", "cpu.clk0", "cpu.a0", "cpu.ir0", "cpu.ab0", "cpu.db0",
@@ -208,6 +210,7 @@ namespace AprVisual.Test
             fails += TestNand();
             fails += TestPassTransistor();
             fails += TestCallback();
+            fails += TestStaticMerge();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -309,6 +312,35 @@ namespace AprVisual.Test
             return f;
         }
 
+        // S1.5 lowering: an always-on connection between 'mid' and 'out' must collapse them into one node,
+        // pull-up and behaviour preserved (out == !a, same as if the connection were left as a transistor).
+        private static int TestStaticMerge()
+        {
+            Console.WriteLine("static-group merge (LowerNetlist):");
+            bool savedLower = WireCore.EnableLowering;
+            WireCore.EnableLowering = true;
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "mid"); WireCore.AddNode(12, "out");
+            WireCore.AddTransistor("inv", gate: 10, c1: 11, c2: WireCore.Ngnd);   // a pulls 'mid' down to vss
+            WireCore.AddConnection(11, 12);                                        // mid <> out  (gate = Npwr → always on)
+            WireCore.Nodes[12]!.Pullups = 1;                                       // the pull-up sits on 'out'
+            WireCore.LowerNetlist();
+            int f = 0;
+            int m = WireCore.LookupNode("mid"), o = WireCore.LookupNode("out");
+            f += Check("'mid' and 'out' merged to one node", m != WireCore.EmptyNode && m == o);
+            f += Check("merged node kept the pull-up", o != WireCore.EmptyNode && WireCore.Nodes[o]!.Pullups >= 1);
+            f += Check("the always-on connection was dropped (only 'inv' left)", WireCore.TransistorBuildCount == 1);
+            f += Check("'a' still resolves", WireCore.LookupNode("a") != WireCore.EmptyNode);
+            WireCore.Reset();
+            WireCore.RecomputeAllNodes();
+            f += Check("a floating (0) -> out = 1 (pull-up), mid == out", WireCore.IsNodeHigh("out") && WireCore.IsNodeHigh("mid"));
+            WireCore.SetHigh("a"); f += Check("a = 1 -> out = 0, mid == out", !WireCore.IsNodeHigh("out") && !WireCore.IsNodeHigh("mid"));
+            WireCore.SetLow ("a"); f += Check("a = 0 -> out = 1 (again)", WireCore.IsNodeHigh("out"));
+            WireCore.Shutdown();
+            WireCore.EnableLowering = savedLower;
+            return f;
+        }
+
         // ── Run N frames headless and dump the FrameBuffer to a PNG (visual verification of the
         //    video handler / the rendered picture). Wraps the unmanaged FrameBuffer in a Bitmap (no copy). ──
         private static int Screenshot(string romPath, int frames, string outPath)
@@ -369,6 +401,7 @@ namespace AprVisual.Test
                 const double realFps = 60.0988, realCpuHz = 1_789_773.0;
                 const double cycPerInstr = 2.8;                  // rough NES-code average (3..7 cyc opcodes, mostly 2..4)
 
+                Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
                 Console.WriteLine($"# real time: {secs:F3} s");
@@ -680,8 +713,9 @@ namespace AprVisual.Test
                     [--benchmark]                       also time each test (cycles/sec)
                   AprVisual --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
-                  AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor circuits and check truth tables
+                  AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor / static-merge circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
+                    [--no-lower]                         skip the S1.5 netlist-lowering pass (A/B comparison)
                   (no args)                             open an empty window
                 """);
         }

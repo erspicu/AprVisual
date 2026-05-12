@@ -142,7 +142,7 @@ namespace AprVisual.Sim
                 Node? node = Nodes[nn];
                 if (node == null) continue;   // AllocArray zeroed: state 0, flags 0, tlist* 0
                 ref NodeInfo ns = ref NodeInfos[nn];
-                ns.Connections = node.C1c2s.Count + node.Gates.Count;
+                ns.Connections = node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
                 ns.Flags = NodeFlags.None;
                 if (node.Pullups > 0) { ns.Flags |= NodeFlags.PullUp; NodeStates[nn] = 1; }
                 if (node.Callback != null) ns.Flags |= NodeFlags.HasCallback;

@@ -30,6 +30,7 @@ namespace AprVisual.Sim
             public readonly List<int> Gates  = new();   // transistor indices this node gates
             public readonly List<int> C1c2s  = new();   // transistor indices this node is a channel end of
             public CallbackInfo? Callback;      // set by AddCallback (Step 6)
+            public int CapacityOverride = -1;   // -1 = use C1c2s.Count+Gates.Count; ≥0 = explicit "capacitance" (set by LowerNetlist on merged nodes)
         }
 
         // build-time tables (consumed by WireCore.Reset() in Step 3 to fill the unmanaged hot arrays)

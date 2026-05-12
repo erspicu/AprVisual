@@ -1,0 +1,135 @@
+Timestamp: 2026-05-12T17:47:39
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深的編譯器 / 模擬器 / GPU / 邏輯綜合工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → codegen」管線的 review。現在要 review S4（codegen）的設計、定案實作細節。請用繁體中文、務實、給明確建議與理由。
+
+## 背景速覽（已完成）
+
+- S1：C# 重寫 MetalNES 的開關層級模擬引擎（event-driven、recalc/processQueue、256-entry group-resolution LUT）—— golden reference。
+- S2：netlist → boolean IR。每個 node 抽出 `NextExpr[v]` = 「下半週期 settle 後 v 的值」的 boolean tree（`NodeRef(id)`=該 node 此半週期的 current 值 / `Hold(id)`/`Prev(id)`=該 node 上半週期的值 / `Mux(c,a,b)` / `And`/`Or`/`Not`/`Const`）。等價 gate 過（IR ≡ S1，逐 node 逐半週期）。
+- S3：IR 最佳化（Node Aliasing 折掉 buffer/inverter；通用 size-1/2 SCC solver 用代數代換求雙穩態 fixpoint）—— driving coverage 46%→**~85%**（整片 nes-001 = 14723 node，**12501 個 driving-evaluated**（有 NextExpr、acyclic、放進拓樸排序 `EvalOrder`）、**843 個在 56 個殘餘 SCC**（counter / shift-register / phase-ring：APU DMC down-counter ~496 node 那個最大、PPU chroma ring、$2005/6 hvtog "w" register、…）、**~1379 個 hybrid multi-driver tri-state bus node**（`NextExpr==null`：BD0-7 / io_db / exp_in 那種，目前走 S1 的 group resolution））。
+- driving 模式現況（已驗 0 mismatch）：每半週期 ① snapshot ② handler chain（master clock toggle + 行為式 64KB RAM/ROM —— 那是「模型的邊緣」，`byte[]` + handler，不抽 IR）③ flush 一層 ④ `RunFlatProgram`（stack-machine 直譯器，按 EvalOrder 評估那 12501 個 node、~99K 條 stack-machine 指令）⑤ S1 的 `ProcessQueue`（處理殘餘 843 SCC + 1379 hybrid bus + fanout）。
+
+## S4 目標（user 定調）
+
+- **最終目標 = 正確 + 即時堪用**（不追求上千台並行；那只是 bonus）。「正確」靠等價 gate；「即時」是效能目標（註：電晶體級準確度下單實例「即時」≈ ~43M 半週期/sec、比目前 S1 的 ~46k/sec 快 ~900-1000×，硬目標）。
+- 最終兩個執行版本（共用 S1/S2/S3 的 IR）：(A) **GPU bit-sliced 版 = S4，先做**（brute-force flat program + 殘餘環 fixed-K micro-block + bit-sliced + 上 GPU）；(B) **CPU-optimized 版 = S4 之後從較早 commit branch**（event-driven IR 直譯器 —— 你之前說「GPU 用不到、暫緩」的那個 β —— 單實例 CPU 最快）。本次 review 只談 (A)。
+- codegen 後端**做兩份互相做效能對照**：C# emit（Roslyn-emit C# source、bit-sliced `& | ^ ~`、動態編譯）+ LLVM emit（`LLVMSharp` / LLVM-C P/Invoke、emit LLVM IR → `-O3` → JIT/AOT）。codegen 工具本身都用 C# 寫。
+- GPU target **尚待討論不急著定** —— CUDA/NVPTX 不是唯一選項（C# 對 CUDA 的 library 不一定好處理；GPU compute shader（HLSL/GLSL-SPIR-V/WGSL compute）可能更貼 .NET 生態；user 有另一個專案 AprNesAvalonia 用 Avalonia + 自寫 shader script 可參考）。
+
+## 我規劃的 S4 步驟（MVP-first，請 review）
+
+- **S4.0** — design review（本次）。
+- **S4.1** — C# emit：先只 emit IR-covered 的 ~85%、**scalar（非 bit-sliced）**、殘餘 SCC+bus 仍走 S1。emit `static void StepIr(byte[] cur, byte[] prev)`（按 EvalOrder 一行行 `cur[v] = <NextExpr[v] 的 scalar boolean expr>`、`NodeRef(x)`→`cur[x]`、`Hold/Prev(x)`→`prev[x]`、`Mux(c,a,b)`→`c!=0 ? a : b`、Roslyn 動態編譯）取代直譯器 `RunFlatProgram`。驗收：`--trace-cmp --engine ir` 仍 0 mismatch；benchmark vs 直譯器。**= MVP**。
+- **S4.2** — fixed-K micro-block：把殘餘 843 個 SCC node 也納入。emit `for k in 0..K: { cur[v]=<NextExpr[v]>; ... }`（SCC 內 `Node(x)` 讀 in-place `cur[x]`、Gauss-Seidel、init `cur[v]=prev[v]`）；K 用等價 gate 調。
+- **S4.3** — hybrid bus 抽 pseudo-NextExpr：~1379 個 bus node → `bus = Mux(drv1_en, drv1_val, Mux(drv2_en, drv2_val, …, Hold(bus)))`（從 DriveAnalysis 的 transmission-gate 寫埠 `Passes` + pull-down 組）→ 進 flat program / fixed-K。**這步後 IR ~100%、沒 S1 fallback**。
+- **S4.4** — bit-slicing：scalar `byte` → `ulong`（64 台並行）；`Mux(c,a,b)`→`(c&a)|(~c&b)`；SoA `ulong[nodeCount]`；handler chain 也 bit-sliced（master clock toggle `clk^=~0UL`；行為式 RAM/ROM = per-lane gather/scatter transpose（64 個 lane 各自從自己的 mem 讀 byte、再 scatter 回 data bus 的 8 個 ulong））。驗收：64 台跑同一 ROM、每台 trace == S1；benchmark 64-wide / 64 vs S1。
+- S4.5（之後）— LLVM 後端（同 emit、走 LLVMSharp）；S4.6（之後）— GPU。
+
+`/loop` 會跑 S4.0→S4.4 然後停。
+
+## 想問你的（請逐題給明確建議）
+
+1. **S4.1 的「emit 一個巨大 C# 方法」會不會出事**？~12500 個 assignment（每個是個小 boolean expr tree、平均深度幾層）—— 一個 method 那麼多 statement、Roslyn 編得動嗎？RyuJIT 的 register allocation 在這種「~12500 個區域值、一條條 assign」上會不會爆（編譯超久 / fallback unoptimized）？要不要切成多個 method（例如每 ~500 個 node 一個 `Step_chunk_N(cur, prev)`、`StepIr` 依序呼叫）？切的話會不會反而因為「chunk 邊界要寫回陣列、不能保持在 register」變慢？你的建議？
+2. **fixed-K 的 K**：對 496-node 的 DMC down-counter，Gauss-Seidel（按某個拓樸序 in-place 更新）一個 pass 就傳遞了大部分依賴 —— 那 K 是不是其實很小（2~4）就夠？還是 carry chain 那種（bit_i 依賴 bit_{i-1}…bit_0）即使 in-place、也要看「拓樸序排得好不好」（如果排成 bit_0→bit_1→…→bit_15、一個 pass 就 ripple 完；排反了要 16 pass）—— 所以應該「先在 SCC 內部跑一個盡量好的拓樸序（忽略 back-edge）」再決定 K？怎麼算「這個 SCC 用拓樸序排好之後、最小需要幾個 pass」（= 它的 condensation DAG 的最長 back-edge 路徑 + 1？）？用統一一個保守的 K（例如 8）對全部 SCC、還是 per-SCC 算？實作上「等價 gate 過了就停 bump K」夠不夠（會不會某些罕見輸入下 K 不夠、gate 沒跑到那個 case）？
+3. **hybrid bus 抽 pseudo-NextExpr**：DriveAnalysis 的 `Passes` 給每個 node 一串 `PassLink{Other, Cond(gate condition), OwnerDrives}`（傳輸閘寫埠）。一個 tri-state bus node `bus` 的 pseudo-NextExpr 大概是 `bus = Mux(en_1, val_1, Mux(en_2, val_2, …, Mux(en_n, val_n, Hold(bus))))`，其中 `en_i = Cond_i`（傳輸閘導通條件）、`val_i = Node(Other_i)`（被驅動端的值）。問題：(a) drivers 的**優先序**怎麼定 —— switch-level 的 group resolution 是 GND > VCC/pull-up > 外部驅動 > hold > 0；對一個多 driver 同時 enable 的 bus（理論上設計保證一次一個 enable，但實務上 settle 過程中可能短暫多個）—— 用「pull-down（拉到 0）優先於 pass-driver、pass-driver 之間任意序」對嗎？還是要按 conductance？(b) 那個 `Hold(bus)` —— bus 是 dynamic（parasitic cap），沒人驅動時 hold —— 對嗎？(c) bus 跟 SCC node 常常互相耦合（io_db ↔ palette ↔ …），抽完 pseudo-NextExpr 後它們會落在 SCC 裡 → 一起丟 fixed-K —— 這樣對嗎？(d) 這個抽取放哪一層 —— 在 `DriveAnalysis` 裡（它已經有 `Passes`）、還是新的 pass（"γ.4 / S4 前置"）？
+4. **bit-slicing 的 word width**（C# / .NET）：`uint`(32) / `ulong`(64) / `Vector<ulong>`(auto-width，runtime 決定，AVX2=256bit=4×ulong、AVX-512=512bit=8×ulong) / `Vector256<ulong>` / `Vector512<ulong>`（`System.Runtime.Intrinsics`）—— 哪個最划算？`Vector<T>` 的好處是「同一份 code、CPU 決定 width」；`Vector256/512` 是明確但要 CPU 支援。對「14723 個 node × 一堆 `& | ^ ~`」這種 workload，bottleneck 是 ALU 還是 memory bandwidth（state array = 14723 × 8 bytes(ulong) = ~115KB，超 L1、進 L2）？AVX 對 `& | ^ ~` 有沒有用（這些是 1-cycle 標量指令、AVX-512 一次 8×ulong = 8 倍 throughput、但 state array 變 14723 × 64 bytes = ~920KB、超 L2、進 L3 —— memory-bound 嗎）？你的建議：先 `ulong`(64) 簡單版、之後再上 AVX？
+5. **整體 / 漏掉的**：(a) handler chain bit-sliced 化 —— master clock toggle 對 64 台一樣（`clk^=~0UL`）OK；但**行為式 RAM/ROM 的 per-lane gather/scatter transpose** 是 bit-sliced 路線的固定成本（每半週期都要做一次「16-bit address bus 的 64 個 lane 各自查自己的 mem、8-bit data bus scatter 回去」）—— 這個 transpose 的成本相對「14723 個 node 的 `& | ^ ~`」是大是小？(b) reset / 初始狀態 —— 64 台都跑同一 ROM 的話初始狀態一樣、簡單；但如果以後要 64 台跑不同 ROM / 不同輸入呢（手把輸入是 bit-sliced 的、ROM 是 per-lane 的）？(c) GPU 路線 —— 你覺得「NVPTX-via-LLVM（如果走 LLVM 後端、IR 直接 retarget）」vs「compute shader（HLSL/SPIR-V/WGSL）」哪個對 .NET 生態 + 這種 bit-sliced boolean kernel 更實際？compute shader 的 thread model（一 thread 一台 NES，每 node 一個 `uint`/`uint4`）跟 CPU 的 bit-sliced（一 `ulong` 64 台）是不同的並行軸 —— GPU 上「一 thread 一台」（不 bit-slice、用 GPU 本身的 SIMT 並行）vs「一 thread 一 bit-lane」（bit-slice + GPU SIMT 雙重並行）哪個對？(d) 還有什麼我漏掉的坑？
+
+========================================================================
+RESPONSE
+========================================================================
+這是一份非常精彩的架構演進！從 S1 到 S3 把 coverage 推進到 85%，並精準隔離出 56 個殘餘 SCC 與 1379 個 bus node，這代表你的 IR 抽象非常成功。
+
+進入 S4 (Codegen)，我們的核心挑戰從「如何解析電路」變成了「**如何餵飽現代微架構（CPU JIT/Cache/ALU 或 GPU 執行緒）**」。針對你的問題，以下是務實的 Review 與建議：
+
+---
+
+### 1. S4.1 的「巨大 C# 方法」會不會出事？
+**會，絕對會出事。**
+*   **RyuJIT 的天花板：** 雖然 Roslyn 編譯這個 AST 沒問題，但 .NET 的 RyuJIT 在面對超過幾千個 statement 或 local variables 的單一 method 時，會遇到兩個問題：(1) **暫存器配置器（Register Allocator）崩潰或超時**；(2) **Bailout to MinOpts**（JIT 放棄最佳化，直接生成極慢的機器碼）。
+*   **建議做法（Chunking & Memory Access）：**
+    1.  **切 Chunk：** 按 `EvalOrder` 每 500 ~ 1000 個 node 拆成一個 `Step_chunk_N(ref byte state)` 方法。最後用一個主方法循序呼叫它們。
+    2.  **不要用 Local Variables 接狀態：** 千萬別宣告 12500 個區域變數！這會炸掉 stack。
+    3.  **使用 `ref byte` 陣列指標消除邊界檢查（Bounds Checking）：**
+        在 C# emit 裡，傳入狀態陣列，並在每個 Chunk 開頭拿指標：
+        ```csharp
+        // Emit 這樣的 C# 碼
+        static void Step_chunk_1(ref byte state) {
+            // state[0] 是 node 0, state[1] 是 node 1
+            // RyuJIT 對 ref byte 的連續存取最佳化極好
+            state[15] = (byte)(state[10] & ~state[5]);
+            // ... 500 行
+        }
+        ```
+    這樣切 chunk 不會變慢，因為狀態本來就塞不進 CPU 的暫存器（12500 bytes 早就溢出到 L1 甚至 L2 cache 了）。依賴 L1 cache 來做 chunk 間的資料傳遞是最快且最穩定的。
+
+---
+
+### 2. fixed-K 的 K 與 SCC 拓樸序
+**建議：Per-SCC 決定 K，並利用 S1 (Golden) 來做「Training」。**
+*   **拓樸序排法：** 對於每個 SCC，跑一次 DFS，遇到 back-edge 就「暫時剪掉」。對剪掉後的 DAG 進行拓樸排序。這就是該 SCC 內部 Gauss-Seidel 的最佳 in-place 執行順序。
+*   **K 的物理意義：** 在這個最佳拓樸序下，K 就是「訊號在同一個半週期內，逆著 back-edge 漣波（Ripple）傳遞的最大次數」。對於大部份計數器，如果拓樸序是 LSB 到 MSB，K=2 通常就穩了（甚至 1 加上下個半週期就能收斂）。
+*   **如何算 K？務實解法（Training-based）：**
+    不用純靜態分析去算最大 back-edge 路徑，太複雜且悲觀。
+    **實作你的想法：** S4 跑的時候掛著 S1。每半週期，SCC 內部跑 `k=1,2,3...` 次，每次跑完檢查「這個 SCC 內的 node state 有沒有變動？（Fixpoint）」。
+    記錄下跑完整個馬力歐 / 薩爾達的 ROM 後，**每個 SCC 遇到過的最大 k 值**。然後把這個最大值寫死（或 +1 當保險）進 Emit 裡 `for (int k = 0; k < K_for_this_SCC; k++)`。
+    甚至可以完全 Unroll：如果 K=2，就直接 Emit 兩次該 SCC 的程式碼，連 loop branch 都省了。
+
+---
+
+### 3. hybrid bus 抽 pseudo-NextExpr
+**建議：(d) 放在 S3 與 S4 之間作為「IR LoweringPass」，且 (a) 規則要符合 NMOS 物理特性。**
+*   *(a) 優先序與衝突解決：* NES 是 NMOS 邏輯，Tri-state bus 衝突時通常表現為 **Wired-AND** 或依賴強弱。GND（拉低）的能力遠強於 VCC/Pull-up。
+    因此，Pseudo-NextExpr 的構建不該是單純優先序，而應該是：
+    `has_pull_down = (en_1 & !val_1) | (en_2 & !val_2) ...` (有任何人輸出 0)
+    `has_pull_up = (en_1 & val_1) | (en_2 & val_2) ...` (有任何人輸出 1)
+    `bus_next = has_pull_down ? 0 : (has_pull_up ? 1 : Hold(bus))`
+    這比巢狀 Mux 更貼近物理，且布林邏輯更扁平。
+*   *(b) Hold(bus)：* 對，這就是寄生電容效應。`Hold(bus)` 轉譯成 C# 就是 `state[bus]` 不重新賦值（或 `cur[bus] = prev[bus]`）。
+*   *(c) 跟 SCC 耦合：* 沒錯，如果抽完發現它跟其他 node 形成環，**無腦丟進 SCC 交給 fixed-K 處理**。Gauss-Seidel 能完美解掉這種 bus-latch 耦合。
+
+---
+
+### 4. Bit-slicing 的 word width (C# / .NET)
+**建議：S4.4 唯一指定 `Vector256<ulong>` (AVX2)。先用 `ulong` 開發驗證。**
+*   **分析 Bottleneck：** 14723 nodes，如果用 `ulong` (64台)，狀態陣列約 117 KB（完全塞進 L2 cache，部分在 L1）。這時是 **ALU-bound**（每個 node 至少 1-2 個 ALU ops）。
+*   如果上 `Vector256<ulong>` (256台)，狀態陣列變 470 KB（仍在現代 CPU L2/L3 內），但 ALU throughput 直接變 4 倍。這時才會開始轉向 **Memory-bound / L2 Cache Bandwidth-bound**。
+*   **開發路徑：**
+    1.  **MVP:** 先 Emit `ulong` (64-way)。這最好除錯，C# 的 `& | ^ ~` 直觀。
+    2.  **進化:** 在 C# Emit 裡把 `ulong` 替換成 `Vector256<ulong>`，用 `Vector256.BitwiseAnd` 等。只要 CPU 支援 AVX2（近 10 年 CPU 都支援），這是效能甜蜜點。
+    3.  **不要用 `Vector<T>`：** 長度由 Runtime 決定，這對你在實作 Memory Gather/Scatter Transpose 時是個噩夢（你不知道一次要 transpose 幾個 lane）。`Vector256` 寬度固定，好寫死最佳化。
+
+---
+
+### 5. 整體 / 漏掉的坑
+
+*(a) 行為式 RAM/ROM 的 Gather/Scatter Transpose 成本*
+這是一個 **巨坑**。Bit-slicing 的阿基里斯腱就是 Memory 存取。
+在 64-way (`ulong`) 下，每個 clock 你要拿 16-bit x 64 台的 Address，這代表位址被分散在 16 個 `ulong` 裡。
+你要做 **AoS to SoA Matrix Transpose**，轉出 64 個 `ushort` 實際記憶體位址，去查表，再把 64 個 `byte` 結果 Transpose 回 8 個 `ulong` 餵給 Data Bus。
+**建議：** 這個 Transpose 必須用神仙級的 Bit-twiddling 演算法（例如 Hacker's Delight 裡的 Divide and Conquer transpose），或是直接呼叫 x86 `PDEP`/`PEXT` (BMI2 指令集)。如果用純 Scalar C# 跑 for loop 轉置，**Transpose 的時間會超過那 14723 個 node 計算的總和**。
+
+*(b) Reset / 初始狀態*
+如果 64 台跑不同 ROM / Input：完全沒問題。Bit-slicing 架構本來就支援所有 lane 的 state 完全不同。ROM 的差異只要在 Gather 時，用 Lane Index 去查各自的 `byte[][] roms` 即可。
+
+*(c) GPU 路線：SIMT vs Bit-sliced*
+**這是最關鍵的架構分水嶺。千萬不要把 Bit-slicing 搬上 GPU！**
+*   **CPU 適合 Bit-slicing (SWAR)：** 因為 CPU core 少，ALU 寬度有限（AVX2 = 256bit）。我們用 1 bit 代表一台機器，強行向量化。
+*   **GPU 適合 SIMT：** GPU 本身就是硬體層級的 1 thread = 1 instance。
+    如果你在 GPU 寫 Bit-sliced（一個 Thread 算 64 台的 ulong），你會遭遇極為可怕的 **Register Pressure** 和 **Memory Divergence**。
+*   **GPU 的正確做法：** Compute Shader (HLSL/ComputeSharp)。
+    `Thread ID = 模擬機台 ID`。
+    State Array 就是 `uint states[NUM_INSTANCES][NUM_NODES]`（或壓縮成 bit-field `uint states[NUM_INSTANCES][NUM_NODES/32]`）。
+    每個 Thread 內部**純 Scalar 執行**：`state[15] = state[10] & ~state[5];`
+    GPU 的硬體 Warp/Wavefront 會自動把 32/64 個 Threads 合併成向量指令執行。這跟你 S4.1 寫的 C# Scalar 程式碼一模一樣！所以 **S4.1 的 C# Emit 程式碼，幾乎可以字串替換直接變成 GPU Compute Shader 的 Kernel！**
+
+### 總結你的 S4 MVP 修正路線
+1.  **S4.1 (Scalar C#)**: 切 Chunk（每個 method ~500 nodes），用 `ref byte state`。這是未來 GPU Compute Shader 的雛形。
+2.  **S3.5 (IR Lowering)**: 把 Bus 化簡為 Wired-AND / Wired-OR 的 Pseudo-NextExpr，有環就丟進 SCC。
+3.  **S4.2 (Fixed-K)**: 用 DFS 斷環求拓樸序，K 值掛著 S1 跑遊戲 profiling 求出來寫死。
+4.  **S4.4 (Bit-slicing CPU)**: 專注解 Gather/Scatter Transpose 難題（研究 BMI2 或位元運算魔法）。從 `ulong` 起手，後續升級 `Vector256`。
+
+這個管線的設計非常現代且精準，繼續推進，你會得到一個效能怪物！

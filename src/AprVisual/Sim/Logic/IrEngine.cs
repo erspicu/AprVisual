@@ -33,7 +33,7 @@ namespace AprVisual.Sim.Logic
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
         public static int Size2ResolvedCount;    // S3 γ.1: # of nodes dissolved from size-1/2 SCCs by 1-/2-step substitution
-        public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — the clock-fanout "synchronous register" heuristic over-cuts (catches some dynamic transmission-gate latches whose consumers genuinely need the *current* value, not Prev → mismatches in the 6502 R/W-timing logic + a palette-RAM cascade). Needs a precise register-boundary analysis. With γ.0+γ.1 driving coverage is 79.3% (843 nodes still in 56 SCCs → S1).
+        public static bool Gamma2Enabled = false; // S3 γ.2 (WIP, disabled): topological-loop breaker — dissolves 821/843 SCC nodes correctly (hpos counter, APU DMC, chroma ring, …) but still over-cuts ~2-3 spots (a 6502 pipeline register reading a non-stable data source, a palette-RAM cascade) → checking 2 mismatches + a driving cascade. Root issue: the "register reads Prev(data)" model assumes data is stable until the register's clock edge, which fails when data depends on a register clocked by an earlier derived phase within the same master half-cycle. Needs more thought (asking Gemini). With γ.0+γ.1 driving coverage is 79.3% (843 nodes in 56 SCCs → S1).
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
@@ -256,23 +256,32 @@ namespace AprVisual.Sim.Logic
             // Returns # of (consumer, latch) NodeRef edges cut.
             int Gamma2BreakLoops()
             {
+                // For each SCC: for every clock-gated transmission-gate register `reg` in it, rewrite reg's *own*
+                // NextExpr so its SCC-internal data edges read Prev — `reg = Mux(Node(clk), Node(data), Hold(reg))`
+                // becomes `Mux(Node(clk), Prev(data), Hold(reg))`. Physically: the register loads `data`'s value
+                // *as of the clock edge*, which (data being combinational logic over other registers, all stable
+                // until the edge) equals data's start-of-half-cycle value = Prev(data). This makes every register
+                // a *source* of the SCC's induced subgraph; the combinational side (carry chains, "counter == k"
+                // detectors, the next ring stage) keeps Node(reg) — it's downstream, so it reflects reg's freshly
+                // computed value. So the SCC shatters into a DAG (a cycle that survives is pure-combinational ⇒
+                // an extraction artifact ⇒ left to S1). Node(clk) stays current (level-sensitive transmission
+                // gate; the clock dividers' loops were dissolved by γ.1 so clk is acyclic now). Returns # of edges cut.
                 int cut = 0;
                 foreach (var comp in SccComponents)
                 {
                     if (comp.Length < 2) continue;
                     if (comp.Any(v => v < InScc.Length && !InScc[v])) continue;     // already dissolved this pass (γ.1)
-                    var latchMembers = new HashSet<int>(comp.Where(LatchLike));
-                    if (latchMembers.Count == 0) continue;                          // a pure-combinational cycle ⇒ can't break it this way (extraction artifact → S1)
-                    foreach (int v in comp)
+                    var member = new HashSet<int>(comp);
+                    foreach (int reg in comp)
                     {
-                        if (NextExpr[v] is not { } e) continue;
+                        if (!LatchLike(reg) || NextExpr[reg] is not { } e) continue;
                         var refs = new HashSet<int>(); CollectNodeRefs(e, refs);
-                        int hit = refs.Count(latchMembers.Contains);
-                        if (hit == 0) continue;
-                        NextExpr[v] = Substitute(e, id => latchMembers.Contains(id) ? Expr.Prev(id) : null);
-                        if (v < IsSequential.Length) IsSequential[v] = true;
-                        if (v < Hybrid.Length) Hybrid[v] = false;
-                        cut += hit;
+                        var toCut = new HashSet<int>(refs.Where(member.Contains));
+                        if (toCut.Count == 0) continue;
+                        NextExpr[reg] = Substitute(e, id => toCut.Contains(id) ? Expr.Prev(id) : null);
+                        if (reg < IsSequential.Length) IsSequential[reg] = true;
+                        if (reg < Hybrid.Length) Hybrid[reg] = false;
+                        cut += toCut.Count;
                     }
                 }
                 return cut;

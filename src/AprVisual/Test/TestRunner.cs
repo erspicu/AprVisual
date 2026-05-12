@@ -423,6 +423,24 @@ namespace AprVisual.Test
                     Console.WriteLine($"      {WireCore.GetNodeName(v)}#{v}  cyc-edges→[{cyc}]  pass={passes}  pd={pd}  pu={pu}  next={(p.Length > 110 ? p[..110] + "…" : p)}");
                 }
             }
+            // ── S3 γ.2 refine: pass-transistor gate fan-out distribution (real clock phases gate many; control signals gate few) ──
+            var gateFanout = new System.Collections.Generic.Dictionary<int, int>();
+            foreach (var d in di) if (d != null) foreach (var pl in d.Passes) if (pl.Cond is NodeRefExpr cnr) gateFanout[cnr.Id] = gateFanout.GetValueOrDefault(cnr.Id) + 1;
+            Console.WriteLine("  → top pass-transistor gate fan-out (node — #pass-transistors-it-gates — in-residual-SCC?):");
+            var sccMembers = new HashSet<int>(comps.SelectMany(c => c));
+            foreach (var kv in gateFanout.OrderByDescending(kv => kv.Value).Take(40))
+                Console.WriteLine($"      {WireCore.GetNodeName(kv.Key)}#{kv.Key}  ×{kv.Value}{(sccMembers.Contains(kv.Key) ? "  (in SCC)" : "")}");
+            // and the gates of the residual-SCC latch nodes (di[v].Passes>0 && PullDown==null && PullUp==None):
+            Console.WriteLine("  → residual-SCC pure-pass-latch nodes and their gate fan-outs:");
+            int latchShown = 0;
+            foreach (int v in comps.SelectMany(c => c).Distinct())
+            {
+                var d = v < di.Length ? di[v] : null;
+                if (d == null || d.PullDown != null || d.PullUp != AprVisual.Sim.Logic.PullUpKind.None || d.Passes.Count == 0) continue;
+                if (latchShown++ >= 30) break;
+                var gates = string.Join(",", d.Passes.Select(pl => pl.Cond is NodeRefExpr g ? $"{WireCore.GetNodeName(g.Id)}×{gateFanout.GetValueOrDefault(g.Id)}" : pl.Cond.Pretty()));
+                Console.WriteLine($"      {WireCore.GetNodeName(v)}#{v}  gates={gates}");
+            }
             return 0;
         }
 

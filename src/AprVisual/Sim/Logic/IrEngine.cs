@@ -30,6 +30,7 @@ namespace AprVisual.Sim.Logic
         public static int[] EvalOrder = [];      // driving mode: node ids the IR evaluates, topo-sorted by the current-value dependency graph (deps first)
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
+        public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
         public static bool[] OkToSkipInRecalc = []; // [nodeId]; true = the driving-mode bridge ProcessQueue may skip RecalcNode(this) — IR-covered, not InScc, channel-graph component all-IR, and NodeRef dep-closure all-IR (see BuildOkToSkip). DEBUG-gated by IrEngine.DebugSkipRecalc / --debug-skip-recalc for now.
@@ -132,6 +133,7 @@ namespace AprVisual.Sim.Logic
             int[] idx = new int[n], low = new int[n]; Array.Fill(idx, -1);
             bool[] onStk = new bool[n]; var stk = new Stack<int>(); int nextIdx = 0;
             var sccSizes = new List<int>(); var sampleScc = new List<string>();
+            SccComponents = new List<int[]>();
             void StrongConnect(int v)
             {
                 idx[v] = low[v] = nextIdx++; stk.Push(v); onStk[v] = true;
@@ -149,6 +151,7 @@ namespace AprVisual.Sim.Logic
                     if (comp.Count > 1 || selfLoop)
                     {
                         sccSizes.Add(comp.Count);
+                        SccComponents.Add(comp.ToArray());
                         foreach (int c in comp) { InScc[c] = true; if (sampleScc.Count < 16) sampleScc.Add($"{WireCore.GetNodeName(c)}#{c}"); }
                     }
                 }

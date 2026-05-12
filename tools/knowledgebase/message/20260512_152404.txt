@@ -1,0 +1,134 @@
+Timestamp: 2026-05-12T15:24:04
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是一位資深的硬體驗證 / 邏輯綜合 / 模擬器工程師。延續之前那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → CPU 直譯器 → 最終 GPU bit-slicing」管線的 review。上次你給的優先序是 α（precise bridge）→ γ（救回 SCC node、提升 IR coverage）→ S4 C++ codegen 提前 → β（event-driven，降級）。專案負責人決定**跳過 α**（理由見下 §1）、直接做 γ。我需要你 review γ 的具體設計。請用繁體中文、務實、給明確建議與理由。
+
+## 1. 為什麼跳過 α
+
+α = precise-enqueue bridge（flat program 跑完後只把「變了的 IR node 的非-IR fanout」丟進 ProcessQueue 的 queue，不重算 IR 那 46%）。但實測：bridge 已有 `OkToSkipInRecalc` 機制（IR-covered 且 channel-graph component 全 IR 且 NodeRef dep-closure 全 IR 的 node 可 skip RecalcNode），14723 個 node 裡只有 184 個夠格、且實測「skip 這 184 個」對 benchmark 完全無差。原因：~5705 個 InScc + ~2126 個 hybrid bus = ~7831 個非-driving-covered node（53%）；一個 IR node 的 NextExpr 只要 transitively 引用到這 7831 裡任何一個，它在 flat-program 那一步就是用 stale 值算的、必須在 ProcessQueue 那一步被 RecalcNode 修正、不能 skip；~96% 的 IR node 都被污染。⇒ bridge 冗餘是 InScc/hybrid 污染造成的 → 解法是消滅 InScc（γ），不是 α。γ 做完後 depImpure 縮小、α 才有意義（順序顛倒）。
+
+## 2. 現況 IR coverage（整片 nes-001，14723 node）
+
+- 12523 個 IR-covered（85.1%，有 NextExpr）；6818 個 driving-evaluated（46.3%，有 NextExpr 且不在 current-value SCC 裡、放進拓樸排序 EvalOrder）；**5705 個在 current-value 的 NodeRef SCC 裡 → driving 模式交給 S1 的 switch-level ProcessQueue**。GPU bit-slicing 跑不了 S1 的 switch-level BFS，所以這 5705 個是專案 blocker。
+- 已有的 SCC 復原（SccModel）：Stage A = 2-node cross-coupled SRAM cell（`NextExpr[a] = Mux(write_en, data, Prev(a))`）；Stage A2 = cross-coupled-NOR-with-load latch（`q = !(/q | load_q)`，pull-up 是 static load；符號化模型 `NextExpr[a] = Mux(rest_a, False, Mux(rest_b, True, Prev(a)))`）。Stage D（盲目切 feedback back-edge + Node→Prev）試過然後 revert（cut 點不對 → 破 checking 模式 + 除頻鏈 NextExpr 本身就錯）。
+
+## 3. InScc 的解剖（剛加的診斷量出來的）
+
+5705 個 InScc node / **2254 個 SCC，全部 size ≥ 2（0 個 size-1 self-loop）**。size 分布：703 / 79 / 54 / 38 / 26 / 20 / 14 / 13 / 11 / 11 / 11 / 9 / 8 / 7×5 / 6×… / …… —— top ~21 個 SCC ≈ 1087 個 node，**剩下 ~2233 個 SCC ≈ 4618 個 node → 平均 size 2.07** ⇒ **絕大多數是 size-2 的 cross-coupled pair**（~4400 個 node）。
+
+大 SCC 的身份（按 named-node 名字判讀）：
+- **703**（367 named）= 2A03 APU 的 **DMC（delta modulation / PCM）sample timer + frame counter**（`cpu.w4014`, `cpu.pcm_t5`/`pcm_+t5`/`pcm_/t5` … 一大串 `pcm_tN` 計數器 bit + 反相 + carry）
+- **79**（45 named）= APU **noise channel 的 envelope/LFSR 計數器**（`cpu.noi_cN`/`noi_+cN`/`noi_/cN`）
+- **54**（22 named）= APU **noise channel 的 timer**（`cpu.noi_tN`/`noi_/tN`）
+- **38**（38 named）= PPU **sprite evaluation**（`ppu.sprite_in_range`, `ppu.spr_eval_copy_sprite_2`, `ppu.inc_spr_ptr`, `ppu.spr_ptr_overflow` …）
+- **26**（0 named）= 全 unnamed wire junction（某 macro cell 內部）
+- **20**（18 named）= PPU **VRAM address 增量**（`ppu.vramaddr_v10_carry_in`, `ppu.fine_y_eq_7_and_rendering`, `ppu.inc_vramaddr_v_by_32` … coarse-Y/fine-Y scroll counter 的 carry chain）
+- **14**（9 named）= PPU **chroma 生成 ring**（`ppu.chroma_ring3..5`, `ppu.chroma_ring_delayedN`, `ppu.chroma_ringN_save` —— 色彩副載波 phase ring）
+- **13**（11 named）= PPU **$2005/$2006 write toggle latch**（`ppu.hvtog`, `ppu./hvtog`, `ppu.toggle_hvtog`, `ppu.write_2005_or_2006` —— 著名的 "w" register）
+
+PPU clock-generator node（之前以為在 703 裡、其實是各自 size-2 SCC）：`clk0_int#160 ↔ /clk0_int#182`、`pclk0#115 ↔ pclk1#82`。NextExpr：
+- `clk0_int = !(/clk0_int | A) & (Hold(clk0_int) | B)`，`/clk0_int = !(clk0_int | B) & (Hold(/clk0_int) | A)`（A、B 是兩個 clock-derived 的 async input）。手算 fixpoint：A=1→q=0；A=0,B=1→q=1；A=0,B=0→hold Prev(q)。⇒ `NextExpr[clk0_int] = Mux(A, False, Mux(B, True, Prev(clk0_int)))`（reset 優先 set），`/clk0_int` 對稱。為什麼 Stage A2 沒抓到：Stage A2 要求 pull-up 是 static load，但這裡 pull-up 是 conditional（`Hold(q) | B` —— pull-up transistor 被 q 自己 gate 的 feedback，是 dynamic latch）。
+
+## 4. 我提議的 γ 子步驟（請 review）
+
+**γ.1 — 通用 size-2（含 size-3?）SCC solver（= Stage A2 一般化）—— 最大單一 win（~2200 SCC、~4400 node）**：
+對一個 size-2 SCC `{a,b}`（`NextExpr[a]` 引用 `Node(b)`、`NextExpr[b]` 引用 `Node(a)`，各自可能也引用 `Node(self)`），用「兩步代換」求 fixpoint：
+- `inner_b = NextExpr[b]` 所有 `Node(a)→Prev(a)`、`Node(b)→Prev(b)`；   ← b 從 prev 迭代一步
+- `NextExpr'[a] = NextExpr[a]` 所有 `Node(b)→inner_b`、`Node(a)→Prev(a)`；   ← a 在 b 更新後（= fixpoint，假設 2-node bistable 從一致 prev state 出發 ≤2 次 a-更新內收斂）
+- b 對稱。
+結果只引用 `Prev(a)`/`Prev(b)` + `f_a`/`f_b` 引用的 SCC-外 IR node ⇒ a、b 脫離 SCC。已用 `clk0_int` 手驗（§3）。只在「Stage A/A2 跑完還留在 SCC 裡」的 pair 上做。pair 裡有一個是 `null`(hybrid)/`ComplexExpr` → 救不了、留 SCC。size ≥4 expr 爆炸 → 不做。
+
+**γ.2 — 大 SCC（703/79/54/38/20/14/13）—— feedback-edge cut at register boundary**：
+counter/LFSR/ring/carry-chain，不能兩步代換。做法 = 找一組 feedback edge cut + `Node→Prev`，**cut 點必須在 register 邊界**（latch 輸出 node，由 clock 控制；不是 stage 內組合邏輯邊）。Gemini 上次說：NMOS register 邊界 100% 由 pass-transistor 控制 → 找受 clock-like node 驅動的 pass-transistor 寫入埠 → 只有這些 node 的輸入端可標 Prev。cut latch 輸出邊後、那個 latch 的 NextExpr 要重抽（從 pass-transistor 寫入埠的 data input + clock condition 組 `Mux(clk_cond, data, Prev(self))` —— DriveAnalysis 已經有 transmission-gate 寫埠資訊）。
+
+## 5. 想問你的（這次 review 的重點，請逐題回答）
+
+1. **γ.1 的「兩步代換」對嗎**？2-node bistable latch 從「一致的 prev state」出發、`a_next = f_a(f_b(Prev))` 一定收斂到正確的 fixpoint 嗎（會不會有需要 3+ 步的情況、或 race/metastable 使得結果不確定）？size-3 該不該做（3 步代換）？有沒有更穩的 closed-form —— 例如把整個 size-k SCC 當一個 multi-output sequential cell、把 SCC 內 node 當變數、列出 boolean 方程組 `node_i = f_i(node_*, prev_*, external_*)`、用迭代到 fixpoint（最多 k 次）或 BDD/SAT 解出每個 `node_i` 對 (prev_*, external_*) 的函數？這個一般化方法對多大的 SCC 還可行（703 行不行）？
+2. **γ.2 的 clock-domain classifier**：怎麼可靠地認出「clock-like node」（除了寫死 clk0/pclk0/pclk1）？對 NES APU（frame counter / DMC timer / 各 channel timer 各有分頻 clock），pattern-match 大概要認哪幾種結構（down-counter-with-reload？LFSR？binary ripple counter？divide-by-N？）？cut latch 輸出邊後重抽那個 latch 的 NextExpr 該放哪一層（SccModel 裡新增一個 Stage？）？703-node 的 DMC down-counter-with-reload 能不能「自動」從 netlist 抽出 `NextExpr[bit_i] = Mux(load, reload_i, Mux(tick, bit_i^carry_i, Prev(bit_i)))`、還是非得 pattern-match「這是 down-counter」再發手寫 IR？
+3. **優先序 / 範圍**：γ.1（救 ~4400 個 size-2 node、coverage 46.3%→~76%）做完先 commit、再 γ.2？還是一起設計好再動手？703-node DMC timer 值不值得花大力氣（DMC 很多 game 沒用、但「整片 NES」目標要它正確）？
+4. **「夠」的判準**：你之前說 coverage 及格線 99-100%。γ.1+γ.2 後若還剩 ~500-1000 個 node（某些 macro-cell 內部 tangle，多半 unnamed、observable 性低）—— 那些可以豁免（標 hybrid 交 S1，但 GPU 怎麼辦？）還是非得清掉？「整片 NES 跑快」最後若 PPU/APU 有一小撮 node 出不了 SCC、GPU 那邊有沒有 fallback（例如那一小塊用 CPU 算、其他 GPU 算）？
+5. 有沒有我漏掉的 —— 例如 `+`/`/` 前綴的 node（`pcm_+t5`/`pcm_/t5`/`pcm_t5`）是同一個 counter bit 的三個版本（原值/反相/某種「碰巧」中間值）—— 是不是應該在更早的 lowering 階段就把它們合併、SCC 自然變小？
+
+6.（這題是 S3 之後的選項、現在只想聽你的方向感）最終的 codegen 後端打算**用 C# 寫**（整個專案是 C# / .NET，不想引入 C++ toolchain 依賴）。可能的路線：(a) C# 直接 emit C# 原始碼字串 → `Roslyn` 動態編譯 → 一個巨大的 `static void Step(uint[] nodes)` 方法（bit-sliced：每個 node 一個 `uint`、`& | ^ ~`）；(b) C# 透過 `System.Reflection.Emit` 直接吐 IL；(c) C# 綁 **LLVM**（LLVM-C API via P/Invoke，或 `LLVMSharp` 之類的 binding）—— 在 .NET 裡用 LLVM 當 codegen 後端、emit LLVM IR → `-O3` → JIT 或 AOT 成 native，最後同一份 LLVM IR 也能 retarget 到 NVPTX（CUDA）。專案負責人有另一個 .NET 專案已經這樣用 LLVM（github.com/erspicu/AprGba）。問：對「34,893 條 flat program / 一個巨大 static-SSA block / 之後要 retarget 到 GPU」這個需求，(a)(b)(c) 哪個最划算？LLVM via .NET 這條路（emit LLVM IR 而非 C# 原始碼）在「同一份 IR 同時餵 CPU JIT 和 NVPTX」上是不是真的有優勢、還是 Roslyn-emit-C# 就夠了（反正 GPU 那邊終究要另寫 CUDA C / PTX）？Roslyn 對「一個 30000+ 行、幾萬個區域變數」的方法有沒有實務上的編譯時間 / JIT 問題？
+
+========================================================================
+RESPONSE
+========================================================================
+專案負責人（PM）跳過 α 直接做 γ 的決定**非常正確且務實**。你的診斷數據已經完美證明了這一點：在有 53% 節點是「不純淨」（InScc / Hybrid）的情況下，依賴傳播會讓幾乎整個圖都被污染，導致精確更新（Precise Enqueue）形同虛設。
+
+這是一次關鍵的轉折，我們現在正式進入「**消滅拓撲環（Acyclic Graph Extraction）**」的深水區。這是讓 GPU bit-slicing 得以實現的唯一路徑（GPU 跑不了 event-driven BFS，它只能跑 DAG）。
+
+以下針對你提出的設計與疑問，給出逐題的 Review 與具體建議：
+
+---
+
+### 1. γ.1 的「兩步代換」對嗎？
+
+**答：對，針對 Size-2 是對的，這是基於「雙穩態電路（Bistable Circuit）的定點迭代（Fixpoint Iteration）」原理。**
+
+*   **為什麼 size-2 代換 2 步會收斂？** 在數位邏輯抽象下，一個 size-2 的 cross-coupled pair 如果是一個合法的 Latch（無論是 static 還是 dynamic），其行為就是一個定點方程式 $a = f(b, \text{prev}), b = g(a, \text{prev})$。將 $b$ 代入 $a$ 得到 $a' = f(g(a, \text{prev}), \text{prev})$。如果這是一個雙穩態 Latch，這個代數表達式化簡後一定只會依賴 `Prev(a)`、`Prev(b)` 與外部訊號。如果代入兩步後，表達式**仍然**強烈依賴 `Node(a)` 或 `Node(b)`（且無法用布林代數消去），說明這不是 Latch，而可能是震盪器（Oscillator）或存在 race condition —— 這時候你反而**不該**把它提出 SCC。
+*   **Size-3 該不該做？** **不建議直接做**。Size-3 通常不是簡單的 Latch，而是包含邏輯延遲的迴路（例如 Ring Oscillator 或者是某種透過三個 node 傳遞的 Glitch-filter）。對 size-3 盲目做 3 步代換風險較高，很容易抽錯邏輯。
+*   **一般化的閉式解（BDD/SAT）？** 你的直覺很精準。理論上，任何 size-$k$ 的 SCC 都可以看作一個具有 $k$ 個內部狀態的 FSM。對於 $k \le 4$ 的微小 SCC，用 ROBDD（Reduced Ordered BDD）建立轉移關係，並計算 Fixed-point 是**最穩健且數學上絕對正確**的做法。但這方法**絕對無法擴展到 703**（狀態空間爆炸 $2^{703}$）。
+*   **結論：** γ.1 就照你的提議，實作一個「代數代換 + 布林化簡器」，限定只跑 $k=2$。這能以極低的實作成本殺掉 ~4400 個節點，投資報酬率極高。
+
+### 2. γ.2 的 Clock-domain 分類器與大 SCC 切割
+
+**答：千萬不要去「Pattern-match」計數器或 LFSR，那會讓你陷入泥淖。你只需要找到「Register Boundary（暫存器邊界）」。**
+
+*   **怎麼認 Clock-like node？** 你**不需要**知道它是分頻器還是主頻。在 Switch-level 轉 Gate-level 的過程中，所謂的「Clock」只是一個**「用來控制 Pass-transistor（傳輸閘）的控制端訊號」**。
+*   **切割策略（Stage B：Pass-transistor Cut）：**
+    1. 掃描大 SCC 內的所有節點。
+    2. 尋找被 Pass-transistor 驅動的節點（NES 的 NMOS 邏輯中，Latch 的輸入幾乎 100% 來自 Pass-transistor）。
+    3. 將這個 Pass-transistor 的「資料輸入端」或「輸出端」切斷，標記為 `Prev()`。
+    4. 重抽 `NextExpr`：`NextExpr[latch] = Mux(pass_gate_control, pass_gate_data, Prev(latch))`。
+*   **為什麼不用管 703 是什麼 Counter？** 一旦你把 703-node SCC 裡面所有的 Latch 輸入端都正確切斷並加上 `Prev()`，這個 703 的巨大環就會**瞬間瓦解（Shatter）**成一堆有向無環圖（DAG）。那些 Counter 的加法器、Carry chain、LFSR 的 XOR，本質上只是夾在 `Prev(latch_A)` 和 `NextExpr[latch_B]` 中間的一大坨「純組合邏輯（Combinational Logic）」。你**完全不需要**手寫 IR 去描述「這是一個 Counter」，你的邏輯綜合器會自然把這些 NAND/NOR/XOR 展開成一個巨大的、但完全 acyclic 的布林表達式！這才是硬體驗證管線的威力。
+
+### 3. 優先序與範圍
+
+**答：先 γ.1 (Commit) → 處理同義節點 (Q5) → 再 γ.2。**
+
+1.  **γ.1 是 Low-hanging fruit**：程式碼簡單，影響範圍明確（只動 size-2）。做完立刻 commit，這會讓你的 coverage 從 46.3% 跳升到 70%+，士氣大振，也能讓剩下的圖變乾淨。
+2.  **大 SCC 絕對值得花力氣**：703-node 的 DMC 不只是為了跑某些特定的遊戲，而是**為了能上 GPU**。只要有一個 node 留在 SCC 裡，GPU 就必須在那裡跑 while-loop 直到收斂，這對 GPU 架構（SIMT）是毀滅性的。
+
+### 4. 「夠」的判準與 GPU Fallback
+
+**答：對於 GPU Bit-slicing 而言，及格線是「Sequential Node 100% 被抽離為 Prev() 邊界，Combo Node 100% 變為 DAG」。**
+
+*   **剩 500-1000 個能不能豁免？** **不行**。在 GPU 裡，如果你有 64 個 NES 模擬器在同一個 Warp 裡 bit-slicing（每個 thread 負責一個 bit），只要其中一個模擬器的某個 macro-cell 進入 SCC oscillation 或需要 iteratively evaluate，**整個 Warp 的 64 個模擬器都要陪著它等**（Warp divergence）。
+*   **GPU 有無 Fallback？** 實務上很難。如果你讓 GPU 算一半，把那 500 個難搞的 node 拷貝回 CPU 算，算完再拷貝回 GPU，PCIe/Memory 傳輸延遲會把你的效能吃光。
+*   **最終手段：** 如果最後真的剩幾十個 unnamed tangle 抽不出 Latch 模型，你可以對它們實作一個「Micro-iteration block」：在 GPU/CPU codegen 時，將這幾個 node 包在一個 `for (int i=0; i<3; ++i) { ... }` 的微型迭代迴圈裡強制收斂（假設它們只是某種複雜的 combo 延遲），但這非常破壞美感，應極力避免。
+
+### 5. 漏掉的：前綴 / 同一節點的多版本
+
+**答：這是神來之筆（Critical Insight）。這叫「Node Aliasing / Buffer Removal」，必須在更早的階段做！**
+
+*   在 NMOS/CMOS 網表中，因為 fan-out 限制，往往會有一大堆 Buffer 節點（`pcm_t5`、`pcm_+t5`）或 Inverter 節點（`pcm_/t5`）。
+*   **強烈建議在「建立 NextExpr / 拓撲排序前」新增一個 Lowering Pass**：
+    *   找出所有單純的 Buffer（`NextExpr[a] = Node(b)`），將圖中所有對 `a` 的引用全部替換為 `b`。
+    *   找出所有單純的 Inverter（`NextExpr[a] = Not(Node(b))`），將引用替換為 `!b`。
+*   **為什麼這很重要？** 這會大幅減少圖的節點數，而且很多看似 size-4、size-6 的 SCC，在經過 Aliasing 之後，會現出原形，變成標準的 size-2 cross-coupled pair！這能讓你的 γ.1 抓到更多東西。
+
+### 6. 關於最終 Codegen 後端 (S3 之後的方向感)
+
+**答：強烈推薦 (c) LLVM via .NET。對你的使用情境，(a) 和 (b) 都有嚴重的工程與效能瓶頸。**
+
+*   **為何不選 (a) Roslyn 字串：**
+    35,000 行 flat block 加上數萬個區域變數，會觸發 Roslyn 和 .NET JIT 的惡夢。Roslyn 的 Parser 會很慢，而 .NET 的 RyuJIT 主要是為「小而美的物件導向方法」最佳化的，當它遇到有三萬個區域變數的方法時，Register Allocation（暫存器分配）算法會耗費極長時間，甚至直接 fallback 到極差的 unoptimized 機器碼。
+*   **為何不選 (b) Reflection.Emit IL：**
+    雖然跳過了 Roslyn parsing 變快了，但最終還是要過 RyuJIT，上述的巨大 Block 暫存器分配問題依舊存在。
+*   **為何 (c) LLVM 是最佳解：**
+    硬體模擬界（例如 Verilator）產生巨量 flat SSA 程式碼是家常便飯。LLVM 的架構就是為了處理這種巨型 IR 而生的。
+    1. **最佳化能力：** LLVM 的 `-O3` 能夠對這 35,000 行進行跨越全域的 Constant Folding、Dead Code Elimination 和 Instruction Combining。這會把你的網路圖進一步壓縮。
+    2. **Register Allocation：** LLVM 的 greedy register allocator 處理巨型基本區塊（Basic Block）的表現遠超 RyuJIT。
+    3. **GPU Retargeting：** 這是一擊必殺的理由。同一份 LLVM IR，透過 .NET LLVM binding，可以一鍵 Retarget 到 CPU (x86/ARM) 或者是 NVPTX (CUDA)。如果你用 C# emit，你未來要上 GPU 就必須寫另外一套 emit 字串去生成 CUDA C / PTX 碼，維護兩套 Codegen 後端會讓你發瘋。用 LLVM，你只需維護一套 `IRBuilder` 的呼叫邏輯。
+
+### 總結你的下一步 Action Items
+
+1. **實作 Node Aliasing Pass**：清掉 `+` / `/` 這類 Buffer/Inverter 冗餘，縮小 SCC size。
+2. **實作 γ.1 (Size-2 Solver)**：代數代換 2 步，清掉 80% 的微型環。
+3. **實作 Stage B Pass-Transistor Latch Extraction**：只切 Pass-transistor 邊界，讓 boolean 展開去處理 703-node 的 Counter 邏輯，不要寫 hardcoded pattern matcher。
+4. **準備迎接全 Acyclic 圖**：一旦 5705 個 node 全被消滅，GPU Bit-slicing 的大門就正式為你敞開。
+
+專案走到這裡已經非常硬核且令人興奮，這條「不妥協、不手寫行為級模型、全自動從網表抽 Acyclic IR」的路是對的。繼續前進！

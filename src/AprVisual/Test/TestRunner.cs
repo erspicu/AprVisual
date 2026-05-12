@@ -365,6 +365,42 @@ namespace AprVisual.Test
             // S2.4 / S3 picture: build the full IR engine (BuildEvalOrder + residual-SCC detection + the flat program)
             AprVisual.Sim.Logic.IrEngine.Build();
             Console.WriteLine($"  → IR engine: {AprVisual.Sim.Logic.IrEngine.IrCoveredCount} IR-covered ({100.0 * AprVisual.Sim.Logic.IrEngine.IrCoveredCount / Math.Max(1, WireCore.NonNullNodeCount):F1}%), {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} driving-evaluated, {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in residual SCCs → S1, {AprVisual.Sim.Logic.IrEngine.SkippableInRecalcCount} bridge-skippable, {AprVisual.Sim.Logic.IrEngine.FlatInstrCount:N0} flat instrs; {WireCore.NonNullNodeCount} nodes total{(WireCore.UseBare2a03 ? "  [bare-2A03 rig]" : "")}");
+
+            // ── S3 γ planning: anatomy of the residual SCCs ──
+            var comps = AprVisual.Sim.Logic.IrEngine.SccComponents;
+            var nx = AprVisual.Sim.Logic.IrEngine.NextExpr;
+            int selfLoops = comps.Count(c => c.Length == 1);
+            int multi = comps.Count - selfLoops;
+            // self-loop NextExpr shape histogram: is it Mux(C, X, NodeRef(self)) with C/X not referencing NodeRef(self)?  ("clean hold" — γ.1 can Prev-cut it)
+            int cleanHold = 0, otherSelf = 0;
+            bool RefsNode(Expr? e, int id) { if (e == null) return false; var s = new HashSet<int>(); AprVisual.Sim.Logic.IrEngine.CollectIdsPublic(e, s); return s.Contains(id); }
+            foreach (var c in comps) if (c.Length == 1)
+            {
+                int v = c[0];
+                bool clean = v < nx.Length && nx[v] is MuxExpr mx && ((mx.B is NodeRefExpr br && br.Id == v && !RefsNode(mx.Cond, v) && !RefsNode(mx.A, v)) || (mx.A is NodeRefExpr ar && ar.Id == v && !RefsNode(mx.Cond, v) && !RefsNode(mx.B, v)));
+                if (clean) cleanHold++; else otherSelf++;
+            }
+            Console.WriteLine($"  → residual SCCs: {comps.Count} total = {selfLoops} self-loop (size-1) + {multi} multi-node; self-loop shapes: {cleanHold} clean-hold Mux(C,X,Node(self)) + {otherSelf} other");
+            Console.WriteLine("  → sample 'other' self-loop NextExprs:");
+            int so = 0; foreach (var c in comps) if (c.Length == 1 && so < 8) { int v = c[0]; bool clean = v < nx.Length && nx[v] is MuxExpr mx2 && ((mx2.B is NodeRefExpr br2 && br2.Id == v && !RefsNode(mx2.Cond, v) && !RefsNode(mx2.A, v)) || (mx2.A is NodeRefExpr ar2 && ar2.Id == v && !RefsNode(mx2.Cond, v) && !RefsNode(mx2.B, v))); if (!clean) { var p = v < nx.Length ? nx[v]?.Pretty() ?? "?" : "?"; Console.WriteLine($"      {WireCore.GetNodeName(v)}#{v} = {(p.Length > 140 ? p[..140] + "…" : p)}"); so++; } }
+            // the biggest SCCs: size + how many of their members are named (have a semantic name vs unnamed wire junction)
+            Console.WriteLine("  → biggest multi-node SCCs (size — #named — sample node names):");
+            foreach (var c in comps.Where(c => c.Length > 1).OrderByDescending(c => c.Length).Take(8))
+            {
+                int named = c.Count(v => WireCore.GetNodeName(v) != v.ToString());
+                var names = c.Where(v => WireCore.GetNodeName(v) != v.ToString()).Take(12).Select(v => WireCore.GetNodeName(v));
+                Console.WriteLine($"      size {c.Length} — {named} named — {string.Join(", ", names)}{(named > 12 ? " …" : "")}");
+            }
+            // for clk0_int / pclk0 / pclk1: which SCC are they in, and what's their NextExpr?
+            Console.WriteLine("  → PPU clock-generator nodes:");
+            foreach (var nm in new[] { "ppu.clk0_int", "ppu./clk0_int", "ppu.pclk0", "ppu.pclk1", "ppu.clk0", "clk0" })
+            {
+                int id = WireCore.LookupNode(nm);
+                if (id == WireCore.EmptyNode) { Console.WriteLine($"      {nm}: (no such node)"); continue; }
+                int sccSize = comps.FirstOrDefault(c => c.Contains(id))?.Length ?? 0;
+                string p = id < nx.Length && nx[id] != null ? nx[id]!.Pretty() : "(no NextExpr — hybrid/Input)";
+                Console.WriteLine($"      {nm}#{id}: in SCC of size {sccSize}; NextExpr = {(p.Length > 160 ? p[..160] + "…" : p)}");
+            }
             return 0;
         }
 

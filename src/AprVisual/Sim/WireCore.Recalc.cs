@@ -18,6 +18,12 @@ namespace AprVisual.Sim
         // ProcessQueue itself (the hybrid bridge). Default false ⇒ S1's behaviour is exactly unchanged.
         public static bool DeferRecalc;
 
+        // When non-null (driving mode's bridge, DEBUG): ProcessQueue skips RecalcNode(nn) for nn with
+        // SkipRecalcOf[nn]==true. This optimisation broke the memory path in firings 14/15 and is currently
+        // only wired up via IrEngine.DebugSkipRecalc + the --debug-skip-recalc flag for investigation.
+        // Default null ⇒ S1's behaviour is exactly unchanged.
+        public static bool[]? SkipRecalcOf;
+
         /// <summary>Mark a node dirty and propagate to quiescence (unless DeferRecalc, then just enqueue).</summary>
         public static void RecalcNodeList(int nn) { EnqueueNode(nn); if (!DeferRecalc) ProcessQueue(); }
 
@@ -96,8 +102,9 @@ namespace AprVisual.Sim
                     int nn = RecalcList[i];
                     if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
                     {
-                        RecalcNode(nn);
                         RecalcHash[nn] = 0;
+                        if (SkipRecalcOf is { } skip && nn < skip.Length && skip[nn]) continue;   // driving-mode bridge (DEBUG): already computed by the IR eval
+                        RecalcNode(nn);
                     }
                 }
                 RecalcListCount = 0;

@@ -32,6 +32,8 @@ namespace AprVisual.Sim.Logic
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
+        public static bool[] OkToSkipInRecalc = []; // [nodeId]; true = the driving-mode bridge ProcessQueue may skip RecalcNode(this) — IR-covered, not InScc, channel-graph component all-IR, and NodeRef dep-closure all-IR (see BuildOkToSkip). DEBUG-gated by IrEngine.DebugSkipRecalc / --debug-skip-recalc for now.
+        public static int SkippableInRecalcCount; // # of nodes with OkToSkipInRecalc == true
         // ── flattened driving-mode IR program (S3.1): EvalOrder's Expr trees compiled to one stack-machine
         //    instruction stream — a tight loop over arrays beats recursing object trees (cache-friendly, no
         //    virtual dispatch). Op codes: 0 LoadNode(arg=id), 1 LoadPrev(arg=id), 2 Const0, 3 Const1, 4 Not,
@@ -58,6 +60,7 @@ namespace AprVisual.Sim.Logic
             PrevStates = new byte[n];
             CheckInChecking = new bool[NextExpr.Length];
             BuildEvalOrder();          // current-value dependency graph → break residual cycles (hybrid-ize) → topo sort → EvalOrder[] (driving mode)
+            BuildOkToSkip(n);          // which IR nodes the bridge ProcessQueue can skip RecalcNode for
             CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
             IrCoveredCount = 0; CheckedCount = 0;
             var nodes = WireCore.Nodes;
@@ -177,6 +180,46 @@ namespace AprVisual.Sim.Logic
             DrivingCoveredCount = EvalOrder.Length;
         }
 
+        /// <summary>Compute OkToSkipInRecalc[v] — true ⇒ the driving-mode bridge ProcessQueue can skip RecalcNode(v):
+        /// v is IR-covered, not InScc, AND (a) every node in v's *channel-graph* connected component is also
+        /// IR-covered & not-InScc (so v drives no hybrid/Input member that only RecalcNode(v) would propagate to),
+        /// AND (b) v's transitive *current-value-dependency* closure (the NodeRef edges in NextExpr) contains no
+        /// hybrid/InScc node (so v's IR eval used only correct inputs — nothing ProcessQueue would later fix).
+        /// (Input nodes — no channel transistors, value resolved by step 3 before the IR eval — are fine in both.)</summary>
+        static void BuildOkToSkip(int n)
+        {
+            int N = WireCore.NodeCount;
+            // (a) channel-graph components (union-find; transistors as edges, but NOT through vcc/vss).
+            int[] uf = new int[N]; for (int i = 0; i < N; i++) uf[i] = i;
+            int Find(int x) { while (uf[x] != x) { uf[x] = uf[uf[x]]; x = uf[x]; } return x; }
+            foreach (var t in WireCore.Transistors)
+            {
+                int c1 = t.C1, c2 = t.C2;
+                if (t.Gate == WireCore.Ngnd) continue;
+                if (c1 == WireCore.Npwr || c1 == WireCore.Ngnd || c2 == WireCore.Npwr || c2 == WireCore.Ngnd) continue;
+                if (c1 >= 0 && c1 < N && c2 >= 0 && c2 < N && c1 != c2) { int ra = Find(c1), rb = Find(c2); if (ra != rb) uf[ra] = rb; }
+            }
+            bool IsIr(int v) => v < NextExpr.Length && NextExpr[v] != null && (v >= InScc.Length || !InScc[v]);
+            bool[] compImpure = new bool[N];
+            for (int v = 0; v < N; v++) if (!IsIr(v)) compImpure[Find(v)] = true;
+            // (b) transitive dep-closure over the NodeRef edges (computed in EvalOrder order — deps first).
+            bool[] depImpure = new bool[NextExpr.Length];
+            var nodes = WireCore.Nodes;
+            bool ImpureLeaf(int m) => (m < NextExpr.Length && NextExpr[m] == null && m < nodes.Count && nodes[m] is { } nd && nd.C1c2s.Count > 0)   // a real hybrid bus (not an Input / constant — those have no channels and are resolved in step 3)
+                                      || (m < InScc.Length && InScc[m]);                                                                              // an InScc node (S1's ProcessQueue computes it after the IR eval)
+            foreach (int v in EvalOrder)
+            {
+                if (NextExpr[v] is not { } e) continue;
+                var refs = new HashSet<int>(); CollectNodeRefs(e, refs);
+                bool imp = false;
+                foreach (int m in refs) { if (ImpureLeaf(m) || (m < depImpure.Length && depImpure[m])) { imp = true; break; } }
+                depImpure[v] = imp;
+            }
+            OkToSkipInRecalc = new bool[Math.Max(NextExpr.Length, N)];
+            SkippableInRecalcCount = 0;
+            for (int v = 0; v < N; v++) if (IsIr(v) && !compImpure[Find(v)] && !(v < depImpure.Length && depImpure[v])) { OkToSkipInRecalc[v] = true; SkippableInRecalcCount++; }
+        }
+
         public static int EvalExpr(Expr e) => e switch
         {
             ConstExpr c   => c.Value ? 1 : 0,
@@ -252,6 +295,8 @@ namespace AprVisual.Sim.Logic
 
         public static int DiagNode = -1;        // if ≥0: on each mismatch of this node, print t / Pretty / ir / s1 / referenced-node values
 
+        public static void CollectIdsPublic(Expr e, HashSet<int> ids) => CollectIds(e, ids);   // for TestRunner's diag
+
         static void CollectIds(Expr e, HashSet<int> ids)
         {
             switch (e)
@@ -321,10 +366,12 @@ namespace AprVisual.Sim.Logic
             if (!Built) Build();
             int n = WireCore.NodeCount;
             new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (start of this half-cycle — Hold/Prev read this)
+            WireCore.SkipRecalcOf = OkToSkipInRecalc;                            //    bridge thinning (S3.0): ProcessQueue skips RecalcNode of nodes the IR already computed (channel-component & dep-closure all-IR) — see BuildOkToSkip
             WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
             WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
             RunFlatProgram();                                                    // 4. IR-evaluate every node in EvalOrder (topo order; flat stack-machine program — S3.1); writes back via SetNodeState + EnqueueNode if changed
             WireCore.ProcessQueue();                                             // 5. the bridge: computes the hybrid + InScc nodes (enqueued via the fan-out of steps 3/4); re-derives the IR nodes that got enqueued (= same value ⇒ no propagation); InvokeCallbacks = memory/video
+            WireCore.SkipRecalcOf = null;
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.
         }

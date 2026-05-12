@@ -722,7 +722,7 @@ namespace AprVisual.Test
             {
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
-                if (useIr) { AprVisual.Sim.Logic.IrEngine.Build(); Console.WriteLine($"# IR build: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} node(s) IR-driven ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, WireCore.NodeCount):F1}%), {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in SCCs → S1, rest hybrid → S1"); }
+                if (useIr) { AprVisual.Sim.Logic.IrEngine.Build(); Console.WriteLine($"# IR build: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} node(s) IR-driven ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, WireCore.NodeCount):F1}%, {AprVisual.Sim.Logic.IrEngine.FlatInstrCount:N0} flat instrs), {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} in SCCs → S1, rest hybrid → S1; {AprVisual.Sim.Logic.IrEngine.SkippableInRecalcCount} bridge-skippable"); }
                 swLoad.Stop();
 
                 long t0 = WireCore.Time;
@@ -1095,7 +1095,7 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 if (WireCore.NodeCount != n) { Console.Error.WriteLine($"node count changed between runs ({n} → {WireCore.NodeCount})"); return 2; }
                 AprVisual.Sim.Logic.IrEngine.Build();
-                Console.WriteLine($"  IR-driven nodes: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount}  /  {n}   ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, n):F1}%)   — {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} node(s) in residual SCCs → S1, rest hybrid → S1");
+                Console.WriteLine($"  IR-driven nodes: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount}  /  {n}   ({100.0 * AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount / Math.Max(1, n):F1}%)   — {AprVisual.Sim.Logic.IrEngine.ResidualSccNodes} node(s) in residual SCCs → S1, rest hybrid → S1; {AprVisual.Sim.Logic.IrEngine.SkippableInRecalcCount} bridge-skippable");
                 observable = new bool[n];
                 for (int v = 0; v < n; v++) observable[v] = WireCore.Nodes[v] is { } nd && (nd.Gates.Count > 0 || WireCore.GetNodeName(v) != v.ToString());
                 for (int t = 0; t < cycles; t++) { AprVisual.Sim.Logic.IrEngine.StepOneDriving(); ir[t] = new byte[n]; new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(ir[t]); }
@@ -1108,7 +1108,25 @@ namespace AprVisual.Test
             if (mm == 0) { Console.WriteLine($"  ✓ NO MISMATCHES over {cycles} half-cycles — IR-driven ≡ S1-driven for every observable node. (S2.6 driving-mode equivalence gate PASSED for this ROM.)"); return 0; }
             int distinct = byNode.Count;
             Console.WriteLine($"  ✗ {mm} node-mismatch(es) over {cycles} half-cycles, across {distinct} distinct observable node(s).");
-            Console.WriteLine($"    first: t={firstT}, node {WireCore.GetNodeName(firstV)}#{firstV}  nextExpr = {(firstV < AprVisual.Sim.Logic.IrEngine.NextExpr.Length ? AprVisual.Sim.Logic.IrEngine.NextExpr[firstV]?.Pretty() ?? "(hybrid/InScc)" : "?")}");
+            {
+                var ir2 = AprVisual.Sim.Logic.IrEngine.NextExpr;
+                var fe = firstV < ir2.Length ? ir2[firstV] : null;
+                int prevSelf = firstT > 0 ? ir[firstT - 1][firstV] : -1;
+                Console.WriteLine($"    first: t={firstT}, node {WireCore.GetNodeName(firstV)}#{firstV}  ir={ir[firstT][firstV]} s1={s1[firstT][firstV]} prevSelf={prevSelf}  nextExpr = {(fe?.Pretty() ?? "(hybrid/InScc)")}");
+                if (fe != null)
+                {
+                    var refs = new HashSet<int>(); AprVisual.Sim.Logic.IrEngine.CollectIdsPublic(fe, refs);
+                    var skipArr = AprVisual.Sim.Logic.IrEngine.OkToSkipInRecalc;
+                    var parts = new List<string>();
+                    foreach (int m in refs)
+                    {
+                        int irV = m < n ? ir[firstT][m] : -1, prevV = (m < n && firstT > 0) ? ir[firstT - 1][m] : -1, s1V = m < n ? s1[firstT][m] : -1;
+                        string skipped = (m < skipArr.Length && skipArr[m]) ? "[skip]" : "";
+                        parts.Add($"{WireCore.GetNodeName(m)}#{m}=ir:{irV}(prev {prevV},s1:{s1V}){skipped}");
+                    }
+                    Console.WriteLine($"    refs: {string.Join("  ", parts)}");
+                }
+            }
             Console.WriteLine($"    top mismatching nodes (id — # half-cycles — nextExpr):");
             foreach (var kv in byNode.OrderByDescending(p => p.Value).Take(25))
                 Console.WriteLine($"      {WireCore.GetNodeName(kv.Key)}#{kv.Key}  — {kv.Value} — {(kv.Key < AprVisual.Sim.Logic.IrEngine.NextExpr.Length ? AprVisual.Sim.Logic.IrEngine.NextExpr[kv.Key]?.Pretty() ?? "(hybrid/InScc)" : "?")}");

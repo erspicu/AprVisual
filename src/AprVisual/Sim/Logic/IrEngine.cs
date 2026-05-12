@@ -66,6 +66,7 @@ namespace AprVisual.Sim.Logic
         public static Action<byte[], byte[]>[] CompiledChunks = [];
         public static int CompiledChunkCount;
         public static bool UseCompiledStep = true;  // S4.1: step-4 = the compiled chunks; set false to A/B vs the stack-machine interpreter (RunFlatProgram)
+        public static bool UseLlvmStep = false;     // S4.5: step-4 = the LLVM-MCJIT'd `step` function (LlvmCodegen); --llvm-step to enable (overrides UseCompiledStep)
         static byte[] _evalCur = [];
         public static long MismatchCount;        // total node-mismatches over all StepOne() calls since Build()
         public static long FirstMismatchTime = -1;
@@ -129,6 +130,11 @@ namespace AprVisual.Sim.Logic
             { int nb = BusNodes.Length; _busS0 = new byte[nb]; _busS1 = new byte[nb]; _busW1 = new byte[nb]; _busS0n = new byte[nb]; _busS1n = new byte[nb]; _busW1n = new byte[nb]; _busVal = new byte[nb]; }
             BusMismatchCount = 0; BusFloatExemptCount = 0; BusKPassMax = 0; FirstBusMismatchNode = -1; FirstBusMismatchTime = -1;
             MismatchCount = 0; FirstMismatchTime = -1; FirstMismatchNode = -1; MismatchByNode.Clear();
+            if (UseLlvmStep && !LlvmCodegen.Compiled)   // S4.5: build + MCJIT the LLVM `step` now, so the ~0.5s compile isn't charged to the first half-cycle
+            {
+                try { LlvmCodegen.Compile(); }
+                catch (Exception ex) { Console.Error.WriteLine($"LLVM step compile failed → falling back to the Expression-tree JIT: {ex.GetType().Name}: {ex.Message}"); UseLlvmStep = false; }
+            }
             Built = true;
         }
 
@@ -462,6 +468,7 @@ namespace AprVisual.Sim.Logic
         public static long BusFloatExemptCount;    // S4.2b validation: ditto but the bus was floating (S0==S1==W1==0 — in Hold) — the floating-cap "largest-cap wins" we deliberately don't model; an unobservable transient — exempt
         public static int  BusKPassMax;            // S4.2b validation: max bus-to-bus propagation iterations any half-cycle actually needed before fixpoint
         public static int  FirstBusMismatchNode = -1; public static long FirstBusMismatchTime = -1;
+        public static bool RunBusValidation = true;   // S4.2b: StepOneDriving runs ValidateBusResolver() each half-cycle when the ping-pong is off (--trace-cmp wants the report). --benchmark turns it off (~2086 buses × the propagation loop / half-cycle isn't part of the real runtime).
 
         /// <summary>S4.2b validation — after step 5 (the settled NodeStates), recompute every bus node with the inline
         /// S0/S1/W1 wired-resolution model and compare to S1. Run-path unchanged for now; once this validates ~0 real
@@ -641,6 +648,24 @@ namespace AprVisual.Sim.Logic
                 if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }
             }
         }
+
+        // S4.5 — step 4 via the LLVM-MCJIT'd `step` (same contract as RunCompiledStep: cur := NodeStates snapshot,
+        // run `step(cur, prev)`, write back the changed EvalOrder nodes).
+        static unsafe void RunLlvmStep()
+        {
+            if (!LlvmCodegen.Compiled) LlvmCodegen.Compile();
+            int n = WireCore.NodeCount;
+            new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(_evalCur);
+            fixed (byte* cur = _evalCur) fixed (byte* prev = PrevStates) LlvmCodegen.StepFn(cur, prev);
+            var order = EvalOrder;
+            for (int i = 0; i < order.Length; i++)
+            {
+                int v = order[i]; byte nv = _evalCur[v];
+                if (WireCore.NodeStates[v] != nv) { WireCore.SetNodeState(v, nv); WireCore.EnqueueNode(v); }
+            }
+        }
+
+        static void RunStep() { if (UseLlvmStep) RunLlvmStep(); else if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram(); }
 
         // ── S4.2b — runnable fixed-K residual-SCC micro-block + the inline bus resolver (the run versions of the
         //    S4.3 / S4.2b-validation code; these REPLACE S1's ProcessQueue settling of the SCC + bus nodes when
@@ -915,13 +940,13 @@ namespace AprVisual.Sim.Logic
             WireCore.SkipRecalcOf = pp ? SkipInBridge : OkToSkipInRecalc;        //    bridge thinning: ProcessQueue skips RecalcNode of nodes the IR already computed (S3.0); + when the ping-pong is on, also the SCC + bus nodes (S4.2b) — see BuildOkToSkip / SkipInBridge
             WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clock toggle, …): SetHigh/Low just set flags + enqueue, no settle
             WireCore.ProcessQueueOneLevel();                                     // 3. flush the boundary changes (clk, …) into NodeStates + enqueue their fan-out
-            if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();        // 4. IR-evaluate every node in EvalOrder (topo order). S4.1: compiled chunked delegates (JIT'd IL); fallback = the S3.1 stack-machine interpreter. Writes the changed nodes back via SetNodeState + EnqueueNode.
+            RunStep();        // 4. IR-evaluate every node in EvalOrder (topo order). S4.1: compiled chunked delegates (JIT'd IL); fallback = the S3.1 stack-machine interpreter. Writes the changed nodes back via SetNodeState + EnqueueNode.
             if (pp)                                                             // 4b. S4.2b ping-pong: settle the residual-SCC + bus nodes inline (replaces what the bridge ProcessQueue used to do for them) — for outer: { fixed-K SCC; bus S0/S1/W1; re-eval EvalOrder (now seeing the new SCC/bus values) }
                 for (int outer = 0; outer < PingPongK; outer++)
                 {
                     if (SccEvalOrders.Length > 0) RunFixedKScc();
                     if (BusNodes.Length > 0) ResolveBusesRun();
-                    if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();
+                    RunStep();
                 }
             WireCore.ProcessQueue();                                             // 5. the bridge: with the ping-pong on, skips IR/SCC/bus → just the behavioral-memory hybrids (u1/u4/cart) + leftover fan-out + InvokeCallbacks (memory/video). The memory handlers may have driven the data bus via SetHigh/SetLow → re-settle:
             if (pp)
@@ -929,10 +954,10 @@ namespace AprVisual.Sim.Logic
                 {
                     if (SccEvalOrders.Length > 0) RunFixedKScc();
                     if (BusNodes.Length > 0) ResolveBusesRun();
-                    if (UseCompiledStep) RunCompiledStep(); else RunFlatProgram();
+                    RunStep();
                 }
             WireCore.SkipRecalcOf = null;
-            if (!pp && BusNodes.Length > 0) ValidateBusResolver();              // S4.2b: (only when the ping-pong is OFF) validate the inline S0/S1/W1 bus resolver against the S1-settled NodeStates
+            if (!pp && RunBusValidation && BusNodes.Length > 0) ValidateBusResolver();   // S4.2b: (ping-pong OFF + RunBusValidation) validate the inline S0/S1/W1 bus resolver against the S1-settled NodeStates — off under --benchmark
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.
         }

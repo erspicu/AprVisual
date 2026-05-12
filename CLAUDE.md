@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
+> **⚠ You are on the `cpu-opt` branch** (forked from `0a4d758` = end of S3, *before* S4's codegen work). `main` has S1+S2+S3+S4 done (the C#-JIT / LLVM-MCJIT / GPU-D3D11 / bit-sliced / Verilog codegen backends — see `main`'s CLAUDE.md + `MD/impl/S4/`). This branch deliberately does NOT carry that — it's for the **experimental event-driven CPU-optimized IR runtime ("β")**: same dirty-set event loop as S1's `recalc`/`processQueue`, but per dirty node `EvalExpr(NextExpr[v])` (a static boolean tree) instead of S1's `ComputeNodeGroup` (transistor-group walk + flags-OR + 256-LUT) for the ~85% IR-covered nodes; the residual SCC + hybrid-bus + behavioral-memory nodes fall back to S1's group walk. Goal: faster than S1 for a single instance. It uses S1's settle semantics (chronological), so it doesn't hit the obstacle that parked the ping-pong run-path / all-on-GPU. Design + the firing log: `MD/impl/cpu-opt/00_event-driven_設計.md`. (The base IR — S2's `NextExpr[]` + S3's γ.0 node-aliasing + γ.1 size-1/2-SCC solver — is what's already built below; `--trace-cmp --engine ir` passes here.)
+
 The plan (`MD/struct/08`) had four stages; the user later widened S3 from "CPU proof" to **whole-system optimization** (every chip, the whole NES's throughput — see `MD/impl/S3/00`). Current state (2026-05):
 
 - **S1 — C# rewrite of MetalNES** (the switch-level sim engine): **DONE.** `src/AprVisual/Sim/WireCore.*` — parser, module instancing, recalc/processQueue, group resolution LUT, handlers, system load, trace. Passes the blargg tests.

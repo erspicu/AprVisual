@@ -116,16 +116,50 @@ namespace AprVisual.Sim.Logic
             return m;
         }
 
-        public static string EmitIR() => BuildModule().PrintToString();
+        public static string EmitIR() { var m = BuildModule(); if (Optimize) TryRunO3(m); return m.PrintToString(); }
+
+        // The new-PM optimisation pass list run on the module before MCJIT. Curated for our workload (a big
+        // straight-line boolean dataflow function — 23 chunk functions called by `step`, no loops, no recursion):
+        // mem2reg/sroa (alloca→SSA — no-op here, harmless), early-cse + gvn (CSE, catches any loads/expr the
+        // per-chunk caches missed), instcombine×2 (peephole — folds xor/and/or boolean chains, select(icmp ne x,0,..)
+        // → x, etc.), dse (dead store elim), simplifycfg (cleanup). No inlining → the chunk functions stay separate
+        // (so `step` doesn't become one huge function that blows up reg-alloc). Same RunPasses API the user's
+        // AprGba uses. (`--llvm-no-opt` skips it → MCJIT's default opt ≈-O2.)
+        const string OptPasses = "mem2reg,sroa,early-cse,instcombine<no-verify-fixpoint>,gvn,instcombine<no-verify-fixpoint>,dse,simplifycfg";
+
+        static void TryRunO3(LLVMModuleRef m)
+        {
+            try
+            {
+                var opts = LLVMPassBuilderOptionsRef.Create();
+                try
+                {
+                    var bytes = System.Text.Encoding.ASCII.GetBytes(OptPasses + "\0");
+                    fixed (byte* p = bytes)
+                    {
+                        var err = LLVM.RunPasses(m, (sbyte*)p, default(LLVMTargetMachineRef), opts);
+                        if (err != null)
+                        {
+                            var msgPtr = LLVM.GetErrorMessage(err);
+                            var msg = msgPtr != null ? new string(msgPtr) : "(no message)";
+                            if (msgPtr != null) LLVM.DisposeErrorMessage(msgPtr);
+                            throw new InvalidOperationException($"LLVM RunPasses('{OptPasses}') failed: {msg}");
+                        }
+                    }
+                }
+                finally { opts.Dispose(); }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"LLVM opt-pass pipeline skipped (using the unoptimized module + MCJIT default opt): {ex.GetType().Name}: {ex.Message}");
+            }
+        }
 
         public static void Compile()
         {
             LlvmSpike.EnsureJitInitialized();
             var m = BuildModule();
-            // (-O3 via the new-PM `LLVMRunPasses` pipeline is a TODO — the LLVMSharp.Interop 20.x surface for it
-            //  is fiddly; for now MCJIT's default opt level (≈-O2) handles it, which on already-SSA-ish IR is most
-            //  of the win. `Optimize` is a placeholder flag for that.)
-            _ = Optimize;
+            if (Optimize) TryRunO3(m);
             _engine = m.CreateMCJITCompiler();
             var addr = _engine.GetFunctionAddress("step");
             if (addr == 0) throw new InvalidOperationException("MCJIT failed to resolve 'step'.");

@@ -74,13 +74,14 @@
 
 ## 7. 採用的 γ 實作順序
 
-- **γ.0 = Node Aliasing / Buffer Removal lowering pass**（先做 —— 是 γ.1 的前置）：在建 IR / 拓樸排序前，把純 buffer（`a` 的 NextExpr ≡ `Node(b)`）和純 inverter（`a` 的 NextExpr ≡ `Not(Node(b))`）的 `a` 在所有引用處換成 `b` / `!b`。注意：這要小心 —— `a` 可能有 semantic name（pin/register）不能直接刪；但可以在 IR 層「把引用 `Node(a)` 改成 `Node(b)`」而保留 `a` 本身（`NextExpr[a]` 還是 `Node(b)`、只是沒人引用它了 → 它不再造成 SCC 邊）。或者：只 alias「unnamed buffer/inverter node」。哪個對 → ② 階段時定。
+- **γ.0 = Node Aliasing / Buffer Removal lowering pass** ✅ **已實作（firing 24）** —— `src/AprVisual/Sim/Logic/NodeAlias.cs`：把純 buffer（`NextExpr[a] ≡ NodeRef(b)`）/ inverter（`≡ Not(NodeRef(b))`）解析到 chain root（chase 鏈、偵測 buffer/inverter loop 不碰 —— 那是 γ.1 的 latch），然後 rewrite 所有 NextExpr 讓沒有 NodeRef 指向 aliased node（aliased node 本身留著、`NextExpr[a]` 改成 `NodeRef(root)`/`Not(NodeRef(root))`、變成沒入邊的 leaf）。在 `IrEngine.Build()` 裡 `SccModel.Build` 之後、`BuildEvalOrder` 之前呼叫。`IrEngine.AliasedNodeCount` 計數。Hold/Prev 不 rewrite（仍正確、且不形成 dep edge）。**效果**：InScc 5705→**5183**（−522）、DrivingCovered 6818→**7340**（46.3%→49.8%）、最大 SCC 703→**496**（DMC tangle 裡 ~207 個 buffer/inverter folded out）。SCC 數量 2254 不變、但有 56 個變成 size-1 self-loop（原本 size-2 `v↔a(buffer of v)` → aliasing 後 `v→v` + a 是 leaf）。等價 0 mismatch（checking + driving）、`--selftest` 全 PASS（新增 `TestNodeAlias`）、`--trace` 跟 HEAD 一致。
 - **γ.1 = 通用 size-2 SCC solver**（在 `SccAnalysis.cs` 加一個 Stage —— 在 Stage A/A2 之後、`BuildEvalOrder` 偵測 SCC 之前？還是在 `BuildEvalOrder` 偵測到 SCC 後對 size-2 的做？後者比較自然 —— `BuildEvalOrder` 已經有 `SccComponents`）：對每個 size-2 SCC `{a,b}`，若 `NextExpr[a]`、`NextExpr[b]` 都非 null 非 Complex → 做兩步代換 → 布林化簡 → 若結果不再引用 `Node(a)`/`Node(b)` → 採用（`NextExpr[a] = 化簡後`、`IsSequential[a]=true`、移出 InScc、放進 EvalOrder）；否則放棄這個 pair。需要：(i) Expr 的「substitute(e, id, replacement)」（遞迴換 NodeRef）；(ii) Expr 的布林化簡（已有 `Expr.And/Or/Mux` 的 smart ctor + sort/dedup —— 夠不夠消掉 `Node(a)`? 可能要更強的化簡，例如 `a & !a → 0`、`Mux(c, x, x) → x`、constant propagation）。驗收：等價（`--trace-cmp --engine ir` 0 mismatch）+ coverage 提升（DrivingCoveredCount 從 6818 跳到 ~11000+、ResidualSccNodes 從 5705 降到 ~1300）+ `--selftest` 全 PASS + 不破壞 S1。
 - **γ.2 = Stage B Pass-transistor Latch Extraction**（之後）：對剩下的大 SCC，找被 pass-transistor 驅動的 node、切斷 + `Prev()`、重抽 `NextExpr[latch] = Mux(pass_gate_control, pass_gate_data, Prev(latch))` → SCC shatter → 重 BuildEvalOrder。需要 DriveAnalysis 的 `Passes`（transmission-gate 寫埠）資訊。
 - **γ.3 = 收尾**：剩下的零碎 SCC / unnamed tangle —— 看能不能再 alias / 再 size-2、或最終手段（micro-iteration block）。目標 coverage ~99-100%。
 
 ## 8. 本檔狀態
 
-firing 23（γ 的 ① 階段）：(a) 加了 `--dump-scc` 的 SCC anatomy 診斷（`IrEngine.SccComponents` + DumpScc 的 self-loop 形狀直方圖 + 大 SCC named-node + clk-gen node 的 NextExpr）；(b) 寫了本設計 + 丟 Gemini + 採用上面的計畫。下個 firing（γ ② 階段）：先實作 **γ.0 Node Aliasing pass**（前置）→ 再 **γ.1 size-2 SCC solver** → 驗收。
+- firing 23（γ ①）：加 `--dump-scc` SCC anatomy 診斷 + 寫本設計 + 丟 Gemini + 採用計畫。
+- firing 24（γ ② part 1）：實作 **γ.0 Node Aliasing pass**（`NodeAlias.cs`）—— InScc 5705→5183、最大 SCC 703→496、等價 0 mismatch。**下個 firing（γ ② part 2）：γ.1 通用 size-2 SCC solver**（在 `BuildEvalOrder` 偵測到 SCC 後、對 size-2 的做兩步代換 + 布林化簡；需要 Expr 的 substitute helper + 可能要加強的化簡 `a&!a→0` / `a|!a→1` / `Mux(c,x,x)→x`）→ 預期 DrivingCovered 從 7340 跳到 ~11000+、InScc 從 5183 降到 ~1300。
 
 (④⑤ 實作筆記 + 進度日誌 → 接在 `00_S3_效率與優化.md`。)

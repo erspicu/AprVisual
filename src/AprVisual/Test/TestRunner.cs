@@ -419,6 +419,7 @@ namespace AprVisual.Test
             fails += TestDriveAnalysis();
             fails += TestNextState();
             fails += TestSccAnalysis();
+            fails += TestNodeAlias();
             fails += TestIrEngine();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
@@ -685,6 +686,41 @@ namespace AprVisual.Test
             f += Check("RecoveredLatches == 1", m.RecoveredLatches == 1);
             WireCore.Shutdown();
             return f;
+        }
+
+        // S3 γ.0: NodeAlias.Apply — fold pure buffer/inverter nodes out of the NodeRef dependency graph.
+        private static int TestNodeAlias()
+        {
+            Console.WriteLine("NodeAlias (S3 γ.0):");
+            var E = (Func<int, Expr>)AprVisual.Sim.Logic.Expr.Node;
+            int f = 0;
+            {   // 10 = buffer of 11; 12 = inverter of 10 (⇒ of 11); 11 = And(20, NodeRef(10)); 20 = root.
+                var nx = new Expr?[21];
+                nx[10] = E(11);
+                nx[11] = AprVisual.Sim.Logic.Expr.And(E(20), E(10));
+                nx[12] = AprVisual.Sim.Logic.Expr.Not(E(10));
+                nx[20] = AprVisual.Sim.Logic.Expr.True;
+                int aliased = AprVisual.Sim.Logic.NodeAlias.Apply(nx);
+                f += Check("buffer+inverter: 2 nodes aliased", aliased == 2);
+                f += Check("11's expr no longer references node 10", !PrettyHas(nx[11], "n10"));
+                f += Check("12 == Not(Node(11))", nx[12]!.Equals(AprVisual.Sim.Logic.Expr.Not(E(11))));
+                f += Check("10's expr still Node(11) (now a leaf)", nx[10]!.Equals(E(11)));
+            }
+            {   // a buffer/inverter loop  /q = !q,  q = !/q  ⇒ must NOT be aliased (it's a latch — γ.1's job).
+                var nx = new Expr?[12];
+                nx[10] = AprVisual.Sim.Logic.Expr.Not(E(11));   // q  = !/q
+                nx[11] = AprVisual.Sim.Logic.Expr.Not(E(10));   // /q = !q
+                int aliased = AprVisual.Sim.Logic.NodeAlias.Apply(nx);
+                f += Check("inverter loop left alone (0 aliased)", aliased == 0 && nx[10]!.Equals(AprVisual.Sim.Logic.Expr.Not(E(11))) && nx[11]!.Equals(AprVisual.Sim.Logic.Expr.Not(E(10))));
+            }
+            return f;
+
+            static bool PrettyHas(Expr? e, string token)
+            {
+                var ids = new HashSet<int>();
+                if (e != null) AprVisual.Sim.Logic.IrEngine.CollectIdsPublic(e, ids);
+                return token.StartsWith('n') && int.TryParse(token.AsSpan(1), out int id) && ids.Contains(id);
+            }
         }
 
         // S2.4: build the IR engine over a hand-built tiny netlist (inverter y=!a + a dynamic latch q

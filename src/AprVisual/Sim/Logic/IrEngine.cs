@@ -30,6 +30,7 @@ namespace AprVisual.Sim.Logic
         public static int[] EvalOrder = [];      // driving mode: node ids the IR evaluates, topo-sorted by the current-value dependency graph (deps first)
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
+        public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
@@ -57,6 +58,7 @@ namespace AprVisual.Sim.Logic
             NextExpr = scc.NextExpr;
             IsSequential = scc.IsSequential;
             Hybrid = scc.Hybrid;
+            AliasedNodeCount = NodeAlias.Apply(NextExpr);   // S3 γ.0: fold pure buffer/inverter nodes out of the dependency graph (no NodeRef points at one) — shrinks SCCs before BuildEvalOrder / γ.1
             int n = Math.Max(NextExpr.Length, WireCore.NodeCount);
             PrevStates = new byte[n];
             CheckInChecking = new bool[NextExpr.Length];

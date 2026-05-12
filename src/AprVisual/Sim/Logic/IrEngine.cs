@@ -46,7 +46,7 @@ namespace AprVisual.Sim.Logic
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
         public static bool[] OkToSkipInRecalc = []; // [nodeId]; true = the driving-mode bridge ProcessQueue may skip RecalcNode(this) — IR-covered, not InScc, channel-graph component all-IR, and NodeRef dep-closure all-IR (see BuildOkToSkip). DEBUG-gated by IrEngine.DebugSkipRecalc / --debug-skip-recalc for now.
         public static bool[] SkipInBridge = [];     // S4.2b: [nodeId]; OkToSkipInRecalc ∪ InScc ∪ IsBusNode — what the bridge ProcessQueue (step 5) skips when the ping-pong is on (RunFixedKScc / ResolveBusesRun own those)
-        public static bool PingPongEnabled = false; // S4.2b: replace the bridge ProcessQueue's SCC+bus settling with the ping-pong "for outer: { RunCompiledStep; RunFixedKScc; ResolveBusesRun }" — DISABLED: first cut breaks the PPU palette readout path (~1647 nodes, from t≈6; needs debugging — probably the SCC/bus interleave order or step-5-skip-too-much). --pingpong / --no-pingpong to toggle.
+        public static bool PingPongEnabled = false; // S4.2b: PARKED — replace the bridge ProcessQueue's SCC+bus settling with the ping-pong "for outer: { RunCompiledStep; RunFixedKScc; ResolveBusesRun }". Disabled: the "settle to fixpoint at end-of-half-cycle clock values" ping-pong can't reproduce S1's within-half-cycle event sequencing (the PPU palette/sprite-RAM precharged-dynamic readout — same obstacle that parked γ.2). With it on: ~322K mismatches over 2000 hc (down from 1.2M after carving the conditional-pull-up bitlines out of SkipInBridge), all in the PPU readout / state-machine path. --pingpong / --no-pingpong to toggle. The bus resolver itself (ValidateBusResolver) is validated 0-real-mismatch (firing 11) — it's kept as a model/codegen artifact; the runtime keeps step 5 (S1) for the precharged-dynamic paths.
         public const int PingPongK = 4;             // S4.2b: ping-pong outer iterations (Gemini: ≈3; +1 margin; bump if --trace-cmp finds it short)
         public static int SkippableInRecalcCount; // # of nodes with OkToSkipInRecalc == true
         // ── flattened driving-mode IR program (S3.1): EvalOrder's Expr trees compiled to one stack-machine
@@ -97,6 +97,12 @@ namespace AprVisual.Sim.Logic
             SkipInBridge = new bool[Math.Max(OkToSkipInRecalc.Length, n)];
             for (int v = 0; v < SkipInBridge.Length; v++)
                 SkipInBridge[v] = (v < OkToSkipInRecalc.Length && OkToSkipInRecalc[v]) || (v < InScc.Length && InScc[v]) || (v < IsBusNode.Length && IsBusNode[v]);
+            // …except bus nodes with a *conditional* pull-up (= a precharge transistor): those are dynamic
+            // precharged bitlines (the PPU palette / sprite-RAM readout) whose value is a within-half-cycle
+            // sequence (precharge phase → discharge phase → latch capture) that the "settle to fixpoint at
+            // end-of-half-cycle clock values" ping-pong can't reproduce — leave them (and so step 5 / S1's
+            // event-sequenced ProcessQueue settles them, and re-derives the latches downstream of them).
+            foreach (var bn in BusNodes) if (bn.PullUpCond != null && bn.Id < SkipInBridge.Length) SkipInBridge[bn.Id] = false;
             CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
             CompileChunkedStep();      // S4.1: compile EvalOrder into chunked Action<byte[],byte[]> delegates (JIT'd IL — straight-line, no interpreter dispatch)
             IrCoveredCount = 0; CheckedCount = 0;
@@ -686,9 +692,13 @@ namespace AprVisual.Sim.Logic
             {
                 int id = bns[bi].Id;
                 byte s0 = _busS0[bi], s1 = _busS1[bi], w1 = _busW1[bi];
-                byte hold = id < PrevStates.Length ? PrevStates[id] : (byte)0;
+                // "hold" = the bus's value carried over from the previous ping-pong iteration (or, on iter 0, the
+                // previous half-cycle) — NOT PrevStates[id]: a precharged bitline (PPU palette/sprite-RAM readout)
+                // is precharged then read within ONE master half-cycle (the PPU's internal clock phases edge
+                // mid-half-cycle), so the precharged value lives in NodeStates, not in the start-of-half-cycle snapshot.
+                byte hold = WireCore.NodeStates[id];
                 byte v = s0 != 0 ? (byte)0 : s1 != 0 ? (byte)1 : w1 != 0 ? (byte)1 : hold;
-                if (WireCore.NodeStates[id] != v) { WireCore.SetNodeState(id, v); WireCore.EnqueueNode(id); }
+                if (v != hold) { WireCore.SetNodeState(id, v); WireCore.EnqueueNode(id); }
             }
         }
 

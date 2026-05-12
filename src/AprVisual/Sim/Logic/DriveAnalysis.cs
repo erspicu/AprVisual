@@ -85,24 +85,81 @@ namespace AprVisual.Sim.Logic
             int n = nodes.Count;
             var di = new DriveInfo?[n];
 
-            // A "stack interior" node = a transparent series-junction inside a pull-down chain: it never drives
+            // Per-node flags used by the chain-interior test: does this node have *any* pull-up (a static load
+            // or a pull-up transistor of any kind)? does it have a *direct* PullDown transistor (a channel to vss)?
+            var hasAnyPullUp = new bool[n];
+            var hasDirectPd  = new bool[n];
+            for (int m = Ngnd + 1; m < n; m++)
+            {
+                var nm = nodes[m];
+                if (nm == null) continue;
+                if (nm.Pullups > 0) hasAnyPullUp[m] = true;
+                foreach (int tid in nm.C1c2s)
+                {
+                    if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive or TransistorKind.PullUpLoad) hasAnyPullUp[m] = true;
+                    if (g.Kind[tid] == TransistorKind.PullDown) hasDirectPd[m] = true;
+                }
+            }
+
+            // A "stack interior" node = a transparent series-junction *inside a pull-down chain*: it never drives
             // any transistor gate (Gemini's layout heuristic — robust against precharge/dynamic), isn't a bus,
-            // isn't a supply, and has *no pull-up of any kind* (a pull-up would mean it's a real value worth
-            // tracking, not just wire — a small deviation from Gemini's bare Gates.Count==0; harmless to the
-            // precharge case since domino-stack intermediates have no pull-up). Precomputed once.
+            // isn't a supply, has no pull-up of any kind, AND has at least one direct channel to vss (a PullDown
+            // transistor) — i.e. it genuinely sits on a path to ground. The "direct PullDown" condition is the fix
+            // for the bug where a *dynamic mux/bus* node (Gates.Count==0, no pull-up, but all its channel
+            // transistors are Passes to control-gated signal sources — e.g. cpu.#aluresult0, the ALU result bus)
+            // was wrongly treated as a transparent stack node ⇒ its mux passes got skipped ⇒ nextExpr = Hold(self).
+            // We also exclude m if it has a Pass to a *real* node o that has both a pull-up AND its own direct
+            // PullDown (o can drive m both high and low through the pass — m isn't just wire below o; e.g. cpu node
+            // 8867 ↔ 9484). A gate output whose pull-down stack runs *through* m has a pull-up but NO direct
+            // PullDown of its own, so the NAND/NOR/AOI stack junctions stay chain-interior. Precomputed once.
             var chainInterior = new bool[n];
             for (int m = Ngnd + 1; m < n; m++)
             {
                 var nm = nodes[m];
                 if (nm == null || nm.Gates.Count != 0 || nm.Pullups != 0) continue;
                 if (m < g.Role.Length && g.Role[m] == NodeRole.Bus) continue;
-                bool hasPullUpTransistor = false;
+                bool hasPullUpTransistor = false, hasPullDownTransistor = false, touchesRealDriver = false;
                 foreach (int tid in nm.C1c2s)
-                    if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive) { hasPullUpTransistor = true; break; }
-                if (hasPullUpTransistor) continue;
+                {
+                    if (g.Kind[tid] is TransistorKind.PullUpStrong or TransistorKind.PullUpActive) hasPullUpTransistor = true;
+                    if (g.Kind[tid] == TransistorKind.PullDown) hasPullDownTransistor = true;
+                    if (g.Kind[tid] == TransistorKind.Pass)
+                    {
+                        var t = trans[tid]; int o = t.C1 == m ? t.C2 : t.C1;
+                        if (o >= 0 && o < n && o != m && hasAnyPullUp[o] && hasDirectPd[o]) touchesRealDriver = true;
+                    }
+                }
+                if (hasPullUpTransistor || !hasPullDownTransistor || touchesRealDriver) continue;
                 chainInterior[m] = true;
             }
             bool IsChainInterior(int m) => m >= 0 && m < n && chainInterior[m];
+
+            // A "clearable dynamic node": Pullups == 0, has ≥1 direct channel to vss (a PullDown — a conditional
+            // *clear*), and *every* other channel transistor is a Pass (a transmission-gate write port). Such a
+            // node is a dynamic latch (holds on parasitic cap) whose only active drive is the clear(s) — so a Pass
+            // to it from a *non*-clearable node is always a write *into* the latch, regardless of which side ranks
+            // higher on the strength tier. Without this, the latch's conditional pull-down makes it Tier 2 and the
+            // tier rule wrongly sends the load pass outbound, dropping the load from nextExpr (e.g. cpu.alua[7:0],
+            // the ALU A input — clear=0ADD, load=SBADD from cpu.sb[7:0]). A node with a *static* pull-up (pullups>0)
+            // or a pull-up *transistor* of any kind is excluded — it's a bus / driven node, not a pure latch.
+            var clearableDynamic = new bool[n];
+            for (int m = Ngnd + 1; m < n; m++)
+            {
+                var nm = nodes[m];
+                if (nm == null || nm.Pullups != 0) continue;
+                if (m < g.Role.Length && g.Role[m] != NodeRole.Internal) continue;   // not a bus / supply / input
+                bool hasPd = false, ok = true;
+                foreach (int tid in nm.C1c2s)
+                    switch (g.Kind[tid])
+                    {
+                        case TransistorKind.PullDown: hasPd = true; break;
+                        case TransistorKind.Pass: case TransistorKind.Dead: break;
+                        default: ok = false; break;            // PullUpStrong / PullUpActive / PullUpLoad ⇒ a driven node, not a pure latch
+                    }
+                clearableDynamic[m] = hasPd && ok;
+            }
+            bool IsClearableDynamic(int m) => m >= 0 && m < n && clearableDynamic[m];
+
             Expr GateCond(int gate) => gate == Npwr ? Expr.True : Expr.Node(gate);
 
             // ── pass 1: PullDown (path enumeration) + PullUp ──
@@ -189,14 +246,21 @@ namespace AprVisual.Sim.Logic
                 if (da == null || db == null) { g.PassDirection[tid] = PassDir.Unknown; continue; }   // (shouldn't happen — Pass ends are signal nodes)
 
                 bool aBus = a < g.Role.Length && g.Role[a] == NodeRole.Bus, bBus = b < g.Role.Length && g.Role[b] == NodeRole.Bus;
+                bool aCl = IsClearableDynamic(a), bCl = IsClearableDynamic(b);
                 int ta = Tier(da), tb = Tier(db);
                 bool? aDrivesB; string? hyReason = null;
-                if (aBus || bBus)   { aDrivesB = null; hyReason = "bidirectional pass touching a bus node"; }
-                else if (ta > tb)   { aDrivesB = true;  }      // a's stronger driver overpowers b through the pass
-                else if (tb > ta)   { aDrivesB = false; }
-                else if (ta == 2)   { aDrivesB = null; hyReason = "bidirectional pass between two strongly-driven nodes (latch / contention)"; }
-                else if (ta == 1)   { aDrivesB = null; hyReason = "pass between two weakly-pulled-up nodes"; }
-                else                { aDrivesB = null; hyReason = "pass between two floating dynamic nodes (charge sharing)"; }
+                // The clearable-dynamic rule only applies when the *other* side isn't itself strongly driven
+                // (tier 2): a Pass between a clearable latch and another tier-2 node is a genuine merge /
+                // contention (e.g. cpu.##alucout ↔ cpu.short-circuit-branch-add) — fall to the tier rule, which
+                // marks it hybrid. The latch's "load port" sources are buses / precharged nodes — tier ≤ 1.
+                if (aBus || bBus)              { aDrivesB = null; hyReason = "bidirectional pass touching a bus node"; }
+                else if (aCl && !bCl && tb < 2){ aDrivesB = false; }   // a is a clearable dynamic latch ← this pass is a write into it from b
+                else if (bCl && !aCl && ta < 2){ aDrivesB = true;  }
+                else if (ta > tb)             { aDrivesB = true;  }    // a's stronger driver overpowers b through the pass
+                else if (tb > ta)             { aDrivesB = false; }
+                else if (ta == 2)             { aDrivesB = null; hyReason = "bidirectional pass between two strongly-driven nodes (latch / contention)"; }
+                else if (ta == 1)             { aDrivesB = null; hyReason = "pass between two weakly-pulled-up nodes"; }
+                else                          { aDrivesB = null; hyReason = "pass between two floating dynamic nodes (charge sharing)"; }
 
                 g.PassDirection[tid] = aDrivesB == true ? PassDir.AtoB : aDrivesB == false ? PassDir.BtoA : PassDir.Bidirectional;
                 Expr cond = GateCond(t.Gate);

@@ -901,7 +901,7 @@ namespace AprVisual.Test
             try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
             catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
 
-            int id = WireCore.LookupNode(name);
+            int id = int.TryParse(name, out int rawId) && rawId >= 0 && rawId < WireCore.Nodes.Count ? rawId : WireCore.LookupNode(name);
             if (id == WireCore.EmptyNode) { Console.Error.WriteLine($"no node named '{name}'"); return 1; }
             WireCore.Node? node = id >= 0 && id < WireCore.Nodes.Count ? WireCore.Nodes[id] : null;
             string Nm(int n) => $"{WireCore.GetNodeName(n)}#{n}";

@@ -64,6 +64,7 @@ namespace AprVisual.Test
                     case "--dump-scc":        dumpScc = true; break;     // S2.3: SccAnalysis (cross-coupled latch recovery + SCC)
                     case "--dump-emitted-cs": dumpEmittedCs = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;  // S4.1: write IrEngine.EmitCsharpSource() (the codegen output) to a file ("-" = stdout)
                     case "--no-compiled-step": AprVisual.Sim.Logic.IrEngine.UseCompiledStep = false; break;   // S4.1 A/B: use the stack-machine interpreter instead of the compiled chunks
+                    case "--enable-bus-lowering": AprVisual.Sim.Logic.IrEngine.EnableBusLowering = true; break;   // S4.2 γ.4 A/B: give hybrid bus nodes a wired-AND pseudo-NextExpr
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass

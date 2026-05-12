@@ -30,6 +30,11 @@ namespace AprVisual.Sim.Logic
                 if (nextExpr[v] != null) continue;                                  // already modelled
                 if (v >= drive.Length || drive[v] is not { } d) continue;
                 if (!d.Hybrid || d.Passes.Count == 0) continue;                      // not a pass-transistor bus
+                // Skip nodes inside the behavioral-memory modules (SRAM u1/u4, the cartridge ROM/RAM): those are
+                // "the edge of the model" — driven by the memory handlers (byte[]), not by the transistor logic —
+                // so a wired-resolution model of them is wrong (it doesn't see the handler's drive).
+                var name = WireCore.GetNodeName(v);
+                if (name.StartsWith("u1.") || name.StartsWith("u4.") || name.StartsWith("cart.")) continue;
                 if (d.PullDown is ComplexExpr) continue;                             // can't model — leave to S1
                 if (d.PullUp == PullUpKind.Conditional && d.PullUpCond is null or ComplexExpr) continue;
                 bool bad = false; foreach (var pl in d.Passes) if (pl.Cond is ComplexExpr) { bad = true; break; }

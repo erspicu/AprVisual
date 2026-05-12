@@ -30,6 +30,8 @@ namespace AprVisual.Sim.Logic
         public static int IrCoveredCount;        // # of nodes with NextExpr != null (checking-mode coverage)
         public static int CheckedCount;          // # of nodes actually compared in checking mode (IrCoveredCount minus the skipped placeholders)
         public static int[] EvalOrder = [];      // driving mode: node ids the IR evaluates, topo-sorted by the current-value dependency graph (deps first)
+        public static int[][]? EvalLevels;       // S4.6: EvalOrder partitioned into topological levels — EvalLevels[L] = the node ids at depth L (level-L nodes' IR-deps are all in levels < L, so a level can be evaluated in parallel). Lazily built by BuildTopoLevels(); the GPU runtime barriers between levels.
+        public static int[]? EvalLevelOf;        // S4.6: [nodeId] → its topo level within EvalOrder, or -1 if not in EvalOrder.
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
@@ -148,6 +150,35 @@ namespace AprVisual.Sim.Logic
                 case OrExpr o: CollectNodeRefs(o.L, ids); CollectNodeRefs(o.R, ids); break;
                 case MuxExpr m: CollectNodeRefs(m.Cond, ids); CollectNodeRefs(m.A, ids); CollectNodeRefs(m.B, ids); break;
             }
+        }
+
+        /// <summary>S4.6: partition EvalOrder into topological levels — level[v] = 1 + max(level[w] for w an
+        /// IR-dep of v); level-0 nodes have no IR-deps (only Hold/Prev or non-IR refs). All nodes in a level can
+        /// be evaluated in parallel. EvalOrder is already topo-sorted, so a single forward pass suffices. Lazy.</summary>
+        public static void BuildTopoLevels()
+        {
+            if (EvalLevels != null) return;
+            int n = NextExpr.Length;
+            var lvl = new int[n]; Array.Fill(lvl, -1);
+            var refs = new HashSet<int>();
+            int maxLvl = 0;
+            foreach (int v in EvalOrder)
+            {
+                if (v < 0 || v >= n) continue;
+                int L = 0;
+                if (NextExpr[v] is { } e)
+                {
+                    refs.Clear(); CollectNodeRefs(e, refs);
+                    foreach (int w in refs) if (w >= 0 && w < n && lvl[w] >= 0) { int c = lvl[w] + 1; if (c > L) L = c; }
+                }
+                lvl[v] = L; if (L > maxLvl) maxLvl = L;
+            }
+            EvalLevelOf = lvl;
+            var levels = new System.Collections.Generic.List<int>[maxLvl + 1];
+            for (int i = 0; i <= maxLvl; i++) levels[i] = new System.Collections.Generic.List<int>();
+            foreach (int v in EvalOrder) if (v >= 0 && v < n) levels[lvl[v]].Add(v);
+            EvalLevels = new int[maxLvl + 1][];
+            for (int i = 0; i <= maxLvl; i++) EvalLevels[i] = levels[i].ToArray();
         }
 
         // S3 γ.1: substitute NodeRef(id) → repl(id) (when non-null) throughout e, rebuilding with the smart ctors.

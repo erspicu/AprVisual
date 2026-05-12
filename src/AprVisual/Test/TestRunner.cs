@@ -28,7 +28,7 @@ namespace AprVisual.Test
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, traceCmpPath = null, dumpEmittedCs = null, dumpEmittedLl = null, dumpEmittedVerilog = null;
-            bool llvmCodegenTestFlag = false;
+            bool llvmCodegenTestFlag = false, dumpTopoLevels = false;
             bool emitBitsliced = false;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -74,6 +74,7 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--llvm-spike":      return LlvmSpike();   // S4.5 phase 0: verify the LLVMSharp.Interop + libLLVM toolchain (build int add(int,int), JIT, run)
                     case "--gpu-spike":       { var (gok, gmsg) = AprVisual.Sim.Logic.GpuSpike.Run(); Console.WriteLine($"S4.6 G.0 GPU compute spike: {gmsg}"); return gok ? 0 : 1; }   // S4.6 phase 0: verify the D3D11 compute toolchain (runtime HLSL compile + dispatch + readback)
+                    case "--dump-topo-levels": dumpTopoLevels = true; break;   // S4.6 G.1: report EvalOrder's topological-layer structure (how parallelizable the DAG is per half-cycle)
                     case "--llvm-no-opt":     AprVisual.Sim.Logic.LlvmCodegen.Optimize = false; break;   // S4.5: skip the (TODO) default<O3> pipeline before MCJIT
                     case "--dump-emitted-ll": dumpEmittedLl = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.5: write the LLVM IR for `step` to a file ("-" = stdout)
                     case "--dump-emitted-verilog": dumpEmittedVerilog = (i + 1 < args.Length && !args[i + 1].StartsWith('-')) ? args[++i] : "-"; break;   // S4.6 bonus: write the Verilog module (IR → RTL) to a file ("-" = stdout)
@@ -106,6 +107,7 @@ namespace AprVisual.Test
             if (dumpEmittedCs != null) return DumpEmittedCs(dumpEmittedCs, emitBitsliced);
             if (dumpEmittedLl != null) return DumpEmittedLl(dumpEmittedLl);
             if (dumpEmittedVerilog != null) return DumpEmittedVerilog(dumpEmittedVerilog);
+            if (dumpTopoLevels) return DumpTopoLevels();
             if (llvmCodegenTestFlag) return LlvmCodegenTest();
             if (tracePath != null) return Trace(tracePath, traceCycles, useIr);
             if (traceCmpPath != null) return useIr ? TraceCmpDrive(traceCmpPath, traceCycles == 64 ? 2000 : traceCycles)
@@ -378,6 +380,35 @@ namespace AprVisual.Test
             Console.Error.WriteLine($"# emitted LLVM IR: {AprVisual.Sim.Logic.IrEngine.DrivingCoveredCount} EvalOrder nodes in {AprVisual.Sim.Logic.LlvmCodegen.ChunkCount} chunks; ~{AprVisual.Sim.Logic.LlvmCodegen.InstrCount} IR instrs; {lines} lines, {ir.Length} chars (unoptimized)");
             if (outPath == "-") Console.Out.Write(ir);
             else { File.WriteAllText(outPath, ir); Console.Error.WriteLine($"# written to {outPath}"); }
+            return 0;
+        }
+
+        // S4.6 G.1 — report EvalOrder's topological-layer structure.
+        private static int DumpTopoLevels()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+            AprVisual.Sim.Logic.IrEngine.Build();
+            AprVisual.Sim.Logic.IrEngine.BuildTopoLevels();
+            var levels = AprVisual.Sim.Logic.IrEngine.EvalLevels!;
+            int total = levels.Sum(l => l.Length);
+            int widest = levels.Max(l => l.Length);
+            int widestL = Array.FindIndex(levels, l => l.Length == widest);
+            double avg = (double)total / levels.Length;
+            Console.WriteLine($"S4.6 G.1 — EvalOrder topological layers:");
+            Console.WriteLine($"  {total} EvalOrder nodes in {levels.Length} levels  (depth = {levels.Length} sequential barriers per half-cycle)");
+            Console.WriteLine($"  level width: min={levels.Min(l => l.Length)}  median={levels.OrderBy(l => l.Length).ElementAt(levels.Length / 2).Length}  avg={avg:F1}  max={widest} (at level {widestL})");
+            // width histogram (log-ish buckets)
+            int[] bucketEdges = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, int.MaxValue };
+            var hist = new int[bucketEdges.Length];
+            foreach (var l in levels) { int b = 0; while (l.Length > bucketEdges[b]) b++; hist[b]++; }
+            Console.Write("  width histogram (#levels with that width):  ");
+            for (int b = 0; b < bucketEdges.Length; b++) if (hist[b] > 0) Console.Write($"≤{(bucketEdges[b] == int.MaxValue ? "∞" : bucketEdges[b].ToString())}:{hist[b]}  ");
+            Console.WriteLine();
+            // the widest few levels
+            var top = Enumerable.Range(0, levels.Length).OrderByDescending(i => levels[i].Length).Take(8);
+            Console.WriteLine($"  widest 8 levels (level→width):  {string.Join("  ", top.Select(i => $"L{i}:{levels[i].Length}"))}");
+            Console.WriteLine($"  → GPU parallelism: a half-cycle = {levels.Length} barriers; ~{widest} threads useful at the widest level, ~{avg:F0} on average. (843 SCC nodes + {AprVisual.Sim.Logic.IrEngine.BusNodes.Length} bus nodes are separate, after the DAG.)");
             return 0;
         }
 

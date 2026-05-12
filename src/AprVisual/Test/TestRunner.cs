@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using AprVisual.Rom;
 using AprVisual.Sim;
+using AprVisual.Sim.Logic;
 
 namespace AprVisual.Test
 {
@@ -33,7 +34,7 @@ namespace AprVisual.Test
             int traceCycles = 64;
             int shotFrames = 3;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false;
+            bool benchmark = false, dumpSystem = false, dumpGraph = false, dumpDrive = false, dumpNext = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -55,6 +56,7 @@ namespace AprVisual.Test
                     case "--dump-system":     dumpSystem = true; break;
                     case "--dump-graph":      dumpGraph = true; break;   // S2.0: NetlistGraph role/kind classification
                     case "--dump-drive":      dumpDrive = true; break;   // S2.1: DriveAnalysis (per-node drive structure)
+                    case "--dump-next":       dumpNext = true; break;    // S2.2: NextStateBuilder (per-node next-state Expr)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -67,7 +69,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         // bare path → treat as --rom
-                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !args[i].StartsWith('-'))
+                        if (romPath is null && testPath is null && testDir is null && dumpModule is null && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null && probeVblPath is null && dumpNodeName is null && !dumpSystem && !dumpGraph && !dumpDrive && !dumpNext && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -79,6 +81,7 @@ namespace AprVisual.Test
             if (dumpSystem) return DumpSystem();
             if (dumpGraph) return DumpGraph();
             if (dumpDrive) return DumpDrive();
+            if (dumpNext) return DumpNext();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -276,6 +279,43 @@ namespace AprVisual.Test
             return 0;
         }
 
+        // ── S2.2 acceptance harness: build NetlistGraph + DriveAnalysis + NextStateBuilder, print
+        //    combinational/sequential/hybrid counts + IR coverage + nextExpr shape distribution + sample
+        //    logic gates / latches + spot-checks. Doesn't touch the sim. ──
+        private static int DumpNext()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var m = AprVisual.Sim.Logic.NextStateModel.Build(g, di);
+            var (comb, seq, hybrid, ce, no, ga, mx, ho, ot) = m.Stats(di);
+            int total = comb + seq + hybrid;
+            Console.WriteLine($"S2.2 NextStateBuilder — nextExpr per node");
+            Console.WriteLine($"  {WireCore.LastLowerStats}");
+            Console.WriteLine($"  nodes with DriveInfo: {total}  →  combinational={comb}  sequential(Hold-self)={seq}  hybrid(null)={hybrid}");
+            Console.WriteLine($"  IR coverage ≈ {100.0 * (comb + seq) / Math.Max(1, total):F1}%   (hybrid {100.0 * hybrid / Math.Max(1, total):F1}% — the cross-coupled latches in there get reclassified sequential by S2.3)");
+            Console.WriteLine($"  nextExpr shapes:  Const={ce}  Not(..)={no}  And/Or/NodeRef={ga}  Mux(..)={mx}  Hold(..)={ho}  other={ot}");
+
+            Console.WriteLine("  sample logic gates (nextExpr = Not(..)):");
+            int n1 = 0;
+            for (int v = 3; v < m.NextExpr.Length && n1 < 8; v++)
+                if (m.NextExpr[v] is NotExpr && m.NextExpr[v]!.Pretty().Length is > 4 and < 56) { Console.WriteLine($"    {m.Describe(v)}"); n1++; }
+            Console.WriteLine("  sample latches (sequential — Mux(.., Hold(self)) / Hold(self)):");
+            int n2 = 0;
+            for (int v = 3; v < m.NextExpr.Length && n2 < 6; v++)
+                if (v < m.IsSequential.Length && m.IsSequential[v] && m.NextExpr[v]!.Pretty().Length < 70) { Console.WriteLine($"    {m.Describe(v)}"); n2++; }
+
+            Console.WriteLine("  spot-checks:");
+            foreach (var nm in new[] { "ppu.io_ce", "cpu.db0", "res", "clk" })
+            {
+                int id = WireCore.LookupNode(nm);
+                Console.WriteLine($"    {nm,-12} = {(id == WireCore.EmptyNode ? "(no such node)" : id < m.NextExpr.Length ? m.Describe(id) : "?")}");
+            }
+            return 0;
+        }
+
         // ── Step 4+5 acceptance harness: hand-built tiny netlists (inverter / NAND / pass transistor /
         //    dynamic hold) driven via SetHigh/SetLow, checked against their truth tables.
         //    (cf. MD/struct/04 §13.3 and ref/metalnes-main chip_tests.cpp's pslatch/4021.) ──
@@ -289,6 +329,7 @@ namespace AprVisual.Test
             fails += TestStaticMerge();
             fails += TestNetlistGraph();
             fails += TestDriveAnalysis();
+            fails += TestNextState();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
         }
@@ -480,6 +521,47 @@ namespace AprVisual.Test
                        dq.Passes.Any(p => p.Other == 17) && dr.Passes.Any(p => p.Other == 18) && dq.PullDown == null);
             f += Check("r↔q direction: r drives q (r has a pull-up; q is dynamic)",
                        dr.Passes.Single(p => p.Other == 18).OwnerDrives == true && dq.Passes.Single(p => p.Other == 17).OwnerDrives == false);
+            WireCore.Shutdown();
+            return f;
+        }
+
+        // S2.2: hand-built tiny netlist — inverter y=!a, NAND z=!(b&c) (series stack + transparent interior),
+        // a dynamic latch q (d --[ph]--> q; q gates a fake gate so q is a real node; d is driven), and a
+        // hybrid pair p1↔p2 (a bidirectional pass between two driven nodes) → nextExpr must come out as
+        // Not(n_a) / Not(n_b & n_c) / Mux(n_ph, n_d, Hold(q)) / null,null.
+        private static int TestNextState()
+        {
+            Console.WriteLine("NextStateBuilder (S2.2):");
+            WireCore.ResetBuild();
+            WireCore.AddNode(10, "a"); WireCore.AddNode(11, "y");
+            WireCore.AddNode(12, "b"); WireCore.AddNode(13, "c"); WireCore.AddNode(14, "z"); WireCore.AddNode(15, "mid");
+            WireCore.AddNode(16, "ph"); WireCore.AddNode(17, "d"); WireCore.AddNode(18, "q"); WireCore.AddNode(19, "sink");
+            WireCore.AddNode(20, "g1"); WireCore.AddNode(21, "p1"); WireCore.AddNode(22, "p2"); WireCore.AddNode(23, "sel");
+            WireCore.AddTransistor("inv",   gate: 10, c1: 11, c2: WireCore.Ngnd); WireCore.Nodes[11]!.Pullups = 1;       // y = !a
+            WireCore.AddTransistor("nand1", gate: 12, c1: 14, c2: 15);
+            WireCore.AddTransistor("nand2", gate: 13, c1: 15, c2: WireCore.Ngnd); WireCore.Nodes[14]!.Pullups = 1;       // z = !(b&c)
+            WireCore.AddTransistor("pass_ph",    gate: 16, c1: 17, c2: 18); WireCore.Nodes[17]!.Pullups = 1;            // d↔q  (d driven)
+            WireCore.AddTransistor("fakegate_q", gate: 18, c1: 19, c2: WireCore.Ngnd); WireCore.Nodes[19]!.Pullups = 1; // q gates this → q is a real signal
+            WireCore.AddTransistor("pd_p1", gate: 20, c1: 21, c2: WireCore.Ngnd); WireCore.Nodes[21]!.Pullups = 1;      // p1 driven
+            WireCore.AddTransistor("pd_p2", gate: 20, c1: 22, c2: WireCore.Ngnd); WireCore.Nodes[22]!.Pullups = 1;      // p2 driven
+            WireCore.AddTransistor("pass_p1p2", gate: 23, c1: 21, c2: 22);                                              // p1↔p2 (both driven → bidirectional → hybrid)
+
+            var g = AprVisual.Sim.Logic.NetlistGraph.BuildFrom();
+            var di = AprVisual.Sim.Logic.DriveAnalysis.Analyze(g);
+            var m = AprVisual.Sim.Logic.NextStateModel.Build(g, di);
+            var E = (Func<int, AprVisual.Sim.Logic.Expr>)AprVisual.Sim.Logic.Expr.Node;
+            int f = 0;
+            f += Check("y: nextExpr == !n_a, not sequential",
+                       m.NextExpr[11]!.Equals(AprVisual.Sim.Logic.Expr.Not(E(10))) && !m.IsSequential[11]);
+            f += Check("z: nextExpr == !(n_b & n_c), not sequential",
+                       m.NextExpr[14]!.Equals(AprVisual.Sim.Logic.Expr.Not(AprVisual.Sim.Logic.Expr.And(E(12), E(13)))) && !m.IsSequential[14]);
+            f += Check("q: nextExpr == Mux(n_ph, n_d, Hold(q)), sequential",
+                       m.NextExpr[18]!.Equals(AprVisual.Sim.Logic.Expr.Mux(E(16), E(17), AprVisual.Sim.Logic.Expr.Hold(18))) && m.IsSequential[18]);
+            f += Check("p1, p2: hybrid (nextExpr == null)", m.NextExpr[21] == null && m.NextExpr[22] == null);
+            f += Check("Expr.Mux smart-ctor: Mux(c,0,b)==!c&b, Mux(c,1,0)==c, Mux(c,a,a)==a",
+                       AprVisual.Sim.Logic.Expr.Mux(E(1), AprVisual.Sim.Logic.Expr.False, E(2)).Equals(AprVisual.Sim.Logic.Expr.And(AprVisual.Sim.Logic.Expr.Not(E(1)), E(2)))
+                    && AprVisual.Sim.Logic.Expr.Mux(E(1), AprVisual.Sim.Logic.Expr.True, AprVisual.Sim.Logic.Expr.False).Equals(E(1))
+                    && AprVisual.Sim.Logic.Expr.Mux(E(1), E(2), E(2)).Equals(E(2)));
             WireCore.Shutdown();
             return f;
         }
@@ -858,6 +940,7 @@ namespace AprVisual.Test
                   AprVisual --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual --dump-graph                (S2.0) build the NetlistGraph and print the node-role / transistor-kind classification + SelfCheck
                   AprVisual --dump-drive                (S2.1) run DriveAnalysis and print per-node drive structure stats (PullDown / PullUp / passes / hybrid + coverage)
+                  AprVisual --dump-next                 (S2.2) run NextStateBuilder and print per-node nextExpr stats (combinational / sequential / hybrid + IR coverage + shapes)
                   AprVisual --selftest                  run hand-built inverter / NAND / pass-transistor / static-merge circuits and check truth tables
                     [--system-def-dir <dir>]            default: data/system-def
                     [--no-lower]                         skip the S1.5 netlist-lowering pass (A/B comparison)

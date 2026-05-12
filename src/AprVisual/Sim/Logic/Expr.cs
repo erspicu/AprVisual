@@ -54,6 +54,25 @@ namespace AprVisual.Sim.Logic
         public static Expr AndAll(IEnumerable<Expr> xs) { Expr r = True;  foreach (var x in xs) r = And(r, x); return r; }
         public static Expr OrAll (IEnumerable<Expr> xs) { Expr r = False; foreach (var x in xs) r = Or (r, x); return r; }
 
+        // Mux(cond, a, b) = cond ? a : b. Smart constructor (S2.2): collapses to And/Or/Not/Const where it
+        // can — important: standard AOI/OAI/enable logic, after the pull-down-tree + pass-tree synthesis,
+        // initially looks like nested Mux; these rules flatten it to standard And/Or/Not (readability + the
+        // S2.4 interpreter's perf). Note: Mux(c, a, Hold(self)) is *not* simplified — that's the D-latch
+        // signature and is best kept as a Mux for the SCC / sequential-element analysis.
+        public static Expr Mux(Expr cond, Expr a, Expr b)
+        {
+            if (cond is ComplexExpr || a is ComplexExpr || b is ComplexExpr) return Complex;
+            if (cond is ConstExpr cc) return cc.Value ? a : b;          // Mux(1,a,b)=a ; Mux(0,a,b)=b
+            if (a.Equals(b)) return a;                                  // Mux(c,a,a)=a
+            if (a is ConstExpr ca) return ca.Value ? Or(cond, b)        // Mux(c,1,b)=c|b   (covers Mux(c,1,0)=c)
+                                                   : And(Not(cond), b); // Mux(c,0,b)=!c&b  (covers Mux(c,0,1)=!c)
+            if (b is ConstExpr cb) return cb.Value ? Or(Not(cond), a)   // Mux(c,a,1)=!c|a
+                                                   : And(cond, a);      // Mux(c,a,0)=c&a
+            return new MuxExpr(cond, a, b);
+        }
+        public static Expr Hold(int id) => new HoldExpr(id);            // keep node id's value (parasitic capacitance)
+        public static Expr Prev(int id) => new PrevExpr(id);           // node id's previous-cycle value (loop-breaking; S2.3)
+
         public bool IsComplex => this is ComplexExpr;
         public bool IsConst(bool v) => this is ConstExpr c && c.Value == v;
 

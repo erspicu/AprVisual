@@ -70,6 +70,7 @@ namespace AprVisual.Test
                     case "--enable-bus-lowering": AprVisual.Sim.Logic.IrEngine.EnableBusLowering = true; break;   // S4.2 γ.4 A/B: give hybrid bus nodes a wired-AND pseudo-NextExpr
                     case "--bitsliced": emitBitsliced = true; break;   // S4.4: --dump-emitted-cs emits the bit-sliced (ulong[], 64 instances/word) variant
                     case "--selftest":        return SelfTest();
+                    case "--llvm-spike":      return LlvmSpike();   // S4.5 phase 0: verify the LLVMSharp.Interop + libLLVM toolchain (build int add(int,int), JIT, run)
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -336,6 +337,24 @@ namespace AprVisual.Test
         //    print how many cross-coupled latches got recovered (hybrid → sequential), the IR coverage
         //    before/after, sample recovered latches, remaining hybrid, spot-checks. Doesn't touch the sim. ──
         // S4.1/S4.4: write IrEngine.EmitCsharpSource(bitsliced) (the codegen output — chunked C# `Step`) to a file ("-" = stdout).
+        // S4.5 phase 0 — verify the LLVMSharp.Interop + libLLVM toolchain works on this machine.
+        private static int LlvmSpike()
+        {
+            try
+            {
+                Console.WriteLine("S4.5 spike — LLVM IR for `int add(int,int)`:");
+                Console.WriteLine(AprVisual.Sim.Logic.LlvmSpike.EmitAddIR());
+                int r = AprVisual.Sim.Logic.LlvmSpike.JitAndRunAdd(2, 3);
+                Console.WriteLine($"  MCJIT add(2,3) = {r}  → {(r == 5 ? "OK — LLVMSharp + libLLVM toolchain works." : "FAIL — expected 5")}");
+                return r == 5 ? 0 : 1;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"LLVM spike FAILED: {ex.GetType().Name}: {ex.Message}");
+                return 2;
+            }
+        }
+
         private static int DumpEmittedCs(string outPath, bool bitsliced)
         {
             try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }

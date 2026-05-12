@@ -27,4 +27,11 @@
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- S4.5 — the LLVM backend. LLVMSharp.Interop = the LLVM-C bindings; libLLVM.runtime.win-x64
+         bundles libLLVM.dll (no separate LLVM install needed). Same versions as the user's AprGba. -->
+    <PackageReference Include="LLVMSharp.Interop" Version="20.1.2" />
+    <PackageReference Include="libLLVM.runtime.win-x64" Version="20.1.2" />
+  </ItemGroup>
+
 </Project>

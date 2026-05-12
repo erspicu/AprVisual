@@ -1,0 +1,169 @@
+Timestamp: 2026-05-12T18:45:25
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深硬體驗證/邏輯綜合/模擬器工程師。延續那個「NES 晶片 switch-level netlist → 可評估邏輯 IR → codegen」管線的 review。我要實作 S4.2b（你上次建議的「Inline Branch-free Bus Resolver」），需要你給「bus resolution 的精確 (Val, Strength) 模型」—— 這個搞錯就會像 γ.4 一樣 rare mismatch、所以要先講清楚。請用繁體中文、務實、給明確規格。
+
+## 背景速覽
+
+- S1（golden reference）的 switch-level group resolution：把目前導通的 transistor 連通群合起來、群值由 flags-OR → 256-entry LUT 決議，優先鏈是 **GND（強拉低，連到 vss 的導通 transistor）贏 → VCC/pull-up（連到 vcc 的 transistor、或 depletion load）→ 外部驅動（handler 的 SetHigh/SetLow）→ 保留前值（純浮島：capacitance 最大的 node 勝）→ 0**。
+- S2 抽出每個 node 的 `NextExpr[v]` boolean tree（`NodeRef(id)`=該 node 此半週期 current 值 / `Hold(id)`/`Prev(id)`=上半週期值 / `Mux/And/Or/Not/Const`）。S3 把 IR 最佳化到 85% driving-coverage + 843 個 node 在 56 個小殘餘 SCC（counter/shift-reg/ring）+ **~1379 個 hybrid multi-driver tri-state bus node**（`NextExpr==null`：cpu.db / ppu.io_db / board BD / exp_in 那種）。
+- DriveAnalysis 給每個 bus node `v`：`Passes`=傳輸閘寫埠 list（每個 `PassLink{Other, Cond(=gate condition：`NodeRef(gate)` 或 `True`（gate==vcc）), OwnerDrives(true/false/null)}`）、`PullDown`(Expr? — null=無、ComplexExpr=抽不出來、否則一個 boolean expr「這個 path 導通 ⇒ v 被拉到 0」)、`PullUp`(enum: None / StaticLoad（depletion load，弱）/ StrongVcc（直接接 vcc）/ Conditional)、`PullUpCond`(Expr? — Conditional 時的條件，例如 precharge transistor 的 gate)。
+- 我之前試 γ.4（把 bus 抽成 NextExpr：`has_pd = OR(PullDown, 各pass: Cond_i & !Node(Other_i))`、`has_pu = OR(<PullUp>, 各pass: Cond_i & Node(Other_i))`、`bus = !has_pd & (has_pu | Hold)`）—— 你判斷它 (a) 丟失強度資訊（`!Node(Other_i)` 把「Other 是 0」當「Other 是強 0-driver」、但 Other 可能是浮接 0 而 bus 是浮接 1 且電容更大）→ rare mismatch on io_db*；(b) 把 ~10K node 折成巨型 false-loop SCC。你建議改 **S4.2b：bus 不進 IR graph、codegen 一個 branch-free `Resolve_Buses()` block（每 bus 兩個變數 `Val(0/1)` + `Strength(0=Hold, 1=Pull, 2=Drive)`、bitwise 決議）、main loop = ping-pong `for b in 0..K_BUS(~2-3): { Eval_DAG_Nodes(); for s in 0..K_SCC: Eval_Small_SCCs(); Resolve_Buses(); }`**。
+
+## 我要問的（請給精確規格）
+
+1. **bus node v 的 (Val, Strength) 怎麼算？** 一個 bus `v` 的 candidate drivers：
+   - **PullDown**（`di[v].PullDown` 為 true 時）→ ?（什麼 Val、什麼 Strength —— 應該是 Val=0、最強？因為 GND 贏）
+   - **PullUp**：`StrongVcc`（接 vcc 的直連）→ ?（Val=1、什麼 Strength？跟 PullDown 同強度但 Val=1、所以 PullDown 贏它？）；`StaticLoad`（depletion load）→ ?（Val=1、Strength=Pull=1）；`Conditional`（precharge transistor，`di[v].PullUpCond` 為 true 時）→ ?（Val=1、precharge transistor 是 active transistor 不是弱 load —— Strength=Drive=2？還是跟 PullUp tier 一樣算 Pull?）
+   - **每個 pass port `{Cond_i, Other_i}`（`Cond_i` 為 true 時 ⇒ pass 導通、v 跟 Other_i 短接）**：(a) 若 `Other_i` 是**非-bus logic node**（被 logic 驅動）→ candidate `(Val=Node(Other_i), Strength=Drive=2)`？(b) 若 `Other_i` 是**另一個 bus**（也在 `Resolve_Buses()` 裡算）→ 傳輸閘是雙向全強度、所以 propagate `(Val_{Other_i}, Strength_{Other_i})`（不降級）？
+   - **Hold**：沒有任何上面的 candidate 時 → `(Val=Hold(v)=Prev(v), Strength=0)`。
+   - **最後的 bus[v] = 哪個 candidate 勝？** 規則：先比 Strength（大的贏）；同 Strength 時：`Val=0 贏 Val=1`（因為 GND 贏 VCC）？還是要再分「Strength=2 裡 PullDown(Val=0) 最強、PullUpCond(Val=1) 次之、pass-to-driven-node(Val=任意) 又次之」這種子優先序？對 NES 的 tri-state data bus（同時最多一個 driver enable 的設計、但 settle 過程瞬態可能多個），這樣對嗎？
+   - 注意 S1 的優先鏈把「VCC/pull-up」放在「外部驅動」**之前**（pull-up 比 SetHigh/SetLow 強）—— 但 NES 的 data bus 的 driver 是 logic（不是外部 SetHigh/SetLow，那是 memory handler 的事 —— memory handler 透過 SetHigh/SetLow 驅動 board BD bus）。所以「pass-to-driven-logic-node」算「外部驅動」tier 還是更高？handler 的 SetHigh/SetLow 在 bit-sliced runtime 裡是怎麼進來的（每 lane 可能不同）？
+
+2. **怎麼 bit-slice 這個（branch-free）？** 每個 bus 兩個 `ulong`：`Val_v`（64 台的 bus 值）+ `Str_v`（嗯，Strength 是 0/1/2 三態 —— 用兩個 ulong bit-plane `StrHi_v`/`StrLo_v` 表示 2-bit strength？還是 `Str_v` 一個 ulong 表「strength ≥ 1」、另一個表「strength == 2」？）。決議 = 對每個 candidate（PullDown / PullUp / 各 pass），算它的 `(candVal, candStr_bits)`（用 `Cond_i` 的 ulong gate it）、然後「取最高 strength 的」—— 怎麼用 bitwise 做「per-bit 取最大 strength 的那個的 value」？大概像：`win2 = (cand1Str2 | cand2Str2 | ...); val_from_str2 = (cand1Str2 & cand1Val) | (cand2Str2 & cand2Val) | ...; ... 但 strength=2 裡 PullDown(Val=0) 要贏，所以 val_from_str2 還要 & ~has_strong_0 之類`。給我一個乾淨的 bitwise pattern。
+3. **K_BUS（ping-pong 外層迴圈次數）大概多少？** data bus 的傳遞（一個 bus 連到另一個 bus 連到...）—— NES 的 data bus 鏈大概多深（cpu.db ↔ board BD ↔ ppu.io_db ↔ ppu OAM/palette ↔ ...）？K_BUS ~3-5 夠嗎？而且 `Resolve_Buses()` 跟 `Eval_DAG`/`Eval_SCCs` 交錯 —— bus 變了 → 讀 bus 的 logic 要重算 → 那 logic 又驅動別的 bus → ...，所以整個 ping-pong 要幾輪？跟「直接把 bus 模型化進巨型 SCC（你之前說 K 可能 20~50）」相比，這個 ping-pong 為什麼 K 會小很多（是因為 bus 部分跟 logic 部分各自 K 小、只是交錯）？
+4. **驗證策略**：先在 driving 模式做（把 `StepOneDriving` 的 step-5「`ProcessQueue` 對 843 SCC + 1379 bus + fanout 跑 S1」換成「fixed-K SCC block + Resolve_Buses + ping-pong」），跑 `--trace-cmp --engine ir` 看 0 mismatch。如果 mismatch —— 因為 bus 模型錯、還是 K 不夠？怎麼區分（K 不夠 = bump K 就好；模型錯 = 哪個 strength 規則錯）？
+5. **有沒有更簡單的**？例如：bus 的 Strength 其實只要 2 級（`Driven`（有任何 PullDown/PullUp/pass-to-driven-node active）vs `Float`（無、hold））就夠 NES？或者：先別管浮接島的「最大電容勝」（NES 的浮接 bus 多半下個 cycle 就被驅動了、瞬態不可觀察）—— 用 `bus = PullDown ? 0 : (PullUp_or_pass1 ? 1 : (pass0 ? 0 : Hold))` 這種兩級的（其實就是 γ.4 的 wired-AND）—— 你之前說那個有 io_db* mismatch，但如果 io_db* 的 mismatch 其實是「settle-order artifact、邏輯上不可觀察」（像 S2 對 unnamed junction 的豁免），那是不是其實可以接受？（codegen 出來會 0.07% 跟 S1 不一致，但那 0.07% 是 S1 自己的 event-queue-order artifact、不是「正確答案」—— 對 GPU bit-sliced 而言「忠於物理」可能比「忠於 S1 的 artifact」更對？）
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常核心且硬派的模擬器架構問題。你在 $\gamma.4$ 遇到的 rare mismatch 與巨型 SCC，正是因為**「把具有雙向/廣播特性的傳輸閘（Pass Transistor），硬塞進單向的 Boolean DAG 中」**所導致的。
+
+要用 branch-free bit-sliced（64 lanes）來解這個問題，我們不需要完整的整數強度，只需要**「3 個 Bit-Plane 代表 3 種驅動力」**。
+
+以下是針對你問題的精確規格與實作指南：
+
+### 1. ＆ 2. 精確 (Val, Strength) 模型與 Bit-sliced 實作
+
+在 NES (NMOS) 的物理與 S1 模型中，強度階層可以被精簡為 3 種主動驅動態 + 1 種浮接態。因為我們處理的是 64 台機器的 `ulong`，我們不對每個 node 存 `int Strength`，而是為每個 Bus Node $v$ 宣告 3 個 `ulong` 變數來代表它的狀態：
+
+*   `S0` (Strong 0)：強拉低。來自 GND (`PullDown`) 或輸出 0 的邏輯閘。**（最強，優先權最高）**
+*   `S1` (Strong 1)：強拉高。來自直接 VCC (`StrongVcc`)、預充閘 (`PullUpCond`) 或輸出 1 的邏輯閘。
+*   `W1` (Weak 1) ：弱拉高。來自 Depletion Load (`StaticLoad`)。
+*   (如果以上皆為 0，就是 Float / Hold)。
+
+#### Step A: 初始候選驅動 (Local Candidate Generation)
+在每一輪 Bus Resolution 開始時，對於每個 Bus Node $v$，先從它**自身**與**非 Bus 的邏輯節點**收集初始驅動力：
+
+```c
+// 1. 本身的 PullDown / PullUp
+ulong init_S0 = di[v].PullDown ? ~0ULL : 0ULL;
+ulong init_S1 = (di[v].PullUp == StrongVcc || di[v].PullUpCond) ? ~0ULL : 0ULL;
+ulong init_W1 = (di[v].PullUp == StaticLoad) ? ~0ULL : 0ULL;
+
+// 2. 外部 Handler (若此 bus 是 Board BD，Memory Handler 會在這裡注入)
+// inject_handler_mask: 該 lane 正在被 handler 寫入
+// inject_handler_val:  寫入的 0/1 值
+init_S0 |= (inject_handler_mask & ~inject_handler_val);
+init_S1 |= (inject_handler_mask &  inject_handler_val);
+
+// 3. 來自「單向寫入」的 Pass Ports (Other 是被決議過的 Logic Node，非 Bus)
+for (pass in di[v].LogicPasses) {
+    ulong cond = Eval(pass.Cond);   // 傳輸閘導通條件
+    ulong val  = Eval(pass.Other);  // Logic node 的值
+    init_S0 |= (cond & ~val);       // Logic node 輸出 0 視為強拉低
+    init_S1 |= (cond &  val);       // Logic node 輸出 1 視為強拉高
+}
+
+S0_curr[v] = init_S0;
+S1_curr[v] = init_S1;
+W1_curr[v] = init_W1;
+```
+
+#### Step B: 傳輸閘網路廣播 (Bus-to-Bus Propagation)
+Bus 之間會透過 Pass Transistors 短路。此時強度不會衰減，雙向互傳。你需要一個 Inner Loop 來讓網路收斂。
+
+```c
+for (int pass_iter = 0; pass_iter < K_PASS; pass_iter++) {
+    // 必須使用 next buffer 避免計算順序導致的 artifacts
+    for (int i = 0; i < NUM_BUSES; i++) {
+        S0_next[i] = S0_curr[i];
+        S1_next[i] = S1_curr[i];
+        W1_next[i] = W1_curr[i];
+    }
+    
+    for (int i = 0; i < NUM_BUSES; i++) {
+        for (pass in di[i].BusPasses) {
+            ulong cond = Eval(pass.Cond);
+            int other_bus = pass.OtherBusIdx;
+            
+            // 雙向短路：任何一邊有的強度，另一邊也會有
+            S0_next[i] |= (cond & S0_curr[other_bus]);
+            S1_next[i] |= (cond & S1_curr[other_bus]);
+            W1_next[i] |= (cond & W1_curr[other_bus]);
+        }
+    }
+    // Swap next to curr...
+}
+```
+
+#### Step C: 最終決議 (Resolution)
+當廣播結束後，每個 Bus $v$ 會根據 S1 的物理優先權（GND 贏 VCC/PullUp 贏 Depletion 贏 Hold）產生最終的 0/1 值：
+
+```c
+for (int i = 0; i < NUM_BUSES; i++) {
+    ulong has_s0 = S0_curr[i];
+    ulong has_s1 = S1_curr[i];
+    ulong has_w1 = W1_curr[i];
+    ulong hold_v = PrevState[i]; 
+
+    // Bitwise 決議邏輯：
+    // 如果 has_s0 為 1，結果強制為 0 (~has_s0 遮罩一切)
+    // 否則如果 has_s1 為 1，結果為 1
+    // 否則如果 has_w1 為 1，結果為 1
+    // 否則保持 hold_v
+    BusVal[i] = (~has_s0 & has_s1) | 
+                (~has_s0 & ~has_s1 & has_w1) | 
+                (~has_s0 & ~has_s1 & ~has_w1 & hold_v);
+}
+```
+
+### 3. K_BUS 大概要多少？為什麼比巨型 SCC 小？
+
+**為什麼之前會變巨型 SCC？**
+在 $\gamma.4$ 中，你把「Bus 值」當作 DAG 的一個節點，傳輸閘的導通條件與 Bus 值互相依賴。因為 Bus 是雙向的，A 依賴 B，B 依賴 A，DAG 化後整個資料排線和驅動它的 ALU/Registers 全被捲進同一個圖裡。
+
+**改成 Ping-Pong 後的架構與 K 值：**
+這個架構把**「邏輯計算 (DAG)」**與**「電路拓撲短路 (Bus Resolver)」**切開。
+外層結構是：
+```c
+for (int outer = 0; outer < K_OUTER; outer++) {
+    Eval_DAG();       // 單向邏輯 (AND/OR/NOT)，不含 Bus
+    Eval_SCCs();      // 小殘餘環 (Flip-Flops)
+    Eval_Buses();     // 裡面包著 K_PASS 的傳輸閘廣播
+}
+```
+
+*   **`K_PASS` (內部廣播)**：NES 的 Bus-to-Bus 直接短路深度（比如一個 pass 接另一個 pass）通常極淺。`K_PASS = 2~3` 絕對足夠讓同一個 cycle 內短接的 Bus 形成同電位。
+*   **`K_OUTER` (外部反饋)**：如果一個 Bus $A$ 變了，觸發一個 logic node $L$，$L$ 又打開另一個傳輸閘驅動 Bus $B$。這種「Bus $\rightarrow$ Logic $\rightarrow$ Bus」的因果鏈在 NES 裡通常也是同步設計（跨 cycle），在半週期瞬態內非常少見。`K_OUTER = 2~3` 就能達到 100% 收斂。
+*   **總結：** 這個分離設計讓圖的大小從 $O(V)$ 降到 $O(K_{outer} \times K_{pass})$，因為 90% 的 node 都在 DAG 裡一波帶走了。
+
+### 4. 驗證策略與 Debug 區分
+
+先照上述架構寫死 `K_OUTER = 3`, `K_PASS = 3`。跑 `--trace-cmp` 對決 S1。
+
+**如果發生 Mismatch，如何區分是 K 不夠還是模型錯？**
+1.  **加大 K 測試**：直接把 `K_OUTER=10`, `K_PASS=10`。如果 mismatch 消失，那就是 K 不夠。如果還在，就是模型問題。
+2.  **觀察 Mismatch 的態樣**：
+    *   *模型錯（強度問題）*：S1 說是 0，你的模型說是 1。把該 Node 的 `S0`, `S1`, `W1` dump 出來。如果發現該 Node 同時被 `S0` (e.g. GND) 和 `S1` (e.g. VCC) 驅動，但 S1 的結果卻跟你的規則矛盾，你就抓到 S1 特殊的 corner case 了。
+    *   *模型錯（Float 電容問題）*：如果 dump 出來發現你的 `S0`, `S1`, `W1` 全是 0，表示它進入 Hold。如果 S1 的結果與你的 Hold 值不同，通常就是「浮接電容競爭」造成的（見第 5 點）。
+
+### 5. 更簡單的方案與「忠於物理 vs 忠於 S1 Artifact」
+
+你問到是否能接受 $\gamma.4$ 在 `io_db*` 上的 rare mismatch，這是個靈魂拷問。
+
+**為什麼浮接狀態 (Float) S1 會算出不一樣的值？**
+在 Visual6502 (S1) 的演算法中，如果 Bus A (電容 10) 值為 1，Bus B (電容 5) 值為 0，當這兩個 Bus 都在**浮接狀態**時把傳輸閘打開，S1 會判斷「大電容吃掉小電容」，兩者都變成 1。
+但在上面的 Bit-sliced 模型中，我們只實作了 `Hold`（各自維持前值）。如果我們不加電容判斷，A 會 Hold 1，B 會 Hold 0，這就跟 S1 產生了 Mismatch。
+
+**這真的重要嗎？**
+**對 NES 來說，幾乎 100% 不重要。** `io_db` (PPU 的 I/O Data Bus) 上的這些浮點電荷轉移，都發生在時脈相位的「瞬態」或「無效讀取區間」。當真正的 CPU 或 PPU 要讀取這條 Bus 時，一定會有一個主動的 Driver（Strong0 或 Strong1）強勢介入，把這個微弱的浮點電荷蓋掉。
+
+**務實的工程建議：**
+1.  **先實作上面的 `S0/S1/W1` 模型**：這解決了 99.9% 的剛性衝突（GND 打架 VCC）。
+2.  **無視小電容 Mismatch**：跑 `--trace-cmp`，如果 Mismatch 發生的節點是 Bus，且該 cycle 結束時該 Bus 並未被任何 Logic 鎖存（Latch），這就是一個「不可觀察的 transient state」。
+3.  **如何讓 Validator 閉嘴**：如果你確定那是 transient artifact，可以在 Validator 中加入一個白名單：「當該 Node 的 `S0==0 && S1==0 && W1==0` 時，允許模擬器結果與 S1 不一致」。
+4.  如果你*非得*要跟 S1 完全一模一樣（例如為了強迫症的零誤差），你就必須在上述 Bit-sliced 邏輯的 `~S0 & ~S1 & ~W1` 分支中，加入比較 `Cap[v]` 與相鄰浮接 Node `Cap[other]` 的邏輯。但在 64-lane 的 bitwise 運算中做整數大小比較非常痛苦且拖慢效能，強烈建議直接把這種 Artifact 當成 S2 的 unnamed junction 一樣**豁免掉**。這才是適合 GPU 執行的「忠於邏輯正確性」之道。

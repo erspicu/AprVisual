@@ -31,6 +31,7 @@ namespace AprVisual.Sim.Logic
         public static bool[] InScc = [];         // [nodeId]; true = NextExpr[v] is in a current-value SCC that Stage D couldn't break ⇒ driving mode lets S1's ProcessQueue compute it (NextExpr stays — checking mode still uses it; deps-on-this read S1's value)
         public static int ResidualSccNodes;      // # of nodes flagged InScc (Stage D's cap hit, or a self-edge that resisted)
         public static int AliasedNodeCount;      // S3 γ.0: # of pure buffer/inverter nodes folded out of the dependency graph (NodeAlias.Apply)
+        public static int Size2ResolvedCount;    // S3 γ.1: # of size-2 SCC pairs dissolved by two-step substitution (= 2× this many nodes left InScc)
         public static List<int[]> SccComponents = new();  // [k] = the node ids of residual SCC #k (size > 1, or a size-1 self-loop); diagnostic — see --dump-scc
         public static int StageDBrokenEdges;     // # of feedback edges Stage D cut (NodeRef(M) → Prev(M) in NextExpr[v]) to turn the dependency graph into a DAG
         public static int DrivingCoveredCount;   // # of nodes the IR evaluates in driving mode (= EvalOrder.Length)
@@ -101,65 +102,125 @@ namespace AprVisual.Sim.Logic
             }
         }
 
+        // S3 γ.1: substitute NodeRef(id) → repl(id) (when non-null) throughout e, rebuilding with the smart ctors.
+        // Hold/Prev are left alone — they read the prev-half-cycle snapshot, not the being-computed current value.
+        static Expr Substitute(Expr e, Func<int, Expr?> repl) => e switch
+        {
+            NodeRefExpr nr => repl(nr.Id) ?? e,
+            NotExpr x      => Expr.Not(Substitute(x.Operand, repl)),
+            AndExpr a      => Expr.And(Substitute(a.L, repl), Substitute(a.R, repl)),
+            OrExpr  o      => Expr.Or (Substitute(o.L, repl), Substitute(o.R, repl)),
+            MuxExpr m      => Expr.Mux(Substitute(m.Cond, repl), Substitute(m.A, repl), Substitute(m.B, repl)),
+            _              => e,   // Const / Hold / Prev / Complex
+        };
+
         /// <summary>Build EvalOrder[] (driving mode) — the IR-evaluated nodes topo-sorted by the current-value
         /// dependency graph (edge v→M iff NextExpr[v] references NodeRef(M) for an IR-covered M; Hold/Prev don't
-        /// count — they read the prev-half-cycle snapshot). Recursive Tarjan finds the residual cycles S2.3 (incl.
-        /// Stage A2) didn't break; the cycle nodes get InScc[v] = true — driving mode lets S1's ProcessQueue
-        /// compute those (NextExpr is left alone, so checking mode still uses it; deps-on-an-SCC-node read S1's
-        /// settled value). Only the cycle nodes are flagged, not their (acyclic) dependents.
-        /// (Stage D — Prev-cutting the back-edges — was tried and reverted: it's only correct for pure pass-
-        /// through pipelines, but most residual cycles are stateful — the 2C02 clock dividers, whose extracted
-        /// NextExpr is itself wrong — so Prev-cutting yields a wrong model. Needs a "is this cycle a pipeline?"
-        /// classifier; deferred. See MD/impl/S2/05 §"firing 12".)</summary>
+        /// count — they read the prev-half-cycle snapshot). Recursive Tarjan finds the residual cycles; γ.1 (the
+        /// generalised Stage A2) tries to dissolve every size-2 SCC {a,b} by two-step algebraic substitution
+        /// (a_next = f_a(f_b(Prev), Prev) — for a bistable cross-coupled cell this collapses to a function of
+        /// Prev(a)/Prev(b) + the cell's async inputs); resolved pairs leave InScc and join EvalOrder. Cycles γ.1
+        /// can't dissolve (a NextExpr is null/Complex, or — γ.2's job — a counter / shift-register tangle) get
+        /// InScc[v] = true: driving mode lets S1's ProcessQueue compute those (NextExpr stays, so checking mode
+        /// still uses it; deps-on-an-SCC-node read S1's settled value).</summary>
         static void BuildEvalOrder()
         {
             int n = NextExpr.Length;
             InScc = new bool[n];
             StageDBrokenEdges = 0;
+            Size2ResolvedCount = 0;
             var deps = new List<int>?[n];
-            var dependents = new List<int>[n];
-            for (int v = 0; v < n; v++)
+            var dependents = new List<int>?[n];
+            var sccSizes = new List<int>(); var sampleScc = new List<string>();
+
+            void BuildDepGraph()
             {
-                if (NextExpr[v] == null) continue;
-                var refs = new HashSet<int>();
-                CollectNodeRefs(NextExpr[v]!, refs);
-                List<int>? d = null;
-                foreach (int m in refs)
-                    if (m >= 0 && m < n && NextExpr[m] != null) { (d ??= new()).Add(m); (dependents[m] ??= new()).Add(v); }
-                deps[v] = d;
+                Array.Clear(deps); Array.Clear(dependents);
+                for (int v = 0; v < n; v++)
+                {
+                    if (NextExpr[v] == null) continue;
+                    var refs = new HashSet<int>();
+                    CollectNodeRefs(NextExpr[v]!, refs);
+                    List<int>? d = null;
+                    foreach (int m in refs)
+                        if (m >= 0 && m < n && NextExpr[m] != null) { (d ??= new()).Add(m); (dependents[m] ??= new()).Add(v); }
+                    deps[v] = d;
+                }
             }
 
             // Tarjan SCC over the IR-covered subgraph → flag the cycle nodes (InScc). recursive — DFS depth =
             // the spanning-tree depth of the dependency DAG (gate depth, tens; paths terminate at hybrid/Input/
-            // sequential leaves), so plain recursion is safe.
-            int[] idx = new int[n], low = new int[n]; Array.Fill(idx, -1);
-            bool[] onStk = new bool[n]; var stk = new Stack<int>(); int nextIdx = 0;
-            var sccSizes = new List<int>(); var sampleScc = new List<string>();
-            SccComponents = new List<int[]>();
-            void StrongConnect(int v)
+            // sequential leaves), so plain recursion is safe. Re-runnable (γ.1's loop re-detects after rewriting).
+            void RunTarjan()
             {
-                idx[v] = low[v] = nextIdx++; stk.Push(v); onStk[v] = true;
-                bool selfLoop = false;
-                if (deps[v] is { } dl)
-                    foreach (int w in dl)
-                    {
-                        if (w == v) { selfLoop = true; continue; }
-                        if (idx[w] < 0) { StrongConnect(w); if (low[w] < low[v]) low[v] = low[w]; }
-                        else if (onStk[w] && idx[w] < low[v]) low[v] = idx[w];
-                    }
-                if (low[v] == idx[v])
+                Array.Clear(InScc);
+                sccSizes.Clear(); sampleScc.Clear(); SccComponents = new List<int[]>();
+                int[] idx = new int[n], low = new int[n]; Array.Fill(idx, -1);
+                bool[] onStk = new bool[n]; var stk = new Stack<int>(); int nextIdx = 0;
+                void StrongConnect(int v)
                 {
-                    var comp = new List<int>(); int w; do { w = stk.Pop(); onStk[w] = false; comp.Add(w); } while (w != v);
-                    if (comp.Count > 1 || selfLoop)
+                    idx[v] = low[v] = nextIdx++; stk.Push(v); onStk[v] = true;
+                    bool selfLoop = false;
+                    if (deps[v] is { } dl)
+                        foreach (int w in dl)
+                        {
+                            if (w == v) { selfLoop = true; continue; }
+                            if (idx[w] < 0) { StrongConnect(w); if (low[w] < low[v]) low[v] = low[w]; }
+                            else if (onStk[w] && idx[w] < low[v]) low[v] = idx[w];
+                        }
+                    if (low[v] == idx[v])
                     {
-                        sccSizes.Add(comp.Count);
-                        SccComponents.Add(comp.ToArray());
-                        foreach (int c in comp) { InScc[c] = true; if (sampleScc.Count < 16) sampleScc.Add($"{WireCore.GetNodeName(c)}#{c}"); }
+                        var comp = new List<int>(); int w; do { w = stk.Pop(); onStk[w] = false; comp.Add(w); } while (w != v);
+                        if (comp.Count > 1 || selfLoop)
+                        {
+                            sccSizes.Add(comp.Count);
+                            SccComponents.Add(comp.ToArray());
+                            foreach (int c in comp) { InScc[c] = true; if (sampleScc.Count < 16) sampleScc.Add($"{WireCore.GetNodeName(c)}#{c}"); }
+                        }
                     }
                 }
+                for (int v = 0; v < n; v++) if (NextExpr[v] != null && idx[v] < 0) StrongConnect(v);
             }
-            for (int v = 0; v < n; v++) if (NextExpr[v] != null && idx[v] < 0) StrongConnect(v);
+
+            // γ.1: dissolve size-2 SCCs by two-step substitution. Returns # of pairs resolved this pass.
+            int ResolveSize2()
+            {
+                int resolved = 0;
+                foreach (var comp in SccComponents)
+                {
+                    if (comp.Length != 2) continue;
+                    int a = comp[0], b = comp[1];
+                    var ea = NextExpr[a]; var eb = NextExpr[b];
+                    if (ea is null or ComplexExpr || eb is null or ComplexExpr) continue;
+                    Expr Sub(Expr e, int x, Expr xr, int y, Expr yr) => Substitute(e, id => id == x ? xr : id == y ? yr : null);
+                    var innerB = Sub(eb!, a, Expr.Prev(a), b, Expr.Prev(b));        // b's value after one iteration from prev
+                    var innerA = Sub(ea!, b, Expr.Prev(b), a, Expr.Prev(a));        // a's value after one iteration from prev
+                    var nextA  = Sub(ea!, b, innerB, a, Expr.Prev(a));              // a's value after b updated   (= fixpoint for a size-2 bistable cell)
+                    var nextB  = Sub(eb!, a, innerA, b, Expr.Prev(b));
+                    var ra = new HashSet<int>(); CollectNodeRefs(nextA, ra);
+                    var rb = new HashSet<int>(); CollectNodeRefs(nextB, rb);
+                    if (ra.Contains(a) || ra.Contains(b) || rb.Contains(a) || rb.Contains(b)) continue;   // shouldn't happen — defensive
+                    NextExpr[a] = nextA; NextExpr[b] = nextB;
+                    InScc[a] = InScc[b] = false;
+                    if (a < IsSequential.Length) IsSequential[a] = true;
+                    if (b < IsSequential.Length) IsSequential[b] = true;
+                    if (a < Hybrid.Length) Hybrid[a] = false;
+                    if (b < Hybrid.Length) Hybrid[b] = false;
+                    resolved++;
+                }
+                return resolved;
+            }
+
+            BuildDepGraph(); RunTarjan();
+            for (int iter = 0; iter < 8; iter++)
+            {
+                int r = ResolveSize2();
+                if (r == 0) break;
+                Size2ResolvedCount += r;
+                BuildDepGraph(); RunTarjan();   // NextExpr changed — re-detect (some bigger SCCs may now be size-2)
+            }
             ResidualSccNodes = 0; foreach (int s in sccSizes) ResidualSccNodes += s;
+            if (Size2ResolvedCount > 0) Console.Error.WriteLine($"IrEngine: γ.1 dissolved {Size2ResolvedCount} size-2 SCC pair(s) (2-step substitution)");
             if (ResidualSccNodes > 0)
                 Console.Error.WriteLine($"IrEngine: {sccSizes.Count} residual current-value SCC(s) (sizes {string.Join(",", sccSizes.OrderByDescending(s => s).Take(20))}{(sccSizes.Count > 20 ? "…" : "")}) — {ResidualSccNodes} node(s) → driving mode hands them to S1: {string.Join(", ", sampleScc)}{(ResidualSccNodes > 16 ? " …" : "")}");
 

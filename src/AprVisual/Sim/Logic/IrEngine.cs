@@ -379,6 +379,25 @@ namespace AprVisual.Sim.Logic
             _             => 0,
         };
 
+        // cpu-opt ("β"): EvalExpr for the event-driven settle — Hold(id)/Prev(id) read the *current* NodeStates,
+        // not the start-of-half-cycle snapshot. A transparent latch Mux(clk, data, Hold(self)) with clk=0 must
+        // hold whatever it *currently* has (the keeper value — which, if clk is a derived phase that edged
+        // mid-half-cycle, is a mid-half-cycle value, NOT PrevStates[self]). This matches S1's group-walk
+        // semantics (the keeper holds its current value during the settle) — the batch driving mode gets away
+        // with PrevStates because step-5's S1 ProcessQueue re-recalcs the latches; β has no such fixup.
+        public static int EvalExprCurrent(Expr e) => e switch
+        {
+            ConstExpr c   => c.Value ? 1 : 0,
+            NodeRefExpr nr => WireCore.NodeStates[nr.Id],
+            HoldExpr h    => WireCore.NodeStates[h.Id],
+            PrevExpr p    => WireCore.NodeStates[p.Id],
+            NotExpr x     => 1 - EvalExprCurrent(x.Operand),
+            AndExpr a     => EvalExprCurrent(a.L) & EvalExprCurrent(a.R),
+            OrExpr o      => EvalExprCurrent(o.L) | EvalExprCurrent(o.R),
+            MuxExpr m     => EvalExprCurrent(m.Cond) != 0 ? EvalExprCurrent(m.A) : EvalExprCurrent(m.B),
+            _             => 0,
+        };
+
         /// <summary>Compile EvalOrder's Expr trees into the flat stack-machine program (_flatOp/_flatArg).
         /// Post-order emit each NextExpr[v]'s tree, then a StoreNode(v). Mirrors EvalExpr's semantics.</summary>
         static void CompileFlatProgram()
@@ -559,27 +578,40 @@ namespace AprVisual.Sim.Logic
             byte old = WireCore.NodeStates[nn];
             if (nn < NextExpr.Length && NextExpr[nn] is { } e && (nn >= InScc.Length || !InScc[nn]))
             {
-                byte nv = (byte)EvalExpr(e);
+                byte nv = (byte)EvalExprCurrent(e);   // Hold/Prev read the *current* state (S1's keeper semantics) — see EvalExprCurrent
                 WireCore.SetNodeState(nn, nv);   // NodeStates[nn] = nv (if changed) + enqueue nn's gated-transistor fan-out
                 var node = WireCore.Nodes[nn];
                 if (node?.Callback != null) WireCore.EnqueueCallback(node.Callback);   // match S1: a recalc'd node with a callback enqueues it (InvokeCallbacks dedups)
             }
             else WireCore.RecalcNode(nn);        // S1's group walk (residual SCC / hybrid bus / behavioral memory) — sets all group members + their transistor fan-out + callbacks
-            if (WireCore.NodeStates[nn] != old && nn < _irFanoutOff.Length - 1)   // wake the IR-NodeRef dependents (covers the channel-connection cases the transistor fan-out misses)
-                for (int i = _irFanoutOff[nn]; i < _irFanoutOff[nn + 1]; i++) WireCore.EnqueueNode(_irFanoutNodes[i]);
+            if (WireCore.NodeStates[nn] != old)
+            {
+                // (a) the IR-NodeRef dependents — IR nodes w with NextExpr[w] referencing Node(nn)
+                if (nn < _irFanoutOff.Length - 1) for (int i = _irFanoutOff[nn]; i < _irFanoutOff[nn + 1]; i++) WireCore.EnqueueNode(_irFanoutNodes[i]);
+                // (b) the channel fan-out — when nn changes, any node channel-connected to it via a *conducting*
+                //     pass also changes. S1's group walk handles this implicitly (RecalcNode(nn) resolves the
+                //     whole conducting group + sets all members); the per-node EvalExpr fast path doesn't, so
+                //     wake those other endpoints here. (SetNodeState already handled the *gate* fan-out.)
+                ref NodeInfo ns = ref WireCore.NodeInfos[nn];
+                if (ns.TlistC1c2s != 0)
+                {
+                    int* p = WireCore.TransistorList + ns.TlistC1c2s;
+                    while (*p != 0) { int gate = *p++; int other = *p++; if (WireCore.NodeStates[gate] != 0) WireCore.EnqueueNode(other); }
+                }
+            }
         }
 
         /// <summary>One half-cycle, event-driven ("β") mode.</summary>
         public static void StepOneEventDriven()
         {
             if (!Built) Build();
-            int n = WireCore.NodeCount;
-            new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (Hold/Prev read this)
+            // No PrevStates snapshot — β's EvalExprCurrent reads the *current* NodeStates for Hold/Prev (the
+            // keeper semantics; see EvalExprCurrent). Saves a ~14 KB memcpy every half-cycle.
             WireCore.SkipRecalcOf = null;
-            WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clk toggle, …): SetHigh/Low just enqueue, no settle
-            WireCore.ProcessQueueWith(_recalcEventDriven);                       // 3. drain the dirty-set: each node via NextExpr (IR-covered) or RecalcNode (else); + InvokeCallbacks (memory/video — a callback's SetHigh re-settles via S1's ProcessQueue, fine)
+            WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 1. handlers (clk toggle, …): SetHigh/Low just enqueue, no settle
+            WireCore.ProcessQueueWith(_recalcEventDriven);                       // 2. drain the dirty-set: each node via EvalExprCurrent (IR-covered) or RecalcNode (else); + InvokeCallbacks (memory/video — a callback's SetHigh re-settles via S1's ProcessQueue, fine)
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
-            WireCore.Time++;                                                     // 4.
+            WireCore.Time++;                                                     // 3.
         }
 
         public static void StepDriving(int count) { for (int i = 0; i < count; i++) StepOneDriving(); }

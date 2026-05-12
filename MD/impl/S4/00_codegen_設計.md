@@ -28,11 +28,14 @@
    - (c) 把 bus 也當「狀態」、用 switch-level group resolution 的 bit-sliced 版（GND wins → VCC → drive → hold → 0 的 256-entry LUT）—— 但 group 是動態的（哪些 transistor 導通隨值變），bit-slice 不了。
    - 傾向 (a)：給 hybrid bus 抽 pseudo-NextExpr（`Mux` chain over drivers）→ 它們就變成「有 NextExpr 但可能在 SCC 裡」→ Fixed-K 處理。這也順便把它們從「S1-only」變成「IR-modeled」→ coverage 衝到 ~100%。
 
-## 4. 後端：C# Roslyn-emit vs Reflection.Emit-IL vs LLVM-via-.NET
+## 4. 後端：C# emit + LLVM emit，兩份並行做效能對照（user 定調 2026-05）
 
-- Gemini（`..._152404.txt` §6 + `..._162049.txt`）：**強烈推 LLVM-via-.NET**。理由：(1) Roslyn 字串 / Reflection.Emit IL 在「一個 ~100K 行 / 數萬區域變數的方法」上會讓 RyuJIT 的 register allocation 爆掉（甚至 fallback unoptimized）；(2) LLVM `-O3` 做跨全域 const-folding / DCE / instruction combining（進一步壓縮網路圖）+ greedy regalloc 處理巨型 basic block 遠超 RyuJIT；(3) **同一份 LLVM IR 一鍵 retarget x86/ARM 或 NVPTX(CUDA)，只維護一套 `IRBuilder` 邏輯**（用 C# emit 字串的話未來上 GPU 要另寫 CUDA C / PTX emitter、維護兩套）。Verilator 等硬體模擬器產巨量 flat SSA 是家常便飯、LLVM 架構就是為這種而生。
-- user：codegen 用 C#（不引入 C++ toolchain 依賴）。→ **LLVM-via-.NET = `LLVMSharp`（或 LLVM-C API via P/Invoke）**，整個 codegen 工具還是 C# 寫的、只是後端 emit LLVM IR 而非 C# 原始碼。user 有另一個 .NET+LLVM 專案（github.com/erspicu/AprGba）可參考。
-- 折衷：**先做一個陽春的 C# Roslyn-emit-C#-source 版**（emit 一個 `static void Step(uint[] cur, uint[] prev)`、bit-sliced `& | ^ ~`）—— 快速 prototype、驗證邏輯正確、量 baseline 速度；然後再換 LLVM 後端（如果 Roslyn 版的編譯時間 / RyuJIT 在巨型方法上真的爛）。或直接上 LLVM（風險：要先學 LLVMSharp）。哪個 → 問 Gemini + 看 user 偏好。
+- **做兩份**：(1) **C# 後端** —— emit C#-source（一個巨大的 `static void Step(...)`、bit-sliced `& | ^ ~`）→ Roslyn 動態編譯。陽春、快 prototype、量 baseline、驗證邏輯正確。風險：~100K 行 / 數萬 local 的方法可能把 RyuJIT 的 register allocation 搞爆（量出來看）。(2) **LLVM 後端**（`LLVMSharp` / LLVM-C API via P/Invoke）—— emit LLVM IR → `-O3`（跨全域 const-folding / DCE / instruction-combining + greedy regalloc 處理巨型 basic block 遠超 RyuJIT）→ JIT/AOT 成 native。整個 codegen 工具都用 C# 寫（不引入 C++ toolchain）。**LLVM-in-.NET 的用法參考 user 抓下來的另一個 .NET+LLVM 專案**（同 owner、例如 github.com/erspicu/AprGba）。
+- 兩份的等價 gate（逐 node vs S1）都要過；benchmark 報告列「S1 / C#-emit / LLVM-emit / + bit-sliced ×N」的 throughput 對照。Gemini（`..._152404.txt` §6 / `..._162049.txt`）強烈推 LLVM 是因為「同一份 LLVM IR 一鍵 retarget GPU、只維護一套 IRBuilder」—— 但 user 想兩份都做、量出差距，所以兩份並行。
+
+## 4b. GPU 化 —— target 尚待討論（不急著定）
+
+CUDA / NVPTX **不是唯一選項**。考量：(1) C# 對 CUDA 的 library 支援不一定好處理；(2) **GPU compute shader / shading language**（HLSL compute shader、GLSL/SPIR-V compute、WGSL …）可能更貼 .NET 生態 —— bit-sliced boolean kernel 本來就只是一堆 `& | ^ ~`，compute shader 跑得動；(3) **參考 user 的 `AprNesAvalonia`**（AprNes 的 .NET 版、用 Avalonia UI 框架、自己發展的 shader script）—— 那套「在 .NET 裡跑自訂 shader」的做法可以借。→ S4 的 GPU 那一步先不寫死 target；等 C#/LLVM 兩份 CPU 後端做出來、量過，再討論「CUDA-via-LLVM-NVPTX」vs「compute-shader」路線。
 
 ## 5. 驗證計畫
 

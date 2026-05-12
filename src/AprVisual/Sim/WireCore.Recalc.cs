@@ -112,6 +112,41 @@ namespace AprVisual.Sim
             InvokeCallbacks();   // WireCore.Handlers.cs — memory accesses etc. fire once the dust settles
         }
 
+        /// <summary>Like <see cref="ProcessQueue"/>, but each enqueued node is re-derived via <paramref name="recalcOne"/>
+        /// instead of <see cref="RecalcNode"/> — used by IrEngine's event-driven runtime ("β"): IR-covered nodes are
+        /// evaluated via their static NextExpr boolean tree, the rest fall back to RecalcNode (S1's group walk).
+        /// S1's own ProcessQueue / hot path is untouched. Same queue state, same callback servicing.</summary>
+        internal static void ProcessQueueWith(Action<int> recalcOne)
+        {
+            int iteration = 0;
+            while (RecalcListNextCount != 0)
+            {
+                ++iteration;
+                if (iteration > MaxSettlePasses)
+                {
+                    Console.Error.WriteLine($"WireCore.ProcessQueueWith: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
+                    for (int i = 0; i < RecalcListNextCount; i++) RecalcHashNext[RecalcListNext[i]] = 0;
+                    RecalcListNextCount = 0;
+                    break;
+                }
+                int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
+                int* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+                RecalcListCount = RecalcListNextCount;
+                RecalcListNextCount = 0;
+                for (int i = 0; i < RecalcListCount; i++)
+                {
+                    int nn = RecalcList[i];
+                    if (RecalcHash[nn] != 0)
+                    {
+                        RecalcHash[nn] = 0;
+                        recalcOne(nn);
+                    }
+                }
+                RecalcListCount = 0;
+            }
+            InvokeCallbacks();
+        }
+
         internal static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;

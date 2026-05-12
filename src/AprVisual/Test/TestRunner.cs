@@ -45,7 +45,7 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--trace-cmp":       if (i + 1 < args.Length) traceCmpPath = args[++i]; break;   // S2.4/2.6: IR vs S1 per-node per-half-cycle
-                    case "--engine":          if (i + 1 < args.Length && args[++i] == "ir") useIr = true; break;   // "ir" → use the S2.4 IR-driving engine instead of S1's switch-level
+                    case "--engine":          if (i + 1 < args.Length) { var em = args[++i]; if (em == "ir") useIr = true; else if (em == "event") { useIr = true; AprVisual.Sim.Logic.IrEngine.UseEventDriven = true; } } break;   // "ir" → S2.4 IR-driving (batch); "event" → cpu-opt's event-driven IR runtime ("β")
                     case "--system":          if (i + 1 < args.Length && args[++i] == "2a03") WireCore.UseBare2a03 = true; break;   // "2a03" → the bare-2A03 CPU-only rig (S3 CPU proof) instead of the full NES board
                     case "--diag-node":       if (i + 1 < args.Length) int.TryParse(args[++i], out AprVisual.Sim.Logic.IrEngine.DiagNode); break;  // with --trace-cmp: print details on each mismatch of this node id
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;

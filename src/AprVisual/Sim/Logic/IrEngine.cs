@@ -69,6 +69,7 @@ namespace AprVisual.Sim.Logic
             BuildEvalOrder();          // current-value dependency graph → break residual cycles (hybrid-ize) → topo sort → EvalOrder[] (driving mode)
             BuildOkToSkip(n);          // which IR nodes the bridge ProcessQueue can skip RecalcNode for
             CompileFlatProgram();      // S3.1: compile EvalOrder's Expr trees into one stack-machine instruction stream (driving mode)
+            if (UseEventDriven) BuildIrFanout();   // cpu-opt ("β"): IR-NodeRef reverse fan-out — see RecalcNodeForEventDriven
             IrCoveredCount = 0; CheckedCount = 0;
             var nodes = WireCore.Nodes;
             for (int v = 0; v < NextExpr.Length; v++)
@@ -507,6 +508,7 @@ namespace AprVisual.Sim.Logic
         /// <summary>One half-cycle, driving mode. The IR engine owns the chip.</summary>
         public static void StepOneDriving()
         {
+            if (UseEventDriven) { StepOneEventDriven(); return; }                 // cpu-opt branch ("β"): event-driven runtime — see StepOneEventDriven
             if (!Built) Build();
             int n = WireCore.NodeCount;
             new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (start of this half-cycle — Hold/Prev read this)
@@ -518,6 +520,66 @@ namespace AprVisual.Sim.Logic
             WireCore.SkipRecalcOf = null;
             if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
             WireCore.Time++;                                                     // 6.
+        }
+
+        // ── cpu-opt branch ("β"): event-driven IR runtime ─────────────────────────────────────────────────────
+        //
+        // Same dirty-set event loop as S1's recalc/processQueue, but each dirty node is re-derived by EvalExpr
+        // (its static NextExpr boolean tree) instead of S1's ComputeNodeGroup (transistor-group walk + flags-OR
+        // + 256-LUT), for the ~85% of nodes that have a clean NextExpr (NextExpr[v] != null && !InScc[v]); the
+        // residual SCC / hybrid-bus / behavioral-memory nodes fall back to RecalcNode. The dirty-set propagation
+        // uses S1's transistor-fanout (a superset of the IR's NodeRef-fanout — re-evaluating a node when an
+        // upstream gate-node changed is always safe). Uses S1's settle SEMANTICS (event-driven, chronological),
+        // so it does NOT hit the obstacle that parked the ping-pong run-path / all-on-GPU. See MD/impl/cpu-opt/00.
+        public static bool UseEventDriven = false;
+        static readonly Action<int> _recalcEventDriven = RecalcNodeForEventDriven;
+        // IR-NodeRef fan-out (CSR): _irFanoutNodes[_irFanoutOff[v] .. _irFanoutOff[v+1]] = the nodes w whose
+        // NextExpr[w] references Node(v). S1's transistor fan-out (SetNodeState's gated-transistor enqueue) only
+        // covers w's where v *gates* a transistor in w's drive — NOT where v is a *channel* of a conducting pass
+        // in w's drive (S1 catches those via the group walk; the event-driven per-node eval doesn't). So when an
+        // IR node changes we also enqueue its IR-NodeRef dependents.
+        static int[] _irFanoutOff = [], _irFanoutNodes = [];
+
+        static void BuildIrFanout()
+        {
+            int n = NextExpr.Length;
+            var count = new int[n + 1];
+            var refs = new HashSet<int>();
+            for (int w = 0; w < n; w++) { if (NextExpr[w] is not { } e) continue; refs.Clear(); CollectNodeRefs(e, refs); foreach (int v in refs) if (v >= 0 && v < n) count[v + 1]++; }
+            for (int i = 0; i < n; i++) count[i + 1] += count[i];
+            var nodes = new int[count[n]];
+            var pos = (int[])count.Clone();
+            for (int w = 0; w < n; w++) { if (NextExpr[w] is not { } e) continue; refs.Clear(); CollectNodeRefs(e, refs); foreach (int v in refs) if (v >= 0 && v < n) nodes[pos[v]++] = w; }
+            _irFanoutOff = count; _irFanoutNodes = nodes;
+        }
+
+        static void RecalcNodeForEventDriven(int nn)
+        {
+            if (nn == WireCore.Npwr || nn == WireCore.Ngnd) return;
+            byte old = WireCore.NodeStates[nn];
+            if (nn < NextExpr.Length && NextExpr[nn] is { } e && (nn >= InScc.Length || !InScc[nn]))
+            {
+                byte nv = (byte)EvalExpr(e);
+                WireCore.SetNodeState(nn, nv);   // NodeStates[nn] = nv (if changed) + enqueue nn's gated-transistor fan-out
+                var node = WireCore.Nodes[nn];
+                if (node?.Callback != null) WireCore.EnqueueCallback(node.Callback);   // match S1: a recalc'd node with a callback enqueues it (InvokeCallbacks dedups)
+            }
+            else WireCore.RecalcNode(nn);        // S1's group walk (residual SCC / hybrid bus / behavioral memory) — sets all group members + their transistor fan-out + callbacks
+            if (WireCore.NodeStates[nn] != old && nn < _irFanoutOff.Length - 1)   // wake the IR-NodeRef dependents (covers the channel-connection cases the transistor fan-out misses)
+                for (int i = _irFanoutOff[nn]; i < _irFanoutOff[nn + 1]; i++) WireCore.EnqueueNode(_irFanoutNodes[i]);
+        }
+
+        /// <summary>One half-cycle, event-driven ("β") mode.</summary>
+        public static void StepOneEventDriven()
+        {
+            if (!Built) Build();
+            int n = WireCore.NodeCount;
+            new ReadOnlySpan<byte>(WireCore.NodeStates, n).CopyTo(PrevStates);   // 1. prevStates = NodeStates (Hold/Prev read this)
+            WireCore.SkipRecalcOf = null;
+            WireCore.DeferRecalc = true; WireCore.RunHandlerChain(); WireCore.DeferRecalc = false;   // 2. handlers (clk toggle, …): SetHigh/Low just enqueue, no settle
+            WireCore.ProcessQueueWith(_recalcEventDriven);                       // 3. drain the dirty-set: each node via NextExpr (IR-covered) or RecalcNode (else); + InvokeCallbacks (memory/video — a callback's SetHigh re-settles via S1's ProcessQueue, fine)
+            if (WireCore.TraceLevel != 0) WireCore.CaptureTraceLine();
+            WireCore.Time++;                                                     // 4.
         }
 
         public static void StepDriving(int count) { for (int i = 0; i < count; i++) StepOneDriving(); }

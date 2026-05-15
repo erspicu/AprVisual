@@ -44,8 +44,13 @@ Thumbs.db
 
 # --- 輸出與快取 ---
 output/
+# out/ = generated artifacts: emit, opt, stats — regenerable, not vendored
+out/
+temp/
 *.log
 *.out
+
+# 註：tools/knowledgebase/message/（gemini_query.py 的問答 log）刻意 *不* ignore —— 有參考價值，整個 tools/ 都入版控（user 指定）
 
 # --- Claude Code 本機狀態 ---
 .claude/

@@ -60,6 +60,11 @@ namespace AprVisual.Sim
             // also the canonical netlist S2 will work on). Toggle off with WireCore.EnableLowering / --no-lower.
             if (EnableLowering) LowerNetlist();
             else LastLowerStats = "(lowering disabled — --no-lower)";
+
+            // math-algos G: Reverse Cuthill-McKee node-id reorder. Pure data-layout, behaviour-preserving.
+            // Off by default; toggle with WireCore.EnableRcm / --rcm.
+            if (EnableRcm) ApplyRcmOrdering();
+            else LastRcmStats = "(RCM ordering disabled — default; --rcm to enable)";
         }
 
         // ───────────────────────────────────────────────────────────────────────

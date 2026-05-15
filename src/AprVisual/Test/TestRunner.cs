@@ -55,6 +55,7 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
+                    case "--rcm":             WireCore.EnableRcm = true; break;          // math-algos G: Reverse Cuthill-McKee node-id reorder for cache locality
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--benchmark":
@@ -402,6 +403,7 @@ namespace AprVisual.Test
                 const double cycPerInstr = 2.8;                  // rough NES-code average (3..7 cyc opcodes, mostly 2..4)
 
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
+                Console.WriteLine($"# {WireCore.LastRcmStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
                 Console.WriteLine($"# real time: {secs:F3} s");

@@ -1,0 +1,254 @@
+Timestamp: 2026-05-16T01:53:58
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你是資深演算法 / 數值計算 / sparse matrix / SIMD 工程師。請用繁體中文、給明確判斷（願意潑冷水）、把每個方法的複雜度算清楚。
+
+## 0. 背景（從零脈絡 —— 你之前沒看過這個專案、我把所有需要的給你）
+
+我有一個 NES 晶片（2A03 CPU + 2C02 PPU + 板級 TTL）的 **switch-level transistor netlist 模擬器**（叫 S1，C# 重寫自 MetalNES，本身是 Visual6502 `chipsim.js` 的優化 port）。目前 ~47K 半週期/秒（~14s/幀、0.07 FPS）。User 給了一個新方向：「把節點與節點串連的關係 + 節點關聯運算，視為矩陣 / 乘法 / 線性代數的問題、套用各種 *降低計算複雜度* 的演算法、+ SIMD 加速」。要我整理候選方法 + 你來評估。
+
+**這 branch（`math-algos`）是純探索場：沒有 IR、沒有 codegen、沒有等價 gate；不承諾 real-time（main 那條路已結案、不可達）。目標 = 找出 S1 *某個*子問題、能不能換一個演算法表達 → 量化的速度改善（哪怕只是 cache 友好的 2-3×）。**
+
+## 1. S1 目前的核心演算法（baseline、要替換 / 增強的對象）
+
+**每半週期的工作流程**（`WireCore.Recalc.cs` + `.Group.cs`）：
+
+```
+StepCycle:
+  RunHandlerChain()                              # clk toggle、memory/video callbacks
+  ProcessQueue():                                # BFS over dirty-set
+    while RecalcListNext non-empty:
+      swap current/next queue (double-buffered)
+      for each nn in current queue:
+        if RecalcHash[nn] != 0:                  # dirty flag #1（佇列 dedup）
+          RecalcHash[nn] = 0
+          RecalcNode(nn):
+            ComputeNodeGroup(nn):
+              clear _inGroup of previous group   # O(prev group size)
+              AddNodeToGroup(nn) (recursive):
+                if _inGroup[nn] != 0: return     # dirty flag #2 / early return（群 dedup）
+                _inGroup[nn] = 1
+                _groupBuf[_groupCount++] = nn
+                _groupFlags |= NodeInfos[nn].Flags
+                # walk channels to normal nodes / GND / VCC:
+                for each transistor t in TlistC1c2s[nn]:
+                  (gate, other) = t
+                  if NodeStates[gate] != 0:      # transistor conducts iff its gate is high (NMOS)
+                    AddNodeToGroup(other)
+                for each t in TlistC1gnd[nn]: if NodeStates[gate]: _groupFlags |= Gnd
+                for each t in TlistC1pwr[nn]: if NodeStates[gate]: _groupFlags |= Pwr
+              newState = FlagsToState[_groupFlags & 0xFF]   # 256-entry LUT
+            for each m in _groupBuf:
+              SetNodeState(m, newState):
+                if NodeStates[m] == newState: return        # early return #1（最關鍵！）
+                NodeStates[m] = newState
+                for each t in TlistGates[m]:                # m gates these transistors
+                  enqueue both channel endpoints of t       # gate-fanout enqueue
+  InvokeCallbacks()                              # memory writes、video frame writes
+  Time++
+```
+
+**關鍵速度來源**：
+- **Dirty-flag**（兩個 O(1) dedup hash：`RecalcHash` 佇列 dedup、`_inGroup` 群 dedup）
+- **Early return**（三個 —— 最關鍵的是 `SetNodeState` 的「值沒變、不傳播」 —— 確保 dirty-set 只在「值真的變了」的地方擴張、不雪崩）
+- **256-entry LUT** 把 flags-OR → state 變成 branch-free 一次查表
+- **Unmanaged hot path**：`byte* NodeStates` / `int* TransistorList` / `NodeInfo* NodeInfos` / 各 `int*` 佇列、零配置零 bounds-check
+
+## 2. Workload 參數（這顆 NES 晶片實測）
+
+- **N（node 數）** ≈ 14,723（S1.5 lowering 後；原始 ~15,164、merge 了 441 個 always-on wire chain）
+- **M（transistor 數）** ≈ 26,775（lowering 後；原始 ~27,305、砍了 dead/dup ~530）
+- **每 node 的 transistor degree**：avg ~3-5、max ~30+（寬 bus node、e.g. CPU data bus）
+- **D（dirty-set 平均大小 / 半週期）**：未實測、但從「S1 ~47K hc/s ≈ 21µs/半週期、每個 RecalcNode ~50-100ns、所以 ~200-500 RecalcNode/半週期」估計。**這個數字對下面的分析很關鍵 —— 你的方法若假設 D=full N（batch）vs D=O(few hundred)（dirty-set），結論會差 50-100×。**
+- **G（典型 group size）**：γ.0 之前（這 branch）—— mostly 1（純 logic node），偶爾 ~5-10（pass-transistor bus 那群），罕見更大。
+- **每半週期實際 transistor-check 數**：≈ Σ_dirty (avg_group_size × avg_degree) ≈ ~500 × 5 × 4 ≈ ~10K transistor 檢查。
+- 半週期內 settle 通常 1-3 個 BFS wave 收斂；偶爾深（counter chain ~12）。
+
+## 3. 我整理的候選演算法（待你評估 + 補我漏的）
+
+下面是我盤點的方向。**每個*請*你 (a) 確認 / 修正我的複雜度分析、(b) 評估它在這 workload（N=15K、M=27K、D≈幾百、G≈幾）上實際的贏面 / 輸面、(c) 必要時指出我哪裡想錯。**
+
+### 候選 A：Union-Find（with path compression + union by rank）替代 BFS group walk
+
+**怎麼做**：每半週期、不做 DFS。而是維護一個 Union-Find 結構，當一個 transistor 切換導通狀態時、做對應的 `Union(c1, c2)` 或 `分離`（這後者 UF 不支援、要 Link-Cut Tree 或 Euler-tour）。Group 解析時 `Find(nn)` O(α(N))。
+
+**我的複雜度估算**：
+- 純 incremental Union（不支援刪邊）：O((D + M_conducting_changed) · α(N))/半週期
+- 但 conduction 會*兩向*變（gate 改變既加邊也刪邊）→ 需要 Link-Cut Tree、O(log N) per op
+- 對比 S1：S1 每 RecalcNode 重做 DFS、O(group size)；對 group size > log N (~14) 時 LCT 贏
+
+**贏面**：算法上同階、cache 可能好一點。**輸面**：實作複雜（LCT）；group size *通常很小*（~1），那 α(N) ≈ log N ≈ 14、可能輸 S1 的 O(1)。
+
+### 候選 B：稀疏 boolean 矩陣 SpMV-style「frontier expansion」
+
+**怎麼做**：把當下「導通的 transistor channel 圖」表示成 N×N 稀疏 boolean 矩陣 A（CSR）。一個 group BFS = 從 dirty bitvector 出發、反覆 `frontier' = A · frontier`（boolean SpMV）直到 fixed point。所有 dirty group 可以*同時*expand（一次 SpMV、所有 group 平行進展一步）。state 用 bit-packed 表示（N/64 個 ulong）→ SpMV 變 bitwise OR + AND 的 SIMD 操作。
+
+**我的複雜度估算**：
+- 每次 SpMV：O(nnz(A) / 64) ≈ O(M / 64) ≈ ~420 個 AVX2/SIMD 字 / half-cycle
+- 收斂 iteration：O(max group diameter) ≈ O(log G_max) ≈ 3-5 次
+- 半週期總 cost：~2K SIMD ops vs S1 的 ~10K scalar transistor 檢查 ≈ 算上 SIMD 寬度（AVX2 = 4× ulong64）大概 *似乎* 贏 5-10×
+
+**贏面**：SIMD 友好、cache 友好（CSR 順序存取）、bit-packing 省 32× 記憶體。**輸面**：(1) 每半週期 A 都要*重建*（哪些 transistor 導通取決於當下 NodeStates），rebuild cost 可能吃掉 SpMV 省的；(2) bit-packed state 跟原本 byte state 之間要轉換；(3) 「dirty-set 只算變的」這個 invariant 在 SpMV 下變成 `frontier 是 sparse vector`、稀疏 SpMV 對 GPU 友好但對 CPU 純 SIMD 不見得。
+
+### 候選 C：Method of Four Russians for boolean matrix products
+
+**怎麼做**：若我們要做 dense boolean matrix multiply（比方 A·A·A·... 求 transitive closure）、Four Russians 把 O(N³) 變 O(N³/log²N)。
+
+**我的複雜度估算**：N=14.7K、dense N×N 矩陣 ~217M entries、Four Russians ~1.1×10^9 ops。**對比 S1 半週期 ~10K ops、Four Russians 多 10^5×、慘輸**。
+
+**直覺**：only useful when 真的需要 dense matrix product。我們不需要。**否決**。要你確認。
+
+### 候選 D：Strassen / Coppersmith-Winograd 等 sub-cubic matmul
+
+**我的判斷**：和 C 同樣的論證 —— 我們的矩陣是稀疏的，Strassen 對稀疏沒幫助；對 dense N²~10^8 也太大。**否決**。要你確認。
+
+### 候選 E：Dynamic connectivity / Link-Cut Trees
+
+**怎麼做**：維護一個動態的 spanning forest、支援 `Link(u,v)` / `Cut(u,v)` / `Connected?(u,v)` 各 O(log N) amortized。當 transistor 導通狀態改變、Link/Cut 對應的邊；group resolution 變 connected component query。
+
+**我的複雜度估算**：每半週期、~D 個 transistor 狀態改變 → ~D 個 Link/Cut，再加 D 個 Find/Connected → O(D log N)。D=500、log N=14、~7K ops。**vs S1 ~10K ops，邊際勝**。
+
+**贏面**：對深 group（counter chain）特別好。**輸面**：實作複雜；常數巨大（每個 LCT op ~50-100 ns）→ 7K × 80ns = 560µs > S1 半週期的 21µs。**慘輸**？要你確認常數估計。
+
+### 候選 F：Spatio-temporal memoization (Hashlife-style)
+
+**怎麼做**：對小狀態子電路（APU envelope counter、DMC carry chain、PPU hpos/vpos counter、palette readout latch）—— 內部 state ~10-50 bit、輸入 ~5-10 bit —— 預先列表「`(input vector, current state) → (output vector, new state after N cycles)`」、cache 進去、查表跳過 N cycle。
+
+**我的複雜度估算**：每個 sub-circuit cache 命中時 O(1)、跳 N cycle；命中率取決於 input pattern 的循環性。對 PPU 渲染主迴圈（每個 scanline 重複）可能很猛。
+
+**贏面**：可能巨大（一個 scanline ~341 cycle 縮成 1 次查表 → 數百倍）。**輸面**：(1) cache miss 退化、(2) 識別「哪些 sub-circuit 適合 + 它的 state boundary 在哪」是手工活、(3) state 進化的精確性需要驗證（不能瞎跳）。
+
+### 候選 G：Static graph analysis（build-time）+ 重排 cache-friendly layout
+
+**怎麼做**：把 lowered netlist 視為 graph、做：(1) node ordering 用 BFS / Cuthill-McKee / 譜聚類 → 同一群常常一起 access 的 node id 在記憶體相鄰；(2) 找出永遠不互動的子網（debug nodes）→ 砍掉；(3) 識別 SCC、把整 SCC 當複合 node。
+
+**我的複雜度估算**：純 build-time、runtime 不變、純粹改 data layout → cache miss 率降低 → 估計 1.2-2× from L2-hit-rate 改善。
+
+**贏面**：低風險、純優化、可量化。**輸面**：邊際（不是質的改變）；S1 已經是 unmanaged + flat array、cache 已經不差。
+
+### 候選 H：增量 / Frontier-only 重建（不是 candidate B 的全 SpMV）
+
+**怎麼做**：S1 的 dirty-set BFS 已經是這個的離散形式。如果用 bit-packed dirty-set + bit-packed conduction matrix、純 bitwise 表示 frontier 推進 —— 是「候選 B 但限制在 dirty subset」的版本。
+
+**我的複雜度估算**：每半週期 O(D × avg fanout × wave depth / 64) ≈ ~10K / 64 ≈ ~150 SIMD ops、再 ×4 wave depth ≈ ~600 SIMD ops。**vs S1 ~10K scalar ops、~AVX2 4× 加成 ≈ 估計 5-10× 贏面。**
+
+**贏面**：保留 S1 的 dirty-set 算法優勢 + 加上 SIMD。**輸面**：需要把 transistor list、node state 都重新 layout 成 bit-packed；維護 bit ↔ id 對應；conduction matrix 每半週期重建（同 B 的問題）—— 但只重建 dirty 對應的列、應該 cheap。**這個我認為最有希望。**
+
+### 候選 I：你有沒有我漏掉的？
+
+考慮 NES 的特殊結構：(a) 86% 是 logic gate（小 group）、~14% 是 pass-transistor bus（大群、多 driver）、(b) PPU 內部有 mid-half-cycle 的 derived clock phase（precharged dynamic node、那塊 S1 是靠 event queue 順序處理）、(c) 半週期內 typically 1-3 個 wave、收斂深度淺。有沒有針對這種結構的特殊演算法（譬如 multi-level / hierarchical 模擬、CDC clock-tree-aware scheduling）我沒提到的？
+
+## 4. 想問你的（請每題分開答、給明確判斷）
+
+1. **複雜度確認**：我的 A、B、C、D、E、F、G、H 複雜度估算對嗎？特別是 D（dirty-set size ~500）和 constant factor 估算（LCT op 80ns 之類）—— 哪裡不對？
+2. **排序**：給這個 workload（N=14.7K、M=27K、D≈500、G_avg≈1-5），哪幾個*真的*有希望？我直覺最有希望的是 **H（bit-packed dirty-frontier + SIMD）** + **G（static layout 重排）** 組合 —— 你同意嗎？踢哪幾個（C、D 我已經自己踢了）？
+3. **bit-packing 的細節**：把 N=14.7K node state pack 成 230 個 ulong（N/64 上取整）—— 但 transistor list 不規則（每 node 不同度數）；CSR / ELLPACK / SELL-C-σ 哪個 layout 對這 workload + AVX2 最對？
+4. **conduction matrix rebuild 是不是 deal-breaker**：候選 B 和 H 都要每半週期重建 A（哪些 transistor 此刻導通）。重建 cost 是 O(M) ≈ 27K + bit-pack 化 ≈ ~500 SIMD ops。會不會吃掉 SpMV 省下的時間？有沒有 incremental update conduction matrix 的招（只更新 gate 變了的那些列）？
+5. **有沒有比 H 更好的方向**：你會不會建議一個我*完全沒想到*的方向？比方某種我不熟的稀疏圖演算法、或某個 NES 結構特化的招？
+6. **整體判斷**：這條 branch 上、合理的天花板是多少？S1 的 ~47K hc/s → ~? hc/s 可達？10×？2×？打平？（user 會根據這個決定要不要投入。）
+
+—— 請務必潑冷水，不要 hand-waving。
+
+========================================================================
+RESPONSE
+========================================================================
+你好。我是演算法與效能最佳化工程師。既然這是一個純探索的 branch，且你明確要求「潑冷水」與「嚴謹的複雜度 / 常數評估」，我們就直接切入核心。
+
+這個 User 提議的「把節點關係轉為線性代數 / 矩陣運算 / SIMD」方向，在 EDA (電子設計自動化) 與邏輯模擬領域是一個經典的直覺，但**在你的 Workload 下，這是一個巨大的效能陷阱**。
+
+核心的根本矛盾在於：**線性代數 / SpMV 是為了「資料平行 (Data Parallelism) 與批次處理 (Batch Processing)」設計的，而你的 S1 是一個高度最佳化的「事件驅動 (Event-Driven) 稀疏圖走訪」**。
+
+你的 $N \approx 15K, M \approx 27K$，但每半週期 dirty-set $D \approx 200-500$。這意味著**整個系統有 96% 以上的節點是靜止的**。S1 目前的操作數約 $10K$，已經逼近理論下限 $O(D \times \text{degree})$。任何試圖將局部事件 (Local Events) 展開為全域矩陣 (Global Matrix) 的演算法，就算加上 AVX2 甚至 AVX-512，都會因為算力浪費在「檢查 0 乘以 0」或「矩陣重建」上而慘敗。
+
+以下我針對你的問題逐一拆解、修正並給出明確判斷。
+
+---
+
+### 1. 複雜度確認與常數修正 (針對你的候選 A~H)
+
+你的直覺非常敏銳，大部分的 $O()$ 分析是對的，但在**常數項 (Constant Factor)** 和 **硬體實際行為 (Cache Miss / Pipeline Flush)** 上，有些低估了新方法的代價。
+
+*   **A (Union-Find) / E (Link-Cut Tree)**:
+    *   **修正**：C# 中的 LCT 每個節點都是一個 Object/struct，`Link` 和 `Cut` 涉及 Splay Tree 的旋轉。在 unmanaged 環境下，哪怕你用 array index 代替 pointer，一次 Splay 至少包含 10~20 次的分支與陣列隨機存取。
+    *   **常數**：S1 的陣列存取約 1~2 ns。LCT 一個操作在 C# 裡絕對超過 80ns，保守估計在 150-200ns。$D=500$ 時，LCT 需要 O($D \log N$)，算下來絕對超過 1000$\mu s$，比 S1 的 21$\mu s$ **慢 50 倍**。**死刑**。
+*   **B (SpMV-style)**:
+    *   **修正**：要對 $A$ 做 SpMV，你必須有 $A$。但 $A$（導通矩陣）每一半週期都在變！重建 $A$ 是 $O(M)$，遍歷 $27K$ 個電晶體去塞 bit 建立矩陣，就算每個只需 2ns，也已經吃掉 54$\mu s$，直接輸給 S1 的 21$\mu s$。**死刑**。
+*   **C (Four Russians) / D (Strassen)**:
+    *   **確認**：你的判斷完全正確。圖太稀疏，而且我們求的是 single-source (或 dirty-set source) reachability，不是 All-Pairs Shortest Path 或 Dense MatMul。**死刑**。
+*   **F (Spatio-temporal memoization)**:
+    *   **確認**：理論上唯一能突破 $O(D)$ 下限的方法，因為它改變了時間複雜度（跳過 cycle）。但實作上這屬於 Macro-modeling，不符合本 branch 「純數學/代數變換」的初衷。**暫不考慮**。
+*   **G (Static Graph Analysis / Layout 重排)**:
+    *   **修正**：這不是演算法改變，這是 Data Locality 最佳化。使用 Cuthill-McKee (RCM) 或 METIS 對 Node ID 重新編號，讓 S1 的 BFS 在存取 `NodeStates[other]` 時提高 L1/L2 Cache Hit Rate。
+    *   **評估**：**絕對有效且必須做**。預期收益 1.2x ~ 1.5x。這不需要改 S1 核心邏輯，只要在 lowered netlist 讀入時做 ID mapping 即可。
+*   **H (Incremental/Frontier SIMD SpMV)**:
+    *   **修正**：這本質上是 **Sparse Matrix-Sparse Vector Multiplication (SpMSpV)**。你提議只更新 dirty 列。問題在於，你要怎麼用 AVX2 處理「不規則的度數 (avg 3-5, max 30)」與「稀疏的 bit vector」？Gather/Scatter (`vpgatherdd` 等指令) 在 CPU 上極度昂貴。把零散的 state bit 收集起來塞進 SIMD 暫存器，算完再 unpack，其指令週期 (Latency) 遠大於 S1 直接 `if (NodeStates[gate] != 0)` 的純量分支。
+    *   **評估**：**極大機率會輸 (慢 2-3 倍)**。你的 5-10x 贏面是建立在「SIMD 可以零成本 pack/unpack data」的假設上，但記憶體是不連續的。
+
+---
+
+### 2. 演算法排序與篩選
+
+給定 workload：N=14.7K, M=27K, D≈500, G_avg≈1-5
+
+**有希望的組合 (Ranking)：**
+1.  **G (Static Layout 重排)**：唯一能保證不虧本且必有收益的。
+2.  *(魔改版的)* **H (SIMD within Bus Groups)**：不要對全域做 SIMD，只針對那 14% 的 pass-transistor bus (寬度 > 8 的資料排線) 做局部 bit-packing 評估。
+3.  **F (Memoization)**：如果要數量級 (10x+) 提升，這是唯一解。
+
+**直接踢掉的：**
+A, B, C, D, E。全部因為 $O(M)$ 重建成本或 $O(\log N)$ 常數過大而宣告無效。
+
+---
+
+### 3. Bit-packing 的細節 (CSR / ELLPACK / SELL-C-σ 針對 AVX2)
+
+如果你非要嘗試把狀態壓成 230 個 ulong (N/64) 並用 AVX2 算：
+
+*   **ELLPACK**：絕對不行。你的最大度數 max > 30，平均 3~5。ELLPACK 會為了對齊 max degree 塞入海量的 padding 0，浪費大量 L1 Cache 頻寬。
+*   **SELL-C-σ (Sliced ELLPACK)**：這是目前 CPU SIMD SpMV 的 SOTA (State of the Art)。把度數相近的列排序在一起 (Sort by degree)，以 C=4 (對應 AVX2 256-bit 裝 4 個 ulong64) 為一個 chunk。這能解決 padding 浪費的問題。
+*   **但真正的致命傷**：在 boolean 圖形走訪中，你不是在做 float 乘加，你是在做 `A_row & StateVector`。因為 StateVector 是**極度稀疏的** (D=500 代表 230 個 ulong 裡面只有約 8-10 個 bit 是 1，其餘全是 0)。
+*   **結論**：在 $N=15K$ 這個極小的規模下，**CSR 搭配純量 (Scalar) bitwise 運算** 會比任何 AVX2 layout 都快。為了餵飽 AVX2 而做的資料重組成本太高了。
+
+---
+
+### 4. Conduction Matrix Rebuild 是不是 Deal-breaker？
+
+**是。絕對是 Deal-breaker。**
+
+*   **重建成本**：你要遍歷 27K 個電晶體去更新 $A$。就算你用 SIMD 來加速重建，這仍然是 $O(M)$。S1 的整個 half-cycle 只有 $O(D \times \text{degree}) \approx 10K$ 步。你光是**準備**矩陣的時間，S1 早就把這半週期的模擬跑完了。
+*   **Incremental Update 的真相**：你想「只更新 gate 變了的那些列」。等等，你要怎麼知道哪些 gate 變了？你需要一個 BFS queue 來追蹤變動的 node... **這不就是 S1 現在正在做的事情嗎？！**
+*   **總結**：S1 的 `TlistC1c2s[nn]` 本質上就是一個**即時、免維護、隨選即用 (On-demand)** 的動態 adjacency list。任何試圖把它物化 (Materialize) 成二維矩陣 $A$ 的行為，都是效能退化。
+
+---
+
+### 5. 有沒有比 H 更好的方向？(你沒想到的)
+
+你似乎專注在「拓樸圖搜尋」上，但 NES 晶片有一個物理特性被你忽略了：**它是可以被 Levelize (階層化 / 拓撲排序) 的**。
+
+NES 的電晶體可以嚴格分為兩類：
+1.  **純邏輯閘 (Logic Gates)**: 佔 86%。訊號流向是單向的 (Unidirectional)，沒有 feedback (除非是 Latch，那是在 clock 邊緣觸發)。
+2.  **傳輸閘/匯流排 (Pass-Transistors / Buses)**: 佔 14%。訊號雙向 (Bidirectional)，需要 BFS/收斂。
+
+**新方向提案：DAG-Extraction + Split-Phase Simulation**
+*   **Build-time**：做 SCC (強連通分量) 分解。把所有的「單向邏輯閘」提取出來，做拓撲排序 (Topological Sort)。把它們拍平成一個純粹的、無需 BFS、無分支的指令流 (或位元運算流)。
+*   **Runtime**：
+    *   **Phase 1 (Logic)**: 依序遍歷單向陣列，直接計算狀態。完全不需要 BFS queue，不需要 dirty flag，就是純粹的 $O(N_{logic})$ 直行。因為無分支且 memory access pattern 極佳，這段可以極速執行 (甚至可以用 SIMD 將 64 個 state bits 平行計算)。
+    *   **Phase 2 (Pass-Bus)**: 把 Phase 1 產生的變動當作 seed，餵給 S1 原本的 BFS queue，去解決那 14% 需要雙向解析的節點。
+*   **為什麼這會贏？**：雖然 Phase 1 是 $O(N)$，但它是**無分支、零 overhead** 的 $O(N)$。S1 的 BFS 雖然是 $O(D)$，但有大量的 `if` 判斷、hash 檢查、queue 操作。在現代 CPU 上，執行 10000 個連續的 `A = B & C` 比執行 500 次複雜的 queue 入出操作還要快。
+
+---
+
+### 6. 整體判斷與天花板 (潑冷水時間)
+
+這個 `math-algos` branch 的結論：
+
+*   **把這套系統硬塞進「線性代數 / SIMD SpMV」的框架，天花板是 0.5x 到 0.8x（也就是會變慢）**。因為你把 Event-Driven (稀疏) 強行轉成 Data-Parallel (密集)。
+*   **S1 本身的演算法已經非常接近 Switch-level Simulation 的理論極限**。它是一個極度優秀的 Incremental Solver。
+*   如果只做 **G (Layout 最佳化)**，預期可達 **1.2x ~ 1.4x** (~65K hc/s)。
+*   如果採用我提的 **DAG-Extraction (拆分單向邏輯與雙向匯流排)**，預期可達 **2x ~ 3x** (~100K - 140K hc/s)。
+*   **要達到 10x 以上的跨越？** 不可能在「純圖形 / 代數」上達成。你必須放棄每個 half-cycle 的電晶體級精確模擬，走向 (1) **Static Compilation (把圖轉成 C# 代碼直接編譯)** 或 (2) **Macro-modeling (把整個 adder / counter 替換成 high-level 行為模型)**。
+
+**給 User 的建議回覆：**
+「線性代數與 SIMD 擅長處理 dense / predictable 的運算，而我們的 NES 模擬器核心是一個 sparse / unpredictable 的事件傳播圖。每半週期僅約 3% 的節點活躍。將 3% 的事件放進全域矩陣中用 SIMD 運算，矩陣維護與資料打包的成本將遠大於 SIMD 帶來的加速。這條路徑在純 switch-level 模擬的範疇下已被證偽。我們應將精力轉向資料局部性 (Data Locality / RCM 排序) 或靜態邏輯提取。」

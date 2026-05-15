@@ -84,7 +84,7 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
-            byte newState = ComputeNodeGroup(nn);   // WireCore.Group.cs — fills _groupBuf / _groupCount / _groupFlags
+            byte newState = EnableSimdQueue ? ComputeNodeGroupSimd(nn) : ComputeNodeGroup(nn);   // math-algos Y: SIMD-unrolled inner walk (behaviour-identical)
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)

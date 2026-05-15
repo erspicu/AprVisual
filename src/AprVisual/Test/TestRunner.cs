@@ -56,6 +56,7 @@ namespace AprVisual.Test
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
                     case "--rcm":             WireCore.EnableRcm = true; break;          // math-algos G: Reverse Cuthill-McKee node-id reorder for cache locality
+                    case "--simd-queue":      WireCore.EnableSimdQueue = true; break;    // math-algos Y: unroll-4 + MLP inner walk in AddNodeToGroup (wide-list nodes)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--benchmark":

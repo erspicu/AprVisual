@@ -47,6 +47,7 @@ namespace AprVisual.Sim
 
         private static void ProcessQueue()
         {
+            if (EnableOblivious) { ProcessAllOblivious(); return; }   // math-algos X: replace BFS with all-node sweep until fixpoint
             int iteration = 0;
             while (RecalcListNextCount != 0)
             {

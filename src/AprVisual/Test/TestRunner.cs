@@ -31,6 +31,7 @@ namespace AprVisual.Test
             int maxWait = 15;
             int traceCycles = 64;
             int shotFrames = 3;
+            int benchHcCount = 0;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
 
@@ -57,6 +58,8 @@ namespace AprVisual.Test
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
                     case "--rcm":             WireCore.EnableRcm = true; break;          // math-algos G: Reverse Cuthill-McKee node-id reorder for cache locality
                     case "--simd-queue":      WireCore.EnableSimdQueue = true; break;    // math-algos Y: unroll-4 + MLP inner walk in AddNodeToGroup (wide-list nodes)
+                    case "--oblivious":       WireCore.EnableOblivious = true; break;    // math-algos X: replace BFS dirty-set with full-sweep until fixpoint (Oblivious eval)
+                    case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--benchmark":
@@ -82,6 +85,7 @@ namespace AprVisual.Test
             if (probePath != null) return Probe2002(probePath);
             if (probeVblPath != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName != null) return DumpNode(dumpNodeName);
+            if (benchPath != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount);
             if (benchPath != null) return Benchmark(benchPath, shotFrames);
 
             if (romPath != null)
@@ -376,6 +380,38 @@ namespace AprVisual.Test
         //    (S3 baseline — the switch-level interpreter's speed, before the IR backend exists to beat it.)
         //    Constants: 2A03 clk0 toggles every 24 master half-cycles ⇒ 1 simulated CPU cycle = 24 steps;
         //    one NTSC frame ≈ 357366 master clocks = 714732 half-cycles; CPU 1.789773 MHz; 60.0988 Hz.
+        // ── BenchmarkHalfCycles: time N raw master-half-cycles directly via WireCore.Step(N).
+        //    For when --frames is too coarse (e.g. measuring a variant that's 100x slower than S1,
+        //    where waiting for a whole frame would take an hour). Reports hc/s and the load+power-on
+        //    time separately.
+        public static int BenchmarkHalfCycles(string romPath, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 1000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# bench-hc: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper}) — {hcCount:N0} master half-cycles");
+            try
+            {
+                var swLoad = System.Diagnostics.Stopwatch.StartNew();
+                WireCore.LoadSystem(rom);
+                swLoad.Stop();
+                long t0 = WireCore.Time;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                WireCore.Step(hcCount);
+                sw.Stop();
+                long halfCycles = WireCore.Time - t0;
+                double secs = sw.Elapsed.TotalSeconds; if (secs <= 0) secs = 1e-9;
+                double stepsHz = halfCycles / secs;
+                Console.WriteLine($"# {WireCore.LastLowerStats}");
+                Console.WriteLine($"# {WireCore.LastRcmStats}");
+                Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
+                Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
+                Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
+            }
+            finally { WireCore.Shutdown(); }
+            return 0;
+        }
+
         private static int Benchmark(string romPath, int frames)
         {
             if (frames < 4) frames = 12;

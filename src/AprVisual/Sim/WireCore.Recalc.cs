@@ -123,10 +123,13 @@ namespace AprVisual.Sim
                 // math-algos 策略三 glitch diagnostic: count the first RecalcNode of nn this half-cycle
                 if (_lastRecalcHc != null && _lastRecalcHc[nn] != Time) { _lastRecalcHc[nn] = Time; DistinctRecalcCount++; }
             }
-            // Phase 2 P2.3: event-driven IR — an extracted (combinational) node evaluates its Expr
-            // instead of walking a conducting group. Its "group" is {nn}; SetNodeState propagates.
-            // HasCallback nodes fall through to the group walk (which fires callbacks).
-            if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0 && (NodeInfos[nn].Flags & NodeFlags.HasCallback) == 0)
+            // Phase 2 P2.3 (option B): a pull-down mid absorbed into an IR island's Expr is inert —
+            // its value is folded into the island output's Expr and nothing else reads it. Skip it.
+            if (EnableIrInterp && IrAbsorbed != null && IrAbsorbed[nn] != 0) return;
+            // An extracted island output evaluates its Expr instead of walking a conducting group.
+            // Its "group" is {nn}; SetNodeState propagates via gating. HasCallback nodes were excluded
+            // from extraction, so any IR node here has none.
+            if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0)
             {
                 SetNodeState(nn, EvalExpr(IrRoot[nn]));
                 return;

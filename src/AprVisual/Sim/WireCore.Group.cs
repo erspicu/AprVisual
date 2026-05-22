@@ -88,6 +88,7 @@ namespace AprVisual.Sim
             // else PullUp, exactly what S1's group would accumulate for it) and stop. Not added to
             // _groupBuf, so the group's resolved value never overwrites the IR node. (_inGroup left 0:
             // re-reaching it just re-ORs the same flag — idempotent.)
+            if (EnableIrInterp && IrAbsorbed != null && IrAbsorbed[nn] != 0) return;   // P2.3 B: absorbed mid is not a group member (its island is closed; nothing should reach it)
             if (EnableIrInterp && IrBoundaryDriver && IrRoot != null && IrRoot[nn] >= 0)
             {
                 _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;

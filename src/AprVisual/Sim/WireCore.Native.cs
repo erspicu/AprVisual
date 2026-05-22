@@ -58,6 +58,7 @@ namespace AprVisual.Sim
             _lvlCount = null;
             _revDepStart = null;  // Phase 2 P2.3 (re-built by BuildRevDep when --ir-interp)
             _revDepList = null;
+            IrAbsorbed = null;    // Phase 2 P2.3 option B (re-built by BuildCombinationalIr)
             FrameBuffer = null;
         }
     }

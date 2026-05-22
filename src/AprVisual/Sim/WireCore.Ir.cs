@@ -37,6 +37,7 @@ namespace AprVisual.Sim
 
         private static List<IrNode>? _ir;     // expr pool (managed; verification representation)
         internal static int[]? IrRoot;        // per node: root expr index, or -1 if not extracted
+        internal static byte* IrAbsorbed;     // 1 = a pull-down mid folded into an IR island's Expr -> inert (P2.3 option B)
         public static int IrExtractedCount;
         public static string LastIrStats = "(IR not built)";
         private static int _irConst1;
@@ -151,41 +152,77 @@ namespace AprVisual.Sim
             return orRoot;
         }
 
-        /// <summary>P2.2 it.2: extract Expr for every combinational node (pure-logic + COMB_PASS-stack)
-        /// as NOT(PullDownCond). Gate-only singleton + pull-up + all-pass-internal. Verified by --verify-ir;
-        /// nodes whose stack model disagrees with S1 are reported (future: auto-hybrid).</summary>
+        /// <summary>P2.3 (option B): extract Expr per pass-connected ISLAND. An island is a maximal set
+        /// of nodes joined by pass transistors (TlistC1c2s) — i.e. exactly the nodes that can ever share
+        /// a conducting group. We only IR an island that is a clean single combinational gate: exactly
+        /// ONE pull-up node v (the output) + every other member a pure pull-down mid (no pull-up, gates
+        /// nothing), and v is a gate-only singleton (no sequential feedback). Then v's value =
+        /// NOT(PullDownCond over the island), and the mids are ABSORBED (marked inert: never
+        /// RecalcNode'd, never group-walked). Because an island is a closed pass-component, an IR output
+        /// is connected to the rest of the chip ONLY by gating (its value drives via fanout, never via a
+        /// shared group) — so no IR node ever shares a group with a hybrid node. No IR/hybrid interop =
+        /// the P2.3 freeze bug is structurally impossible.</summary>
         internal static void BuildCombinationalIr()
         {
+            int n = NodeCount;
             _ir = new List<IrNode>(1 << 18);
-            IrRoot = new int[NodeCount];
+            IrRoot = new int[n];
             Array.Fill(IrRoot, -1);
             _irConst1 = AddIr(ExprOp.Const1, 0);
+            IrAbsorbed = AllocArray<byte>(n);   // zeroed; freed in FreeUnmanagedMemory
 
-            int n = NodeCount;
-            int[] comp = TarjanScc(BuildDepAdj(n, includeChannel: false), n, out int cc);   // gate-only: singleton = combinational
-            int[] size = new int[cc];
-            for (int i = 0; i < n; i++) if (comp[i] >= 0) size[comp[i]]++;
-
-            int nLogic = 0, nStack = 0, nComplex = 0;
+            // ── pass-connected components (union-find over conducting-capable normal-normal channels) ──
+            int[] uf = new int[n];
+            for (int i = 0; i < n; i++) uf[i] = i;
+            int Find(int x) { while (uf[x] != x) { uf[x] = uf[uf[x]]; x = uf[x]; } return x; }
+            void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) uf[ra] = rb; }
+            foreach (var t in Transistors)
+            {
+                if (t.Gate == Ngnd) continue;
+                bool c1s = t.C1 == Npwr || t.C1 == Ngnd, c2s = t.C2 == Npwr || t.C2 == Ngnd;
+                if (!c1s && !c2s) Union(t.C1, t.C2);
+            }
+            var members = new Dictionary<int, List<int>>();
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
-                if (!(comp[nn] >= 0 && size[comp[nn]] == 1)) continue;          // combinational (no gate-only feedback)
-                ref NodeInfo ns = ref NodeInfos[nn];
-                if ((ns.Flags & NodeFlags.PullUp) == 0) continue;              // pull-up default = 1
-                if (!AllPassInternal(nn)) continue;                            // bus nodes deferred (drive-direction later)
+                int r = Find(nn);
+                (members.TryGetValue(r, out var l) ? l : (members[r] = new List<int>())).Add(nn);
+            }
 
-                bool hasPass = ns.TlistC1c2s != 0;
-                if (IrPureOnly && hasPass) continue;                           // debug isolation: pure-logic only
-                _irVisited.Clear(); _irVisited.Add(nn);
-                _irBudget = 400; _irAbort = false;
-                int cond = PullDownCond(nn);
-                if (_irAbort) { nComplex++; continue; }                        // too big => leave hybrid (IrRoot=-1)
-                IrRoot[nn] = cond < 0 ? _irConst1 : AddIr(ExprOp.Not, cond);
-                if (hasPass) nStack++; else nLogic++;
+            // ── gate-only SCC (singleton = combinational, no sequential feedback) ──
+            int[] comp = TarjanScc(BuildDepAdj(n, includeChannel: false), n, out int cc);
+            int[] sccSize = new int[cc];
+            for (int i = 0; i < n; i++) if (comp[i] >= 0) sccSize[comp[i]]++;
+            const NodeFlags badOut = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
+
+            int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0, nReject = 0;
+            foreach (var kv in members)
+            {
+                var list = kv.Value;
+                // find the single pull-up output; every other member must be a pure pull-down mid
+                int outV = -1; int pulls = 0; bool clean = true;
+                foreach (int m in list)
+                {
+                    if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) { pulls++; outV = m; }
+                    else if (NodeInfos[m].TlistGates != 0) { clean = false; break; }   // a mid that drives logic => not a pure stack
+                }
+                if (!clean || pulls != 1) { nReject++; continue; }
+                ref NodeInfo ns = ref NodeInfos[outV];
+                if ((ns.Flags & badOut) != 0) { nReject++; continue; }
+                if (!(comp[outV] >= 0 && sccSize[comp[outV]] == 1)) { nReject++; continue; }   // output must be combinational
+                if (IrPureOnly && list.Count > 1) { nReject++; continue; }                     // debug: pure-logic islands only
+
+                _irVisited.Clear(); _irVisited.Add(outV);
+                _irBudget = 4000; _irAbort = false;
+                int cond = PullDownCond(outV);
+                if (_irAbort) { nComplex++; continue; }
+                IrRoot[outV] = cond < 0 ? _irConst1 : AddIr(ExprOp.Not, cond);
+                if (list.Count > 1) nStack++; else nLogic++;
+                foreach (int m in list) if (m != outV) { IrAbsorbed[m] = 1; nAbsorbed++; }
             }
             IrExtractedCount = nLogic + nStack;
-            LastIrStats = $"IR (P2.2 it.2): {IrExtractedCount:N0} combinational extracted ({nLogic:N0} logic + {nStack:N0} stack), {nComplex:N0} too-complex->hybrid, pool {_ir.Count:N0}";
+            LastIrStats = $"IR (P2.3 island): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node islands), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nReject:N0} islands rejected->hybrid, pool {_ir.Count:N0}";
         }
 
         // ── P2.3: event-driven IR interpreter. Keeps S1's dirty-queue/double-buffer; only RecalcNode

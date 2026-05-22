@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -54,6 +54,7 @@ namespace AprVisual.Test
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--dump-levels":     dumpLevels = true; break;   // Phase 1: SCC/level structure of the netlist (levelization de-risk)
+                    case "--verify-ir":       if (i + 1 < args.Length) verifyIrPath = args[++i]; break;   // Phase 2 P2.2: extract Expr for pure-logic subset, verify Expr eval == S1 per half-cycle
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -85,6 +86,7 @@ namespace AprVisual.Test
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
             if (dumpLevels) return DumpLevels();
+            if (verifyIrPath != null) return VerifyIr(verifyIrPath, benchHcCount);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -215,6 +217,39 @@ namespace AprVisual.Test
         // ── Phase 1 (CPU/event-driven, pre-IR): compose the full netlist, classify pure-logic (策略二),
         //    then report the SCC / topological-level structure — to decide whether levelized scheduling
         //    will pay (mostly small-SCC DAG) or not (one giant pass-transistor SCC). No state change. ──
+        // ── Phase 2 P2.2 (it.1): extract Expr for the proven pure-logic subset and verify, at every
+        //    settled half-cycle, that EvalExpr == NodeStates. 0 mismatches => the Expr pool + evaluator
+        //    reproduce S1 for that subset (infrastructure validated before tackling COMB_PASS). ──
+        private static int VerifyIr(string romPath, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 5000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            WireCore.EnableFastPath = true;   // populate IsPureLogic (the proven-correct subset)
+            Console.WriteLine($"# verify-ir: {Path.GetFileName(romPath)} — extract pure-logic Expr, check Expr==NodeStates over {hcCount:N0} half-cycles");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                WireCore.BuildPureLogicIr();
+                Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                Console.WriteLine($"# {WireCore.LastIrStats}");
+                long totalChecks = 0, totalMism = 0; int badHc = 0; long firstBadT = -1;
+                for (int i = 0; i < hcCount; i++)
+                {
+                    WireCore.Step(1);
+                    var (c, m) = WireCore.VerifyIrOnce();
+                    totalChecks += c; totalMism += m;
+                    if (m > 0) { badHc++; if (firstBadT < 0) firstBadT = WireCore.Time; }
+                }
+                Console.WriteLine($"# checks: {totalChecks:N0}   mismatches: {totalMism:N0}   half-cycles with a mismatch: {badHc:N0}{(firstBadT >= 0 ? $" (first at t={firstBadT})" : "")}");
+                Console.WriteLine(totalMism == 0
+                    ? "# VERDICT: PASS — Expr pool + evaluator reproduce S1 for the pure-logic subset (infrastructure validated)"
+                    : "# VERDICT: FAIL — Expr extraction/eval disagrees with S1; investigate");
+                return totalMism == 0 ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static int DumpLevels()
         {
             try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }

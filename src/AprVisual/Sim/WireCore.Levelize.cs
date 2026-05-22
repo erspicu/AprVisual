@@ -276,6 +276,11 @@ namespace AprVisual.Sim
             for (int i = 0; i < n; i++) if (comp[i] >= 0) size[comp[i]]++;
 
             int supply = 0, seq = 0, combLogic = 0, combPass = 0, dynamic = 0, considered = 0;
+            // COMB_PASS shape breakdown: is every pass-channel neighbour an "internal" stack node (no
+            // pull-up of its own → part of THIS gate's series/parallel pull-down → Expr-able as a
+            // boolean network) or a separately-driven node (has a pull-up → a real gate output → the
+            // pass channel is a bus/routing connection → needs drive-direction resolution / hybrid)?
+            int cpStack = 0, cpBus = 0;
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null) continue;
@@ -285,7 +290,19 @@ namespace AprVisual.Sim
                 ref NodeInfo ns = ref NodeInfos[nn];
                 bool hasPass = ns.TlistC1c2s != 0;
                 bool hasPullOrPwr = (ns.Flags & NodeFlags.PullUp) != 0 || ns.TlistC1pwr != 0;
-                if (hasPass) combPass++;
+                if (hasPass)
+                {
+                    combPass++;
+                    bool anyDrivenNeighbour = false;
+                    int* p = TransistorList + ns.TlistC1c2s;
+                    while (*p != 0)
+                    {
+                        p++;                       // skip gate
+                        int other = *p++;          // the channel's other end (a normal node)
+                        if ((uint)other < (uint)NodeCount && (NodeInfos[other].Flags & NodeFlags.PullUp) != 0) { anyDrivenNeighbour = true; break; }
+                    }
+                    if (anyDrivenNeighbour) cpBus++; else cpStack++;
+                }
                 else if (hasPullOrPwr) combLogic++;
                 else dynamic++;
             }
@@ -294,6 +311,8 @@ namespace AprVisual.Sim
             Console.WriteLine($"# IR routing classification (Phase 2 P2.1 — whole netlist, {considered:N0} live non-supply nodes):");
             Console.WriteLine($"#   COMB_LOGIC : {combLogic,6:N0} ({P(combLogic),5:F1}%)  clean combinational gate -> directly Expr-able");
             Console.WriteLine($"#   COMB_PASS  : {combPass,6:N0} ({P(combPass),5:F1}%)  combinational via pass transistors -> needs drive-direction analysis");
+            Console.WriteLine($"#      ├ stack : {cpStack,6:N0} ({P(cpStack),5:F1}%)  all pass-neighbours internal (no pull-up) -> series/parallel pull-down -> Expr-able as a boolean network");
+            Console.WriteLine($"#      └ bus   : {cpBus,6:N0} ({P(cpBus),5:F1}%)  >=1 pass-neighbour is a driven gate output -> shared bus/routing -> drive-direction or hybrid");
             Console.WriteLine($"#   SEQ        : {seq,6:N0} ({P(seq),5:F1}%)  gate-only SCC -> sequential / latch (explicit next-state)");
             Console.WriteLine($"#   DYNAMIC    : {dynamic,6:N0} ({P(dynamic),5:F1}%)  floating / charge-hold (HoldExpr) or pure input");
             Console.WriteLine($"#   (supply: {supply})   reading: COMB_LOGIC is the free win; COMB_PASS is the drive-analysis workload that dissolves the full-graph SCC.");

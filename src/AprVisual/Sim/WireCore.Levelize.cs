@@ -248,6 +248,55 @@ namespace AprVisual.Sim
             Console.WriteLine("#   reading: if gate-only is far more acyclic than full, the giant SCC is conservative");
             Console.WriteLine("#   pass-transistor over-approximation (the real per-phase conducting graph is sparser);");
             Console.WriteLine("#   that coupling is exactly what a directed per-node next-state IR (Phase 2) dissolves.");
+            ReportIrClasses(n);
+        }
+
+        // ── Phase 2, P2.1 — full-netlist IR routing classification (no state change). Classify EVERY
+        //    node by its structure into the bucket that decides how Phase 2 will represent it. Uses the
+        //    gate-only SCC (real logic feedback) + the per-node channel structure. This is the IR
+        //    coverage map: how much of the WHOLE netlist is cleanly Expr-able vs needs drive-resolution
+        //    vs sequential vs dynamic. "Process all netlist-level nodes together" (user, 2026-05-23):
+        //    every node is routed here, not a hand-picked subset.
+        //
+        //      SUPPLY        VCC / GND
+        //      SEQ           in a gate-only multi-node SCC -> cross-coupled latch / dynamic storage:
+        //                    explicit sequential update (NodeRefExpr to the previous round)
+        //      COMB_LOGIC    gate-only singleton, NO pass channel (TlistC1c2s empty), has a pull-up or a
+        //                    VCC channel -> clean combinational gate: value = boolean fn of the gate
+        //                    nodes of its GND/VCC channels (NOR/NAND/AOI). Directly Expr-able.
+        //      COMB_PASS     gate-only singleton WITH pass channels (TlistC1c2s) -> combinational but its
+        //                    value routes through pass transistors: needs drive-direction analysis
+        //                    (Expr+Mux) or per-node hybrid.
+        //      DYNAMIC       gate-only singleton, no pass channel, no pull-up/VCC -> holds via parasitic
+        //                    capacitance (HoldExpr) / pure input.
+        private static void ReportIrClasses(int n)
+        {
+            int[] comp = TarjanScc(BuildDepAdj(n, includeChannel: false), n, out int cc);   // gate-only = real logic feedback
+            int[] size = new int[cc];
+            for (int i = 0; i < n; i++) if (comp[i] >= 0) size[comp[i]]++;
+
+            int supply = 0, seq = 0, combLogic = 0, combPass = 0, dynamic = 0, considered = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null) continue;
+                if (nn == Npwr || nn == Ngnd) { supply++; continue; }
+                considered++;
+                if (comp[nn] >= 0 && size[comp[nn]] > 1) { seq++; continue; }   // gate-only SCC -> sequential
+                ref NodeInfo ns = ref NodeInfos[nn];
+                bool hasPass = ns.TlistC1c2s != 0;
+                bool hasPullOrPwr = (ns.Flags & NodeFlags.PullUp) != 0 || ns.TlistC1pwr != 0;
+                if (hasPass) combPass++;
+                else if (hasPullOrPwr) combLogic++;
+                else dynamic++;
+            }
+
+            double P(int x) => considered > 0 ? 100.0 * x / considered : 0;
+            Console.WriteLine($"# IR routing classification (Phase 2 P2.1 — whole netlist, {considered:N0} live non-supply nodes):");
+            Console.WriteLine($"#   COMB_LOGIC : {combLogic,6:N0} ({P(combLogic),5:F1}%)  clean combinational gate -> directly Expr-able");
+            Console.WriteLine($"#   COMB_PASS  : {combPass,6:N0} ({P(combPass),5:F1}%)  combinational via pass transistors -> needs drive-direction analysis");
+            Console.WriteLine($"#   SEQ        : {seq,6:N0} ({P(seq),5:F1}%)  gate-only SCC -> sequential / latch (explicit next-state)");
+            Console.WriteLine($"#   DYNAMIC    : {dynamic,6:N0} ({P(dynamic),5:F1}%)  floating / charge-hold (HoldExpr) or pure input");
+            Console.WriteLine($"#   (supply: {supply})   reading: COMB_LOGIC is the free win; COMB_PASS is the drive-analysis workload that dissolves the full-graph SCC.");
         }
     }
 }

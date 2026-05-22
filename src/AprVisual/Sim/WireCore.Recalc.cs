@@ -63,6 +63,7 @@ namespace AprVisual.Sim
         {
             if (nn == Npwr || nn == Ngnd) return;
             if (CountEvents) EnqueueCount++;   // diagnostic only; well-predicted false on the timing path
+            // (--levelize uses the same FIFO double-buffer; it only reorders each wave by level in ProcessQueueLevelized)
             if (RecalcHashNext[nn] == 0)
             {
                 RecalcListNext[RecalcListNextCount++] = nn;
@@ -78,6 +79,7 @@ namespace AprVisual.Sim
         private static void ProcessQueue()
         {
             if (EnableOblivious) { ProcessAllOblivious(); return; }   // math-algos X: replace BFS with all-node sweep until fixpoint
+            if (EnableLevelize)  { ProcessQueueLevelized(); return; } // math-algos 策略三: level-ordered settle (priority = gate-only level; fixpoint preserved)
             int iteration = 0;
             while (RecalcListNextCount != 0)
             {

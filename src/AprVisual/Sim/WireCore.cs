@@ -202,6 +202,9 @@ namespace AprVisual.Sim
             // ── math-algos 策略二: classify pure-logic-gnd nodes for the O(1) RecalcNode fast-path.
             //    Runs last — needs the Tlist* sub-lists + all static flags above to be final.
             if (EnableFastPath) ClassifyPureLogicNodes();   // else IsPureLogic stays null (FreeUnmanagedMemory above)
+
+            // ── math-algos 策略三: gate-only condensation levels for the soft levelized settle.
+            if (EnableLevelize) ComputeNodeLevels();        // else NodeLevel stays null (FreeUnmanagedMemory above)
         }
 
         // length of TransistorList (for diagnostics)

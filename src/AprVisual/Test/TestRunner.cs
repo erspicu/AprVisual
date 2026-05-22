@@ -33,7 +33,7 @@ namespace AprVisual.Test
             int shotFrames = 3;
             int benchHcCount = 0;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false;
+            bool benchmark = false, dumpSystem = false, dumpLevels = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -53,6 +53,7 @@ namespace AprVisual.Test
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
+                    case "--dump-levels":     dumpLevels = true; break;   // Phase 1: SCC/level structure of the netlist (levelization de-risk)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -61,6 +62,7 @@ namespace AprVisual.Test
                     case "--oblivious":       WireCore.EnableOblivious = true; break;    // math-algos X: replace BFS dirty-set with full-sweep until fixpoint (Oblivious eval)
                     case "--prune-merge":     WireCore.EnablePruneMerge = true; break;   // math-algos #1: skip ON-case (merge) enqueue when endpoints already equal
                     case "--fast-path":       WireCore.EnableFastPath = true; break;     // math-algos 策略二: O(1) RecalcNode for pure-logic-gnd nodes (bypass group DFS)
+                    case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -82,6 +84,7 @@ namespace AprVisual.Test
 
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
+            if (dumpLevels) return DumpLevels();
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -206,6 +209,22 @@ namespace AprVisual.Test
             Console.WriteLine($"  nodes at state 1:   {stateHigh}  (== {WireCore.PullUpNodeCount} pull-ups + 1 for vcc)");
             Console.WriteLine($"  forceCompute flags: {WireCore.ForceComputeList.Count}");
             Console.WriteLine($"  cpu.clk0 (#{probeNode}) build-time c1c2s count = {buildC1c2}");
+            return 0;
+        }
+
+        // ── Phase 1 (CPU/event-driven, pre-IR): compose the full netlist, classify pure-logic (策略二),
+        //    then report the SCC / topological-level structure — to decide whether levelized scheduling
+        //    will pay (mostly small-SCC DAG) or not (one giant pass-transistor SCC). No state change. ──
+        private static int DumpLevels()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 2; }
+            WireCore.EnableFastPath = true;   // populate IsPureLogic so AnalyzeLevels can cross-check the levelable set
+            try { WireCore.Reset(); }
+            catch (Exception ex) { Console.Error.WriteLine($"Reset() failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); return 2; }
+            Console.WriteLine($"# {WireCore.LastLowerStats}");
+            Console.WriteLine($"# {WireCore.LastFastPathStats}");
+            WireCore.AnalyzeLevels();
             return 0;
         }
 
@@ -411,6 +430,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                Console.WriteLine($"# {WireCore.LastLevelizeStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");

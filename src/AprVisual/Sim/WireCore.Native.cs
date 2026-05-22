@@ -52,6 +52,7 @@ namespace AprVisual.Sim
             RecalcList = RecalcListNext = RecalcHash = RecalcHashNext = null;
             _groupBuf = null;
             _inGroup = null;
+            IsPureLogic = null;   // math-algos 策略二 (re-built by ClassifyPureLogicNodes when --fast-path)
             FrameBuffer = null;
         }
     }

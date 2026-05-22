@@ -115,7 +115,14 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
-            if (CountEvents) RecalcNodeCount++;
+            if (CountEvents)
+            {
+                RecalcNodeCount++;
+                // math-algos 策略三 glitch diagnostic: count the first RecalcNode of nn this half-cycle
+                if (_lastRecalcHc != null && _lastRecalcHc[nn] != Time) { _lastRecalcHc[nn] = Time; DistinctRecalcCount++; }
+            }
+            // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
+            if (EnableFastPath && IsPureLogic != null && IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
             byte newState = EnableSimdQueue ? ComputeNodeGroupSimd(nn) : ComputeNodeGroup(nn);   // math-algos Y: SIMD-unrolled inner walk (behaviour-identical)
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 

@@ -198,6 +198,10 @@ namespace AprVisual.Sim
             // ── forceCompute: if a group has both Gnd and Pwr, they cancel (certain bus nodes) ──
             foreach (int nn in ForceComputeList)
                 if (nn >= 0 && nn < NodeCount) NodeInfos[nn].Flags |= NodeFlags.ForceCompute;
+
+            // ── math-algos 策略二: classify pure-logic-gnd nodes for the O(1) RecalcNode fast-path.
+            //    Runs last — needs the Tlist* sub-lists + all static flags above to be final.
+            if (EnableFastPath) ClassifyPureLogicNodes();   // else IsPureLogic stays null (FreeUnmanagedMemory above)
         }
 
         // length of TransistorList (for diagnostics)

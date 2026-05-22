@@ -60,6 +60,7 @@ namespace AprVisual.Test
                     case "--simd-queue":      WireCore.EnableSimdQueue = true; break;    // math-algos Y: unroll-4 + MLP inner walk in AddNodeToGroup (wide-list nodes)
                     case "--oblivious":       WireCore.EnableOblivious = true; break;    // math-algos X: replace BFS dirty-set with full-sweep until fixpoint (Oblivious eval)
                     case "--prune-merge":     WireCore.EnablePruneMerge = true; break;   // math-algos #1: skip ON-case (merge) enqueue when endpoints already equal
+                    case "--fast-path":       WireCore.EnableFastPath = true; break;     // math-algos 策略二: O(1) RecalcNode for pure-logic-gnd nodes (bypass group DFS)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -398,6 +399,7 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
                 WireCore.EnqueueCount = 0; WireCore.RecalcNodeCount = 0;
+                if (WireCore.CountEvents) WireCore.InitGlitchDiag();   // 策略三: arm per-half-cycle re-recalc counting over the timed window only
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);
@@ -408,12 +410,18 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();   // FNV-1a over NodeStates — for rigorous A/B per-node equivalence (after timing)
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
+                Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 if (WireCore.CountEvents)
+                {
                     Console.WriteLine($"# events: {WireCore.EnqueueCount:N0} EnqueueNode, {WireCore.RecalcNodeCount:N0} RecalcNode over {halfCycles:N0} hc  ({(double)WireCore.RecalcNodeCount / halfCycles:F1} RecalcNode/hc = D)");
+                    // 策略三 glitch factor: avg times the same node is re-evaluated within one half-cycle (~1.0 ⇒ no glitching)
+                    double glitch = WireCore.DistinctRecalcCount > 0 ? (double)WireCore.RecalcNodeCount / WireCore.DistinctRecalcCount : 0;
+                    Console.WriteLine($"# glitch factor: {WireCore.RecalcNodeCount:N0} RecalcNode / {WireCore.DistinctRecalcCount:N0} distinct (node,hc) = {glitch:F3} recalcs/node/hc  (>1.1 ⇒ glitches worth chasing; ~1.0 ⇒ none)");
+                }
             }
             finally { WireCore.Shutdown(); }
             return 0;
@@ -448,6 +456,7 @@ namespace AprVisual.Test
 
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
+                Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
                 Console.WriteLine($"# real time: {secs:F3} s");

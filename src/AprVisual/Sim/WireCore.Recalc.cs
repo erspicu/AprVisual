@@ -189,7 +189,7 @@ namespace AprVisual.Sim
                 // shared group and would go stale. Wake those pass-channel neighbours so their hybrid
                 // group walk re-reads nn's new value. (Only IR nodes need this; hybrid nodes keep S1's
                 // group mechanism intact.)
-                if (IrRoot[nn] >= 0 && ns.TlistC1c2s != 0)
+                if (IrBoundaryDriver && IrRoot[nn] >= 0 && ns.TlistC1c2s != 0)
                 {
                     int* q = TransistorList + ns.TlistC1c2s;
                     while (*q != 0) { q++; int other = *q++; EnqueueNode(other); }
@@ -223,6 +223,8 @@ namespace AprVisual.Sim
         private static void StepCycle()
         {
             RunHandlerChain();          // WireCore.Handlers.cs (clock handler toggles "clk", nes-system handler, …)
+            if (IrBruteForce) ReEvalAllIr();   // Phase 2 debug: oblivious re-eval to isolate triggering bugs
+
             if (TraceLevel != 0) CaptureTraceLine();   // WireCore.Trace.cs
             Time++;
         }

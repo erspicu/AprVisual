@@ -100,12 +100,20 @@ namespace AprVisual.Sim
         private static bool _irAbort;
         private static readonly HashSet<int> _irVisited = new();
 
+        // A pass-neighbour is a genuine internal pull-down mid only if it (a) has no pull-up AND (b)
+        // gates nothing — a real series pull-down element drives no logic. A node that GATES things
+        // (e.g. a dynamic bus line ab14, read by the address decoders) is a driven signal, NOT this
+        // gate's pull-down: folding it in would be a backwards drive direction (the stack node DRIVES
+        // it). Excluding such nodes keeps them hybrid (correct) — this is the cheap drive-direction guard.
+        private static bool IsInternalMid(int m) =>
+            (uint)m < (uint)NodeCount && (NodeInfos[m].Flags & NodeFlags.PullUp) == 0 && NodeInfos[m].TlistGates == 0;
+
         private static bool AllPassInternal(int nn)
         {
             ref NodeInfo ns = ref NodeInfos[nn];
             if (ns.TlistC1c2s == 0) return true;
             int* p = TransistorList + ns.TlistC1c2s;
-            while (*p != 0) { p++; int other = *p++; if ((uint)other < (uint)NodeCount && (NodeInfos[other].Flags & NodeFlags.PullUp) != 0) return false; }
+            while (*p != 0) { p++; int other = *p++; if (!IsInternalMid(other)) return false; }
             return true;
         }
 
@@ -132,7 +140,7 @@ namespace AprVisual.Sim
                     int g = *p++;
                     int mid = *p++;
                     if (_irVisited.Contains(mid)) continue;                                  // simple paths only (cycle guard)
-                    if ((uint)mid >= (uint)NodeCount || (NodeInfos[mid].Flags & NodeFlags.PullUp) != 0) continue;  // driven => bus edge, skip
+                    if (!IsInternalMid(mid)) continue;                                       // only recurse through genuine pull-down mids (no pull-up, gates nothing)
                     _irVisited.Add(mid);
                     int sub = PullDownCond(mid);
                     _irVisited.Remove(mid);
@@ -185,7 +193,22 @@ namespace AprVisual.Sim
         //    Expr references node g — so when g changes, exactly those IR nodes are re-enqueued. Hybrid
         //    nodes keep S1's group-walk + gate-fanout. EVENT-DRIVEN (dirty-set sparsity preserved).
         public static bool EnableIrInterp = false;
-        public static bool IrPureOnly = false;   // debug: extract only pure-logic (no pass/stack) — isolate dispatch bugs
+        public static bool IrPureOnly = false;       // debug: extract only pure-logic (no pass/stack) — isolate dispatch bugs
+        public static bool IrBoundaryDriver = false; // experiment: treat IR nodes as group-walk driver boundaries (vs let walks resolve them in-group)
+        public static bool IrBruteForce = false;     // debug: re-eval ALL nodes each half-cycle (oblivious) — isolate triggering bugs from eval bugs
+
+        /// <summary>Debug: after the normal settle, force a full re-evaluation of every live node to
+        /// fixpoint. If this makes --ir-interp match S1, the event-driven triggering (revDep) is
+        /// incomplete (eval/extraction are fine — that's already proven by --verify-ir).</summary>
+        internal static void ReEvalAllIr()
+        {
+            for (int pass = 0; pass < 12; pass++)
+            {
+                for (int nn = 0; nn < NodeCount; nn++)
+                    if (nn != Npwr && nn != Ngnd && Nodes[nn] != null) EnqueueNode(nn);
+                ProcessQueue();
+            }
+        }
         internal static int* _revDepStart;   // CSR: revDep consumers of node g are _revDepList[start[g]..start[g+1])
         internal static int* _revDepList;
         public static string LastRevDepStats = "(revDep not built)";
@@ -244,6 +267,26 @@ namespace AprVisual.Sim
             int s = _revDepStart[nn], e = _revDepStart[nn + 1];
             for (int k = s; k < e; k++) EnqueueNode(_revDepList[k]);
         }
+
+        /// <summary>Debug: dump an IR node's Expr refs + verify it appears in each referenced node's
+        /// revDep (is the event-driven trigger complete for this node?).</summary>
+        internal static void DumpIrNodeInfo(int nn)
+        {
+            Console.WriteLine($"# node {nn} '{GetNodeName(nn)}' class={IrClassOf(nn)} root={(IrRoot != null ? IrRoot[nn] : -1)}");
+            if (IrRoot == null || IrRoot[nn] < 0) { Console.WriteLine("#   (not extracted)"); return; }
+            var refs = new HashSet<int>();
+            CollectRefs(IrRoot[nn], refs);
+            Console.WriteLine($"#   Expr references {refs.Count} nodes:");
+            foreach (int g in refs)
+            {
+                bool inRev = false;
+                if (_revDepStart != null) { for (int k = _revDepStart[g]; k < _revDepStart[g + 1]; k++) if (_revDepList[k] == nn) { inRev = true; break; } }
+                Console.WriteLine($"#     gate {g} '{GetNodeName(g)}' state={NodeStates[g]} class={IrClassOf(g)} -> nn in revDep[gate]? {inRev}");
+            }
+        }
+
+        /// <summary>Debug: "IR" if the node has an extracted Expr, else "hy" (hybrid/switch-level).</summary>
+        internal static string IrClassOf(int nn) => (IrRoot != null && (uint)nn < (uint)NodeCount && IrRoot[nn] >= 0) ? "IR" : "hy";
 
         /// <summary>Evaluate an expr (reads current settled NodeStates for NodeRef leaves).</summary>
         internal static byte EvalExpr(int idx)

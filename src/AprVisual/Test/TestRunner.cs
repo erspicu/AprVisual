@@ -25,7 +25,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -55,6 +55,7 @@ namespace AprVisual.Test
                     case "--dump-system":     dumpSystem = true; break;
                     case "--dump-levels":     dumpLevels = true; break;   // Phase 1: SCC/level structure of the netlist (levelization de-risk)
                     case "--verify-ir":       if (i + 1 < args.Length) verifyIrPath = args[++i]; break;   // Phase 2 P2.2: extract Expr for pure-logic subset, verify Expr eval == S1 per half-cycle
+                    case "--dump-states":     if (i + 1 < args.Length) dumpStatesPath = args[++i]; break;  // Phase 2 debug: step N hc, dump high-node ids (diff S1 vs --ir-interp to find divergence)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -66,6 +67,7 @@ namespace AprVisual.Test
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--ir-interp":       WireCore.EnableIrInterp = true; break;     // Phase 2 P2.3: event-driven IR interpreter (Expr eval for extracted nodes, hybrid switch-level for the rest)
                     case "--ir-pure":         WireCore.EnableIrInterp = true; WireCore.IrPureOnly = true; break;   // debug: interp with pure-logic-only IR (isolate dispatch)
+                    case "--ir-brute":        WireCore.IrBruteForce = true; break;       // debug: oblivious re-eval each half-cycle (isolate triggering vs eval bug)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -89,6 +91,7 @@ namespace AprVisual.Test
             if (dumpSystem) return DumpSystem();
             if (dumpLevels) return DumpLevels();
             if (verifyIrPath != null) return VerifyIr(verifyIrPath, benchHcCount);
+            if (dumpStatesPath != null) return DumpStates(dumpStatesPath, benchHcCount);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -252,6 +255,30 @@ namespace AprVisual.Test
                     ? "# VERDICT: PASS — extracted Expr reproduces S1 for ALL extracted combinational nodes"
                     : $"# VERDICT: {distinctBad} node(s) need hybrid (stack model wrong there); the rest match");
                 return totalMism == 0 ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── Phase 2 debug: step N half-cycles, print every live HIGH node's id (sorted). Diff the S1
+        //    dump vs the --ir-interp dump (Compare-Object) to find the first node that diverges. ──
+        private static int DumpStates(string romPath, int n)
+        {
+            if (n < 1) n = 48;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                if (WireCore.EnableIrInterp) { WireCore.BuildCombinationalIr(); WireCore.BuildRevDep(); }
+                WireCore.Step(n);
+                Console.WriteLine($"# dump-states t={WireCore.Time} ir-interp={WireCore.EnableIrInterp} pure-only={WireCore.IrPureOnly}");
+                unsafe
+                {
+                    for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                        if (WireCore.Nodes[nn] != null && WireCore.NodeStates[nn] != 0)
+                            Console.WriteLine($"{nn} {WireCore.IrClassOf(nn)} {WireCore.GetNodeName(nn)}");
+                }
+                return 0;
             }
             finally { WireCore.Shutdown(); }
         }

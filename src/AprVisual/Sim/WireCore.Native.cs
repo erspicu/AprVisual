@@ -56,6 +56,8 @@ namespace AprVisual.Sim
             NodeLevel = null;     // math-algos 策略三 (re-built by ComputeNodeLevels when --levelize)
             _lvlSorted = null;
             _lvlCount = null;
+            _revDepStart = null;  // Phase 2 P2.3 (re-built by BuildRevDep when --ir-interp)
+            _revDepList = null;
             FrameBuffer = null;
         }
     }

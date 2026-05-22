@@ -82,6 +82,18 @@ namespace AprVisual.Sim
         private static void AddNodeToGroup(int nn)
         {
             if (_inGroup[nn] != 0) return;          // O(1) dedup (MetalNES uses a linear scan; same effect)
+
+            // Phase 2 P2.3: an IR node resolves via its Expr, so to a hybrid group walk it is a *directed
+            // driver*, not a walked member: contribute its value (Gnd if 0 — its pull-down is active —
+            // else PullUp, exactly what S1's group would accumulate for it) and stop. Not added to
+            // _groupBuf, so the group's resolved value never overwrites the IR node. (_inGroup left 0:
+            // re-reaching it just re-ORs the same flag — idempotent.)
+            if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0)
+            {
+                _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
+                return;
+            }
+
             _inGroup[nn] = 1;
 
             ref NodeInfo ns = ref NodeInfos[nn];

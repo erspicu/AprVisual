@@ -123,6 +123,14 @@ namespace AprVisual.Sim
                 // math-algos 策略三 glitch diagnostic: count the first RecalcNode of nn this half-cycle
                 if (_lastRecalcHc != null && _lastRecalcHc[nn] != Time) { _lastRecalcHc[nn] = Time; DistinctRecalcCount++; }
             }
+            // Phase 2 P2.3: event-driven IR — an extracted (combinational) node evaluates its Expr
+            // instead of walking a conducting group. Its "group" is {nn}; SetNodeState propagates.
+            // HasCallback nodes fall through to the group walk (which fires callbacks).
+            if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0 && (NodeInfos[nn].Flags & NodeFlags.HasCallback) == 0)
+            {
+                SetNodeState(nn, EvalExpr(IrRoot[nn]));
+                return;
+            }
             // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
             if (EnableFastPath && IsPureLogic != null && IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
             byte newState = EnableSimdQueue ? ComputeNodeGroupSimd(nn) : ComputeNodeGroup(nn);   // math-algos Y: SIMD-unrolled inner walk (behaviour-identical)
@@ -144,7 +152,7 @@ namespace AprVisual.Sim
             if (ns.TlistGates != 0)
             {
                 int* p = TransistorList + ns.TlistGates;
-                if (EnablePruneMerge && newState != 0)
+                if (EnablePruneMerge && newState != 0 && !EnableIrInterp)
                 {
                     // math-algos #1: gate went HIGH → transistor turns ON → c1,c2 MERGE. Re-evaluating
                     // is only needed when the endpoints currently differ; an equal-value merge can't
@@ -169,6 +177,22 @@ namespace AprVisual.Sim
                         // when a gate goes low some channels may *disconnect*, so the far end needs re-evaluation too
                         if (newState == 0 && c2 != Npwr && c2 != Ngnd) EnqueueNode(c2);
                     }
+                }
+            }
+            // Phase 2 P2.3: in interp mode, also wake the IR nodes whose Expr reads nn (the gate-fanout
+            // above only reliably reaches hybrid consumers; revDep covers the extracted-Expr consumers).
+            if (EnableIrInterp && _revDepStart != null)
+            {
+                EnqueueIrConsumers(nn);
+                // An IR node resolves via its Expr, NOT via a conducting group — so a node it DRIVES
+                // through a pass transistor (a dynamic bus: no pull-up, hybrid) is never pulled into a
+                // shared group and would go stale. Wake those pass-channel neighbours so their hybrid
+                // group walk re-reads nn's new value. (Only IR nodes need this; hybrid nodes keep S1's
+                // group mechanism intact.)
+                if (IrRoot[nn] >= 0 && ns.TlistC1c2s != 0)
+                {
+                    int* q = TransistorList + ns.TlistC1c2s;
+                    while (*q != 0) { q++; int other = *q++; EnqueueNode(other); }
                 }
             }
         }

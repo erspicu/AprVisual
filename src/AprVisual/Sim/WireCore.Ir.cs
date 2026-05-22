@@ -168,6 +168,7 @@ namespace AprVisual.Sim
                 if (!AllPassInternal(nn)) continue;                            // bus nodes deferred (drive-direction later)
 
                 bool hasPass = ns.TlistC1c2s != 0;
+                if (IrPureOnly && hasPass) continue;                           // debug isolation: pure-logic only
                 _irVisited.Clear(); _irVisited.Add(nn);
                 _irBudget = 400; _irAbort = false;
                 int cond = PullDownCond(nn);
@@ -177,6 +178,71 @@ namespace AprVisual.Sim
             }
             IrExtractedCount = nLogic + nStack;
             LastIrStats = $"IR (P2.2 it.2): {IrExtractedCount:N0} combinational extracted ({nLogic:N0} logic + {nStack:N0} stack), {nComplex:N0} too-complex->hybrid, pool {_ir.Count:N0}";
+        }
+
+        // ── P2.3: event-driven IR interpreter. Keeps S1's dirty-queue/double-buffer; only RecalcNode
+        //    (eval) and SetNodeState (propagation) change for IR nodes. revDep[g] = the IR nodes whose
+        //    Expr references node g — so when g changes, exactly those IR nodes are re-enqueued. Hybrid
+        //    nodes keep S1's group-walk + gate-fanout. EVENT-DRIVEN (dirty-set sparsity preserved).
+        public static bool EnableIrInterp = false;
+        public static bool IrPureOnly = false;   // debug: extract only pure-logic (no pass/stack) — isolate dispatch bugs
+        internal static int* _revDepStart;   // CSR: revDep consumers of node g are _revDepList[start[g]..start[g+1])
+        internal static int* _revDepList;
+        public static string LastRevDepStats = "(revDep not built)";
+
+        private static void CollectRefs(int idx, HashSet<int> into)
+        {
+            IrNode e = _ir![idx];
+            switch (e.Op)
+            {
+                case ExprOp.NodeRef: case ExprOp.Hold: into.Add(e.A); break;
+                case ExprOp.Not: CollectRefs(e.A, into); break;
+                case ExprOp.Or: case ExprOp.And: CollectRefs(e.A, into); CollectRefs(e.B, into); break;
+                case ExprOp.Mux: CollectRefs(e.A, into); CollectRefs(e.B, into); CollectRefs(e.C, into); break;
+                default: break;
+            }
+        }
+
+        /// <summary>Build the reverse-dependency map (node -> IR nodes whose Expr references it), CSR
+        /// form, for the interpreter's propagation. Run after BuildCombinationalIr.</summary>
+        internal static void BuildRevDep()
+        {
+            int n = NodeCount;
+            var tmp = new List<int>?[n];
+            var refs = new HashSet<int>();
+            long edges = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (IrRoot == null || IrRoot[nn] < 0) continue;
+                refs.Clear();
+                CollectRefs(IrRoot[nn], refs);
+                foreach (int g in refs)
+                {
+                    if ((uint)g >= (uint)n) continue;
+                    (tmp[g] ??= new List<int>()).Add(nn);
+                    edges++;
+                }
+            }
+            _revDepStart = AllocArray<int>(n + 1);
+            _revDepList = AllocArray<int>((int)Math.Max(edges, 1));
+            int pos = 0;
+            for (int g = 0; g < n; g++)
+            {
+                _revDepStart[g] = pos;
+                var l = tmp[g];
+                if (l != null) foreach (int c in l) _revDepList[pos++] = c;
+            }
+            _revDepStart[n] = pos;
+            LastRevDepStats = $"revDep: {edges:N0} (node -> IR-consumer) edges";
+        }
+
+        /// <summary>Enqueue the IR nodes that reference <paramref name="nn"/> (called from SetNodeState in
+        /// interp mode). Inlined-friendly; no-op when nn drives no IR node.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static void EnqueueIrConsumers(int nn)
+        {
+            int s = _revDepStart[nn], e = _revDepStart[nn + 1];
+            for (int k = s; k < e; k++) EnqueueNode(_revDepList[k]);
         }
 
         /// <summary>Evaluate an expr (reads current settled NodeStates for NodeRef leaves).</summary>

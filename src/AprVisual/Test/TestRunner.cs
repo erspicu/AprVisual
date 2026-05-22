@@ -64,6 +64,8 @@ namespace AprVisual.Test
                     case "--prune-merge":     WireCore.EnablePruneMerge = true; break;   // math-algos #1: skip ON-case (merge) enqueue when endpoints already equal
                     case "--fast-path":       WireCore.EnableFastPath = true; break;     // math-algos 策略二: O(1) RecalcNode for pure-logic-gnd nodes (bypass group DFS)
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
+                    case "--ir-interp":       WireCore.EnableIrInterp = true; break;     // Phase 2 P2.3: event-driven IR interpreter (Expr eval for extracted nodes, hybrid switch-level for the rest)
+                    case "--ir-pure":         WireCore.EnableIrInterp = true; WireCore.IrPureOnly = true; break;   // debug: interp with pure-logic-only IR (isolate dispatch)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -454,7 +456,8 @@ namespace AprVisual.Test
             try
             {
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
-                WireCore.LoadSystem(rom);
+                WireCore.LoadSystem(rom);                              // S1 reset (IrRoot null => switch-level used here)
+                if (WireCore.EnableIrInterp) { WireCore.BuildCombinationalIr(); WireCore.BuildRevDep(); }   // Phase 2 P2.3: build IR after reset, then the timed run uses it
                 swLoad.Stop();
                 WireCore.EnqueueCount = 0; WireCore.RecalcNodeCount = 0;
                 if (WireCore.CountEvents) WireCore.InitGlitchDiag();   // 策略三: arm per-half-cycle re-recalc counting over the timed window only
@@ -470,6 +473,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastLevelizeStats}");
+                if (WireCore.EnableIrInterp) { Console.WriteLine($"# {WireCore.LastIrStats}"); Console.WriteLine($"# {WireCore.LastRevDepStats}"); }
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
@@ -790,6 +794,7 @@ namespace AprVisual.Test
             try
             {
                 WireCore.LoadSystem(rom);
+                if (WireCore.EnableIrInterp) { WireCore.BuildCombinationalIr(); WireCore.BuildRevDep(); }   // P2.3: build IR after S1 reset
                 Console.WriteLine($"# after power-on reset: {WireCore.DumpCpuState()}");
                 int prevSync = -1;
                 int instrCount = 0;

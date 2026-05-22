@@ -12,6 +12,35 @@ namespace AprVisual.Sim
         // not by StepCycle directly — see the note there. Kept here only for reference / diagnostics.
         public static int ClockNode = EmptyNode;
 
+        // math-algos #1 (Observability-Don't-Care merge pruning, the CORRECTED form): when a gate
+        // goes HIGH (transistor turns ON → its two channel endpoints MERGE into one group) and the
+        // two endpoints already hold the *same* value, the merge is provably value-preserving
+        // (group resolution priority GND>VCC>SetHigh>SetLow>PullUp>hold can't flip when both
+        // sub-groups already resolve to the same value), so skip the re-evaluation enqueue. ANY
+        // later driver / topology change on either side independently re-enqueues that endpoint,
+        // and the group walk catches it. The gate-going-LOW (split / disconnection) case is NEVER
+        // pruned — at a split the two endpoints are always equal (they were one group) yet the
+        // post-split groups can diverge (a dynamic node that held its value only via the now-broken
+        // connection), so that path keeps S1's unconditional both-endpoint enqueue. Gated behind
+        // --prune-merge; default off (A/B). Verified per-node-identical, not just blargg-PASS.
+        public static bool EnablePruneMerge = false;
+
+        // Diagnostics (opt-in via --count-events; gated so the timing path stays uncontaminated):
+        // total EnqueueNode hits and RecalcNode calls over a run — to measure how much #1 shrinks D.
+        public static bool CountEvents = false;
+        public static long EnqueueCount, RecalcNodeCount;
+
+        /// <summary>FNV-1a 64-bit hash over the whole NodeStates array — a cheap fingerprint of the
+        /// chip's complete state, for rigorous A/B equivalence checking (two runs that match here at
+        /// the same Time are bit-identical per node). NOTE: hashed by node id, so only comparable
+        /// between runs with the SAME node numbering (i.e. same --rcm setting).</summary>
+        public static ulong NodeStatesChecksum()
+        {
+            ulong h = 14695981039346656037UL;
+            for (int i = 0; i < NodeCount; i++) { h ^= NodeStates[i]; h *= 1099511628211UL; }
+            return h;
+        }
+
         /// <summary>Mark a node dirty and propagate to quiescence.</summary>
         public static void RecalcNodeList(int nn) { EnqueueNode(nn); ProcessQueue(); }
 
@@ -33,6 +62,7 @@ namespace AprVisual.Sim
         private static void EnqueueNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
+            if (CountEvents) EnqueueCount++;   // diagnostic only; well-predicted false on the timing path
             if (RecalcHashNext[nn] == 0)
             {
                 RecalcListNext[RecalcListNextCount++] = nn;
@@ -85,6 +115,7 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
+            if (CountEvents) RecalcNodeCount++;
             byte newState = EnableSimdQueue ? ComputeNodeGroupSimd(nn) : ComputeNodeGroup(nn);   // math-algos Y: SIMD-unrolled inner walk (behaviour-identical)
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
@@ -104,13 +135,31 @@ namespace AprVisual.Sim
             if (ns.TlistGates != 0)
             {
                 int* p = TransistorList + ns.TlistGates;
-                while (*p != 0)
+                if (EnablePruneMerge && newState != 0)
                 {
-                    int c1 = *p++;
-                    int c2 = *p++;
-                    EnqueueNode(c1);
-                    // when a gate goes low some channels may *disconnect*, so the far end needs re-evaluation too
-                    if (newState == 0 && c2 != Npwr && c2 != Ngnd) EnqueueNode(c2);
+                    // math-algos #1: gate went HIGH → transistor turns ON → c1,c2 MERGE. Re-evaluating
+                    // is only needed when the endpoints currently differ; an equal-value merge can't
+                    // change either node's resolved value (and any later divergence re-enqueues the
+                    // endpoint itself). (c2 is normalised to be the supply when one side is vcc/vss, so
+                    // comparing NodeStates[c1] vs NodeStates[c2] also correctly handles pull-up/down:
+                    // a pull-up turning on when the node is already 1 is a no-op, etc.)
+                    while (*p != 0)
+                    {
+                        int c1 = *p++;
+                        int c2 = *p++;
+                        if (NodeStates[c1] != NodeStates[c2]) EnqueueNode(c1);
+                    }
+                }
+                else
+                {
+                    while (*p != 0)
+                    {
+                        int c1 = *p++;
+                        int c2 = *p++;
+                        EnqueueNode(c1);
+                        // when a gate goes low some channels may *disconnect*, so the far end needs re-evaluation too
+                        if (newState == 0 && c2 != Npwr && c2 != Ngnd) EnqueueNode(c2);
+                    }
                 }
             }
         }

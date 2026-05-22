@@ -59,6 +59,8 @@ namespace AprVisual.Test
                     case "--rcm":             WireCore.EnableRcm = true; break;          // math-algos G: Reverse Cuthill-McKee node-id reorder for cache locality
                     case "--simd-queue":      WireCore.EnableSimdQueue = true; break;    // math-algos Y: unroll-4 + MLP inner walk in AddNodeToGroup (wide-list nodes)
                     case "--oblivious":       WireCore.EnableOblivious = true; break;    // math-algos X: replace BFS dirty-set with full-sweep until fixpoint (Oblivious eval)
+                    case "--prune-merge":     WireCore.EnablePruneMerge = true; break;   // math-algos #1: skip ON-case (merge) enqueue when endpoints already equal
+                    case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;   // bench raw N half-cycles (use when --frames is too coarse, e.g. for slow variants)
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -395,6 +397,7 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
+                WireCore.EnqueueCount = 0; WireCore.RecalcNodeCount = 0;
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);
@@ -402,11 +405,15 @@ namespace AprVisual.Test
                 long halfCycles = WireCore.Time - t0;
                 double secs = sw.Elapsed.TotalSeconds; if (secs <= 0) secs = 1e-9;
                 double stepsHz = halfCycles / secs;
+                ulong stateHash = WireCore.NodeStatesChecksum();   // FNV-1a over NodeStates — for rigorous A/B per-node equivalence (after timing)
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
+                Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
+                if (WireCore.CountEvents)
+                    Console.WriteLine($"# events: {WireCore.EnqueueCount:N0} EnqueueNode, {WireCore.RecalcNodeCount:N0} RecalcNode over {halfCycles:N0} hc  ({(double)WireCore.RecalcNodeCount / halfCycles:F1} RecalcNode/hc = D)");
             }
             finally { WireCore.Shutdown(); }
             return 0;

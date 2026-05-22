@@ -230,21 +230,25 @@ namespace AprVisual.Test
             try
             {
                 WireCore.LoadSystem(rom);
-                WireCore.BuildPureLogicIr();
-                Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                WireCore.BuildCombinationalIr();
                 Console.WriteLine($"# {WireCore.LastIrStats}");
+                int[] badPerNode = new int[WireCore.NodeCount];
                 long totalChecks = 0, totalMism = 0; int badHc = 0; long firstBadT = -1;
                 for (int i = 0; i < hcCount; i++)
                 {
                     WireCore.Step(1);
-                    var (c, m) = WireCore.VerifyIrOnce();
+                    var (c, m) = WireCore.VerifyIrOnce(badPerNode);
                     totalChecks += c; totalMism += m;
                     if (m > 0) { badHc++; if (firstBadT < 0) firstBadT = WireCore.Time; }
                 }
+                int distinctBad = 0; var sample = new List<string>();
+                for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                    if (badPerNode[nn] > 0) { distinctBad++; if (sample.Count < 6) sample.Add($"{WireCore.GetNodeName(nn)}#{nn}"); }
                 Console.WriteLine($"# checks: {totalChecks:N0}   mismatches: {totalMism:N0}   half-cycles with a mismatch: {badHc:N0}{(firstBadT >= 0 ? $" (first at t={firstBadT})" : "")}");
+                Console.WriteLine($"# distinct nodes ever mismatching: {distinctBad:N0} / {WireCore.IrExtractedCount:N0} extracted  ({(WireCore.IrExtractedCount > 0 ? 100.0 * (WireCore.IrExtractedCount - distinctBad) / WireCore.IrExtractedCount : 0):F2}% clean){(sample.Count > 0 ? "  e.g. " + string.Join(", ", sample) : "")}");
                 Console.WriteLine(totalMism == 0
-                    ? "# VERDICT: PASS — Expr pool + evaluator reproduce S1 for the pure-logic subset (infrastructure validated)"
-                    : "# VERDICT: FAIL — Expr extraction/eval disagrees with S1; investigate");
+                    ? "# VERDICT: PASS — extracted Expr reproduces S1 for ALL extracted combinational nodes"
+                    : $"# VERDICT: {distinctBad} node(s) need hybrid (stack model wrong there); the rest match");
                 return totalMism == 0 ? 0 : 1;
             }
             finally { WireCore.Shutdown(); }

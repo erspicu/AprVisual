@@ -88,6 +88,97 @@ namespace AprVisual.Sim
             LastIrStats = $"IR (P2.2 it.1, pure-logic only): {extracted:N0} nodes extracted, {_ir.Count:N0} expr nodes in pool";
         }
 
+        // ── P2.2 it.2: unified combinational extraction (pure-logic + COMB_PASS-stack).
+        //    A combinational node = gate-only singleton + pull-up + every pass-neighbour internal
+        //    (no pull-up). Its value = NOT( exists conducting path to GND through the NMOS pull-down
+        //    network ). PullDownCond builds that boolean by simple-path DFS: a direct GND channel gated
+        //    by g contributes NodeRef(g); a pass channel gated by g to internal node mid contributes
+        //    And(g, PullDownCond(mid)); all OR-ed. (Series = AND down the chain, parallel = OR.) Pass
+        //    channels to a *driven* node (pull-up) are skipped — that's a bus/routing edge, not part of
+        //    this gate's pull-down; if skipping it is wrong, --verify-ir flags the node for hybrid.
+        private static int _irBudget;
+        private static bool _irAbort;
+        private static readonly HashSet<int> _irVisited = new();
+
+        private static bool AllPassInternal(int nn)
+        {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            if (ns.TlistC1c2s == 0) return true;
+            int* p = TransistorList + ns.TlistC1c2s;
+            while (*p != 0) { p++; int other = *p++; if ((uint)other < (uint)NodeCount && (NodeInfos[other].Flags & NodeFlags.PullUp) != 0) return false; }
+            return true;
+        }
+
+        private static int Or2(int a, int b) => a < 0 ? b : AddIr(ExprOp.Or, a, b);
+
+        // Returns expr idx for "v has a conducting path to GND", or -1 if none. _irAbort set if budget blown.
+        private static int PullDownCond(int v)
+        {
+            if (_irAbort) return -1;
+            if (--_irBudget < 0) { _irAbort = true; return -1; }
+            ref NodeInfo ns = ref NodeInfos[v];
+            int orRoot = -1;
+
+            if (ns.TlistC1gnd != 0)   // direct channels to GND: transistor g conducting => path to GND
+            {
+                int* p = TransistorList + ns.TlistC1gnd;
+                while (*p != 0) { int g = *p++; orRoot = Or2(orRoot, AddIr(ExprOp.NodeRef, g)); }
+            }
+            if (ns.TlistC1c2s != 0)   // pass channels to internal nodes: g AND (mid reaches GND)
+            {
+                int* p = TransistorList + ns.TlistC1c2s;
+                while (*p != 0)
+                {
+                    int g = *p++;
+                    int mid = *p++;
+                    if (_irVisited.Contains(mid)) continue;                                  // simple paths only (cycle guard)
+                    if ((uint)mid >= (uint)NodeCount || (NodeInfos[mid].Flags & NodeFlags.PullUp) != 0) continue;  // driven => bus edge, skip
+                    _irVisited.Add(mid);
+                    int sub = PullDownCond(mid);
+                    _irVisited.Remove(mid);
+                    if (_irAbort) return -1;
+                    if (sub >= 0) orRoot = Or2(orRoot, AddIr(ExprOp.And, AddIr(ExprOp.NodeRef, g), sub));
+                }
+            }
+            return orRoot;
+        }
+
+        /// <summary>P2.2 it.2: extract Expr for every combinational node (pure-logic + COMB_PASS-stack)
+        /// as NOT(PullDownCond). Gate-only singleton + pull-up + all-pass-internal. Verified by --verify-ir;
+        /// nodes whose stack model disagrees with S1 are reported (future: auto-hybrid).</summary>
+        internal static void BuildCombinationalIr()
+        {
+            _ir = new List<IrNode>(1 << 18);
+            IrRoot = new int[NodeCount];
+            Array.Fill(IrRoot, -1);
+            _irConst1 = AddIr(ExprOp.Const1, 0);
+
+            int n = NodeCount;
+            int[] comp = TarjanScc(BuildDepAdj(n, includeChannel: false), n, out int cc);   // gate-only: singleton = combinational
+            int[] size = new int[cc];
+            for (int i = 0; i < n; i++) if (comp[i] >= 0) size[comp[i]]++;
+
+            int nLogic = 0, nStack = 0, nComplex = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                if (!(comp[nn] >= 0 && size[comp[nn]] == 1)) continue;          // combinational (no gate-only feedback)
+                ref NodeInfo ns = ref NodeInfos[nn];
+                if ((ns.Flags & NodeFlags.PullUp) == 0) continue;              // pull-up default = 1
+                if (!AllPassInternal(nn)) continue;                            // bus nodes deferred (drive-direction later)
+
+                bool hasPass = ns.TlistC1c2s != 0;
+                _irVisited.Clear(); _irVisited.Add(nn);
+                _irBudget = 400; _irAbort = false;
+                int cond = PullDownCond(nn);
+                if (_irAbort) { nComplex++; continue; }                        // too big => leave hybrid (IrRoot=-1)
+                IrRoot[nn] = cond < 0 ? _irConst1 : AddIr(ExprOp.Not, cond);
+                if (hasPass) nStack++; else nLogic++;
+            }
+            IrExtractedCount = nLogic + nStack;
+            LastIrStats = $"IR (P2.2 it.2): {IrExtractedCount:N0} combinational extracted ({nLogic:N0} logic + {nStack:N0} stack), {nComplex:N0} too-complex->hybrid, pool {_ir.Count:N0}";
+        }
+
         /// <summary>Evaluate an expr (reads current settled NodeStates for NodeRef leaves).</summary>
         internal static byte EvalExpr(int idx)
         {
@@ -108,7 +199,7 @@ namespace AprVisual.Sim
 
         /// <summary>Check every extracted node's Expr against the current (settled) NodeStates.
         /// Returns (#checks, #mismatches). For the pure-logic subset this must be 0 mismatches.</summary>
-        internal static (long checks, long mism) VerifyIrOnce()
+        internal static (long checks, long mism) VerifyIrOnce(int[]? badPerNode = null)
         {
             long c = 0, m = 0;
             if (IrRoot == null) return (0, 0);
@@ -117,7 +208,7 @@ namespace AprVisual.Sim
                 int r = IrRoot[nn];
                 if (r < 0) continue;
                 c++;
-                if (EvalExpr(r) != NodeStates[nn]) m++;
+                if (EvalExpr(r) != NodeStates[nn]) { m++; if (badPerNode != null) badPerNode[nn]++; }
             }
             return (c, m);
         }

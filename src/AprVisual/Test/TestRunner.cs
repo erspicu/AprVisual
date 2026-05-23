@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using AprVisual.Rom;
 using AprVisual.Sim;
@@ -34,7 +35,8 @@ namespace AprVisual.Test
             int shotFrames = 3;
             int benchHcCount = 0;
             string region = "ntsc";
-            bool benchmark = false, dumpSystem = false, dumpLevels = false;
+            bool benchmark = false, dumpSystem = false, dumpLevels = false, aluBench = false;
+            int aluBenchN = 1_000_000;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -59,6 +61,7 @@ namespace AprVisual.Test
                     case "--dump-states":     if (i + 1 < args.Length) dumpStatesPath = args[++i]; break;  // Phase 2 debug: step N hc, dump high-node ids (diff S1 vs --ir-interp to find divergence)
                     case "--dump-block":      if (i + 1 < args.Length) dumpBlockOutputs = args[++i]; break;  // Phase 2.5 codegen: reverse-closure a block from output names (Gemini r1 macro-block prep)
                     case "--block-stop":      if (i + 1 < args.Length) dumpBlockStops = args[++i]; break;
+                    case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -96,6 +99,7 @@ namespace AprVisual.Test
             if (verifyIrPath != null) return VerifyIr(verifyIrPath, benchHcCount);
             if (dumpStatesPath != null) return DumpStates(dumpStatesPath, benchHcCount);
             if (dumpBlockOutputs != null) return DumpBlock(dumpBlockOutputs, dumpBlockStops);
+            if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -261,6 +265,103 @@ namespace AprVisual.Test
                 return totalMism == 0 ? 0 : 1;
             }
             finally { WireCore.Shutdown(); }
+        }
+
+        // ── Phase 2.5 codegen #46: P/Invoke benchmark of the hand-coded ALU in AluBlock.dll.
+        //    Pure native-side measurement (no S1 comparison yet — that's #47 and harder, requires
+        //    driving ALU inputs deterministically against the rest of the chip). Goal: confirm the
+        //    native ALU is fast enough that it's worth pursuing the codegen path. If native > 50 ns/call,
+        //    something's wrong; if native < 5 ns/call, codegen ROI is plausible. ──
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct AluCtx
+        {
+            public byte alua, alub, cin, op_sums, op_and, op_or, op_eor, _pad;
+            public byte alu, cout;
+        }
+
+        [DllImport("AluBlock.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern unsafe void Eval_Alu(AluCtx* c);
+
+        [DllImport("AluBlock.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern unsafe void Eval_AluN(AluCtx* arr, int n);
+
+        private static int AluBench(int n)
+        {
+            if (n < 1000) n = 1000;
+            Console.WriteLine($"# AluBlock.dll native bench (n = {n:N0} calls)");
+
+            // Generate random vectors covering all 4 op codes
+            var rng = new Random(12345);
+            var ctxs = new AluCtx[n];
+            var op = new byte[n];
+            for (int i = 0; i < n; i++)
+            {
+                op[i] = (byte)rng.Next(4);
+                ctxs[i] = new AluCtx
+                {
+                    alua    = (byte)rng.Next(256),
+                    alub    = (byte)rng.Next(256),
+                    cin     = (byte)rng.Next(2),
+                    op_sums = (byte)(op[i] == 0 ? 1 : 0),
+                    op_and  = (byte)(op[i] == 1 ? 1 : 0),
+                    op_or   = (byte)(op[i] == 2 ? 1 : 0),
+                    op_eor  = (byte)(op[i] == 3 ? 1 : 0),
+                };
+            }
+
+            // Warmup (JIT + I-cache prime)
+            unsafe { fixed (AluCtx* p = ctxs) { Eval_AluN(p, Math.Min(n, 10_000)); } }
+
+            // Bulk bench — single P/Invoke crossing, N evaluations inside native
+            var swBulk = System.Diagnostics.Stopwatch.StartNew();
+            unsafe { fixed (AluCtx* p = ctxs) { Eval_AluN(p, n); } }
+            swBulk.Stop();
+            double bulkNs = swBulk.Elapsed.TotalNanoseconds / n;
+
+            // Per-call bench — one P/Invoke crossing per evaluation (realistic if dispatcher calls
+            // one block at a time; this is the upper-bound for the codegen path's per-block cost)
+            var swPer = System.Diagnostics.Stopwatch.StartNew();
+            unsafe { fixed (AluCtx* p = ctxs) { for (int i = 0; i < n; i++) Eval_Alu(p + i); } }
+            swPer.Stop();
+            double perNs = swPer.Elapsed.TotalNanoseconds / n;
+
+            // Correctness on a sample (compare against hand-computed)
+            int checks = Math.Min(n, 2000);
+            int errs = 0;
+            for (int i = 0; i < checks; i++)
+            {
+                var c = ctxs[i];
+                byte expected = op[i] switch
+                {
+                    0 => (byte)((c.alua + c.alub + c.cin) & 0xFF),
+                    1 => (byte)(c.alua & c.alub),
+                    2 => (byte)(c.alua | c.alub),
+                    3 => (byte)(c.alua ^ c.alub),
+                    _ => (byte)0,
+                };
+                byte expectedCout = op[i] == 0 ? (byte)(((c.alua + c.alub + c.cin) >> 8) & 1) : (byte)0;
+                if (c.alu != expected || c.cout != expectedCout) errs++;
+            }
+
+            // S1 baseline: from the latest tight measurement, baseline ~41.8 k hc/s with D ≈ 610
+            // recalc/hc → ~39.2 ns/recalc on this machine. The ALU's internal closure is 133 nodes
+            // and 477 transistors (--dump-block); a hypothetical fraction of D spent on those nodes
+            // gives the codegen savings ceiling.
+            const double s1NsPerRecalc = 39.2;
+
+            Console.WriteLine($"# bulk Eval_AluN  : {swBulk.Elapsed.TotalMilliseconds:F2} ms total, {bulkNs:F2} ns/call ({1e9/bulkNs:N0} ops/sec)");
+            Console.WriteLine($"# per-call Eval_Alu: {swPer.Elapsed.TotalMilliseconds:F2} ms total, {perNs:F2} ns/call ({1e9/perNs:N0} ops/sec)");
+            Console.WriteLine($"# (P/Invoke crossing overhead per call = ~{(perNs - bulkNs):F2} ns)");
+            Console.WriteLine($"# correctness     : {checks - errs}/{checks} match (alu + cout against hand-computed)");
+            Console.WriteLine($"# ");
+            Console.WriteLine($"# S1 baseline reference: ~{s1NsPerRecalc:F1} ns / recalc (from latest tight measurement)");
+            Console.WriteLine($"# native bulk speedup : {s1NsPerRecalc/bulkNs:F1}x  (vs S1 recalc cost — bulk path, what a codegen'd block would approach)");
+            Console.WriteLine($"# native per-call    : {s1NsPerRecalc/perNs:F1}x   (vs S1 recalc cost — per-call path, with P/Invoke overhead)");
+            Console.WriteLine($"# ");
+            if (bulkNs < 5)        Console.WriteLine($"# verdict: native ALU is FAST ENOUGH — codegen path is worth pursuing (per Gemini >3x threshold)");
+            else if (bulkNs < 20)  Console.WriteLine($"# verdict: native ALU is OK but the per-block speedup is moderate — pursue carefully");
+            else                   Console.WriteLine($"# verdict: native ALU is slow ({bulkNs:F1} ns/call); something's off with the compile or measurement");
+            return errs == 0 ? 0 : 1;
         }
 
         // ── Phase 2.5 codegen prep: reverse-closure a "macro-block" from output node names. Walks the

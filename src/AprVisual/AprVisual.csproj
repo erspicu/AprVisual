@@ -27,4 +27,14 @@
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>
 
+  <!-- P2.5 codegen black-box experiment: hand-coded native ALU DLL for P/Invoke benchmarking
+       against S1. Build with clang -O3 -shared Native/AluBlock.cpp -o Native/AluBlock.dll.
+       Copied next to AprVisual.exe so [DllImport("AluBlock.dll")] resolves naturally. -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)Native\AluBlock.dll">
+      <Link>AluBlock.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

@@ -37,4 +37,9 @@
     </Content>
   </ItemGroup>
 
+  <!-- aot-codegen Phase D-2: Roslyn for runtime compile of the master AOT .cs file -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+  </ItemGroup>
+
 </Project>

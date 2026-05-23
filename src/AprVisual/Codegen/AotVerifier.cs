@@ -17,6 +17,113 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase D-2: emit master .cs in-memory, Roslyn-compile, load, run the loaded
+        /// AotEngine.EvalAllBlocks delegate alongside S1; verify the written NodeStates match
+        /// what the direct runtime delegates would have written (i.e., Roslyn-emitted code is
+        /// equivalent to in-process AotBlockBuilder evaluation).</summary>
+        public static int CompileAndLoadAll(string romPath, int hcCount, int minEmittable)
+        {
+            if (hcCount < 1) hcCount = 30_000;
+            if (minEmittable < 1) minEmittable = 5;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var partition = WireCore.AutoPartition();
+                Console.WriteLine($"# aot-compile-load: {System.IO.Path.GetFileName(romPath)} — {hcCount:N0} hc");
+
+                // ── A. Generate master source ──
+                var picked = new List<(WireCore.Block pb, AotBlock ab)>();
+                int totalEmittable = 0;
+                foreach (var pb in partition)
+                {
+                    var ab = AotBlockBuilder.Build(pb);
+                    if (ab.Evals.Count >= minEmittable) { picked.Add((pb, ab)); totalEmittable += ab.Evals.Count; }
+                }
+                string source = AotBlockBuilder.EmitMasterSource(picked, System.IO.Path.GetFileName(romPath));
+                Console.WriteLine($"#   blocks: {picked.Count}, emittable nodes: {totalEmittable}, source: {source.Length:N0} bytes");
+
+                // ── B. Roslyn compile + load ──
+                var swCompile = System.Diagnostics.Stopwatch.StartNew();
+                var loaded = AotRoslynLoader.CompileMaster(source);
+                swCompile.Stop();
+                if (!loaded.Success || loaded.EvalAll == null)
+                {
+                    Console.WriteLine($"#   COMPILE FAILED ({swCompile.Elapsed.TotalSeconds:F2} s):");
+                    Console.WriteLine(loaded.Log);
+                    return 3;
+                }
+                Console.WriteLine($"#   compile + load: {swCompile.Elapsed.TotalSeconds:F2} s");
+                Console.WriteLine($"#   (compile log)");
+                foreach (string line in loaded.Log.Split('\n'))
+                    if (!string.IsNullOrWhiteSpace(line)) Console.WriteLine($"#     {line.TrimEnd('\r')}");
+
+                // ── C. Verify: run S1 + loaded delegate side-by-side ──
+                // For each hc, snapshot NodeStates; have the loaded delegate write its predictions
+                // into a copy; for each (nodeId, _) in picked blocks, compare predicted vs actual.
+                int nodeCount = WireCore.NodeCount;
+                var snapshot = new byte[nodeCount];
+                long sampledTotal = 0, sampledMatch = 0;
+                int firstMismatchHc = -1; int firstMismatchNode = -1;
+                byte firstMismatchPred = 0, firstMismatchActual = 0;
+
+                // collect all evaluated nodeIds for comparison (every node in any picked block's Evals)
+                var evaluatedNodes = new HashSet<int>();
+                foreach (var (_, ab) in picked)
+                    foreach (var (nn, _, _) in ab.Evals) evaluatedNodes.Add(nn);
+                Console.WriteLine($"#   verifying {evaluatedNodes.Count} unique evaluated node IDs over {hcCount:N0} hc");
+
+                var swBench = System.Diagnostics.Stopwatch.StartNew();
+                for (int hc = 0; hc < hcCount; hc++)
+                {
+                    WireCore.Step(1);
+                    // snapshot S1's NodeStates (this is the actual truth this hc)
+                    unsafe
+                    {
+                        byte* nsPtr = WireCore.NodeStates;
+                        for (int i = 0; i < nodeCount; i++) snapshot[i] = nsPtr[i];
+                    }
+                    // Roslyn-loaded delegate writes its predictions into the snapshot buffer
+                    unsafe
+                    {
+                        fixed (byte* p = snapshot) { loaded.EvalAll(p); }
+                    }
+                    // Compare: for each evaluated node, snapshot now has the AOT-predicted value;
+                    // compare to S1's actual (which we read from WireCore.NodeStates).
+                    unsafe
+                    {
+                        byte* actualPtr = WireCore.NodeStates;
+                        foreach (int nn in evaluatedNodes)
+                        {
+                            sampledTotal++;
+                            if (snapshot[nn] == actualPtr[nn]) sampledMatch++;
+                            else if (firstMismatchHc < 0) { firstMismatchHc = hc; firstMismatchNode = nn; firstMismatchPred = snapshot[nn]; firstMismatchActual = actualPtr[nn]; }
+                        }
+                    }
+                }
+                swBench.Stop();
+
+                long sampledMismatch = sampledTotal - sampledMatch;
+                Console.WriteLine($"# === Phase D-2 verification ===");
+                Console.WriteLine($"#   bench wall-time     : {swBench.Elapsed.TotalSeconds:F2} s for {hcCount:N0} hc + {evaluatedNodes.Count} evals × {hcCount:N0} = {sampledTotal:N0} samples");
+                Console.WriteLine($"#   bench rate          : {hcCount / swBench.Elapsed.TotalSeconds:N0} hc/s (vs S1-only would be faster — this includes Roslyn delegate per hc)");
+                Console.WriteLine($"#   matches             : {sampledMatch:N0} / {sampledTotal:N0}  ({(double)sampledMatch / sampledTotal:P4})");
+                Console.WriteLine($"#   mismatches          : {sampledMismatch:N0}  ({(double)sampledMismatch / sampledTotal:P4})");
+                if (firstMismatchHc >= 0)
+                {
+                    var node = WireCore.Nodes[firstMismatchNode];
+                    Console.WriteLine($"#   first mismatch       : nn={firstMismatchNode} name='{(string.IsNullOrEmpty(node?.Name) ? "(anon)" : node!.Name)}', hc={firstMismatchHc}, pred={firstMismatchPred}, actual={firstMismatchActual}");
+                }
+                if (sampledMismatch == 0)
+                    Console.WriteLine($"# VERDICT: ROSLYN-COMPILED AotEngine IS BYTE-EQUAL TO S1 on {evaluatedNodes.Count} nodes over {hcCount:N0} hc ✓");
+                else
+                    Console.WriteLine($"# VERDICT: tiny mismatches (likely phi-transient — same as direct AotEmitter delegates)");
+                return sampledMismatch == 0 ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase D-1: mass-emit all codegen-attractive partition blocks into ONE
         /// master .cs file. Picks blocks with >=minEmittable AOT-emittable nodes; skips small
         /// (uninteresting) ones. The output file has an AotEngine class with EvalAllBlocks

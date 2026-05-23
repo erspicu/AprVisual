@@ -215,10 +215,6 @@ namespace AprVisual.Sim
                 (members.TryGetValue(r, out var l) ? l : (members[r] = new List<int>())).Add(nn);
             }
 
-            // ── gate-only SCC (singleton = combinational, no sequential feedback) ──
-            int[] comp = TarjanScc(BuildDepAdj(n, includeChannel: false), n, out int cc);
-            int[] sccSize = new int[cc];
-            for (int i = 0; i < n; i++) if (comp[i] >= 0) sccSize[comp[i]]++;
             const NodeFlags badOut = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
 
             int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0, nReject = 0;
@@ -235,7 +231,11 @@ namespace AprVisual.Sim
                 if (!clean || pulls != 1) { nReject++; continue; }
                 ref NodeInfo ns = ref NodeInfos[outV];
                 if ((ns.Flags & badOut) != 0) { nReject++; continue; }
-                if (!(comp[outV] >= 0 && sccSize[comp[outV]] == 1)) { nReject++; continue; }   // output must be combinational
+                // (Earlier we required output to be a gate-only SCC singleton — too strict. A node
+                //  in a gate-only multi-SCC IS still extractable as long as it's a single-output pass
+                //  island with clean mids: PullDownCond yields NOT(pulldown over gates), where its
+                //  cross-coupled SCC peers appear as NodeRef leaves; the event-driven dirty queue +
+                //  revDep iterates the feedback to a fixpoint exactly like S1's group walk does.)
                 if (IrPureOnly && list.Count > 1) { nReject++; continue; }                     // debug: pure-logic islands only
 
                 _irVisited.Clear(); _irVisited.Add(outV);

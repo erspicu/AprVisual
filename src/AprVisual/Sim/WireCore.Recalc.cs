@@ -131,7 +131,10 @@ namespace AprVisual.Sim
             // from extraction, so any IR node here has none.
             if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0)
             {
-                SetNodeState(nn, EvalExpr(IrRoot[nn]));
+                // Gemini r1 Strategy A: LUT lookup (O(1), branch-free) for K<=MaxLutInputs; fall back to
+                // EvalExpr on the unmanaged flat pool for the few K>MaxLutInputs nodes.
+                byte v = (IrUseLut != null && IrUseLut[nn] != 0) ? EvalLut(nn) : EvalExpr(IrRoot[nn]);
+                SetNodeState(nn, v);
                 return;
             }
             // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.

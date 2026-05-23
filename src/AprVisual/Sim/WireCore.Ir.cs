@@ -35,9 +35,24 @@ namespace AprVisual.Sim
             public int C;   // Mux: else-child
         }
 
-        private static List<IrNode>? _ir;     // expr pool (managed; verification representation)
+        private static List<IrNode>? _ir;     // expr pool (build-time; freed after flatten)
+        internal static IrNode* _irFlat;      // expr pool (unmanaged; no bounds check; used by EvalExpr/CollectRefs after build)
+        internal static int _irFlatCount;
         internal static int[]? IrRoot;        // per node: root expr index, or -1 if not extracted
         internal static byte* IrAbsorbed;     // 1 = a pull-down mid folded into an IR island's Expr -> inert (P2.3 option B)
+
+        // ── Strategy A (LUT) — runtime truth-table eval per IR root (Gemini r1, Phase 2 P2.4). For each
+        //    extracted node with K<=MaxLutInputs distinct input refs, build at build-time the byte[2^K]
+        //    truth table by evaluating the Expr 2^K times with overridden NodeStates. Runtime eval = K
+        //    NodeStates reads + a shift-or to pack the mask + ONE byte read from the table. O(1),
+        //    branch-free, no managed access, no recursion. Replaces the costly recursive EvalExpr for
+        //    the common case (K<=8 covers ~all NMOS gates and small stacks).
+        internal const int MaxLutInputs = 10;       // 2^10 = 1024 bytes per table — generous; most gates are K<=6
+        internal static byte* IrUseLut;             // 1 = LUT'd at this node; 0 = fall back to EvalExpr
+        internal static int* IrLutInputStart;       // CSR offsets into IrLutInputs (size NodeCount+1)
+        internal static int* IrLutInputs;           // flat array: input node ids per LUT'd node
+        internal static int* IrLutTableStart;       // CSR offsets into IrLutTables (size NodeCount+1)
+        internal static byte* IrLutTables;          // flat array: byte truth tables, 2^K bytes per LUT'd node
         public static int IrExtractedCount;
         public static string LastIrStats = "(IR not built)";
         private static int _irConst1;
@@ -223,6 +238,11 @@ namespace AprVisual.Sim
             }
             IrExtractedCount = nLogic + nStack;
             LastIrStats = $"IR (P2.3 island): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node islands), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nReject:N0} islands rejected->hybrid, pool {_ir.Count:N0}";
+
+            // Strategy A (Gemini r1): flatten managed pool to unmanaged, build per-node LUTs, drop managed _ir.
+            FlattenIrPool();
+            BuildIrLuts();
+            FreeManagedIrPool();
         }
 
         // ── P2.3: event-driven IR interpreter. Keeps S1's dirty-queue/double-buffer; only RecalcNode
@@ -252,7 +272,7 @@ namespace AprVisual.Sim
 
         private static void CollectRefs(int idx, HashSet<int> into)
         {
-            IrNode e = _ir![idx];
+            IrNode e = _irFlat != null ? _irFlat[idx] : _ir![idx];   // _irFlat after flatten; _ir during build
             switch (e.Op)
             {
                 case ExprOp.NodeRef: case ExprOp.Hold: into.Add(e.A); break;
@@ -325,10 +345,14 @@ namespace AprVisual.Sim
         /// <summary>Debug: "IR" if the node has an extracted Expr, else "hy" (hybrid/switch-level).</summary>
         internal static string IrClassOf(int nn) => (IrRoot != null && (uint)nn < (uint)NodeCount && IrRoot[nn] >= 0) ? "IR" : "hy";
 
-        /// <summary>Evaluate an expr (reads current settled NodeStates for NodeRef leaves).</summary>
+        /// <summary>Evaluate an expr against current NodeStates. Used (a) at build-time during LUT
+        /// generation (managed _ir, fallback) and (b) at runtime ONLY for K>MaxLutInputs nodes
+        /// (unmanaged _irFlat — no bounds check). The vast majority of nodes are LUT'd and never call
+        /// this at runtime.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
         internal static byte EvalExpr(int idx)
         {
-            IrNode e = _ir![idx];
+            IrNode e = _irFlat != null ? _irFlat[idx] : _ir![idx];
             switch (e.Op)
             {
                 case ExprOp.Const0: return 0;
@@ -342,6 +366,94 @@ namespace AprVisual.Sim
                 default: return 0;
             }
         }
+
+        /// <summary>Runtime LUT eval — O(1), branch-free, no recursion, no managed access. Read K input
+        /// NodeStates, pack into a K-bit mask, return IrLutTables[lutStart + mask].</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static byte EvalLut(int nn)
+        {
+            int s = IrLutInputStart[nn], e = IrLutInputStart[nn + 1];
+            int mask = 0;
+            int* inputs = IrLutInputs + s;
+            int K = e - s;
+            for (int i = 0; i < K; i++) mask |= NodeStates[inputs[i]] << i;
+            return IrLutTables[IrLutTableStart[nn] + mask];
+        }
+
+        /// <summary>Build a byte[2^K] truth table for each IR root with K<=MaxLutInputs. Build-time only.
+        /// Temporarily overrides the input NodeStates, evaluates the Expr 2^K times, restores. K=0 (a
+        /// Const root) is also LUT'd (table[0] = the constant). Skipped for K>MaxLutInputs; those use
+        /// EvalExpr fallback (still on the unmanaged flat pool — no managed access).</summary>
+        private static void BuildIrLuts()
+        {
+            int n = NodeCount;
+            IrUseLut = AllocArray<byte>(n);
+            IrLutInputStart = AllocArray<int>(n + 1);
+            IrLutTableStart = AllocArray<int>(n + 1);
+
+            // 1st pass: collect refs per IR node, count totals
+            var perNodeRefs = new int[n][];
+            long totalInputs = 0, totalTables = 0;
+            int nLut = 0, nFallback = 0;
+            var tmp = new HashSet<int>();
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (IrRoot == null || IrRoot[nn] < 0) continue;
+                tmp.Clear();
+                CollectRefs(IrRoot[nn], tmp);
+                if (tmp.Count > MaxLutInputs) { nFallback++; continue; }   // too many inputs -> fall back to EvalExpr
+                var arr = new int[tmp.Count];
+                tmp.CopyTo(arr);
+                Array.Sort(arr);   // deterministic mask-bit order
+                perNodeRefs[nn] = arr;
+                totalInputs += arr.Length;
+                totalTables += 1L << arr.Length;
+                nLut++;
+            }
+            IrLutInputs = AllocArray<int>((int)Math.Max(totalInputs, 1));
+            IrLutTables = AllocArray<byte>((int)Math.Max(totalTables, 1));
+
+            // 2nd pass: fill CSR + enumerate 2^K combos
+            int pi = 0, pt = 0;
+            Span<byte> saved = stackalloc byte[MaxLutInputs];
+            for (int nn = 0; nn < n; nn++)
+            {
+                IrLutInputStart[nn] = pi;
+                IrLutTableStart[nn] = pt;
+                var refs = perNodeRefs[nn];
+                if (refs == null) continue;
+                int K = refs.Length;
+                for (int i = 0; i < K; i++) saved[i] = NodeStates[refs[i]];
+                int combos = 1 << K;
+                int root = IrRoot![nn];
+                for (int c = 0; c < combos; c++)
+                {
+                    for (int i = 0; i < K; i++) NodeStates[refs[i]] = (byte)((c >> i) & 1);
+                    IrLutTables[pt + c] = EvalExpr(root);
+                }
+                for (int i = 0; i < K; i++) NodeStates[refs[i]] = saved[i];
+                for (int i = 0; i < K; i++) IrLutInputs[pi + i] = refs[i];
+                pi += K;
+                pt += combos;
+                IrUseLut[nn] = 1;
+            }
+            IrLutInputStart[n] = pi;
+            IrLutTableStart[n] = pt;
+            LastIrStats += $"; LUT: {nLut:N0} tables ({totalInputs:N0} input slots, {totalTables:N0} table bytes), {nFallback:N0} K>{MaxLutInputs} fall back to EvalExpr";
+        }
+
+        /// <summary>Copy the managed _ir into an unmanaged contiguous IrNode* pool (no bounds checks).
+        /// _ir remains alive until FreeManagedIrPool — used during LUT generation's EvalExpr.</summary>
+        private static void FlattenIrPool()
+        {
+            if (_ir == null) return;
+            _irFlatCount = _ir.Count;
+            _irFlat = AllocArray<IrNode>(_irFlatCount);
+            for (int i = 0; i < _irFlatCount; i++) _irFlat[i] = _ir[i];
+        }
+
+        private static void FreeManagedIrPool() => _ir = null;
+
 
         /// <summary>Check every extracted node's Expr against the current (settled) NodeStates.
         /// Returns (#checks, #mismatches). For the pure-logic subset this must be 0 mismatches.</summary>

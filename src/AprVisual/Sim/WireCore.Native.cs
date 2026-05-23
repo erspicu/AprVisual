@@ -59,6 +59,12 @@ namespace AprVisual.Sim
             _revDepStart = null;  // Phase 2 P2.3 (re-built by BuildRevDep when --ir-interp)
             _revDepList = null;
             IrAbsorbed = null;    // Phase 2 P2.3 option B (re-built by BuildCombinationalIr)
+            _irFlat = null;       // Gemini r1: unmanaged flat Expr pool
+            IrUseLut = null;
+            IrLutInputStart = null;
+            IrLutInputs = null;
+            IrLutTableStart = null;
+            IrLutTables = null;
             FrameBuffer = null;
         }
     }

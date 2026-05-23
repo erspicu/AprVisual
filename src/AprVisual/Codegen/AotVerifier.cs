@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AprVisual.Sim;
 using AprVisual.Rom;
 
@@ -15,6 +16,66 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase C coverage scanner: load netlist, scan all nodes through AotEmitter,
+        /// print pattern histogram + sample of supported vs unsupported nodes. Drives Phase C
+        /// pattern-priority decisions.</summary>
+        public static int RunCoverageScan(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                Console.WriteLine($"# aot-coverage scan over {WireCore.NodeCount:N0} live nodes");
+                var histo = AotEmitter.ScanCoverage();
+                int total = 0; foreach (var kv in histo) total += kv.Value;
+                int supported = 0;
+                foreach (var kv in histo) if (!kv.Key.StartsWith("unsupported(")) supported += kv.Value;
+                // Sort by count descending
+                var ordered = new List<KeyValuePair<string, int>>(histo);
+                ordered.Sort((a, b) => b.Value.CompareTo(a.Value));
+                Console.WriteLine($"# total scanned: {total:N0}");
+                Console.WriteLine($"# supported    : {supported:N0}  ({(double)supported / total:P1})");
+                Console.WriteLine($"# unsupported  : {total - supported:N0}  ({(double)(total - supported) / total:P1})");
+                Console.WriteLine($"# pattern histogram (desc by count):");
+                foreach (var kv in ordered)
+                {
+                    string flag = kv.Key.StartsWith("unsupported(") ? "  " : "✓ ";
+                    Console.WriteLine($"#   {flag}{kv.Key,-40} : {kv.Value,6:N0}  ({(double)kv.Value / total:P2})");
+                }
+
+                // Sample 8 nodes from each top unsupported bucket so we can investigate the topology
+                Console.WriteLine($"#");
+                Console.WriteLine($"# === SAMPLES from top-3 unsupported buckets (8 each) ===");
+                int bucketsShown = 0;
+                foreach (var kv in ordered)
+                {
+                    if (!kv.Key.StartsWith("unsupported(")) continue;
+                    Console.WriteLine($"# pattern '{kv.Key}' ({kv.Value:N0} nodes):");
+                    int shown = 0;
+                    for (int nn = 0; nn < WireCore.NodeCount && shown < 8; nn++)
+                    {
+                        if (nn == WireCore.Npwr || nn == WireCore.Ngnd) continue;
+                        var n = WireCore.Nodes[nn]; if (n == null) continue;
+                        var er = AotEmitter.EmitForNode(nn);
+                        string keyBucket = er.Pattern;
+                        if (keyBucket.StartsWith("unsupported("))
+                        {
+                            int colon = keyBucket.IndexOf(',');
+                            if (colon > 0) keyBucket = keyBucket.Substring(0, colon) + ",...)";
+                        }
+                        if (keyBucket != kv.Key) continue;
+                        Console.WriteLine($"#   nn={nn,5} name='{(string.IsNullOrEmpty(n.Name) ? "(anon)" : n.Name)}', pullups={n.Pullups}, c1c2s={n.C1c2s.Count}, gates={n.Gates.Count}, full-pattern='{er.Pattern}'");
+                        shown++;
+                    }
+                    bucketsShown++;
+                    if (bucketsShown >= 3) break;
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Auto-emit AOT code for ir0..7 + notir0..7 via AotEmitter, then verify the
         /// emitter's output matches S1 for hcCount half-cycles. This is the Phase B milestone:
         /// "emitter-generated code = hand-coded code = S1 truth".</summary>

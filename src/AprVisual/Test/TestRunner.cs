@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using AprVisual.Native;
 using AprVisual.Rom;
 using AprVisual.Sim;
 
@@ -270,64 +271,49 @@ namespace AprVisual.Test
         }
 
         // ── Phase 2.5 codegen #46: P/Invoke benchmark of the hand-coded ALU in AluBlock.dll.
-        //    Pure native-side measurement (no S1 comparison yet — that's #47 and harder, requires
-        //    driving ALU inputs deterministically against the rest of the chip). Goal: confirm the
-        //    native ALU is fast enough that it's worth pursuing the codegen path. If native > 50 ns/call,
-        //    something's wrong; if native < 5 ns/call, codegen ROI is plausible. ──
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct AluCtx
-        {
-            public byte alua, alub, cin, op_sums, op_and, op_or, op_eor, _pad;
-            public byte alu, cout;
-        }
-
-        [DllImport("AluBlock.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern unsafe void Eval_Alu(AluCtx* c);
-
-        [DllImport("AluBlock.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern unsafe void Eval_AluN(AluCtx* arr, int n);
-
+        //    Step 2.5: 5-op AluCtx (SUMS/ANDS/ORS/EORS/SRS — the real 6502 PLA selectors); shared
+        //    bindings now in AprVisual.Native.AluBlockBindings. ──
         private static int AluBench(int n)
         {
             if (n < 1000) n = 1000;
             Console.WriteLine($"# AluBlock.dll native bench (n = {n:N0} calls)");
 
-            // Generate random vectors covering all 4 op codes
+            // Generate random vectors covering all 5 op codes (SUMS/ANDS/ORS/EORS/SRS).
             var rng = new Random(12345);
-            var ctxs = new AluCtx[n];
+            var ctxs = new AluBlockBindings.AluCtx[n];
             var op = new byte[n];
             for (int i = 0; i < n; i++)
             {
-                op[i] = (byte)rng.Next(4);
-                ctxs[i] = new AluCtx
+                op[i] = (byte)rng.Next(5);
+                ctxs[i] = new AluBlockBindings.AluCtx
                 {
                     alua    = (byte)rng.Next(256),
                     alub    = (byte)rng.Next(256),
                     cin     = (byte)rng.Next(2),
                     op_sums = (byte)(op[i] == 0 ? 1 : 0),
-                    op_and  = (byte)(op[i] == 1 ? 1 : 0),
-                    op_or   = (byte)(op[i] == 2 ? 1 : 0),
-                    op_eor  = (byte)(op[i] == 3 ? 1 : 0),
+                    op_ands = (byte)(op[i] == 1 ? 1 : 0),
+                    op_ors  = (byte)(op[i] == 2 ? 1 : 0),
+                    op_eors = (byte)(op[i] == 3 ? 1 : 0),
+                    op_srs  = (byte)(op[i] == 4 ? 1 : 0),
                 };
             }
 
             // Warmup (JIT + I-cache prime)
-            unsafe { fixed (AluCtx* p = ctxs) { Eval_AluN(p, Math.Min(n, 10_000)); } }
+            unsafe { fixed (AluBlockBindings.AluCtx* p = ctxs) { AluBlockBindings.Eval_AluN(p, Math.Min(n, 10_000)); } }
 
             // Bulk bench — single P/Invoke crossing, N evaluations inside native
             var swBulk = System.Diagnostics.Stopwatch.StartNew();
-            unsafe { fixed (AluCtx* p = ctxs) { Eval_AluN(p, n); } }
+            unsafe { fixed (AluBlockBindings.AluCtx* p = ctxs) { AluBlockBindings.Eval_AluN(p, n); } }
             swBulk.Stop();
             double bulkNs = swBulk.Elapsed.TotalNanoseconds / n;
 
-            // Per-call bench — one P/Invoke crossing per evaluation (realistic if dispatcher calls
-            // one block at a time; this is the upper-bound for the codegen path's per-block cost)
+            // Per-call bench — one P/Invoke crossing per evaluation
             var swPer = System.Diagnostics.Stopwatch.StartNew();
-            unsafe { fixed (AluCtx* p = ctxs) { for (int i = 0; i < n; i++) Eval_Alu(p + i); } }
+            unsafe { fixed (AluBlockBindings.AluCtx* p = ctxs) { for (int i = 0; i < n; i++) AluBlockBindings.Eval_Alu(p + i); } }
             swPer.Stop();
             double perNs = swPer.Elapsed.TotalNanoseconds / n;
 
-            // Correctness on a sample (compare against hand-computed)
+            // Correctness on a sample (compare against hand-computed for all 5 ops)
             int checks = Math.Min(n, 2000);
             int errs = 0;
             for (int i = 0; i < checks; i++)
@@ -335,13 +321,19 @@ namespace AprVisual.Test
                 var c = ctxs[i];
                 byte expected = op[i] switch
                 {
-                    0 => (byte)((c.alua + c.alub + c.cin) & 0xFF),
-                    1 => (byte)(c.alua & c.alub),
-                    2 => (byte)(c.alua | c.alub),
-                    3 => (byte)(c.alua ^ c.alub),
+                    0 => (byte)((c.alua + c.alub + c.cin) & 0xFF),                  // SUMS
+                    1 => (byte)(c.alua & c.alub),                                   // ANDS
+                    2 => (byte)(c.alua | c.alub),                                   // ORS
+                    3 => (byte)(c.alua ^ c.alub),                                   // EORS
+                    4 => (byte)((c.alua >> 1) | (c.cin << 7)),                      // SRS
                     _ => (byte)0,
                 };
-                byte expectedCout = op[i] == 0 ? (byte)(((c.alua + c.alub + c.cin) >> 8) & 1) : (byte)0;
+                byte expectedCout = op[i] switch
+                {
+                    0 => (byte)(((c.alua + c.alub + c.cin) >> 8) & 1),              // SUMS carry-out
+                    4 => (byte)(c.alua & 1),                                        // SRS carry-out (LSB)
+                    _ => (byte)0,
+                };
                 if (c.alu != expected || c.cout != expectedCout) errs++;
             }
 

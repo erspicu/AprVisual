@@ -62,8 +62,8 @@ namespace AprVisual.Sim
 
         // ALU block specifics.
         private static int[] _aluInputNodes  = Array.Empty<int>();    // 17 ids (alua x8 + alub x8 + cin) — for input read
-        private static int[] _aluOpNodes     = Array.Empty<int>();    // ops (SUMS / AND / OR / EOR) — read each call
-        private static int[] _aluOutputNodes = Array.Empty<int>();    // 18 ids (alu x8 + notalu x8 + alucout + notalucout)
+        private static int[] _aluOpNodes     = Array.Empty<int>();    // 5 ids: op-SUMS / ANDS / ORS / EORS / SRS — read each call
+        private static int[] _aluOutputNodes = Array.Empty<int>();    // 8 ids (alu x8) — Step 2.5: combinational only; latches owned by S1
         private static AluBlockBindings.AluCtx _aluCtx;               // persistent (no per-call alloc)
 
         public static int CodegenAluInputCount  => _aluInputNodes.Length + _aluOpNodes.Length;
@@ -82,20 +82,24 @@ namespace AprVisual.Sim
             var alua    = Resolve("cpu.alua[7:0]");
             var alub    = Resolve("cpu.alub[7:0]");
             var alucinA = Resolve("cpu.alucin");
-            // op selectors — we use op-SUMS, and the rest are placeholders that hardware would
-            // also drive but we treat conservatively (best-effort match). For Step 2 we lump the
-            // PLA states that feed ADD/AND/OR/EOR into a single op selector via NodeStates reads.
+            // 6502 ALU's real op selectors (per ref/metalnes-main/data/system-def/2a03/nodenames.js
+            // L606-L610). These are PLA outputs that activate the corresponding ALU result-bus
+            // contribution. Exactly one is normally active per cycle; multi-active resolves as
+            // wired-OR which AluBlock.cpp models. Step 2.5: 5 ops instead of the earlier 2-op
+            // best-effort approximation.
             var opSums  = Resolve("cpu.op-SUMS");
-            var opAndOrEor = Resolve("cpu.op-T+-ora/and/eor/adc");   // not the perfect break-out but enough to set a bit
-            // Outputs: alu0..7, notalu0..7, alucout, notalucout
+            var opAnds  = Resolve("cpu.op-ANDS");
+            var opOrs   = Resolve("cpu.op-ORS");
+            var opEors  = Resolve("cpu.op-EORS");
+            var opSrs   = Resolve("cpu.op-SRS");
+            // Outputs we WILL drive (combinational ALU output bus): just alu0..7. The latched
+            // storage nodes notalu/alucout/notalucout stay owned by S1's phi-gated transistor
+            // chain (writing them from the dispatcher would corrupt the latch behaviour).
             var alu     = Resolve("cpu.alu[7:0]");
-            var notalu  = Resolve("cpu.notalu[7:0]");
-            var alucout = Resolve("cpu.alucout");
-            var notcout = Resolve("cpu.notalucout");
 
             _aluInputNodes  = new List<int>(alua).Concat(alub).Concat(alucinA).ToArray();
-            _aluOpNodes     = new List<int>(opSums).Concat(opAndOrEor).ToArray();
-            _aluOutputNodes = new List<int>(alu).Concat(notalu).Concat(alucout).Concat(notcout).ToArray();
+            _aluOpNodes     = new List<int>(opSums).Concat(opAnds).Concat(opOrs).Concat(opEors).Concat(opSrs).ToArray();
+            _aluOutputNodes = alu;
 
             // Mark CodegenOwned for outputs (RecalcNode skips them; the dispatcher writes them).
             // GATED by EnableCodegenAluWriteback — in dry-run (Step 2 default), S1 still owns ALU
@@ -155,35 +159,31 @@ namespace AprVisual.Sim
             for (int i = 0; i < 8; i++) { a |= (byte)(NodeStates[_aluInputNodes[i]]      << i); }
             for (int i = 0; i < 8; i++) { b |= (byte)(NodeStates[_aluInputNodes[8 + i]]  << i); }
             byte cin = NodeStates[_aluInputNodes[16]];
-            byte opSums = (_aluOpNodes.Length > 0) ? NodeStates[_aluOpNodes[0]] : (byte)0;
-            byte opAOE  = (_aluOpNodes.Length > 1) ? NodeStates[_aluOpNodes[1]] : (byte)0;
-            // For Step 2 we conservatively treat the "ora/and/eor/adc" lumped PLA state as picking
-            // adc when op-SUMS is also high, and AND otherwise — best-effort until we wire per-op PLAs.
+            // 5 op selectors — direct read of the actual 6502 PLA outputs (Step 2.5)
             _aluCtx.alua    = a;
             _aluCtx.alub    = b;
             _aluCtx.cin     = cin;
-            _aluCtx.op_sums = opSums;
-            _aluCtx.op_and  = (byte)(opAOE  != 0 && opSums == 0 ? 1 : 0);
-            _aluCtx.op_or   = 0;
-            _aluCtx.op_eor  = 0;
-            _aluCtx._pad    = 0;
+            _aluCtx.op_sums = NodeStates[_aluOpNodes[0]];
+            _aluCtx.op_ands = NodeStates[_aluOpNodes[1]];
+            _aluCtx.op_ors  = NodeStates[_aluOpNodes[2]];
+            _aluCtx.op_eors = NodeStates[_aluOpNodes[3]];
+            _aluCtx.op_srs  = NodeStates[_aluOpNodes[4]];
             _aluCtx.alu     = 0;
             _aluCtx.cout    = 0;
             fixed (AluBlockBindings.AluCtx* p = &_aluCtx) AluBlockBindings.Eval_Alu(p);
 
             if (!EnableCodegenAluWriteback) return;   // Step 2 dry-run: framework cost measured, S1 still owns outputs
 
-            // Write 18 outputs back via SetNodeState. Each write that actually changes the value
-            // triggers gate-fanout + revDep + (importantly) re-arms interp = bit 63 dirty.
-            for (int i = 0; i < 8 && i < _aluOutputNodes.Length; i++)
+            // Step 2.5: write 8 combinational ALU output bits back via SetNodeState. The latched
+            // sibling nodes (notalu, alucout, notalucout) are NOT written by us — S1's phi-gated
+            // transistor chain captures them naturally from alu[i] during the phi-transparent half.
+            // Each SetNodeState that actually changes value triggers gate-fanout + revDep, which
+            // re-arms interp (bit 63) for the next dispatcher iteration.
+            for (int i = 0; i < 8; i++)
             {
                 byte bit = (byte)((_aluCtx.alu >> i) & 1);
-                SetNodeState(_aluOutputNodes[i],     bit);
-                if (8 + i < _aluOutputNodes.Length)
-                    SetNodeState(_aluOutputNodes[8 + i], (byte)(1 - bit));   // notalu
+                SetNodeState(_aluOutputNodes[i], bit);
             }
-            if (16 < _aluOutputNodes.Length) SetNodeState(_aluOutputNodes[16], _aluCtx.cout);             // alucout
-            if (17 < _aluOutputNodes.Length) SetNodeState(_aluOutputNodes[17], (byte)(1 - _aluCtx.cout)); // notalucout
         }
 
         /// <summary>Hook for SetNodeState (hot path) — when nn changes, set the right block bit. Currently

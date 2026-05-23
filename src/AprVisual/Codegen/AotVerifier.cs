@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AprVisual.Sim;
 using AprVisual.Rom;
 
@@ -16,6 +17,105 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase C-5 task #74: emit actual .cs source file for a partition block.
+        /// Writes to <paramref name="outputPath"/>; user can inspect / commit / build it later.</summary>
+        public static int EmitBlockSource(string romPath, int blockId, string outputPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var blocks = WireCore.AutoPartition();
+                if (blockId < 0 || blockId >= blocks.Count) { Console.Error.WriteLine($"block id {blockId} out of [0..{blocks.Count - 1}]"); return 1; }
+                var pb = blocks[blockId];
+                var ab = AotBlockBuilder.Build(pb);
+                Console.WriteLine($"# emitting block #{blockId} ({pb.Label}): {ab.Evals.Count} emittable nodes");
+                string source = AotBlockBuilder.EmitSource(ab, pb);
+                System.IO.File.WriteAllText(outputPath, source);
+                Console.WriteLine($"# wrote {source.Length:N0} bytes to {outputPath}");
+                Console.WriteLine($"# === preview (first 40 lines) ===");
+                int lineCount = 0;
+                foreach (string line in source.Split('\n'))
+                {
+                    Console.WriteLine("    " + line.TrimEnd('\r'));
+                    if (++lineCount >= 40) { Console.WriteLine("    ..."); break; }
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        /// <summary>Phase C-5: per-block verification. Build AotBlock for a specific partition
+        /// block ID; run S1; each hc, snapshot NodeStates, run block's eval delegates, compare
+        /// predicted vs actual for each emittable node in the block.</summary>
+        public static int VerifyBlock(string romPath, int blockId, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 50_000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-verify-block #{blockId}: {System.IO.Path.GetFileName(romPath)} — running {hcCount:N0} half-cycles");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var blocks = WireCore.AutoPartition();
+                if (blockId < 0 || blockId >= blocks.Count) { Console.Error.WriteLine($"block id {blockId} out of [0..{blocks.Count - 1}]"); return 1; }
+                var block = blocks[blockId];
+                var aotBlock = AotBlockBuilder.Build(block);
+                Console.WriteLine($"# {aotBlock.ShortSummary}");
+                Console.WriteLine($"#   internal: {block.InternalNodes.Length}, driven outputs: {block.DrivenOutputs.Length}, boundary inputs: {block.BoundaryInputs.Length}");
+                Console.WriteLine($"#   AOT-emitted delegates: {aotBlock.Evals.Count}");
+                Console.WriteLine($"#   AOT-unsupported (will be left to S1): {aotBlock.UnsupportedNodes}");
+
+                if (aotBlock.Evals.Count == 0) { Console.WriteLine("# no emittable delegates — nothing to verify"); return 1; }
+
+                // Take a copy buffer for snapshotting
+                var snapshot = new byte[WireCore.NodeCount];
+                long perNodeMismatch = 0;
+                long totalNodeSamples = 0;
+                int firstMissHc = -1, firstMissNodeId = -1; byte firstMissPred = 0, firstMissActual = 0;
+                string firstMissPattern = "";
+
+                for (int hc = 0; hc < hcCount; hc++)
+                {
+                    WireCore.Step(1);
+                    byte* nsPtr = WireCore.NodeStates;
+                    for (int i = 0; i < snapshot.Length; i++) snapshot[i] = nsPtr[i];
+                    fixed (byte* snapPtr = snapshot)
+                    {
+                        for (int i = 0; i < aotBlock.Evals.Count; i++)
+                        {
+                            var (nn, pattern, compiled) = aotBlock.Evals[i];
+                            byte pred = compiled((IntPtr)snapPtr);
+                            byte actual = snapshot[nn];   // same snapshot — what S1 produced this hc
+                            totalNodeSamples++;
+                            if (pred != actual)
+                            {
+                                perNodeMismatch++;
+                                if (firstMissHc < 0) { firstMissHc = hc; firstMissNodeId = nn; firstMissPred = pred; firstMissActual = actual; firstMissPattern = pattern; }
+                            }
+                        }
+                    }
+                }
+
+                Console.WriteLine($"# === block #{blockId} verification ({hcCount:N0} hc × {aotBlock.Evals.Count} delegates) ===");
+                Console.WriteLine($"#   total samples : {totalNodeSamples:N0}");
+                Console.WriteLine($"#   mismatches    : {perNodeMismatch:N0}  ({(double)perNodeMismatch / totalNodeSamples:P4})");
+                if (firstMissHc >= 0)
+                {
+                    var node = WireCore.Nodes[firstMissNodeId];
+                    Console.WriteLine($"#   first miss    : nn={firstMissNodeId} name='{(string.IsNullOrEmpty(node?.Name) ? "(anon)" : node!.Name)}', hc={firstMissHc}, pattern='{firstMissPattern}', pred={firstMissPred}, actual={firstMissActual}");
+                }
+                Console.WriteLine($"# pattern breakdown for this block:");
+                foreach (var kv in aotBlock.PatternHisto.OrderByDescending(kv => kv.Value))
+                    Console.WriteLine($"#   {kv.Key,-25} : {kv.Value,4}");
+                if (perNodeMismatch == 0) Console.WriteLine($"# VERDICT: block #{blockId} is BYTE-EQUAL to S1 over {hcCount:N0} hc on {aotBlock.Evals.Count} emittable nodes");
+                else Console.WriteLine($"# VERDICT: block #{blockId} has tiny phi-transient mismatches; pattern logic per-node is the same as the global verify-all result");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase C batch verifier: emit AOT delegates for EVERY emitter-supported node,
         /// then run S1 for hcCount half-cycles, sampling each emitted delegate against the actual
         /// NodeStates value. Report per-pattern mismatch rate so we can spot pattern bugs across

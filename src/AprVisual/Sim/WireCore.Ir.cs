@@ -47,7 +47,7 @@ namespace AprVisual.Sim
         //    NodeStates reads + a shift-or to pack the mask + ONE byte read from the table. O(1),
         //    branch-free, no managed access, no recursion. Replaces the costly recursive EvalExpr for
         //    the common case (K<=8 covers ~all NMOS gates and small stacks).
-        internal const int MaxLutInputs = 10;       // 2^10 = 1024 bytes per table — generous; most gates are K<=6
+        internal const int MaxLutInputs = 14;       // 2^14 = 16 KB per table — covers most multi-pull bus K (enables + drivers + self-ref)
         internal static byte* IrUseLut;             // 1 = LUT'd at this node; 0 = fall back to EvalExpr
         internal static int* IrLutInputStart;       // CSR offsets into IrLutInputs (size NodeCount+1)
         internal static int* IrLutInputs;           // flat array: input node ids per LUT'd node
@@ -125,6 +125,10 @@ namespace AprVisual.Sim
         private static int _irBudget;
         private static bool _irAbort;
         private static readonly HashSet<int> _irVisited = new();
+        // P2.4 #42 multi-pull bus: PullDownCond should treat a pass to this node as an output channel,
+        // NOT as a pull-down path. Used during bus driver extraction to isolate each driver's intrinsic
+        // value from the shared bus line. -1 means no boundary (normal extraction).
+        private static int _irBusBoundary = -1;
 
         // A pass-neighbour is a genuine internal pull-down mid only if it (a) has no pull-up AND (b)
         // gates nothing — a real series pull-down element drives no logic. A node that GATES things
@@ -166,6 +170,7 @@ namespace AprVisual.Sim
                     int g = *p++;
                     int mid = *p++;
                     if (_irVisited.Contains(mid)) continue;                                  // simple paths only (cycle guard)
+                    if (mid == _irBusBoundary) continue;                                     // bus_line is an output channel for this driver, not a pulldown
                     if (!IsInternalMid(mid)) continue;                                       // only recurse through genuine pull-down mids (no pull-up, gates nothing)
                     _irVisited.Add(mid);
                     int sub = PullDownCond(mid);
@@ -175,6 +180,97 @@ namespace AprVisual.Sim
                 }
             }
             return orRoot;
+        }
+
+        /// <summary>P2.4 #42: try to extract a multi-pull-up bus island. Pattern: one no-pull-up
+        /// "bus_line" node directly pass-connected to >=2 pull-up drivers; other non-pull-up members
+        /// are pure absorbable mids (no pull-up, gate nothing). Driver d's value = NOT(its own
+        /// pull-down, excluding the path to bus_line) — PullDownCond with _irBusBoundary set. bus_line's
+        /// value = Mux(en_1 ? driver_1 : Mux(en_2 ? driver_2 : ... : NodeRef(bus_line))) — the final
+        /// NodeRef-self gives Hold semantics when no enable is on (the event-driven loop + SetNodeState
+        /// early-return realise it implicitly). Returns true on success.</summary>
+        private static bool TryExtractBusIsland(int islandRoot, List<int> list,
+            ref int nLogic, ref int nStack, ref int nAbsorbed, ref int nBus, ref int nComplex)
+        {
+            // 1. Bus_line = the non-pull-up node directly pass-connected to the most pull-up drivers.
+            //    Other non-pull-up members must be pure mids (gates nothing).
+            int busLine = -1, maxDeg = 0;
+            foreach (int m in list)
+            {
+                if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) continue;
+                int deg = 0;
+                if (NodeInfos[m].TlistC1c2s != 0)
+                {
+                    int* p = TransistorList + NodeInfos[m].TlistC1c2s;
+                    while (*p != 0) { p++; int other = *p++; if ((uint)other < (uint)NodeCount && (NodeInfos[other].Flags & NodeFlags.PullUp) != 0) deg++; }
+                }
+                if (deg > maxDeg) { maxDeg = deg; busLine = m; }
+            }
+            if (busLine < 0 || maxDeg < 2) return false;
+            foreach (int m in list)
+            {
+                if (m == busLine) continue;
+                if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) continue;
+                if (NodeInfos[m].TlistGates != 0) return false;
+            }
+
+            // 2. For each pull-up driver, find its ONE direct pass channel to bus_line (the enable gate).
+            var drivers = new List<(int driver, int enable)>();
+            const NodeFlags badOut = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
+            foreach (int d in list)
+            {
+                if ((NodeInfos[d].Flags & NodeFlags.PullUp) == 0) continue;
+                if ((NodeInfos[d].Flags & badOut) != 0) return false;
+                int enable = -1; int passCount = 0;
+                if (NodeInfos[d].TlistC1c2s != 0)
+                {
+                    int* p = TransistorList + NodeInfos[d].TlistC1c2s;
+                    while (*p != 0) { int gate = *p++; int other = *p++; if (other == busLine) { enable = gate; passCount++; } }
+                }
+                if (passCount != 1 || enable < 0) return false;
+                drivers.Add((d, enable));
+            }
+            if ((NodeInfos[busLine].Flags & badOut) != 0) return false;
+
+            // 3. Extract each driver's Expr with _irBusBoundary set so PullDownCond doesn't follow the
+            //    pass to bus_line.
+            var driverRoots = new int[drivers.Count];
+            _irBusBoundary = busLine;
+            for (int i = 0; i < drivers.Count; i++)
+            {
+                int d = drivers[i].driver;
+                _irVisited.Clear(); _irVisited.Add(d);
+                _irBudget = 4000; _irAbort = false;
+                int cond = PullDownCond(d);
+                if (_irAbort) { _irBusBoundary = -1; nComplex++; return false; }
+                driverRoots[i] = cond < 0 ? _irConst1 : AddIr(ExprOp.Not, cond);
+            }
+            _irBusBoundary = -1;
+
+            // 4. bus_line Expr: Mux(en_1 ? d_1 : Mux(en_2 ? d_2 : ... : NodeRef(bus_line))).
+            int hold = AddIr(ExprOp.NodeRef, busLine);
+            int busExpr = hold;
+            for (int i = drivers.Count - 1; i >= 0; i--)
+            {
+                int enRef = AddIr(ExprOp.NodeRef, drivers[i].enable);
+                int dRef = AddIr(ExprOp.NodeRef, drivers[i].driver);
+                busExpr = AddIr(ExprOp.Mux, enRef, dRef, busExpr);
+            }
+
+            // 5. Commit IR + absorb the other mids.
+            IrRoot![busLine] = busExpr;
+            for (int i = 0; i < drivers.Count; i++) IrRoot![drivers[i].driver] = driverRoots[i];
+            foreach (int m in list)
+            {
+                if (m == busLine) continue;
+                bool isDriver = false; foreach (var (d, _) in drivers) if (d == m) { isDriver = true; break; }
+                if (isDriver) continue;
+                if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) continue;
+                IrAbsorbed[m] = 1;
+                nAbsorbed++;
+            }
+            nBus++;
+            return true;
         }
 
         /// <summary>P2.3 (option B): extract Expr per pass-connected ISLAND. An island is a maximal set
@@ -217,7 +313,7 @@ namespace AprVisual.Sim
 
             const NodeFlags badOut = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
 
-            int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0;
+            int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0, nBus = 0;
             int nRejMultiPull = 0, nRejNoPull = 0, nRejMidGates = 0, nRejBadFlags = 0, nRejPureDbg = 0;
             foreach (var kv in members)
             {
@@ -230,7 +326,12 @@ namespace AprVisual.Sim
                     else if (NodeInfos[m].TlistGates != 0) { clean = false; break; }   // a mid that drives logic => not a pure stack
                 }
                 if (pulls == 0) { nRejNoPull++; continue; }
-                if (pulls > 1) { nRejMultiPull++; continue; }
+                if (pulls > 1)
+                {
+                    // P2.4 #42: try the multi-pull-up tri-state bus pattern.
+                    if (TryExtractBusIsland(kv.Key, list, ref nLogic, ref nStack, ref nAbsorbed, ref nBus, ref nComplex)) continue;
+                    nRejMultiPull++; continue;
+                }
                 if (!clean) { nRejMidGates++; continue; }
                 ref NodeInfo ns = ref NodeInfos[outV];
                 if ((ns.Flags & badOut) != 0) { nRejBadFlags++; continue; }
@@ -244,9 +345,9 @@ namespace AprVisual.Sim
                 if (list.Count > 1) nStack++; else nLogic++;
                 foreach (int m in list) if (m != outV) { IrAbsorbed[m] = 1; nAbsorbed++; }
             }
-            IrExtractedCount = nLogic + nStack;
+            IrExtractedCount = nLogic + nStack + nBus;
             int nRejTotal = nRejMultiPull + nRejNoPull + nRejMidGates + nRejBadFlags + nRejPureDbg;
-            LastIrStats = $"IR (P2.3 island): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nRejTotal:N0} islands rejected (multi-pull={nRejMultiPull}, no-pull={nRejNoPull}, mid-gates={nRejMidGates}, bad-flags={nRejBadFlags}, pure-dbg={nRejPureDbg}), pool {_ir.Count:N0}";
+            LastIrStats = $"IR (P2.3 island + P2.4 #42 bus): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node + {nBus:N0} bus-islands), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nRejTotal:N0} rejected (multi-pull={nRejMultiPull}, no-pull={nRejNoPull}, mid-gates={nRejMidGates}, bad-flags={nRejBadFlags}, pure-dbg={nRejPureDbg}), pool {_ir.Count:N0}";
 
             // Strategy A (Gemini r1): flatten managed pool to unmanaged, build per-node LUTs, drop managed _ir.
             FlattenIrPool();
@@ -275,6 +376,9 @@ namespace AprVisual.Sim
         //    nodes keep S1's group-walk + gate-fanout. EVENT-DRIVEN (dirty-set sparsity preserved).
         public static bool EnableIrInterp = false;
         public static bool IrPureOnly = false;       // debug: extract only pure-logic (no pass/stack) — isolate dispatch bugs
+        // Diagnostic counters (gated behind CountEvents): split D by IR class — to decide whether #42
+        // coverage is worth the effort. If hybrid recalcs are a big fraction of D, #42 has headroom.
+        public static long RecalcIrCount, RecalcAbsorbedCount, RecalcHybridCount;
         public static bool IrBoundaryDriver = false; // experiment: treat IR nodes as group-walk driver boundaries (vs let walks resolve them in-group)
         public static bool IrBruteForce = false;     // debug: re-eval ALL nodes each half-cycle (oblivious) — isolate triggering bugs from eval bugs
 

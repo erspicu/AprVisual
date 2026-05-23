@@ -508,6 +508,12 @@ namespace AprVisual.Test
                 if (WireCore.CountEvents)
                 {
                     Console.WriteLine($"# events: {WireCore.EnqueueCount:N0} EnqueueNode, {WireCore.RecalcNodeCount:N0} RecalcNode over {halfCycles:N0} hc  ({(double)WireCore.RecalcNodeCount / halfCycles:F1} RecalcNode/hc = D)");
+                    if (WireCore.EnableIrInterp)
+                    {
+                        long total = WireCore.RecalcIrCount + WireCore.RecalcAbsorbedCount + WireCore.RecalcHybridCount;
+                        double pct(long x) => total > 0 ? 100.0 * x / total : 0;
+                        Console.WriteLine($"# D split: IR={WireCore.RecalcIrCount:N0} ({pct(WireCore.RecalcIrCount):F1}%), absorbed={WireCore.RecalcAbsorbedCount:N0} ({pct(WireCore.RecalcAbsorbedCount):F1}%), hybrid={WireCore.RecalcHybridCount:N0} ({pct(WireCore.RecalcHybridCount):F1}%)");
+                    }
                     // 策略三 glitch factor: avg times the same node is re-evaluated within one half-cycle (~1.0 ⇒ no glitching)
                     double glitch = WireCore.DistinctRecalcCount > 0 ? (double)WireCore.RecalcNodeCount / WireCore.DistinctRecalcCount : 0;
                     Console.WriteLine($"# glitch factor: {WireCore.RecalcNodeCount:N0} RecalcNode / {WireCore.DistinctRecalcCount:N0} distinct (node,hc) = {glitch:F3} recalcs/node/hc  (>1.1 ⇒ glitches worth chasing; ~1.0 ⇒ none)");

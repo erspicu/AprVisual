@@ -132,10 +132,12 @@ namespace AprVisual.Sim
                 byte cls = IrClass[nn];
                 if (cls != IrCls_Hybrid)
                 {
-                    if (cls == IrCls_Absorbed) return;
+                    if (cls == IrCls_Absorbed) { if (CountEvents) RecalcAbsorbedCount++; return; }
+                    if (CountEvents) RecalcIrCount++;
                     SetNodeState(nn, cls == IrCls_Lut ? EvalLut(nn) : EvalExpr(IrRoot![nn]));
                     return;
                 }
+                if (CountEvents) RecalcHybridCount++;
             }
             // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
             if (EnableFastPath && IsPureLogic != null && IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }

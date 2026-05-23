@@ -47,7 +47,99 @@ namespace AprVisual.Codegen
             if (node == null) { result.Pattern = "unsupported(null-node)"; return result; }
 
             // Inverter requires a pull-up on the output (default-high without driver)
-            if (node.Pullups == 0) { result.Pattern = "unsupported(no-pullup)"; return result; }
+            if (node.Pullups == 0)
+            {
+                // Phase E-1 — latch_storage patterns. No-pullup = dynamic node (latch storage).
+                // Topology classification (from Phase E-1 inventory):
+                //   c1c2s=1 → latch_simple   : 1,375 nodes (16.5% of no-pullup)
+                //   c1c2s=2 → latch_complex  : 5,644 nodes (67.7% of no-pullup) ★
+                //   c1c2s>=3 → latch_or_bus  : 1,240 nodes (14.9%) — routing/bus, deferred
+                //   c1c2s=0 → external       :    72 nodes (handler-driven, deferred)
+                int cCount = node.C1c2s.Count;
+                if (cCount == 1)
+                {
+                    var t = WireCore.Transistors[node.C1c2s[0]];
+                    int gate = t.Gate;
+                    int other = (t.C1 == outputId) ? t.C2 : t.C1;
+                    if (gate == WireCore.Npwr || gate == WireCore.Ngnd || other == WireCore.Npwr || other == WireCore.Ngnd)
+                    {
+                        result.Pattern = "unsupported(latch_supply_edge)";
+                        return result;
+                    }
+                    // latch_simple: when gate is high, O follows source; else hold previous.
+                    result.Pattern = "latch_simple";
+                    result.InputIds = new[] { gate, other };
+                    result.CSharpExpr = $"(nodeStates[{gate}] != 0) ? nodeStates[{other}] : nodeStates[{outputId}]";
+                    int g = gate, s = other, o = outputId;
+                    result.Compiled = (IntPtr pNs) =>
+                    {
+                        byte* ns = (byte*)pNs;
+                        return ns[g] != 0 ? ns[s] : ns[o];
+                    };
+                    return result;
+                }
+                if (cCount == 2)
+                {
+                    var t0 = WireCore.Transistors[node.C1c2s[0]];
+                    var t1 = WireCore.Transistors[node.C1c2s[1]];
+                    int gA = t0.Gate, oA = (t0.C1 == outputId) ? t0.C2 : t0.C1;
+                    int gB = t1.Gate, oB = (t1.C1 == outputId) ? t1.C2 : t1.C1;
+                    // Gate supply edge means always-on or always-off — degenerate, skip
+                    if (gA == WireCore.Npwr || gA == WireCore.Ngnd || gB == WireCore.Npwr || gB == WireCore.Ngnd)
+                    { result.Pattern = "unsupported(latch2_gate_supply)"; return result; }
+                    // Categorise by other-end supply:
+                    //   both non-supply → latch_complex (2-source mux)
+                    //   one to Gnd      → latch_pd_pass (pulldown + write-pass) — VERY common no-pullup latch
+                    //   one to Pwr      → latch_pu_pass (pullup via transistor + write-pass) — rare
+                    //   both to Gnd     → degenerate
+                    bool aGnd = oA == WireCore.Ngnd, bGnd = oB == WireCore.Ngnd;
+                    bool aPwr = oA == WireCore.Npwr, bPwr = oB == WireCore.Npwr;
+                    if (aGnd && bGnd) { result.Pattern = "unsupported(latch2_both_gnd)"; return result; }
+                    if (!aGnd && !bGnd && !aPwr && !bPwr)
+                    {
+                        // latch_complex (2-pass): 2-source mux + hold. Both gates active → wired-AND.
+                        result.Pattern = "latch_complex";
+                        result.InputIds = new[] { gA, oA, gB, oB };
+                        result.CSharpExpr = $"((nodeStates[{gA}] != 0 && nodeStates[{gB}] != 0) ? (byte)(nodeStates[{oA}] & nodeStates[{oB}]) : (nodeStates[{gA}] != 0 ? nodeStates[{oA}] : (nodeStates[{gB}] != 0 ? nodeStates[{oB}] : nodeStates[{outputId}])))";
+                        int cGA = gA, cOA = oA, cGB = gB, cOB = oB, cO = outputId;
+                        result.Compiled = (IntPtr pNs) =>
+                        {
+                            byte* ns = (byte*)pNs;
+                            bool actA = ns[cGA] != 0, actB = ns[cGB] != 0;
+                            if (actA && actB) return (byte)(ns[cOA] & ns[cOB]);
+                            if (actA) return ns[cOA];
+                            if (actB) return ns[cOB];
+                            return ns[cO];
+                        };
+                        return result;
+                    }
+                    // Normalise so the GND-side is "B": pd_gate=gB, write_gate=gA, write_src=oA
+                    if (aGnd) { (gA, oA, gB, oB) = (gB, oB, gA, oA); aGnd = false; bGnd = true; }
+                    if (bGnd && !aPwr)
+                    {
+                        // latch_pd_pass: write-pass (gA→oA) + pull-down (gB→Gnd). Common no-pullup latch.
+                        //   if write active: O = src
+                        //   else if pulldown active: O = 0
+                        //   else hold
+                        result.Pattern = "latch_pd_pass";
+                        result.InputIds = new[] { gA, oA, gB };
+                        result.CSharpExpr = $"(nodeStates[{gA}] != 0) ? nodeStates[{oA}] : ((nodeStates[{gB}] != 0) ? (byte)0 : nodeStates[{outputId}])";
+                        int cGA = gA, cOA = oA, cGB = gB, cO = outputId;
+                        result.Compiled = (IntPtr pNs) =>
+                        {
+                            byte* ns = (byte*)pNs;
+                            if (ns[cGA] != 0) return ns[cOA];
+                            if (ns[cGB] != 0) return 0;
+                            return ns[cO];
+                        };
+                        return result;
+                    }
+                    result.Pattern = $"unsupported(latch2_other,aGnd={aGnd},bGnd={bGnd},aPwr={aPwr},bPwr={bPwr})";
+                    return result;
+                }
+                result.Pattern = $"unsupported(no-pullup,c={cCount})";
+                return result;
+            }
 
             // Classify channel transistors
             var pullDownGates = new List<int>();

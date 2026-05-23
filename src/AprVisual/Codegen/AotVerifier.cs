@@ -126,6 +126,76 @@ namespace AprVisual.Codegen
             return allChecksumsEqual ? 0 : 1;
         }
 
+        /// <summary>Phase E-1 prep: classify all no-pullup nodes (the 8,331 nodes AotEmitter can't
+        /// pattern-match) by topology, to scope the Route B full-pivot work. Categories:
+        ///   external_drive : c1c2s=0, gates>=1 (driven by handler, e.g. clk, res, BA0)
+        ///   external_anon  : c1c2s=0, gates=0  (callback fake nodes, e.g. func<clock>)
+        ///   latch_simple   : c1c2s=1, has pass to other non-supply node (transparent-when-gate)
+        ///   latch_complex  : c1c2s>=2, multi-pass latch (typical 6502 dynamic latch with 2-phase)
+        ///   bus_routing    : multi-pass with no clear write side (pure routing intermediate)
+        /// </summary>
+        public static int RunNoPullupInventory(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                Console.WriteLine($"# no-pullup inventory: {System.IO.Path.GetFileName(romPath)} — {WireCore.NodeCount:N0} live nodes");
+
+                int total = 0;
+                int externalDrive = 0, externalAnon = 0;
+                int latchSimple = 0, latchComplex = 0;
+                int passThrough = 0;
+                int hasPullup = 0;
+                var examplesByCat = new Dictionary<string, List<int>>();
+                void Sample(string cat, int nn) { if (!examplesByCat.TryGetValue(cat, out var l)) examplesByCat[cat] = l = new(); if (l.Count < 5) l.Add(nn); }
+
+                for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                {
+                    if (nn == WireCore.Npwr || nn == WireCore.Ngnd) continue;
+                    var n = WireCore.Nodes[nn]; if (n == null) continue;
+                    total++;
+                    if (n.Pullups > 0) { hasPullup++; continue; }
+                    // no-pullup classification
+                    int c = n.C1c2s.Count;
+                    int g = n.Gates.Count;
+                    if (c == 0 && g >= 1) { externalDrive++; Sample("external_drive", nn); }
+                    else if (c == 0 && g == 0) { externalAnon++; Sample("external_anon", nn); }
+                    else if (c == 1) { latchSimple++; Sample("latch_simple", nn); }
+                    else if (c == 2) { latchComplex++; Sample("latch_complex (2-pass)", nn); }
+                    else if (c >= 3) { passThrough++; Sample($"latch_or_bus ({c}-pass)", nn); }
+                    else { Sample("uncategorised", nn); }
+                }
+
+                int noPullup = total - hasPullup;
+                Console.WriteLine($"# total non-supply nodes : {total:N0}");
+                Console.WriteLine($"#   with pull-up         : {hasPullup:N0}  ({(double)hasPullup / total:P1})  → AotEmitter handles these");
+                Console.WriteLine($"#   no pull-up           : {noPullup:N0}  ({(double)noPullup / total:P1})  → Route B target");
+                Console.WriteLine($"#");
+                Console.WriteLine($"# no-pullup breakdown:");
+                Console.WriteLine($"#   external_drive (c=0,g>=1) : {externalDrive,5:N0}  ({(double)externalDrive / noPullup:P1})   handler-driven (clk/res/BA0/...)");
+                Console.WriteLine($"#   external_anon  (c=0,g=0)  : {externalAnon, 5:N0}  ({(double)externalAnon  / noPullup:P1})   callback fake nodes");
+                Console.WriteLine($"#   latch_simple   (c=1)      : {latchSimple,  5:N0}  ({(double)latchSimple   / noPullup:P1})   1 pass-transistor (transparent latch)");
+                Console.WriteLine($"#   latch_complex  (c=2)      : {latchComplex, 5:N0}  ({(double)latchComplex  / noPullup:P1})   2-phase dynamic latch");
+                Console.WriteLine($"#   latch_or_bus   (c>=3)     : {passThrough,  5:N0}  ({(double)passThrough   / noPullup:P1})   multi-pass routing/bus");
+                Console.WriteLine($"#");
+                Console.WriteLine($"# === samples (5 per category) ===");
+                foreach (var (cat, ids) in examplesByCat.OrderBy(kv => kv.Key))
+                {
+                    Console.WriteLine($"# {cat}:");
+                    foreach (int nn in ids)
+                    {
+                        var node = WireCore.Nodes[nn];
+                        string name = string.IsNullOrEmpty(node?.Name) ? "(anon)" : node!.Name;
+                        Console.WriteLine($"#   nn={nn,5}  '{name}'   c1c2s={node!.C1c2s.Count}, gates={node!.Gates.Count}");
+                    }
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase D-3: AOT engine in the simulation hot path. Loads the master AOT, then
         /// runs the simulation with AOT called AFTER each S1 step. AOT predictions overwrite
         /// the corresponding NodeStates entries — since they should be byte-equal to S1's just-

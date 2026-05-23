@@ -29,6 +29,8 @@ namespace AprVisual.Test
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null, dumpBlockOutputs = null, dumpBlockStops = null;
+            bool dumpPartition = false;
+            int dumpBlockId = -1;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -62,6 +64,8 @@ namespace AprVisual.Test
                     case "--dump-states":     if (i + 1 < args.Length) dumpStatesPath = args[++i]; break;  // Phase 2 debug: step N hc, dump high-node ids (diff S1 vs --ir-interp to find divergence)
                     case "--dump-block":      if (i + 1 < args.Length) dumpBlockOutputs = args[++i]; break;  // Phase 2.5 codegen: reverse-closure a block from output names (Gemini r1 macro-block prep)
                     case "--block-stop":      if (i + 1 < args.Length) dumpBlockStops = args[++i]; break;
+                    case "--dump-partition":  dumpPartition = true; break;   // Phase 2.5 Step 3: auto-partition the whole netlist into macro-blocks + histogram
+                    case "--dump-block-id":   if (i + 1 < args.Length) int.TryParse(args[++i], out dumpBlockId); break;   // Step 3: detail of one auto-partition block
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -102,6 +106,8 @@ namespace AprVisual.Test
             if (verifyIrPath != null) return VerifyIr(verifyIrPath, benchHcCount);
             if (dumpStatesPath != null) return DumpStates(dumpStatesPath, benchHcCount);
             if (dumpBlockOutputs != null) return DumpBlock(dumpBlockOutputs, dumpBlockStops);
+            if (dumpPartition) return DumpPartition();
+            if (dumpBlockId >= 0) return DumpBlockId(dumpBlockId);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
@@ -521,6 +527,140 @@ namespace AprVisual.Test
             else if (closure.Count < 50)
                 Console.WriteLine($"# NOTE: closure size {closure.Count} is small — verify it actually covers the intended block.");
 
+            return 0;
+        }
+
+        // ── Phase 2.5 Step 3: auto-partition the netlist into macro-blocks and print a histogram +
+        //    per-block summary. Boundaries are pull-up nodes (latched/named) + Npwr/Ngnd; each
+        //    non-boundary node belongs to exactly one block. Used to validate the partitioner +
+        //    drive subsequent Step 3.5 (wire each block into the dispatcher as a CodegenOwned region)
+        //    and Step 4 (LLVM-emit per block). ──
+        private static int DumpPartition()
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.Message}"); return 2; }
+            try { WireCore.Reset(); WireCore.RecomputeAllNodes(); }
+            catch (Exception ex) { Console.Error.WriteLine($"reset failed: {ex.Message}"); return 2; }
+
+            var blocks = WireCore.AutoPartition();
+            var (count, unassigned, totalInt, bound) = WireCore.SummarisePartition(blocks);
+
+            Console.WriteLine($"# auto-partition: netlist split into {count:N0} macro-blocks");
+            Console.WriteLine($"#   boundary nodes (pull-up + supply): {bound:N0}");
+            Console.WriteLine($"#   total internal nodes assigned:     {totalInt:N0}");
+            Console.WriteLine($"#   unassigned internal (should be 0): {unassigned:N0}");
+            Console.WriteLine($"#   total nodes (for sanity):          {WireCore.NodeCount:N0}");
+            Console.WriteLine("#");
+
+            // ── histogram by internal-node-count buckets ──
+            var buckets = new (int lo, int hi, string label)[] {
+                (1,    1,    "1            (singletons)"),
+                (2,    4,    "2..4         (tiny)"),
+                (5,    16,   "5..16        (small)"),
+                (17,   64,   "17..64       (medium)"),
+                (65,   256,  "65..256      (large — codegen candidates)"),
+                (257,  1024, "257..1024    (very large — may need sub-cutting)"),
+                (1025, int.MaxValue, ">=1025      (huge — likely under-cut)"),
+            };
+            var histo = new int[buckets.Length];
+            foreach (var b in blocks)
+            {
+                int sz = b.InternalNodes.Length;
+                for (int i = 0; i < buckets.Length; i++) if (sz >= buckets[i].lo && sz <= buckets[i].hi) { histo[i]++; break; }
+            }
+            Console.WriteLine("# size histogram (block count by internal-node bucket):");
+            for (int i = 0; i < buckets.Length; i++) Console.WriteLine($"#   {buckets[i].label,-44} : {histo[i],6:N0}");
+            Console.WriteLine("#");
+
+            // ── top-N largest blocks ──
+            int topN = Math.Min(30, blocks.Count);
+            Console.WriteLine($"# top-{topN} largest blocks:");
+            Console.WriteLine($"#   {"id",4}  {"intern",6}  {"transtor",8}  {"inputs",6}  {"driven",6}  {"label"}");
+            for (int i = 0; i < topN; i++)
+            {
+                var b = blocks[i];
+                Console.WriteLine($"#   {b.Id,4}  {b.InternalNodes.Length,6}  {b.TransistorIds.Length,8}  {b.BoundaryInputs.Length,6}  {b.DrivenOutputs.Length,6}  {b.Label}");
+            }
+            Console.WriteLine("#");
+            // ── named-driven-outputs roll-up: show the top blocks where the label points at a known
+            // CPU/PPU/APU subsystem, ranked by internal-node size ──
+            Console.WriteLine($"# top-15 codegen-candidate blocks (size 17+ and non-supply label):");
+            int shown = 0;
+            foreach (var b in blocks)
+            {
+                if (b.InternalNodes.Length < 17) break;
+                if (b.Label.StartsWith("block-")) continue;
+                if (b.Label is "vcc" or "vss" or "clk" or "clk0") continue;
+                Console.WriteLine($"#   {b.Id,4}  {b.InternalNodes.Length,6}  {b.TransistorIds.Length,8}  {b.BoundaryInputs.Length,6}  {b.DrivenOutputs.Length,6}  {b.Label}");
+                if (++shown >= 15) break;
+            }
+            Console.WriteLine("#");
+
+            // ── ALU block locator: find which block contains the alu0 node ──
+            int alu0 = WireCore.LookupNode("cpu.alu0");
+            if (alu0 != WireCore.EmptyNode)
+            {
+                int aluBlockIdx = -1;
+                for (int i = 0; i < blocks.Count; i++) if (Array.IndexOf(blocks[i].InternalNodes, alu0) >= 0) { aluBlockIdx = i; break; }
+                if (aluBlockIdx >= 0)
+                {
+                    var ab = blocks[aluBlockIdx];
+                    Console.WriteLine($"# ALU LOCATOR (cpu.alu0 = node {alu0}):");
+                    Console.WriteLine($"#   in block #{ab.Id}  ({ab.Label})");
+                    Console.WriteLine($"#   internal {ab.InternalNodes.Length}, transistors {ab.TransistorIds.Length}, inputs {ab.BoundaryInputs.Length}, driven {ab.DrivenOutputs.Length}");
+                    Console.WriteLine($"#   (compare: --dump-block ALU showed 133 internal + 477 transistors)");
+                }
+                else Console.WriteLine($"# ALU LOCATOR: cpu.alu0 (node {alu0}) is itself a boundary — has pull-up");
+            }
+
+            return 0;
+        }
+
+        // ── Phase 2.5 Step 3: print the details of one auto-partition block (internal node names,
+        //    input/output boundary names, transistor count). Used together with --dump-partition to
+        //    drill into a candidate macro-block before wiring it into the dispatcher.
+        private static int DumpBlockId(int blockId)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.Message}"); return 2; }
+            try { WireCore.Reset(); WireCore.RecomputeAllNodes(); }
+            catch (Exception ex) { Console.Error.WriteLine($"reset failed: {ex.Message}"); return 2; }
+
+            var blocks = WireCore.AutoPartition();
+            if (blockId < 0 || blockId >= blocks.Count) { Console.Error.WriteLine($"block id {blockId} out of range (0..{blocks.Count - 1})"); return 1; }
+            var b = blocks[blockId];
+
+            Console.WriteLine($"# block #{b.Id} — {b.Label}");
+            Console.WriteLine($"#   internal nodes:    {b.InternalNodes.Length}");
+            Console.WriteLine($"#   transistors:       {b.TransistorIds.Length}");
+            Console.WriteLine($"#   boundary inputs:   {b.BoundaryInputs.Length}");
+            Console.WriteLine($"#   driven outputs:    {b.DrivenOutputs.Length}");
+
+            string NameOf(int nn)
+            {
+                if ((uint)nn >= (uint)WireCore.Nodes.Count) return "(?)";
+                var n = WireCore.Nodes[nn]; return n == null ? "(null)" : (string.IsNullOrEmpty(n.Name) ? "(anonymous)" : n.Name);
+            }
+
+            Console.WriteLine("# === driven outputs ===");
+            foreach (int v in b.DrivenOutputs.OrderBy(x => x)) Console.WriteLine($"  {v,6}  {NameOf(v)}");
+            Console.WriteLine("# === boundary inputs (top 40 by name) ===");
+            int shown = 0;
+            foreach (int v in b.BoundaryInputs.OrderBy(NameOf))
+            {
+                Console.WriteLine($"  {v,6}  {NameOf(v)}");
+                if (++shown >= 40) break;
+            }
+            if (b.BoundaryInputs.Length > 40) Console.WriteLine($"  ... ({b.BoundaryInputs.Length - 40} more)");
+
+            Console.WriteLine("# === internal nodes (first 40 by name) ===");
+            shown = 0;
+            foreach (int v in b.InternalNodes.OrderBy(NameOf))
+            {
+                Console.WriteLine($"  {v,6}  {NameOf(v)}");
+                if (++shown >= 40) break;
+            }
+            if (b.InternalNodes.Length > 40) Console.WriteLine($"  ... ({b.InternalNodes.Length - 40} more)");
             return 0;
         }
 

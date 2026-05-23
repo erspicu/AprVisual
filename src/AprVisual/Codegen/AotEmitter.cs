@@ -66,8 +66,11 @@ namespace AprVisual.Codegen
 
             if (pullDownGates.Count == 1 && passToBusCount <= 1)
             {
-                // INVERTER pattern: NOT(gate). The optional pass-to-bus is the latch write path
+                // INVERTER pattern: NOT(gate). The optional pass-to-bus is the latch-write path
                 // which is dormant in steady state; verified empirically against S1 for IR inverters.
+                // C-3: tried passToBus≤2 but it cannibalised mux_bus+pulldown (which was 100%
+                // PERFECT) and introduced 2.3% misses on the formerly-mux_bus subset → reverted.
+                // Nodes with passToBus≥2 fall through to mux_bus pattern (correct model).
                 int gateId = pullDownGates[0];
                 result.Pattern = passToBusCount == 0 ? "inverter" : "inverter+latch-write";
                 result.InputIds = new[] { gateId };
@@ -81,10 +84,17 @@ namespace AprVisual.Codegen
                 return result;
             }
 
-            if (pullDownGates.Count > 1 && passToBusCount == 0)
+            // ── Generalised NOR (with optional dormant latch-write pass) ──
+            //    output has N pull-downs (N >= 2) + 0..1 pass-to-bus (latch-write style;
+            //    inert in steady state per the inverter+latch-write empirical result).
+            //    Emit: NOT(g0 | g1 | ... | gN).
+            //    C-3 narrowed from passToBus≤2 to ≤1: pass=2 nodes have 0.5%-5.6% misses (verified
+            //    nor6+pass was 5.58% wrong), suggesting the second pass isn't dormant — it's
+            //    likely a real driver. Those nodes fall through to mux_bus (when applicable).
+            if (pullDownGates.Count >= 2 && passToBusCount <= 1)
             {
-                // NOR pattern: NOT(g0 | g1 | ... | gN)
-                result.Pattern = $"nor{pullDownGates.Count}";
+                string suffix = passToBusCount == 0 ? "" : "+pass";
+                result.Pattern = $"nor{pullDownGates.Count}{suffix}";
                 result.InputIds = pullDownGates.ToArray();
                 var sb = new StringBuilder();
                 sb.Append("(");

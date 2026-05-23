@@ -27,6 +27,15 @@ namespace AprVisual.Codegen
         public int ClockNodeId;
         public int MaxSettleIterations = 32;
         public int LastSettleIterations;     // diagnostic
+        public int LastChangesPerSettle;     // nodes that changed value in the last settle (sum over iters)
+        public int LastChangesFirstIter;     // nodes that changed in iter 0 specifically
+
+        // Phase E-3 — external inputs the AotRuntime manages explicitly (clock + reset)
+        // These are toggled/held by Step() instead of being computed by EvalAll.
+        public int ResetNodeId = -1;         // /res node (active low during power-on)
+        public bool ResetAsserted;           // when true, NodeStates[ResetNodeId] forced to 0
+        public int ResetHoldHc = 192;        // hc count to hold /res low at start
+        public int HcSinceStart;             // counter
 
         public AotRuntime(byte[] initialNodeStates, AotRoslynLoader.EvalAllDelegate evalAll, int clockNodeId)
         {
@@ -41,19 +50,31 @@ namespace AprVisual.Codegen
             // Toggle the clock node (master half-cycle = one phi flip)
             NodeStates[ClockNodeId] = (byte)(1 - NodeStates[ClockNodeId]);
 
+            // Phase E-3: reset assertion / deassertion based on ResetAsserted + hc counter
+            if (ResetNodeId >= 0)
+            {
+                if (ResetAsserted) NodeStates[ResetNodeId] = 0;
+                if (HcSinceStart < ResetHoldHc) NodeStates[ResetNodeId] = 0;   // hold /res low during power-on
+            }
+
             // Settle: iterate EvalAll until NodeStates stops changing (fixed-point)
+            LastChangesPerSettle = 0;
+            LastChangesFirstIter = 0;
             int iter = 0;
             byte[] prev = new byte[NodeStates.Length];
             for (; iter < MaxSettleIterations; iter++)
             {
                 Array.Copy(NodeStates, prev, NodeStates.Length);
                 fixed (byte* p = NodeStates) { EvalAll(p); }
-                bool same = true;
+                int changedThisIter = 0;
                 for (int i = 0; i < NodeStates.Length; i++)
-                    if (NodeStates[i] != prev[i]) { same = false; break; }
-                if (same) break;
+                    if (NodeStates[i] != prev[i]) changedThisIter++;
+                LastChangesPerSettle += changedThisIter;
+                if (iter == 0) LastChangesFirstIter = changedThisIter;
+                if (changedThisIter == 0) break;
             }
             LastSettleIterations = iter + 1;
+            HcSinceStart++;
         }
 
         /// <summary>Compare own NodeStates to a reference (typically S1's settled state).

@@ -168,9 +168,20 @@ namespace AprVisual.Codegen
                 Console.WriteLine($"#   AOT: {picked.Count} blocks, {totalEvals} delegates, source {source.Length:N0} bytes");
 
                 // ── C. AotRuntime: init from initState + run hcCount steps ──
-                var aotRt = new AotRuntime(initState, loaded.EvalAll, clockId);
-                for (int hc = 0; hc < hcCount; hc++) aotRt.Step();
-                Console.WriteLine($"#   AotRuntime did {hcCount} step(s), last settle iter count = {aotRt.LastSettleIterations}");
+                int resetId = WireCore.LookupNode("res");
+                var aotRt = new AotRuntime(initState, loaded.EvalAll, clockId) { ResetNodeId = resetId };
+                long totalChanges = 0, totalFirstIterChanges = 0; int maxSettle = 0;
+                for (int hc = 0; hc < hcCount; hc++)
+                {
+                    aotRt.Step();
+                    totalChanges += aotRt.LastChangesPerSettle;
+                    totalFirstIterChanges += aotRt.LastChangesFirstIter;
+                    if (aotRt.LastSettleIterations > maxSettle) maxSettle = aotRt.LastSettleIterations;
+                }
+                Console.WriteLine($"#   AotRuntime did {hcCount} step(s):");
+                Console.WriteLine($"#     max settle iter   : {maxSettle}");
+                Console.WriteLine($"#     total node changes: {totalChanges:N0}  ({(double)totalChanges / hcCount:F1} per hc)");
+                Console.WriteLine($"#     first-iter changes: {totalFirstIterChanges:N0}  ({(double)totalFirstIterChanges / hcCount:F1} per hc)");
 
                 // ── D. S1: run hcCount steps from the SAME initial state (which S1 is already in) ──
                 for (int hc = 0; hc < hcCount; hc++) WireCore.Step(1);

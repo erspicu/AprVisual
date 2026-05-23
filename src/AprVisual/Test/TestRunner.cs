@@ -78,7 +78,8 @@ namespace AprVisual.Test
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--ir-interp":       WireCore.EnableIrInterp = true; break;     // Phase 2 P2.3: event-driven IR interpreter (Expr eval for extracted nodes, hybrid switch-level for the rest)
                     case "--codegen-dispatcher": WireCore.EnableCodegenDispatcher = true; break;  // Phase 2.5 Step 2: bitmask-polling macro-block dispatcher (dry-run; ALU eval but no output writeback)
-                    case "--codegen-writeback":  WireCore.EnableCodegenDispatcher = true; WireCore.EnableCodegenAluWriteback = true; break;  // Step 2.5: writeback enabled — CORRECTNESS RISK until op-selectors are verified
+                    case "--codegen-writeback":  WireCore.EnableCodegenDispatcher = true; WireCore.EnableCodegenAluWriteback = true; break;  // Step 2.5: writeback enabled (functional ≡ S1)
+                    case "--codegen-own":        WireCore.EnableCodegenDispatcher = true; WireCore.EnableCodegenAluWriteback = true; WireCore.EnableCodegenAluOwnInternal = true; break;   // Step 3.5a: own + write whole 133-node ALU closure (transparent latch approximation)
                     case "--ir-pure":         WireCore.EnableIrInterp = true; WireCore.IrPureOnly = true; break;   // debug: interp with pure-logic-only IR (isolate dispatch)
                     case "--ir-brute":        WireCore.IrBruteForce = true; break;       // debug: oblivious re-eval each half-cycle (isolate triggering vs eval bug)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)

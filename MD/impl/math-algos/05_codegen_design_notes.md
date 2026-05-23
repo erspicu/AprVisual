@@ -370,6 +370,23 @@ dotnet run --project src/AprVisual -c Release -- --alu-bench <rom>
 - 整體 hc/s 對比:S1 vs (S1 + ALU 走 native DLL via P/Invoke)
 這給「在 ALU-heavy 真實 workload 下,把 ALU IR 化能省下多少全域時間」的數字 —— 比合成測試向量更接近真實 codegen 收益的上限。先做合成向量的直接量測;若結果模糊再做這個。
 
+### 5.6a `--dump-block` 第一輪 ALU 量測(實作後實測,2026-05-XX)
+
+`dotnet run -- --dump-block "cpu.alu[7:0] cpu.notalu[7:0] cpu.alucout cpu.notalucout" --block-stop "cpu.alua[7:0] cpu.alub[7:0] cpu.alucin cpu.op-SUMS"`
+
+關鍵發現:
+1. **裸 channel-edge 反向閉包會炸開** —— 在 ALU outputs 上跑,closure 吃進 13,843 個 internal node(整顆 CPU 加大半個 PPU OAM/palette ram)。原因:ALU output → tri-state pass → 共用 data bus(`cpu.db`)→ 其他所有 driver/reader → 整個 chip。
+2. **修正**:閉包碰到「其他 pull-up 節點」就 STOP(它們本來就是另一個 gate output / 另一個 block 的 boundary,不該被吸進來)。改完後 closure 縮到 **133 internal + 477 transistors,完全符合 Gemini 估的「ALU ~100-200 gate」範圍**。
+3. **70 個 named auto-discovered boundary 中,32 個其實是 ALU 內部 bit-slice 中間 latch**:`cpu.#A.B[7:0]`(部分乘積)、`cpu.#(A+B)[7:0]`(部分和)、`cpu.#(AxB)[7:0]`(XOR)、`cpu.#(AxBxC)[7:0]`(三項積,full-adder generate)。**這正是 6502 ALU 的 carry-save bit-slice 構造的 1:1 暴露 —— 它們是 macro-block 內部 state(Gemini §2.5 的 `state_*` 欄位),不是外部 input**。
+4. 其餘 ~38 個 named boundary 是「真正的其他 block output」:`cpu.idl[7:0]`(internal data latch)、`cpu.p[4/6/7]`(P 暫存器)、`cpu.pchp[7:0]`/`pclp[7:0]`(PCH/PCL 暫存器 latch 階段)、`cpu.Pout[7:0]`、`cpu.0/ADL[0..2]`(address bus decoder)等。**這些確實是 ALU 的外部相依**(不過嚴格說大多是次要 dependency,不是 ALU 的「真正」input 路徑)。
+5. 109 個匿名 boundary 是 PLA / 內部控制信號的 pull-up 中介。
+
+**對未來 macro-block extractor 的設計啟示**:
+- 「stop at other pull-ups」這個簡單啟發式雖然會把 ALU 內部中間 latch 誤判為 boundary,但 closure 大小(133 internal)已經是合理估計。
+- 真正的 macro-block 切割演算法應該**進一步走過「明顯是內部的 pull-up」**(命名有 `#` / `~` 前綴的中間 latch),只在「真實 register / bus 端」停。
+- 這就是 Gemini §2.4 講的「Logic Flow Heuristic + Size-constrained Cut」演算法要解的問題。
+- 對 ALU 黑盒實驗夠用了 —— 我們不需要演算法精確切出邊界,只需手寫 C++ 模擬 6502 ALU 的**功能**(ADD/AND/OR/EOR + carry),然後跟 S1 同向量比對 ns/eval。
+
 ### 5.6 預期結果 + 決策
 
 | 結果 | 解讀 | 下一步 |

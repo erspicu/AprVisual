@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using AprVisual.Rom;
 using AprVisual.Sim;
@@ -25,7 +26,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null, dumpBlockOutputs = null, dumpBlockStops = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -56,6 +57,8 @@ namespace AprVisual.Test
                     case "--dump-levels":     dumpLevels = true; break;   // Phase 1: SCC/level structure of the netlist (levelization de-risk)
                     case "--verify-ir":       if (i + 1 < args.Length) verifyIrPath = args[++i]; break;   // Phase 2 P2.2: extract Expr for pure-logic subset, verify Expr eval == S1 per half-cycle
                     case "--dump-states":     if (i + 1 < args.Length) dumpStatesPath = args[++i]; break;  // Phase 2 debug: step N hc, dump high-node ids (diff S1 vs --ir-interp to find divergence)
+                    case "--dump-block":      if (i + 1 < args.Length) dumpBlockOutputs = args[++i]; break;  // Phase 2.5 codegen: reverse-closure a block from output names (Gemini r1 macro-block prep)
+                    case "--block-stop":      if (i + 1 < args.Length) dumpBlockStops = args[++i]; break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;   // A/B: skip the S1.5 lowering pass
@@ -92,6 +95,7 @@ namespace AprVisual.Test
             if (dumpLevels) return DumpLevels();
             if (verifyIrPath != null) return VerifyIr(verifyIrPath, benchHcCount);
             if (dumpStatesPath != null) return DumpStates(dumpStatesPath, benchHcCount);
+            if (dumpBlockOutputs != null) return DumpBlock(dumpBlockOutputs, dumpBlockStops);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (ppuDumpPath != null) return PpuDump(ppuDumpPath, shotFrames);
@@ -257,6 +261,172 @@ namespace AprVisual.Test
                 return totalMism == 0 ? 0 : 1;
             }
             finally { WireCore.Shutdown(); }
+        }
+
+        // ── Phase 2.5 codegen prep: reverse-closure a "macro-block" from output node names. Walks the
+        //    netlist BACKWARDS along channel edges (per transistor: gate + the-other-endpoint) until it
+        //    hits declared --block-stop inputs (or supply Npwr/Ngnd). Reports outputs / touched inputs /
+        //    declared-but-untouched / internal nodes / transistors involved. This is the boundary the
+        //    P/Invoke ALU experiment + future macro-block extractor will use. (Gemini r1 §5.2)
+        //
+        //    Example: dotnet run -- --dump-block "alu[7:0] notalu[7:0] alucout notalucout"
+        //                          --block-stop "alua[7:0] alub[7:0] alucin op-SUMS"
+        //                          --system-def-dir <defs>
+        private static int DumpBlock(string outputExpr, string? stopExpr)
+        {
+            try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
+            catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.Message}"); return 2; }
+
+            HashSet<int> ResolveSet(string expr)
+            {
+                var set = new HashSet<int>();
+                if (string.IsNullOrWhiteSpace(expr)) return set;
+                foreach (var part in expr.Split(new[] { ' ', ',', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var list = new List<int>();
+                    WireCore.ResolveNodes(part, list, quiet: true);
+                    foreach (int n in list) if (n != WireCore.EmptyNode) set.Add(n);
+                }
+                return set;
+            }
+
+            var outputs = ResolveSet(outputExpr);
+            var stops = ResolveSet(stopExpr ?? "");
+            stops.Add(WireCore.Npwr); stops.Add(WireCore.Ngnd);
+            if (outputs.Count == 0) { Console.Error.WriteLine("no valid output nodes resolved"); return 1; }
+
+            // Reverse BFS closure. For each node v, walk every transistor where v is a channel endpoint
+            // (TlistC1c2s + TlistC1gnd + TlistC1pwr — all in build-time node.C1c2s). Both the transistor's
+            // gate AND the other channel endpoint may affect v, so both are candidates. Stops:
+            //   (1) Supply (Npwr/Ngnd).
+            //   (2) Declared --block-stop inputs.
+            //   (3) ANY OTHER pull-up node (Node.Pullups > 0) — those are gate outputs of OTHER blocks,
+            //       so naturally a block boundary. Without this, the data bus + shared bus structures
+            //       drag in the entire chip (e.g. ALU output -> sb -> ACC -> all other drivers ...).
+            //       Pull-up boundary nodes are auto-collected into `discoveredBoundary` for the report
+            //       — user can move any into --block-stop explicitly if they care, but typically the
+            //       auto-set IS the right block boundary.
+            var closure = new HashSet<int>(outputs);
+            var queue = new Queue<int>(outputs);
+            var touchedStops = new HashSet<int>();
+            var discoveredBoundary = new HashSet<int>();   // pull-up nodes hit but not declared
+            var transistorsInvolved = new HashSet<int>();
+
+            while (queue.Count > 0)
+            {
+                int v = queue.Dequeue();
+                if ((uint)v >= (uint)WireCore.Nodes.Count) continue;
+                var node = WireCore.Nodes[v];
+                if (node == null) continue;
+                foreach (int tid in node.C1c2s)
+                {
+                    transistorsInvolved.Add(tid);
+                    var t = WireCore.Transistors[tid];
+                    int gate = t.Gate;
+                    int other = (t.C1 == v) ? t.C2 : t.C1;
+
+                    void Consider(int cand)
+                    {
+                        if (cand == v || cand == WireCore.Npwr || cand == WireCore.Ngnd) return;
+                        if (stops.Contains(cand)) { touchedStops.Add(cand); return; }
+                        if (!outputs.Contains(cand))
+                        {
+                            var cnode = (uint)cand < (uint)WireCore.Nodes.Count ? WireCore.Nodes[cand] : null;
+                            if (cnode != null && cnode.Pullups > 0)
+                            {
+                                discoveredBoundary.Add(cand);     // hit another gate output -> block boundary
+                                return;
+                            }
+                        }
+                        if (closure.Add(cand)) queue.Enqueue(cand);
+                    }
+                    Consider(gate);
+                    Consider(other);
+                }
+            }
+
+            var internalNodes = new HashSet<int>(closure); internalNodes.ExceptWith(outputs);
+            var declaredInputs = new HashSet<int>(stops); declaredInputs.Remove(WireCore.Npwr); declaredInputs.Remove(WireCore.Ngnd);
+            var untouched = new HashSet<int>(declaredInputs); untouched.ExceptWith(touchedStops);
+
+            Console.WriteLine("# block dump (reverse-closure from outputs along channel edges):");
+            Console.WriteLine($"#   outputs (declared):           {outputs.Count}");
+            Console.WriteLine($"#   inputs (declared as --block-stop): {declaredInputs.Count}  (+ Npwr/Ngnd auto)");
+            Console.WriteLine($"#   inputs actually touched:      {touchedStops.Count}");
+            Console.WriteLine($"#   inputs declared but UNTOUCHED:{untouched.Count}  (declared but never reached → over-spec)");
+            Console.WriteLine($"#   auto-discovered pull-up bdry: {discoveredBoundary.Count}  (other gate outputs hit → naturally another block's output; treated as inputs)");
+            Console.WriteLine($"#   internal nodes:               {internalNodes.Count}");
+            Console.WriteLine($"#   total closure:                {closure.Count}");
+            Console.WriteLine($"#   transistors involved:         {transistorsInvolved.Count}");
+
+            Console.WriteLine("# ");
+            Console.WriteLine("# === outputs (resolved) ===");
+            foreach (int v in outputs.OrderBy(x => x)) Console.WriteLine($"  {v,6}  {WireCore.GetNodeName(v)}");
+
+            Console.WriteLine("# ");
+            Console.WriteLine("# === inputs touched (good — these are the real block boundary) ===");
+            foreach (int v in touchedStops.OrderBy(x => x)) Console.WriteLine($"  {v,6}  {WireCore.GetNodeName(v)}");
+
+            if (untouched.Count > 0)
+            {
+                Console.WriteLine("# ");
+                Console.WriteLine("# === inputs declared but NEVER REACHED (consider removing) ===");
+                foreach (int v in untouched.OrderBy(x => x)) Console.WriteLine($"  {v,6}  {WireCore.GetNodeName(v)}");
+            }
+
+            if (discoveredBoundary.Count > 0)
+            {
+                int namedCount = discoveredBoundary.Count(v => !string.IsNullOrEmpty(WireCore.GetNodeName(v)) && WireCore.GetNodeName(v) != v.ToString());
+                int anonCount = discoveredBoundary.Count - namedCount;
+                Console.WriteLine("# ");
+                Console.WriteLine($"# === auto-discovered pull-up boundary ({discoveredBoundary.Count}: {namedCount} named, {anonCount} anonymous) ===");
+                Console.WriteLine("# (other gate outputs the block reaches via pass — the real block inputs)");
+                Console.WriteLine("# (showing the NAMED ones first; anonymous = likely PLA / internal mid pull-ups, less directly meaningful)");
+                foreach (int v in discoveredBoundary
+                    .Where(v => { string n = WireCore.GetNodeName(v); return !string.IsNullOrEmpty(n) && n != v.ToString(); })
+                    .OrderBy(v => WireCore.GetNodeName(v)))
+                {
+                    Console.WriteLine($"  {v,6}  {WireCore.GetNodeName(v)}");
+                }
+            }
+
+            // Name-prefix histogram: helps spot what subsystems got dragged in (eg "ir*", "pla*", "pcl*",
+            // "y*" register etc.) so we know what to add to --block-stop.
+            var prefixHist = new Dictionary<string, int>();
+            foreach (int v in internalNodes)
+            {
+                string name = WireCore.GetNodeName(v);
+                if (string.IsNullOrEmpty(name)) name = "(anon)";
+                // Extract the alphabetic prefix before any digit or non-letter
+                int k = 0;
+                while (k < name.Length && (char.IsLetter(name[k]) || name[k] == '.' || name[k] == '/' || name[k] == '_')) k++;
+                string pfx = k > 0 ? name.Substring(0, k) : name;
+                if (pfx.Length > 24) pfx = pfx.Substring(0, 24);
+                prefixHist.TryGetValue(pfx, out int c);
+                prefixHist[pfx] = c + 1;
+            }
+            Console.WriteLine("# ");
+            Console.WriteLine($"# === internal-node name-prefix histogram (top 30) — what subsystems got pulled in ===");
+            foreach (var kv in prefixHist.OrderByDescending(p => p.Value).Take(30))
+                Console.WriteLine($"  {kv.Value,5}  {kv.Key}*");
+
+            Console.WriteLine("# ");
+            Console.WriteLine($"# === internal nodes (first 60 by name) ===");
+            int shown = 0;
+            foreach (int v in internalNodes.OrderBy(x => WireCore.GetNodeName(x)))
+            {
+                Console.WriteLine($"  {v,6}  {WireCore.GetNodeName(v)}");
+                if (++shown >= 60) break;
+            }
+            if (internalNodes.Count > 60) Console.WriteLine($"  ... ({internalNodes.Count - 60} more)");
+
+            // Sanity heuristic: closure size suggests how clean the boundary is.
+            if (closure.Count > 500)
+                Console.WriteLine($"# WARNING: closure size {closure.Count} is large — likely under-specified --block-stop (closure ate into other subsystems).");
+            else if (closure.Count < 50)
+                Console.WriteLine($"# NOTE: closure size {closure.Count} is small — verify it actually covers the intended block.");
+
+            return 0;
         }
 
         // ── Phase 2 debug: step N half-cycles, print every live HIGH node's id (sorted). Diff the S1

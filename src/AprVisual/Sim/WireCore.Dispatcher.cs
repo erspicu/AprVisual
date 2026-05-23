@@ -390,5 +390,45 @@ namespace AprVisual.Sim
             if (CodegenInputWatched != null && CodegenInputWatched[nn] != 0)
                 _dirtyBlockMask |= 1UL << BLOCK_ALU;
         }
+
+        /// <summary>aot-codegen Phase D-4 helper: clear all CodegenDispatcher state for a clean
+        /// S1-only run. Reverses RegisterAotOwnership without rebuilding the netlist.</summary>
+        public static void ClearAotOwnership()
+        {
+            EnableCodegenDispatcher = false;
+            EnableCodegenAluWriteback = false;
+            EnableCodegenAluOwnInternal = false;
+            // CodegenOwned/CodegenInputWatched are unmanaged pointers — leave allocated, just zero-out
+            if (CodegenOwned != null)
+                for (int i = 0; i < NodeCount; i++) CodegenOwned[i] = 0;
+            if (CodegenInputWatched != null)
+                for (int i = 0; i < NodeCount; i++) CodegenInputWatched[i] = 0;
+            _dirtyBlockMask = 0;
+            LastDispatcherStats = "(codegen dispatcher cleared)";
+        }
+
+        /// <summary>aot-codegen Phase D-4: register AOT-engine ownership of nodeIds. Allocates
+        /// CodegenOwned (if needed), marks each id as 1, and enables EnableCodegenDispatcher so
+        /// the Option D BFS-block in AddNodeToGroup fires for these nodes.
+        ///
+        /// Does NOT touch the ALU-specific setup (_aluInputNodes etc.) — those stay empty so
+        /// DispatcherRun's Eval_AluBlock never fires (no watched inputs → bit 0 stays clear).
+        /// Caller is responsible for actually writing the right values into NodeStates[id] before
+        /// each S1 settle (typically via the loaded AOT delegate).</summary>
+        public static void RegisterAotOwnership(int[] nodeIds)
+        {
+            if (NodeCount < 3) throw new InvalidOperationException("RegisterAotOwnership: netlist not powered (call after Reset/LoadSystem)");
+            if (CodegenOwned == null) CodegenOwned = AllocArray<byte>(NodeCount);
+            int marked = 0;
+            foreach (int nn in nodeIds)
+            {
+                if ((uint)nn >= (uint)NodeCount) continue;
+                if (nn == Npwr || nn == Ngnd) continue;
+                if (CodegenOwned[nn] == 0) marked++;
+                CodegenOwned[nn] = 1;
+            }
+            EnableCodegenDispatcher = true;
+            LastDispatcherStats = $"aot-engine: {marked} new nodes registered as CodegenOwned (Option D BFS-block enabled)";
+        }
     }
 }

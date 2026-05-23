@@ -17,6 +17,115 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase D-4: AOT actually replaces S1 work. Marks AOT-covered nodes as
+        /// CodegenOwned so S1's ComputeNodeGroup BFS stops at them (Option D); calls AOT
+        /// delegate BEFORE each S1 step so the values are pre-written. Then S1 settles but
+        /// skips owned nodes — measurable hc/s gain if AOT covers enough nodes.</summary>
+        public static int RunWithAotSkippingS1(string romPath, int hcCount, int minEmittable)
+        {
+            if (hcCount < 1) hcCount = 30_000;
+            if (minEmittable < 1) minEmittable = 5;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-skip: {System.IO.Path.GetFileName(romPath)} — {hcCount:N0} hc per pass (AOT replaces S1 for emittable nodes)");
+
+            // ── pre-build the AOT (so JIT warmup is done before timed passes) ──
+            AotRoslynLoader.CompileResult? loaded = null;
+            int[]? evaluatedNodeIds = null;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var partition = WireCore.AutoPartition();
+                var picked = new List<(WireCore.Block pb, AotBlock ab)>();
+                foreach (var pb in partition)
+                {
+                    var ab = AotBlockBuilder.Build(pb);
+                    if (ab.Evals.Count >= minEmittable) picked.Add((pb, ab));
+                }
+                int totalEvals = 0; foreach (var (_, ab) in picked) totalEvals += ab.Evals.Count;
+                string source = AotBlockBuilder.EmitMasterSource(picked, System.IO.Path.GetFileName(romPath));
+                Console.WriteLine($"# AOT: {picked.Count} blocks, {totalEvals} emittable nodes, source {source.Length:N0} bytes");
+
+                var swCompile = System.Diagnostics.Stopwatch.StartNew();
+                loaded = AotRoslynLoader.CompileMaster(source);
+                swCompile.Stop();
+                if (!loaded.Success || loaded.EvalAll == null)
+                {
+                    Console.WriteLine($"# AOT compile FAILED:");
+                    Console.WriteLine(loaded.Log);
+                    return 3;
+                }
+                Console.WriteLine($"# AOT compile + load: {swCompile.Elapsed.TotalSeconds:F2} s");
+
+                // collect all unique evaluated node IDs for ownership registration
+                var idSet = new HashSet<int>();
+                foreach (var (_, ab) in picked)
+                    foreach (var (nn, _, _) in ab.Evals) idSet.Add(nn);
+                evaluatedNodeIds = new int[idSet.Count];
+                idSet.CopyTo(evaluatedNodeIds);
+                Array.Sort(evaluatedNodeIds);
+                Console.WriteLine($"# AOT will own {evaluatedNodeIds.Length:N0} unique node IDs");
+
+                // JIT-warm the delegate
+                unsafe { for (int i = 0; i < 16; i++) loaded.EvalAll(WireCore.NodeStates); }
+            }
+            finally { WireCore.Shutdown(); }
+
+            // ── 4 timed passes ──
+            var results = new List<(string label, double seconds, ulong checksum)>();
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool aotSkip = (pass == 0 || pass == 2);
+                string label = aotSkip ? "AOT-skip-S1" : "S1-only";
+                try
+                {
+                    WireCore.LoadSystem(rom);
+                    // Always clear any leftover codegen-dispatcher state before deciding mode
+                    WireCore.ClearAotOwnership();
+                    if (aotSkip)
+                    {
+                        WireCore.RegisterAotOwnership(evaluatedNodeIds!);
+                    }
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    if (aotSkip)
+                    {
+                        unsafe
+                        {
+                            for (int hc = 0; hc < hcCount; hc++)
+                            {
+                                loaded!.EvalAll!(WireCore.NodeStates);   // AOT writes pre-step
+                                WireCore.Step(1);                          // S1 settles, BFS-block stops at owned
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int hc = 0; hc < hcCount; hc++) WireCore.Step(1);
+                    }
+                    sw.Stop();
+                    ulong cs = ChecksumNodeStates();
+                    results.Add((label, sw.Elapsed.TotalSeconds, cs));
+                    Console.WriteLine($"# pass {pass + 1} {label,-12}: {hcCount / sw.Elapsed.TotalSeconds,8:N0} hc/s ({sw.Elapsed.TotalSeconds:F3} s)  checksum 0x{cs:X16}");
+                }
+                finally { WireCore.Shutdown(); }
+            }
+
+            // ── analysis ──
+            double s1Avg  = results.Where(r => r.label == "S1-only").Select(r => r.seconds).Average();
+            double aotAvg = results.Where(r => r.label == "AOT-skip-S1").Select(r => r.seconds).Average();
+            bool allChecksumsEqual = results.All(r => r.checksum == results[0].checksum);
+            double speedup = s1Avg / aotAvg;
+            Console.WriteLine($"# === Phase D-4 averaged ===");
+            Console.WriteLine($"#   S1-only       avg: {hcCount / s1Avg,8:N0} hc/s ({s1Avg:F3} s)");
+            Console.WriteLine($"#   AOT-skip-S1   avg: {hcCount / aotAvg,8:N0} hc/s ({aotAvg:F3} s)");
+            string speedLabel = speedup > 1.01 ? $"SPEEDUP {speedup:F2}×" : speedup < 0.99 ? $"SLOWDOWN {speedup:F2}×" : "no significant change";
+            Console.WriteLine($"#   speedup           : {speedLabel}");
+            Console.WriteLine($"#   checksums all equal: {(allChecksumsEqual ? "✓ functional equivalence verified" : "✗ DIVERGENCE - trace not byte-equal")}");
+            if (!allChecksumsEqual)
+                foreach (var r in results) Console.WriteLine($"#     {r.label}: 0x{r.checksum:X16}");
+            return allChecksumsEqual ? 0 : 1;
+        }
+
         /// <summary>Phase D-3: AOT engine in the simulation hot path. Loads the master AOT, then
         /// runs the simulation with AOT called AFTER each S1 step. AOT predictions overwrite
         /// the corresponding NodeStates entries — since they should be byte-equal to S1's just-

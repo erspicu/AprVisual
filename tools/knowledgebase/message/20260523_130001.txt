@@ -1,0 +1,476 @@
+Timestamp: 2026-05-23T13:00:01
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# NES 模擬器 IR codegen 設計討論
+
+我正在開發一個 NES(2A03 CPU + 2C02 PPU)的開關層級模擬器。需要你對「**從 event-driven interpreter IR 升級到 LLVM codegen**」這個設計轉折給出深度分析。
+
+請用中文回答。請盡量具體、給出機制性的拆解(不要泛泛而談)。
+
+---
+
+## 1. 專案背景
+
+### 1.1 兩條 branch 的設計分歧
+
+**`main` branch(已收尾,已證偽)**:走「**oblivious / levelized compiled simulation**」路線 —— 把整個 NES 的網表(~14,723 個 live node)抽成 boolean Expr DAG,拓樸排序,每個 clock phase 把全部節點按序算一遍。設計中心是「能讓 IR bit-sliced 上 GPU」。
+
+**結果**:在 CPU 上(LLVM-MCJIT、C# emit、各 codegen backend),**比 S1 開關層級直譯器慢 3–6×**。原因:S1 用 dirty-set 每 half-cycle 平均只算 ~610 個 RecalcNode(D≈610),而 oblivious codegen 每 half-cycle 算 14,723 個。LLVM 把每個 ops 優化得很漂亮,但**多做 24× 的工** —— O(N) 詛咒 + I-cache 崩潰。Real-time(~840×)在這條路徑上被證實**不可達**,專案在 main 上被收尾。
+
+**`math-algos` branch(目前在這條,正在分析下一步)**:走「**event-driven compiled simulation for CPU**」路線 —— 保留 S1 的 dirty-set 稀疏性,IR/codegen 必須 *服務於* event-driven(只在輸入變動時 re-eval),不能批次。
+- 設計中心:「CPU 要少做事」。
+- real-time **不是目標**(已放棄);目標是「在 CPU 上做到最強的 single-instance 模擬」。
+
+### 1.2 S1 是什麼(golden reference)
+
+開關層級模擬器(port of MetalNES):
+- 每個節點維護 `byte NodeStates[]`,每顆 NMOS transistor `(Gate, C1, C2)`。
+- 事件驅動:`SetNodeState(g)` 改變 g 的值時,把 g 所 gate 的 transistor 的 channel 端點 enqueue。
+- `ProcessQueue` 雙緩衝 dirty list,逐 wave 處理:`RecalcNode(nn)` → `ComputeNodeGroup(nn)` 做 BFS 走連通群(沿著導通中的 transistor channel),收集 flags(Gnd/Pwr/PullUp/SetHigh/SetLow/...),最後用 256-entry LUT `FlagsToState[]` 解析出群的最終值,`SetNodeState` 每個群成員。
+- D ≈ 610 RecalcNode/hc(half-cycle);平均一個半週期 ~25µs。
+
+幾項已落地的優化(都仍在 S1 內,不算 IR):
+- S1.5 lowering(合併 always-on connection、刪 dead 電晶體)
+- `#1` merge-pruning(value-preserving 的合併 re-eval 跳過,−27% D,+32%)
+- 策略二 fast-path(O(1) RecalcNode for pure-logic nodes,bit-identical)
+- **Phase 1 整體 = 1.37× over S1 baseline**(這就是 Phase 1 的天花板)
+
+`math-algos` branch Phase 1 還做了診斷:結構性「level 化排程」是死路 —— full graph 94.5% 在一個 13,680-node 的 SCC 裡(雙向 pass-transistor 耦合的保守過近似)。**這個巨型 SCC 正是 IR 要溶掉的東西**(有向 next-state 替每顆 pass transistor 選定方向 → 組合邏輯無環 + 只剩 ≤44 節點的顯式 latch SCC)。
+
+---
+
+## 2. Phase 2:event-driven IR interpreter — 已完成,**天花板 = 與 S1 持平(±2% 雜訊)**
+
+### 2.1 最終 IR 設計
+
+**核心結構**(`WireCore.Ir.cs`):
+```csharp
+enum ExprOp : byte { Const0, Const1, NodeRef, Not, Or, And, Mux, Hold }
+struct IrNode { ExprOp Op; int A, B, C; }
+IrNode* _irFlat;            // unmanaged flat pool (no bounds check)
+int[] IrRoot;               // -1 = hybrid; >=0 = root expr index in _irFlat
+byte* IrAbsorbed;           // 1 = absorbed mid (inert, skipped)
+byte* IrUseLut;             // 1 = LUT'd; 0 = fall back to EvalExpr
+int* IrLutInputStart;       // CSR: per-node input slots
+int* IrLutInputs;
+int* IrLutTableStart;       // CSR: per-node truth tables
+byte* IrLutTables;          // flat byte[2^K] tables, K<=14
+byte* IrClass;              // collapsed dispatch (Hybrid/Absorbed/Lut/Expr)
+int* _revDepStart;          // CSR: gate -> IR consumers
+int* _revDepList;
+byte* IrHasConsumers;       // 1 iff revDep non-empty (skip the loop)
+```
+
+### 2.2 抽取演算法(option B,island-based)
+
+**Pass-connected component** = 透過 pass transistor(TlistC1c2s)union-find 起來的最大節點集 = 可能形成導通群的全部節點。
+
+對每個 island:
+1. **單 pull-up 乾淨島**(典型 NMOS 邏輯閘):輸出 v 的 Expr = `NOT(PullDownCond(v))`;PullDownCond 是 DFS 沿著 v 的 pulldown 透過 pass channel 與 gnd channel 走到 GND,回傳 OR over (paths to GND, each = AND of channel gates)。其他成員 = absorbed mid(無 pull-up + gate-nothing)。
+2. **多 pull-up tri-state bus**(P2.4 #42 part):bus_line = 直連最多 pull-up 的非-pull-up 節點。每個 driver `PullDownCond` 停在 bus_line;bus_line 的 Expr = `Mux(en_1 ? d_1 : Mux(en_2 ? d_2 : ... : NodeRef(bus_line)))`。末層 self-ref 提供 Hold 語意(透過 event-driven settle + SetNodeState 早返回實現)。
+
+**關鍵發現:封閉的 pass-island → IR 節點不會與 hybrid 節點共群** → 沒有 IR/hybrid 求值互相無法觸發的問題。這個「整島 + 吸收」模型是花了 5 個 firing 在 bug 上才找到的。
+
+### 2.3 Runtime dispatch
+
+```csharp
+void RecalcNode(int nn) {
+    if (EnableIrInterp && IrClass != null) {
+        byte cls = IrClass[nn];
+        if (cls != Hybrid) {
+            if (cls == Absorbed) return;
+            SetNodeState(nn, cls == Lut ? EvalLut(nn) : EvalExpr(IrRoot[nn]));
+            return;
+        }
+    }
+    // S1 hybrid path: ComputeNodeGroup + group walk + FlagsToState LUT
+}
+
+byte EvalLut(int nn) {
+    int s = IrLutInputStart[nn], e = IrLutInputStart[nn+1];
+    int K = e - s, mask = 0;
+    int* inputs = IrLutInputs + s;
+    for (int i=0; i<K; i++) mask |= NodeStates[inputs[i]] << i;
+    return IrLutTables[IrLutTableStart[nn] + mask];
+}
+```
+
+`SetNodeState(nn, newState)` 改變 NodeStates 時:
+- gate-fanout(同 S1):把 nn 所 gate 的 transistor 的 channel 端點 enqueue。
+- revDep enqueue:把所有 Expr referencing nn 的 IR 節點 enqueue(`IrHasConsumers[nn]` gate 掉 78% 沒消費者的節點)。
+
+### 2.4 量測結果
+
+```
+最終覆蓋:
+  3,602 IR nodes extracted
+    = 3,408 logic       (1-pull-up clean island)
+    + 146 multi-node    (stack-style series-parallel pull-down)
+    + 48 bus-islands    (multi-pull tri-state bus, Mux pattern)
+  + 246 absorbed mids
+  1,592 islands rejected: multi-pull=68 / no-pull=1,084 / mid-gates=440
+  LUT: 3,698 tables (88KB total), 8 nodes K>14 fall back to recursive EvalExpr
+  revDep: ~6k edges; 3,217 nodes have >=1 IR consumer
+
+效能(full_palette ROM, bench-hc 200000, 5 trials each):
+  S1 baseline    : ~41,775 hc/s (range 40,856 - 42,741)
+  --ir-interp    : ~41,102 hc/s (range 40,590 - 41,491)
+  ratio          : 0.984 (~1.6% slower; within ±2% noise)
+  -> EFFECTIVELY BREAK-EVEN
+
+D 分布(--ir-interp --count-events):
+  D = 613 RecalcNode/hc
+    IR path:    14.7%   <- LUT lookup, fast
+    absorbed:    0.7%   <- skipped, free
+    HYBRID:     84.6%   <- still going through S1 group walk
+
+LUT 平均 K = 1.86(輸入數)
+  -> 多數 IR 節點是 inverter(K=1) 或 NOR2/NAND2(K=2-3)
+  -> 這些在 S1 都是 1-node 群,本來就極快
+```
+
+### 2.5 為什麼是 break-even — 結構分析
+
+1. **NES 的 NMOS gate 大多小 fanin**(K 平均 1.86)。LUT 比 S1 的 1-node 群走訪只省了幾個 ns/node。
+2. **S1 對單節點群本來就快**:`AddNodeToGroup` 設 `_inGroup[nn]=1`,讀 flags,讀 TlistC1gnd/pwr 各 ~幾條,GetNodeValue 查 256-entry LUT。總共 ~10–20 ns/recalc。LUT eval 也是類似量級。
+3. **熱的多節點工作在「拒絕的」islands 裡**:
+   - 多階複雜 bus(cpu.db / cpu.ab):有中間 latch、多 pass、enable 重疊。簡單 tri-state 模式抓不到(我抽到的 48 個 bus-island 不是熱的那批)。
+   - 1,084 個 no-pull 動態浮接群:PPU shift register、sprite latch 等。需要 Hold/Mux 動態節點建模(計畫文件列為「失敗點 #1:dynamic node 抽象錯」)。
+4. **D 分散**:610 個 recalc 散在數千個節點上,沒有特別集中的瓶頸點。
+
+**所以 IR machinery 的 overhead(dispatch + revDep + SetNodeState)≈ LUT 帶來的常數節省** → 淨效應 = 0。
+
+---
+
+## 3. 目標:LLVM codegen,把常數因子壓到極致
+
+接下來想做 **LLVM-based AOT codegen**(或 LLVM-MCJIT)。要把 IR 轉成原生機械碼,讓 LLVM 做暫存器分配、指令排程、可能的 SIMD,**把直譯器的 dispatch overhead 完全消掉**。
+
+**但是 main 的 S4 已經在 codegen 路徑上撞過牆(3–6× slower)**。我們不想重蹈覆轍。
+
+### 3.1 已知雷區(來自實證 + 我先前問過 Gemini 的 r2.txt 分析)
+
+(1) **Giant Oblivious Function 路線**:整個網表生成一個 14,723-line bitwise 函數,每 half-cycle 呼叫。
+- LLVM 優化得很漂亮,但仍是 O(N) 工作量,而 S1 是 O(D≈610)。
+- 數萬行 codegen → I-cache 崩潰。
+- **這就是 main 撞過的牆**。
+
+(2) **Per-node JIT(Function Pointer 排隊)**:保留 dirty queue,每個 RecalcNode 編成獨立小函數,queue 存函數指標。
+- 每次 dispatch 是 indirect branch → CPU 分支預測無解 → pipeline stall。
+- LLVM 快機械碼的好處被 dispatcher overhead 吃光。
+
+### 3.2 已知正解方向(r2 提示)
+
+- **Macro-block(粗粒度)event-driven**:把整網表分成 ~50–100 個 macro-block(整顆 ALU、整顆 PPU 掃描計數器),每個 block 一個 LLVM 函數 `void Eval_X(byte* in, byte* out, byte* internal)`。Queue 排在 block 層級。
+- **block 內**可以 oblivious(block 內所有 gate 一次算完);**block 之間** event-driven。
+- **記憶體布局**保留 RCM 順序(已經做過,L1d 友善)。
+- **建議先 P/Invoke 驗收**:挑一個典型 block,手寫 C++ 模擬 LLVM 最終會產出的東西,P/Invoke 給 C# 呼叫,量比 S1 快多少。如果不到 5× → 不值得寫整個 codegen backend。
+
+### 3.3 已暫不打算碰的方向
+
+- GPU bit-slicing(已在 main 證偽,不適合 single instance)。
+- VLIW / SIMD 向量化(NES 大多 sequential dependent,SIMD lane 機會少,除了 PPU 8-sprite eval 可能可以 lane-parallel)。
+- Trace-based JIT(進階,先不投入)。
+
+---
+
+## 4. 開放問題(這是希望你深度回答的部分)
+
+請就以下 7 個問題給出**機制性、有具體形式的**回答,不要泛泛而論。我有工程經驗,能消化技術細節。
+
+### Q1. interpreter 友好 vs compiler 友好的 IR shape — 深度拆解
+
+我們現在的 IR 是「per-node Expr(small tree, K≈1.86)+ LUT(byte[2^K])」—— 這對 *interpreter* 是極致(O(1) branch-free eval)。但這個形狀對 *LLVM codegen* 是錯的。
+
+**請你具體解釋**:
+- 從 IR 設計理論角度,為什麼「per-node 小 Expr」對 compiler 不友好?(不只是「block 太小」這個結論,我想要*機制*層級的原因 —— LLVM 的優化 pass 怎麼運作的,什麼樣的 IR 形狀讓它能發揮)
+- LLVM 真正吃得開的 IR 形狀有哪些關鍵性質?(eg. SSA、basic block 粒度、phi 節點、control-flow graph、loop nesting?哪些對我們這個 domain 必要,哪些是 overkill?)
+- 給一個假想的 NES decoder 區塊,「對 interpreter 好的 IR」跟「對 LLVM 好的 IR」分別大概長什麼樣?能否給個對照範例(sketch 級別即可)?
+
+### Q2. 在我們這個 domain(NES、event-driven、小 fanin、熱點在複雜 bus)上,LLVM 真正能讓我們贏的關鍵在哪?
+
+說實在的,我擔心 LLVM 救不了我們:
+- D 散在數千節點上,沒有單一熱點。
+- gate 多半小 fanin,單顆優化空間有限。
+- 真熱的 bus(cpu.db/ab)結構複雜,結構性抽取已失敗。
+
+**請你判斷**:LLVM 對我們這顆 NES 真實能帶來的常數因子改善大概是多少量級?是 1.5×?3×?10×?根據什麼推估?(eg. 看 hand-written C++ for NMOS gate cluster vs interpreter overhead 的比較,有任何業界經驗值嗎?)
+
+### Q3. 從 per-node Expr 升級到 macro-block — 具體怎麼設計?
+
+最關鍵的設計問題。請給出具體建議:
+
+(a) **block 的切割演算法**:怎麼決定哪些節點該歸到同一個 macro-block?有幾個候選方向 — 我想聽你的判斷:
+- 按 gate-only SCC 連通分量分(自然的「同步邏輯島」)?
+- 按 pass-island 分(現在已有的 union-find)?
+- 按 functional unit(ALU、decoder、PC、sprite eval ...)手動標註?
+- 按 cluster heuristic(eg. 強連通的小群、最大化 internal edges / minimum external interface)?
+
+(b) **block 邊界的形式化**:每個 block 需要明確定義:
+- Inputs(block 外的節點,被 block 內邏輯讀取)
+- Outputs(block 內的節點,被 block 外讀取)
+- Internal state(block 內節點,既不外讀也不外寫)
+- 邊界節點(同時是 input 和 output?例如 latch 的兩端)
+
+具體怎麼自動偵測 + 用什麼資料結構表達?
+
+(c) **動態節點(no-pull, Hold 語意)在 macro-block 框架下如何處理**? 1,084 個 no-pull islands 之前在 interpreter 框架下我們放棄了(失敗點 #1 風險太高)。在 macro-block 框架下:
+- 動態節點可以變成 block 內 local state(放暫存器),hold 自然發生?
+- 還是仍然需要顯式的 NodeRef-to-previous-round?
+- 怎麼確保 LLVM 不會錯誤地把 hold 變數常數摺疊?
+
+### Q4. block 內怎麼安排執行順序?
+
+block 內可以 oblivious(全部算一遍)還是仍需要某種 schedule?
+- 如果 oblivious:LLVM 會自動 dead-code-eliminate 不需要的計算嗎?
+- 如果有 schedule:給每個 block 一個拓樸排序、按序執行 next-state?
+- block 內如果有 latch(feedback),怎麼處理?(eg. SR-latch:Q ← NOR(R, Qbar_prev),需要區分 prev / new)
+
+### Q5. block-level dirty queue — 怎麼設計才不會掉回 indirect-branch 死路?
+
+我擔心 block-level queue 仍是 function-pointer dispatch(`queue.Dequeue() → call FunctionPointer`),CPU 分支預測一樣慘。
+- 是否有更聰明的 dispatch?
+- block 數量 50–100 — 是否可以全部一次掃,跳過未變動的(每個 block 一個 dirty bit)?這算「mini-oblivious within blocks layer」,會比 indirect branch 好嗎?
+
+### Q6. P/Invoke 黑盒驗收 — 從哪個 block 開始最好?
+
+要先寫一個典型 block 的 C++(模擬 LLVM 最終會輸出的東西),量比 S1 快多少,才決定要不要寫整個 backend。
+
+挑哪個 block 最有代表性 + 最容易隔離?
+- CPU instruction decoder(~50-100 個 gate,純組合,但跟 IR/PC 重度耦合)
+- ALU(~80-150 個 gate,有 carry chain)
+- PPU sprite evaluation(~64 entries × 4-byte SRAM + parallel compare,有大量 latch)
+- 某個 sub-block(eg. 6502 P 暫存器的 N/Z 計算)
+- 某條 bus 的 sink-only 區段
+
+有什麼判斷標準?
+
+### Q7. 「混合」設計是否可行?
+
+考量我們的 IR 對小 gate 已經很省(LUT O(1)),不像對熱 block 那麼需要 codegen:
+- 是否可能 hot block 走 LLVM-native code,cold block(小 gate)繼續走 interpreter LUT?
+- 切換邊界怎麼設?
+- 對 cache locality 是否有影響?
+
+---
+
+## 最後
+
+如果你的觀點跟前面 r1/r2 不一致,請說。我希望聽到誠實、有根據、可能反駁我們現在路徑的看法,不是禮貌附和。
+
+謝謝。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常硬核且極具挑戰性的工程優化問題。你已經非常精確地摸到了開關層級模擬（Switch-level Simulation）與編譯式模擬（Compiled Simulation）的物理邊界。
+
+`main` 分支的失敗（O(N) 詛咒）與 `math-algos` 分支的打平（Dispatch overhead 抵銷了 Eval 加速）是非常經典的 EDA/Simulator 發展史縮影。
+
+接下來我們來深度拆解「**Macro-block Event-driven LLVM Codegen**」這條路徑。以下是針對你 7 個問題的機制性回答。
+
+---
+
+### Q1. interpreter 友好 vs compiler 友好的 IR shape — 深度拆解
+
+**1. 為什麼「per-node 小 Expr」對編譯器不友好？**
+在直譯器中，節點之間的資料傳遞是透過 `NodeStates` 陣列（Memory），這是為了讓動態調度（Event-driven）有統一的介面。
+如果把這種細粒度的 IR 直接餵給 LLVM，LLVM 看到的會是：
+```llvm
+; 每個 node 被轉譯成獨立的 block 或 function
+%in1 = load i8, ptr %state_A
+%in2 = load i8, ptr %state_B
+%out = and i8 %in1, %in2
+store i8 %out, ptr %state_C
+```
+**機制性崩潰點**：
+LLVM 的核心優化引擎（如 `mem2reg` pass, InstCombine）依賴於 **SSA (Static Single Assignment)** 和**足夠大的 Basic Block (BB)**。
+*   如果 scope 太小（每個節點獨立），LLVM 無法將 `state_A`, `state_B` 提升到 CPU 的硬體暫存器（Registers）。
+*   結果就是產生滿天飛的 Load/Store 指令。原生機械碼不僅沒有變快，反而因為失去了直譯器 L1 Cache 的緊湊性，造成大量的 Memory Traffic 和指令快取（I-cache）碎片化。
+
+**2. LLVM 真正吃得開的 IR 形狀關鍵性質：**
+*   **大 Basic Block**：將幾十到上百個邏輯閘壓平在一個沒有 Control Flow (分支) 的 Block 內。
+*   **純 SSA 資料流**：完全摒棄中間陣列存取。`%node3 = and i1 %node1, %node2`。只有在 Macro-block 的**最頭（Input）**和**最尾（Output）**才發生 Memory Load/Store。
+*   **Bit-packing (可選但極強)**：把 8 個獨立的 NMOS 狀態打包進一個 `i8` 或 `i32`，讓 LLVM 的 `InstCombine` 自動幫你做平行位元運算。
+
+**3. 對照範例 (Sketch)**
+假設有一個 3-gate 邏輯：`D = AND(A, B); E = NOT(D); F = OR(E, C)`
+
+*   **Interpreter-Friendly IR (現有)**
+    `[Node F]: LUT_id=15, inputs=[Node E, Node C]`
+    極度依賴統一的 EvalLoop 去查表，資料流是隱式的（透過全域陣列）。
+*   **Compiler-Friendly IR (LLVM 期望)**
+    ```llvm
+    define void @Eval_MacroBlock_X(ptr %inputs, ptr %outputs) {
+      ; 一次性讀取邊界
+      %A = load i1, ptr %inputs[0]
+      %B = load i1, ptr %inputs[1]
+      %C = load i1, ptr %inputs[2]
+
+      ; 純暫存器 SSA 運算 (零 memory overhead)
+      %D = and i1 %A, %B
+      %E = xor i1 %D, true
+      %F = or i1 %E, %C
+
+      ; 一次性寫回邊界
+      store i1 %F, ptr %outputs[0]
+      ret void
+    }
+    ```
+
+---
+
+### Q2. LLVM 真正能讓我們贏的關鍵在哪？大概能贏多少？
+
+**贏的關鍵機制**：
+直譯器的瓶頸不在「算邏輯」（查 LUT 只要幾個 ns），而在於 **「狀態切換與分派（Dispatch）」**。
+`queue.Dequeue()` -> `判斷 NodeType` -> `讀取依賴` -> `計算` -> `寫回 NodeStates` -> `判斷 fanout 是否 enqueue`。
+這個過程在 x86 上大約需要 15–30 cycles (包含 branch misprediction, L1d 延遲)。
+
+LLVM 的優勢在於：**把 Block 內的 Dispatch Overhead 徹底歸零**。
+在 Block 內部，節點傳遞變成了暫存器之間的 hard-wiring（0 cycles 延遲，由 CPU Pipeline 隱藏）。
+
+**量級推估**：
+*   **天花板（Amdahl's Law）**：目前 D ≈ 610/hc。如果我們把 610 個散落的節點，聚合成約 10-15 個活躍的 Macro-block 被呼叫。
+*   每個 Macro-block 內部假設平均算 60 個 gate。這 60 個 gate 在 LLVM 編譯後大約是 60 條 ALU 指令，執行時間 < 20ns。
+*   相對於直譯器算 60 個 gate 需要 `60 * 15ns = 900ns`。
+*   **保守估計**：在 Block 層級內是 10x-20x 的加速。但扣除 Block 之間的 Event-driven overhead（Block enqueue/dequeue），**真實的 Global Speedup 預計落在 2.5× 到 4× 之間**。
+（業界經驗：Verilator 把 event-driven 轉成 oblivious compiled 時通常有 10x 加速，但因為我們只能做 Macro-block，所以打個折算 3x-4x）。
+
+---
+
+### Q3. 從 per-node Expr 升級到 macro-block — 具體怎麼設計？
+
+這是最核心的工程。
+
+**(a) Block 的切割演算法**
+不要手動標註，也不要單純依賴 SCC。建議採用 **Hypergraph Partitioning (例如 METIS 演算法的思想)** 加上 **Logic Flow Heuristic**：
+1.  **Bottom-up 聚合**：從現有的 Clean Pass-island 開始（它們是不可分割的原子）。
+2.  **Topological Clustering**：如果 Island A 只有一個 fanout 指向 Island B，把它們 merge。這消除了 A 到 B 的 dispatch overhead。
+3.  **Size-constrained Cut**：目標是讓每個 Block 包含 50–250 個邏輯閘。最小化 Block 之間的 external edges (Cut-set)。可以使用簡單的 Greedy 演算法：隨機選種子，沿著 fanout/fanin 吸收節點，直到達到 size limit 或遇到高度 fanout 的節點（如 Clock 樹、大 Bus）。
+
+**(b) Block 邊界的形式化**
+必須在生成 LLVM IR 前，靜態分析出每個 Block 的 Signature。
+*   **Inputs**: 被 Block 內讀取，但在 Block 外驅動的節點。
+*   **Outputs**: 在 Block 內驅動，但在 Block 外被讀取的節點。
+*   **Internal State**: 僅在 Block 內部的動態節點 (Laches)。
+*   **資料結構表達**：
+    每個 Block 產生一個獨立的 Context Struct：
+    ```cpp
+    struct Block_ALU_Context {
+        // Inputs 直接宣告為指標，由 Dispatcher 在初始化時綁定到全域 NodeStates 或其他 Block 的 Outputs
+        const uint8_t* in_A; 
+        uint8_t out_Sum;
+        uint8_t state_CarryLatch; // Internal state 保留在這裡
+    };
+    ```
+
+**(c) 動態節點 (no-pull, Hold 語意) 怎麼處理？**
+這在 Macro-block 下反而 **變簡單了**。
+在直譯器中，Hold 依賴 Event-driven 不更新來維持狀態。
+在 LLVM Macro-block 中，Hold 是一個明確的 Memory Storage（即上面 struct 裡的 `state_CarryLatch`）。
+*   在 Block 內部求值時：讀取 `state` 作為上一週期的值，計算新值，**在 Block 結束前寫回 `state`**。
+*   **防止常數摺疊**：只要 `state` 是寫在傳遞給函數的 pointer/struct 裡，LLVM 知道它是可觀察的副作用（Observable side-effect），絕對不會把你的 Hold 優化掉。
+
+---
+
+### Q4. block 內怎麼安排執行順序？
+
+**Oblivious + Topological Sort**。
+
+*   **執行策略**：只要 Block 被觸發（Input 有變），Block 內部的所有節點 **全部算一遍 (Oblivious)**。因為算 100 個純暫存器指令的成本，遠低於你在 Block 內部再搞一次 Dirty check 的成本。
+*   **順序安排**：在生成 LLVM IR 時，你必須對 Block 內部的 DAG 進行 **靜態拓樸排序 (Static Topological Sort)**。
+    依序 Emit LLVM 指令：先 Emit Input nodes，再 Emit 中間 nodes，最後 Emit Output nodes。
+*   **Latch / Feedback 處理**：
+    如果在 Block 切割時包入了顯式的 Latch SCC。這在靜態編譯時會形成環。
+    **解法：Break the loop.**
+    強行挑選 Latch 的輸出端作為 `Internal State`。
+    第一步：`%prev_Q = load i1, ptr %state_Q`
+    第二步：用 `%prev_Q` 去算後續邏輯，最後算出 `%next_Q`
+    第三步：`store i1 %next_Q, ptr %state_Q`
+    這完全符合硬體 R-S Latch 的時序邏輯。
+
+---
+
+### Q5. block-level dirty queue — 怎麼設計才不會掉回 indirect-branch 死路？
+
+這是一個極度敏銳的問題！如果你有 64 個 Macro-block，用 `Queue<int> dirty_blocks` 再 `switch(id) call`，CPU 依然會懲罰你。
+
+**正解：Bitmask Polling (Mini-oblivious Event-driven)**
+*   把系統切成 **不超過 64 個 Macro-block**（如果是 128 個就用兩個 64-bit uint）。
+*   維護一個 `uint64_t dirty_mask`。
+*   當 Block A 改變了 Output，並且該 Output 連到 Block B，Block A 的程式碼負責 `dirty_mask |= (1ULL << B_ID)`。
+*   **主迴圈設計（完全消除 Queue）**：
+    ```c
+    while(dirty_mask != 0) {
+        // __builtin_ctzll 是硬體指令 (BSF/TZCNT)，1 cycle 找出最低位的 1
+        int next_block = __builtin_ctzll(dirty_mask); 
+        
+        // 清除該 bit
+        dirty_mask &= ~(1ULL << next_block);
+
+        // 使用 Switch 分派。
+        // 對於密集且小的整數範圍 (0-63)，C++ / LLVM 會編譯成 Jump Table。
+        // 現代 BTB 對於 Jump Table 的預測率遠高於亂序的 Function Pointer 陣列。
+        switch(next_block) {
+            case 0: Eval_Block_0(&ctx0); break;
+            case 1: Eval_Block_1(&ctx1); break;
+            // ...
+        }
+    }
+    ```
+這個架構把 Dispatch overhead 從 15-30 cycles 壓到了大約 3-5 cycles，且完全避免了動態記憶體分配（Queue）和指標解引用。
+
+---
+
+### Q6. P/Invoke 黑盒驗收 — 從哪個 block 開始最好？
+
+挑選 **ALU (含 P 暫存器 flag 計算)**。
+
+**為什麼？**
+1.  **純組合邏輯為主**：大約 100-200 個 gate，內部依賴深（Carry chain），最能展現 LLVM `InstCombine` 和 Register allocation 的威力。
+2.  **邊界清晰**：Inputs 是 A, B, Carry-in, Control-signals；Outputs 是 Sum, Flags。
+3.  **高頻觸發（高 D 佔比）**：CPU 運算時 ALU 頻繁動作，能在 Profiler 中明顯看到這個 Block 吃掉了多少原本直譯器的效能。
+4.  **隔離容易**：沒有 PPU Sprite Eval 那些詭異的動態浮接和多相時脈問題。
+
+**怎麼做實驗？**
+手寫一段 C++，把這 150 個 node 用 C++ 的 `bool` / `&` / `|` 寫死（模擬 LLVM 最終產物）。編譯成 DLL 讓 C# P/Invoke 呼叫。如果這個巨集 Block 比原來的 `ComputeNodeGroup` 快不到 3 倍，那整條 LLVM 路徑就可以直接放棄。
+
+---
+
+### Q7. 「混合」設計是否可行？
+
+**絕對可行，且應該作為最終防線。**
+
+你手上有 14,723 個 node，其中可能只有 30% 是熱點。
+*   **Hot Blocks 走 LLVM**（例如 CPU ALU, PPU 背景算繪管線）。
+*   **Cold/Weird Blocks 繼續走 Interpreter LUT**（例如 複雜且少用的 Bus logic, 某些開機才動一次的硬體初始化邏輯）。
+
+**切換邊界怎麼設？**
+利用剛才 Q5 的 `dirty_mask`。
+保留一個特殊的 Block ID (例如 ID 63) 給直譯器。
+```c
+if (next_block == 63) {
+    // 進入原本的 S1 ProcessQueue
+    Interpreter_DrainQueue(); 
+}
+```
+*   **LLVM to Interpreter**：如果 LLVM Block 修改了某個連接到 Cold Node 的邊界線，LLVM Block 的結尾負責調用 `AddNodeToGroup(nn)` 並設置 `dirty_mask |= (1ULL << 63)`。
+*   **Interpreter to LLVM**：如果直譯器算完了某個 Node，發現它連接到 LLVM Block X，直譯器負責 `dirty_mask |= (1ULL << X)`。
+
+**對 Cache Locality 的影響**：
+這確實會造成 I-cache (LLVM) 和 D-cache (Interpreter LUT) 的交替。因此，**切換頻率不能太高**。你不能把交錯粒度設在單個 Gate 上。只有當「大型功能區塊」之間的邊界交接時，才跨越這個界線。如果某條 Bus 同時連接了 LLVM 和 Interpreter，盡量把它拉進 LLVM 的 Block 裡作為邊界 Input。
+
+---
+
+### 總結你的決策路徑
+
+你目前的狀態非常有優勢，因為你已經有了 `math-algos` 找出的所有結構特徵。
+1.  **Stop writing LLVM immediately.** 先做 Q6 的 C++ 手寫 ALU 實驗。
+2.  如果 ALU 實驗給出 >3x 的局部加速，實作 Q5 的 `uint64_t dirty_mask` 調度器。
+3.  寫一個 Graph Partitioner，把 14k 節點切出 50 個最熱的 Macro-block。
+4.  只把這 50 個 Block 餵給 LLVM JIT/AOT。
+
+這條路徑避開了 O(N) 計算，利用了 LLVM 對 Basic Block 的極致優化，並用 Bitmask 徹底解決了 Branch Prediction 的問題。這是在 CPU 上跑 Event-driven simulation 的最終兵器。

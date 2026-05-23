@@ -123,19 +123,19 @@ namespace AprVisual.Sim
                 // math-algos 策略三 glitch diagnostic: count the first RecalcNode of nn this half-cycle
                 if (_lastRecalcHc != null && _lastRecalcHc[nn] != Time) { _lastRecalcHc[nn] = Time; DistinctRecalcCount++; }
             }
-            // Phase 2 P2.3 (option B): a pull-down mid absorbed into an IR island's Expr is inert —
-            // its value is folded into the island output's Expr and nothing else reads it. Skip it.
-            if (EnableIrInterp && IrAbsorbed != null && IrAbsorbed[nn] != 0) return;
-            // An extracted island output evaluates its Expr instead of walking a conducting group.
-            // Its "group" is {nn}; SetNodeState propagates via gating. HasCallback nodes were excluded
-            // from extraction, so any IR node here has none.
-            if (EnableIrInterp && IrRoot != null && IrRoot[nn] >= 0)
+            // Phase 2 P2.4: collapsed IR dispatch — a single byte read + switch instead of
+            // IrAbsorbed/IrRoot/IrUseLut chain. 0=hybrid (fall through), 1=absorbed (return),
+            // 2=LUT eval, 3=EvalExpr fallback. MUST be gated by EnableIrInterp — verify-ir builds the
+            // IR tables but runs the sim under S1, where absorbed mids would otherwise be skipped.
+            if (EnableIrInterp && IrClass != null)
             {
-                // Gemini r1 Strategy A: LUT lookup (O(1), branch-free) for K<=MaxLutInputs; fall back to
-                // EvalExpr on the unmanaged flat pool for the few K>MaxLutInputs nodes.
-                byte v = (IrUseLut != null && IrUseLut[nn] != 0) ? EvalLut(nn) : EvalExpr(IrRoot[nn]);
-                SetNodeState(nn, v);
-                return;
+                byte cls = IrClass[nn];
+                if (cls != IrCls_Hybrid)
+                {
+                    if (cls == IrCls_Absorbed) return;
+                    SetNodeState(nn, cls == IrCls_Lut ? EvalLut(nn) : EvalExpr(IrRoot![nn]));
+                    return;
+                }
             }
             // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
             if (EnableFastPath && IsPureLogic != null && IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
@@ -185,22 +185,12 @@ namespace AprVisual.Sim
                     }
                 }
             }
-            // Phase 2 P2.3: in interp mode, also wake the IR nodes whose Expr reads nn (the gate-fanout
-            // above only reliably reaches hybrid consumers; revDep covers the extracted-Expr consumers).
-            if (EnableIrInterp && _revDepStart != null)
-            {
-                EnqueueIrConsumers(nn);
-                // An IR node resolves via its Expr, NOT via a conducting group — so a node it DRIVES
-                // through a pass transistor (a dynamic bus: no pull-up, hybrid) is never pulled into a
-                // shared group and would go stale. Wake those pass-channel neighbours so their hybrid
-                // group walk re-reads nn's new value. (Only IR nodes need this; hybrid nodes keep S1's
-                // group mechanism intact.)
-                if (IrBoundaryDriver && IrRoot[nn] >= 0 && ns.TlistC1c2s != 0)
-                {
-                    int* q = TransistorList + ns.TlistC1c2s;
-                    while (*q != 0) { q++; int other = *q++; EnqueueNode(other); }
-                }
-            }
+            // Phase 2 P2.3: wake IR nodes whose Expr reads nn (gate-fanout above only reliably reaches
+            // hybrid consumers; revDep covers the extracted-Expr consumers). Skipped on nodes with no
+            // IR consumer — the IrHasConsumers byte avoids the function call entirely for the bulk of
+            // hybrid nodes (most have 0 IR consumers). IrBoundaryDriver path is off-by-default (option
+            // B / closed islands made it unnecessary), so removed from the hot path.
+            if (EnableIrInterp && IrHasConsumers != null && IrHasConsumers[nn] != 0) EnqueueIrConsumers(nn);
         }
 
         // ── external pin drive / float (port of setHigh/setLow/setFloat) ──

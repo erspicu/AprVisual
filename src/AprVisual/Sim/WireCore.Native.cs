@@ -65,6 +65,8 @@ namespace AprVisual.Sim
             IrLutInputs = null;
             IrLutTableStart = null;
             IrLutTables = null;
+            IrClass = null;
+            IrHasConsumers = null;
             FrameBuffer = null;
         }
     }

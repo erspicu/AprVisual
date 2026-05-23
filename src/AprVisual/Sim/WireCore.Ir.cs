@@ -53,6 +53,16 @@ namespace AprVisual.Sim
         internal static int* IrLutInputs;           // flat array: input node ids per LUT'd node
         internal static int* IrLutTableStart;       // CSR offsets into IrLutTables (size NodeCount+1)
         internal static byte* IrLutTables;          // flat array: byte truth tables, 2^K bytes per LUT'd node
+
+        // ── per-node dispatch shortcut: collapses the IR-mode RecalcNode/SetNodeState checks into one
+        //    byte read + switch. IrHasConsumers gates the revDep loop -> skip the function call entirely
+        //    on nodes with no IR consumer (most hybrid nodes, given revDep has ~12.7k edges over 14.7k).
+        internal const byte IrCls_Hybrid   = 0;
+        internal const byte IrCls_Absorbed = 1;
+        internal const byte IrCls_Lut      = 2;
+        internal const byte IrCls_Expr     = 3;
+        internal static byte* IrClass;              // sized NodeCount; 0=hybrid, 1=absorbed, 2=LUT, 3=Expr (K>MaxLutInputs)
+        internal static byte* IrHasConsumers;       // sized NodeCount; 1 = revDep[nn] non-empty -> worth calling EnqueueIrConsumers
         public static int IrExtractedCount;
         public static string LastIrStats = "(IR not built)";
         private static int _irConst1;
@@ -243,6 +253,21 @@ namespace AprVisual.Sim
             FlattenIrPool();
             BuildIrLuts();
             FreeManagedIrPool();
+            BuildIrClass();
+        }
+
+        /// <summary>Build the IrClass per-node dispatch table (one byte read replacing the IR mode's
+        /// IrAbsorbed/IrRoot/IrUseLut checks).</summary>
+        private static void BuildIrClass()
+        {
+            int n = NodeCount;
+            IrClass = AllocArray<byte>(n);
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (IrAbsorbed != null && IrAbsorbed[nn] != 0) { IrClass[nn] = IrCls_Absorbed; continue; }
+                if (IrRoot == null || IrRoot[nn] < 0) { IrClass[nn] = IrCls_Hybrid; continue; }
+                IrClass[nn] = (IrUseLut != null && IrUseLut[nn] != 0) ? IrCls_Lut : IrCls_Expr;
+            }
         }
 
         // ── P2.3: event-driven IR interpreter. Keeps S1's dirty-queue/double-buffer; only RecalcNode
@@ -313,7 +338,12 @@ namespace AprVisual.Sim
                 if (l != null) foreach (int c in l) _revDepList[pos++] = c;
             }
             _revDepStart[n] = pos;
-            LastRevDepStats = $"revDep: {edges:N0} (node -> IR-consumer) edges";
+            // IrHasConsumers: a fast per-node bool so SetNodeState can skip the revDep call entirely on
+            // nodes whose revDep is empty (most hybrid nodes — saves a function call per change).
+            IrHasConsumers = AllocArray<byte>(n);
+            int withCons = 0;
+            for (int g = 0; g < n; g++) if (_revDepStart[g + 1] > _revDepStart[g]) { IrHasConsumers[g] = 1; withCons++; }
+            LastRevDepStats = $"revDep: {edges:N0} (node -> IR-consumer) edges; {withCons:N0}/{n:N0} nodes have >=1 consumer";
         }
 
         /// <summary>Enqueue the IR nodes that reference <paramref name="nn"/> (called from SetNodeState in

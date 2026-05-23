@@ -16,6 +16,83 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase C batch verifier: emit AOT delegates for EVERY emitter-supported node,
+        /// then run S1 for hcCount half-cycles, sampling each emitted delegate against the actual
+        /// NodeStates value. Report per-pattern mismatch rate so we can spot pattern bugs across
+        /// the whole netlist (vs just one hand-picked node).</summary>
+        public static int VerifyAllEmittable(string romPath, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 50_000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-verify-all: {System.IO.Path.GetFileName(romPath)} — running {hcCount:N0} half-cycles");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                // Emit for every node; collect those with Compiled delegate
+                var emitted = new List<(int nodeId, string pattern, Func<IntPtr, byte> compiled)>();
+                for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                {
+                    if (nn == WireCore.Npwr || nn == WireCore.Ngnd) continue;
+                    var n = WireCore.Nodes[nn]; if (n == null) continue;
+                    var er = AotEmitter.EmitForNode(nn);
+                    if (er.Compiled != null) emitted.Add((nn, er.Pattern, er.Compiled));
+                }
+                Console.WriteLine($"# emitted delegates: {emitted.Count:N0} nodes");
+
+                // Per-pattern stats
+                var totalByPattern    = new Dictionary<string, long>();
+                var mismatchByPattern = new Dictionary<string, long>();
+                var firstMissByPattern = new Dictionary<string, (int nodeId, int hc, byte pred, byte actual)>();
+
+                for (int hc = 0; hc < hcCount; hc++)
+                {
+                    WireCore.Step(1);
+                    byte* ns = WireCore.NodeStates;
+                    IntPtr nsPtr = (IntPtr)ns;
+                    foreach (var (nodeId, pattern, compiled) in emitted)
+                    {
+                        byte pred = compiled(nsPtr);
+                        byte actual = ns[nodeId];
+                        totalByPattern[pattern] = totalByPattern.TryGetValue(pattern, out long t) ? t + 1 : 1;
+                        if (pred != actual)
+                        {
+                            mismatchByPattern[pattern] = mismatchByPattern.TryGetValue(pattern, out long m) ? m + 1 : 1;
+                            if (!firstMissByPattern.ContainsKey(pattern))
+                                firstMissByPattern[pattern] = (nodeId, hc, pred, actual);
+                        }
+                    }
+                }
+
+                // Report sorted by pattern name for stability
+                var patterns = new List<string>(totalByPattern.Keys);
+                patterns.Sort(StringComparer.Ordinal);
+                long grandTotal = 0, grandMiss = 0;
+                Console.WriteLine($"# === per-pattern verification ({hcCount:N0} hc × N nodes) ===");
+                Console.WriteLine($"#   {"pattern",-25}  {"samples",13}  {"mismatch",13}  rate");
+                foreach (var p in patterns)
+                {
+                    long samples = totalByPattern[p];
+                    long mismatches = mismatchByPattern.TryGetValue(p, out long m) ? m : 0;
+                    grandTotal += samples; grandMiss += mismatches;
+                    string mark = mismatches == 0 ? "✓" : (mismatches < samples / 1000 ? "·" : "✗");
+                    Console.WriteLine($"#   {mark} {p,-25}  {samples,13:N0}  {mismatches,13:N0}  {(double)mismatches / samples:P3}");
+                    if (mismatches > 0 && firstMissByPattern.TryGetValue(p, out var fm))
+                    {
+                        var node = WireCore.Nodes[fm.nodeId];
+                        Console.WriteLine($"#       first miss: nn={fm.nodeId} name='{(string.IsNullOrEmpty(node?.Name) ? "(anon)" : node!.Name)}', hc={fm.hc}, pred={fm.pred}, actual={fm.actual}");
+                    }
+                }
+                Console.WriteLine($"# === GRAND TOTAL ===");
+                Console.WriteLine($"#   samples   : {grandTotal:N0}");
+                Console.WriteLine($"#   mismatches: {grandMiss:N0}  ({(double)grandMiss / grandTotal:P4})");
+                if (grandMiss == 0) Console.WriteLine($"# VERDICT: ALL {emitted.Count:N0} EMITTED NODES MATCH S1 (zero diff across {hcCount:N0} hc)");
+                else Console.WriteLine($"# VERDICT: {patterns.Count - mismatchByPattern.Count} / {patterns.Count} patterns are byte-equal to S1; others need investigation");
+                return grandMiss == 0 ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase C coverage scanner: load netlist, scan all nodes through AotEmitter,
         /// print pattern histogram + sample of supported vs unsupported nodes. Drives Phase C
         /// pattern-priority decisions.</summary>

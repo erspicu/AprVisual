@@ -35,6 +35,7 @@ namespace AprVisual.Test
             string? aotVerifyIrInv = null;
             string? aotEmitVerifyIr = null;
             string? aotCoverage = null;
+            string? aotVerifyAll = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -74,6 +75,7 @@ namespace AprVisual.Test
                     case "--aot-verify-ir-inv":  if (i + 1 < args.Length) aotVerifyIrInv = args[++i]; break;   // aot-codegen: hand-coded AOT for 6502 IR inverter ladder vs S1
                     case "--aot-emit-verify-ir": if (i + 1 < args.Length) aotEmitVerifyIr = args[++i]; break;   // aot-codegen Phase B: AotEmitter auto-generates IR inverter code, verify against S1
                     case "--aot-coverage":       if (i + 1 < args.Length) aotCoverage = args[++i]; break;   // aot-codegen Phase C: scan whole netlist, tally what % AotEmitter can handle
+                    case "--aot-verify-all":     if (i + 1 < args.Length) aotVerifyAll = args[++i]; break;   // aot-codegen Phase C: verify ALL emitter-supported nodes vs S1 per pattern
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -121,6 +123,7 @@ namespace AprVisual.Test
             if (aotVerifyIrInv   != null) return AprVisual.Codegen.AotVerifier.VerifyIrInverter (aotVerifyIrInv,   benchHcCount > 0 ? benchHcCount : 100_000);
             if (aotEmitVerifyIr  != null) return AprVisual.Codegen.AotVerifier.VerifyEmitterOnIrInverter(aotEmitVerifyIr, benchHcCount > 0 ? benchHcCount : 100_000);
             if (aotCoverage      != null) return AprVisual.Codegen.AotVerifier.RunCoverageScan(aotCoverage);
+            if (aotVerifyAll     != null) return AprVisual.Codegen.AotVerifier.VerifyAllEmittable(aotVerifyAll, benchHcCount > 0 ? benchHcCount : 50_000);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);

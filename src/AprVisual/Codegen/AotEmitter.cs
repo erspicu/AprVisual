@@ -52,6 +52,7 @@ namespace AprVisual.Codegen
             // Classify channel transistors
             var pullDownGates = new List<int>();
             int passToBusCount = 0;
+            var passTransistors = new List<(int gate, int other)>();   // for mux_bus
             foreach (int tid in node.C1c2s)
             {
                 var t = WireCore.Transistors[tid];
@@ -60,7 +61,7 @@ namespace AprVisual.Codegen
                 if (gate == WireCore.Npwr || gate == WireCore.Ngnd) continue;  // always-on/off, lowered out usually
                 if (otherEnd == WireCore.Ngnd) pullDownGates.Add(gate);
                 else if (otherEnd == WireCore.Npwr) { /* pull-to-power: unusual in NMOS, skip */ }
-                else passToBusCount++;
+                else { passToBusCount++; passTransistors.Add((gate, otherEnd)); }
             }
 
             if (pullDownGates.Count == 1 && passToBusCount <= 1)
@@ -156,6 +157,49 @@ namespace AprVisual.Codegen
                     };
                     return result;
                 }
+            }
+
+            // ── mux_bus (Phase C-2): multi-driver wired-OR bus. Topology:
+            //      output -- [pull-up]
+            //      output -- [pulldown_gate:T] -- Gnd   (0 or 1 of these)
+            //      output -- [sel_i:T_i] -- src_i      (2+ pass transistors with non-supply other-end)
+            //   NMOS semantics: output is high (pull-up) UNLESS pull-down conducts OR any active
+            //   pass connects to a low source. Eval:
+            //      result = (pullDown_gate active ? 0 : 1)
+            //      for each (sel,src): if sel high AND src low → result = 0
+            //   This is "wired-OR with GND-wins" model — verified empirically against S1 in Phase A.
+            //   Assumption: src_i NodeStates is up-to-date at sample time (i.e., src is driven by
+            //   another already-resolved node — typically a register or inverter output).
+            if (pullDownGates.Count <= 1 && passToBusCount >= 2)
+            {
+                int pullDownGate = pullDownGates.Count == 1 ? pullDownGates[0] : -1;
+                var passes = passTransistors.ToArray();
+                int[] allInputs = new int[passes.Length * 2 + (pullDownGate >= 0 ? 1 : 0)];
+                int k = 0; if (pullDownGate >= 0) allInputs[k++] = pullDownGate;
+                foreach (var (g, s) in passes) { allInputs[k++] = g; allInputs[k++] = s; }
+                result.Pattern = pullDownGates.Count == 1 ? "mux_bus+pulldown" : "mux_bus";
+                result.InputIds = allInputs;
+                var sb = new StringBuilder();
+                if (pullDownGate >= 0) sb.Append($"(nodeStates[{pullDownGate}] != 0) ? (byte)0 : ");
+                sb.Append("(byte)(");
+                for (int i = 0; i < passes.Length; i++)
+                {
+                    if (i > 0) sb.Append(" & ");
+                    sb.Append($"((nodeStates[{passes[i].gate}] == 0) ? 1 : nodeStates[{passes[i].other}])");
+                }
+                sb.Append(")");
+                result.CSharpExpr = sb.ToString();
+                int pdGate = pullDownGate;
+                result.Compiled = (IntPtr pNs) =>
+                {
+                    byte* ns = (byte*)pNs;
+                    if (pdGate >= 0 && ns[pdGate] != 0) return 0;
+                    byte acc = 1;
+                    foreach (var (g, s) in passes)
+                        if (ns[g] != 0) acc &= ns[s];   // active pass: AND-in the source
+                    return acc;
+                };
+                return result;
             }
 
             result.Pattern = $"unsupported(pulldowns={pullDownGates.Count}, passToBus={passToBusCount})";

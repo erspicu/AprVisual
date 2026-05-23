@@ -15,6 +15,76 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Auto-emit AOT code for ir0..7 + notir0..7 via AotEmitter, then verify the
+        /// emitter's output matches S1 for hcCount half-cycles. This is the Phase B milestone:
+        /// "emitter-generated code = hand-coded code = S1 truth".</summary>
+        public static int VerifyEmitterOnIrInverter(string romPath, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 100_000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-emit-verify-ir: {System.IO.Path.GetFileName(romPath)} — running {hcCount:N0} half-cycles");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var ids = AotBlocks.ResolveIrInverter();
+
+                // Auto-emit for each of the 8 notir nodes
+                Console.WriteLine($"# === auto-emitted AOT for notir[0..7] (from AotEmitter.EmitForNode) ===");
+                var emitted = new AotEmitter.EmitResult[8];
+                int emittedOk = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    var er = AotEmitter.EmitForNode(ids.NotIr[i]);
+                    emitted[i] = er;
+                    Console.WriteLine($"#   notir{i} (id {ids.NotIr[i]}): pattern='{er.Pattern}', inputs=[{string.Join(',', er.InputIds)}], expr = {er.CSharpExpr ?? "(none)"}");
+                    if (er.Compiled != null) emittedOk++;
+                }
+                if (emittedOk != 8)
+                {
+                    Console.WriteLine($"# emitter only handled {emittedOk}/8 nodes — cannot verify (need 8/8)");
+                    return 3;
+                }
+                // Sanity: each emitter's discovered input ID should equal the corresponding ir[i]
+                bool inputMatchesHand = true;
+                for (int i = 0; i < 8; i++)
+                {
+                    if (emitted[i].InputIds.Length != 1 || emitted[i].InputIds[0] != ids.Ir[i])
+                    {
+                        Console.WriteLine($"#   ! emitter discovered input for notir{i} = {string.Join(',', emitted[i].InputIds)} ; hand-coded says ir{i} = {ids.Ir[i]}");
+                        inputMatchesHand = false;
+                    }
+                }
+                Console.WriteLine($"# emitter's discovered inputs MATCH the hand-coded gate IDs: {inputMatchesHand}");
+
+                // Run S1 + emitter side-by-side
+                long sampled = 0, mismatchesEmitter = 0, mismatchesHand = 0;
+                for (int hc = 0; hc < hcCount; hc++)
+                {
+                    WireCore.Step(1);
+                    byte* ns = WireCore.NodeStates;
+                    IntPtr nsPtr = (IntPtr)ns;
+                    byte emitterByte = 0;
+                    for (int i = 0; i < 8; i++) emitterByte |= (byte)(emitted[i].Compiled!(nsPtr) << i);
+                    byte handByte    = AotBlocks.EvalIrInverter(ns, ids);
+                    byte actualByte  = AotBlocks.ReadIrInverterActual(ns, ids);
+                    sampled++;
+                    if (emitterByte != actualByte) mismatchesEmitter++;
+                    if (handByte    != actualByte) mismatchesHand++;
+                }
+
+                Console.WriteLine($"# samples: {sampled:N0}");
+                Console.WriteLine($"# hand-coded eval mismatches : {mismatchesHand:N0} / {sampled:N0}");
+                Console.WriteLine($"# auto-emitted eval mismatches: {mismatchesEmitter:N0} / {sampled:N0}");
+                if (mismatchesEmitter == 0 && mismatchesHand == 0)
+                    Console.WriteLine($"# VERDICT: AUTO-EMITTED AOT IS EQUIVALENT TO HAND-CODED AND TO S1 (0 diff). Phase B milestone achieved.");
+                else
+                    Console.WriteLine($"# VERDICT: divergence — see counts above");
+                return (mismatchesEmitter == 0 && mismatchesHand == 0) ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         public static int VerifyIrInverter(string romPath, int hcCount)
         {
             if (hcCount < 1) hcCount = 100_000;

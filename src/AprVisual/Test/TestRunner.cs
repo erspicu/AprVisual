@@ -33,6 +33,7 @@ namespace AprVisual.Test
             int dumpBlockId = -1;
             string? aotVerifyTileMux = null;
             string? aotVerifyIrInv = null;
+            string? aotEmitVerifyIr = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -70,6 +71,7 @@ namespace AprVisual.Test
                     case "--dump-block-id":   if (i + 1 < args.Length) int.TryParse(args[++i], out dumpBlockId); break;   // Step 3: detail of one auto-partition block
                     case "--aot-verify-tilemux": if (i + 1 < args.Length) aotVerifyTileMux = args[++i]; break;   // aot-codegen: hand-coded AOT for PPU tile_h MUX vs S1
                     case "--aot-verify-ir-inv":  if (i + 1 < args.Length) aotVerifyIrInv = args[++i]; break;   // aot-codegen: hand-coded AOT for 6502 IR inverter ladder vs S1
+                    case "--aot-emit-verify-ir": if (i + 1 < args.Length) aotEmitVerifyIr = args[++i]; break;   // aot-codegen Phase B: AotEmitter auto-generates IR inverter code, verify against S1
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -115,6 +117,7 @@ namespace AprVisual.Test
             if (dumpBlockId >= 0) return DumpBlockId(dumpBlockId);
             if (aotVerifyTileMux != null) return AprVisual.Codegen.AotVerifier.VerifyTileHBitMux(aotVerifyTileMux, benchHcCount > 0 ? benchHcCount : 100_000);
             if (aotVerifyIrInv   != null) return AprVisual.Codegen.AotVerifier.VerifyIrInverter (aotVerifyIrInv,   benchHcCount > 0 ? benchHcCount : 100_000);
+            if (aotEmitVerifyIr  != null) return AprVisual.Codegen.AotVerifier.VerifyEmitterOnIrInverter(aotEmitVerifyIr, benchHcCount > 0 ? benchHcCount : 100_000);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);

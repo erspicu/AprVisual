@@ -12,12 +12,37 @@
 | **MSVC `cl.exe`** | ✅ 19.44(VS 2022 17.x)| `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\cl.exe` |
 | **VS Dev shell** | ✅ 一鍵激活 | `Common7\Tools\Launch-VsDevShell.ps1 -Arch amd64 -HostArch amd64 -SkipAutomaticLocation` —— 在 PowerShell session 內把 cl/link/INCLUDE/LIB 都載入 |
 | C# **P/Invoke** | ✅ 內建 .NET 10 SDK 已具備 | |
-| **clang-cl / clang** | ❌ 未裝(VS 沒帶 LLVM 元件)| 要的話可加裝 `Microsoft.VisualStudio.Component.VC.Llvm.Clang`,或直接裝 LLVM official binary |
-| **LLVM 工具鏈(`llc`/`opt`/lld)** | ❌ 未裝 | 真正寫 codegen backend 時要裝;**黑盒實驗階段不需要**(MSVC `cl.exe` 已夠) |
-| CMake / Ninja | ❌ | 也不需要;單檔 DLL 直接 `cl /LD foo.cpp` |
+| **clang-cl / clang** | ❌ 未裝(VS 沒帶 LLVM 元件)| 不需要 —— C# 端 LLVM 走 NuGet(見下) |
+| **LLVM via NuGet** | ✅ **main 已驗證可用** | `LLVMSharp.Interop` v20.1.2 + `libLLVM.runtime.win-x64` v20.1.2 —— libLLVM.dll 由 NuGet bundle 提供,**不用裝系統 LLVM**。main 的 `Sim/Logic/LlvmSpike.cs` + `LlvmCodegen.cs` 是直接可參考的整合範本。要真寫 codegen backend 時加這兩個 PackageReference 即可。 |
+| `llc`/`opt`/lld(獨立 binary)| ❌ 未裝 | **不需要** —— LLVMSharp 已涵蓋我們會用的 API(BuildModule/IRBuilder/MCJIT) |
+| CMake / Ninja | ❌ | 不需要;C++ DLL 直接 `cl /LD foo.cpp` |
+| **wla-dx 6502 assembler** | ✅ `tools/wla-dx/` | `wla-6502.exe v10.6` + `wlalink.exe v5.21`,**可造特製 NES 測試 ROM**(緊湊 ALU loop、PPU 特定 sub-block 壓力測試等)。比拿 `full_palette` demo 來測 ALU 精準很多 —— 真實工作量可控 + 可重現 |
 | Python | ✅ | gemini_query.py 已驗證可用 |
 
-**結論**:第一個 ALU 黑盒實驗的所有 build 工具到位。**真要寫 LLVM codegen backend 時,加裝 LLVM(`scoop install llvm` 或官方 binary) 是 ~15 分鐘的事**。
+**結論**:工具鏈完整到位 —— ALU 黑盒實驗 + 未來的 LLVM codegen 都不缺東西。**這比預期樂觀** —— LLVMSharp NuGet 走過(main 已驗),wla-dx 可造專屬測試 ROM。
+
+### 1.5 既有可重用資產(來自 main + 工具目錄)
+
+**main 的 LLVM 整合 scaffolding(`origin/main:src/AprVisual/Sim/Logic/`)**:
+- `LlvmSpike.cs` —— 最小 spike,build 一個 `int add(int,int)`,MCJIT 編 + 呼叫。**驗證 LLVMSharp + libLLVM toolchain 接好的 boilerplate**,我們的 codegen 階段可以直接複用做 smoke test。
+- `LlvmCodegen.cs` —— main S4.5 的真實 backend,emit `void step(i8* cur, i8* prev)`,**chunked**(每 chunk 512 nodes,避免 LLVM reg-alloc 在巨型 function 上崩潰)。Per-node Expr lowering:
+  ```
+  NodeRef  → load i8 from cur[id]      (within a chunk, just-stored value forwarded)
+  Hold     → load i8 from prev[id]     (prev unchanged in step → loaded once)
+  Const    → i8 0/1
+  Not(x)   → xor i8 x, 1
+  And/Or   → and/or i8
+  Mux      → select i1 (icmp ne x, 0), then, else
+  ```
+- **但**:main 的 IR shape 是 *oblivious topological step over the whole netlist*(也就是被證偽的那條路徑)。**我們要重用的是 LLVMSharp API 用法 + chunking 策略 + JIT 設定,IR emit 的形狀要改**(macro-block + event-driven dispatcher,不是全網表 step)。
+- **直接複用 `LlvmSpike` 做我們的 smoke test 沒問題**,連 NuGet 版本都對齊。
+- **`LlvmCodegen` 當參考**(尤其 BuildModule/CreateBuilder/AppendBasicBlock/MCJIT 那一套 setup),但 codegen body 要重寫成「per macro-block function with explicit Inputs/Outputs/State context struct」。
+
+**wla-dx(`tools/wla-dx/`)6502 + 多平台 macro assembler**:
+- `wla-6502.exe v10.6` 編 → `wlalink.exe v5.21` 連結 → NES ROM(iNES 格式)。
+- 可寫 ~50–200 行 6502 組合,**鎖死一個特定 sub-block 的工作量**(e.g. 一個只反覆做 ADC/AND/EOR 的緊湊 loop)。
+- 對 ALU 黑盒實驗特別有用:除了 §5 直接驅動 ALU input nodes 之外,也可以用「ALU 壓力 ROM」量出 ALU 在真實 workload 裡的 D 佔比,避免被 `full_palette` 等通用 ROM 的工作分布稀釋。
+- 也可用於後續 codegen 驗收的微觀對照(每個 block 用一支專屬 ROM 驅動,比較細)。
 
 ---
 
@@ -320,6 +345,11 @@ dotnet run --project src/AprVisual -c Release -- --alu-bench <rom>
 - LoadSystem(rom)、跑到 vblank、然後用測試向量驅動 ALU 區。
 - 同時呼叫 S1 path(只跑 ALU 範圍)+ Native path。
 - 量 ns/eval,輸出比較。
+
+**選做(更嚴格的「真實工作量」對照)**:用 wla-dx 寫一支 **ALU 壓力 ROM**(緊湊 loop:LDA #$55 / ADC #$33 / AND #$0F / EOR #$AA / ORA #$05 / INX / BNE LOOP / JMP RESET)— 約 16-32 bytes 的 6502 程式。跑這支 ROM 量:
+- ALU 區的 RecalcNode 次數 / hc(在 D 中的佔比)
+- 整體 hc/s 對比:S1 vs (S1 + ALU 走 native DLL via P/Invoke)
+這給「在 ALU-heavy 真實 workload 下,把 ALU IR 化能省下多少全域時間」的數字 —— 比合成測試向量更接近真實 codegen 收益的上限。先做合成向量的直接量測;若結果模糊再做這個。
 
 ### 5.6 預期結果 + 決策
 

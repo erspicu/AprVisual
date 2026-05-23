@@ -38,6 +38,7 @@ namespace AprVisual.Test
             string? aotVerifyAll = null;
             string? aotVerifyBlockRom = null; int aotVerifyBlockId = -1;
             string? aotEmitBlockRom = null; int aotEmitBlockId = -1; string? aotEmitBlockPath = null;
+            string? aotEmitAllRom = null; string? aotEmitAllPath = null; int aotMinEmittable = 5;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -80,6 +81,8 @@ namespace AprVisual.Test
                     case "--aot-verify-all":     if (i + 1 < args.Length) aotVerifyAll = args[++i]; break;   // aot-codegen Phase C: verify ALL emitter-supported nodes vs S1 per pattern
                     case "--aot-verify-block":   if (i + 2 < args.Length) { aotVerifyBlockRom = args[++i]; int.TryParse(args[++i], out aotVerifyBlockId); } break;   // aot-codegen Phase C-5: <ROM> <blockId>, verify one Partition.Block's AOT eval vs S1
                     case "--aot-emit-block":     if (i + 3 < args.Length) { aotEmitBlockRom = args[++i]; int.TryParse(args[++i], out aotEmitBlockId); aotEmitBlockPath = args[++i]; } break;   // aot-codegen Phase C-5 task #74: <ROM> <blockId> <outputPath>.cs
+                    case "--aot-emit-all":       if (i + 2 < args.Length) { aotEmitAllRom = args[++i]; aotEmitAllPath = args[++i]; } break;   // aot-codegen Phase D-1: <ROM> <out.cs>, mass emit all blocks (>= 5 emittable)
+                    case "--min-emittable":      if (i + 1 < args.Length) int.TryParse(args[++i], out aotMinEmittable); break;
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -130,6 +133,7 @@ namespace AprVisual.Test
             if (aotVerifyAll     != null) return AprVisual.Codegen.AotVerifier.VerifyAllEmittable(aotVerifyAll, benchHcCount > 0 ? benchHcCount : 50_000);
             if (aotVerifyBlockRom != null && aotVerifyBlockId >= 0) return AprVisual.Codegen.AotVerifier.VerifyBlock(aotVerifyBlockRom, aotVerifyBlockId, benchHcCount > 0 ? benchHcCount : 50_000);
             if (aotEmitBlockRom != null && aotEmitBlockId >= 0 && aotEmitBlockPath != null) return AprVisual.Codegen.AotVerifier.EmitBlockSource(aotEmitBlockRom, aotEmitBlockId, aotEmitBlockPath);
+            if (aotEmitAllRom != null && aotEmitAllPath != null) return AprVisual.Codegen.AotVerifier.EmitAllBlocks(aotEmitAllRom, aotEmitAllPath, aotMinEmittable);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);

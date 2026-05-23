@@ -17,6 +17,48 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase D-1: mass-emit all codegen-attractive partition blocks into ONE
+        /// master .cs file. Picks blocks with >=minEmittable AOT-emittable nodes; skips small
+        /// (uninteresting) ones. The output file has an AotEngine class with EvalAllBlocks
+        /// dispatcher + one static class per block.</summary>
+        public static int EmitAllBlocks(string romPath, string outputPath, int minEmittable)
+        {
+            if (minEmittable < 1) minEmittable = 5;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var partition = WireCore.AutoPartition();
+                Console.WriteLine($"# aot-emit-all: {System.IO.Path.GetFileName(romPath)} → {outputPath}");
+                Console.WriteLine($"#   partition blocks total : {partition.Count:N0}");
+                Console.WriteLine($"#   min-emittable threshold: {minEmittable}");
+
+                var picked = new List<(WireCore.Block pb, AotBlock ab)>();
+                int totalEmittableNodes = 0;
+                foreach (var pb in partition)
+                {
+                    var ab = AotBlockBuilder.Build(pb);
+                    if (ab.Evals.Count >= minEmittable) { picked.Add((pb, ab)); totalEmittableNodes += ab.Evals.Count; }
+                }
+                Console.WriteLine($"#   picked blocks          : {picked.Count:N0}");
+                Console.WriteLine($"#   total emittable nodes  : {totalEmittableNodes:N0}");
+
+                string source = AotBlockBuilder.EmitMasterSource(picked, System.IO.Path.GetFileName(romPath));
+                System.IO.File.WriteAllText(outputPath, source);
+                Console.WriteLine($"#   wrote {source.Length:N0} bytes to {outputPath}");
+                Console.WriteLine($"#   per-block (top 15 by emittable):");
+                int shown = 0;
+                foreach (var (pb, ab) in picked.OrderByDescending(x => x.ab.Evals.Count))
+                {
+                    Console.WriteLine($"#     #{pb.Id,3}  {pb.Label,-25}  {ab.Evals.Count,4} emittable / {pb.InternalNodes.Length + pb.DrivenOutputs.Length,4} total");
+                    if (++shown >= 15) break;
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase C-5 task #74: emit actual .cs source file for a partition block.
         /// Writes to <paramref name="outputPath"/>; user can inspect / commit / build it later.</summary>
         public static int EmitBlockSource(string romPath, int blockId, string outputPath)

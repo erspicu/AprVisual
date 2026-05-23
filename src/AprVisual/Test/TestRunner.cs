@@ -43,6 +43,7 @@ namespace AprVisual.Test
             string? aotRun = null;
             string? aotSkip = null;
             string? aotNoPullupScan = null;
+            string? aotRuntimeStep = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -91,6 +92,7 @@ namespace AprVisual.Test
                     case "--aot-run":            if (i + 1 < args.Length) aotRun = args[++i]; break;   // aot-codegen Phase D-3: run sim with AOT delegate in the loop, compare hc/s + checksum to S1-only
                     case "--aot-skip":           if (i + 1 < args.Length) aotSkip = args[++i]; break;   // aot-codegen Phase D-4: AOT replaces S1 work (CodegenOwned + Option D BFS-block)
                     case "--aot-nopullup-scan":  if (i + 1 < args.Length) aotNoPullupScan = args[++i]; break;   // aot-codegen Phase E-1 prep: classify the 8,331 no-pullup nodes by topology
+                    case "--aot-runtime-step":   if (i + 1 < args.Length) aotRuntimeStep = args[++i]; break;   // aot-codegen Phase E-2: AotRuntime first-step test vs S1
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -146,6 +148,7 @@ namespace AprVisual.Test
             if (aotRun != null) return AprVisual.Codegen.AotVerifier.RunWithAotEngine(aotRun, benchHcCount > 0 ? benchHcCount : 30_000, aotMinEmittable);
             if (aotSkip != null) return AprVisual.Codegen.AotVerifier.RunWithAotSkippingS1(aotSkip, benchHcCount > 0 ? benchHcCount : 30_000, aotMinEmittable);
             if (aotNoPullupScan != null) return AprVisual.Codegen.AotVerifier.RunNoPullupInventory(aotNoPullupScan);
+            if (aotRuntimeStep != null) return AprVisual.Codegen.AotVerifier.RunAotRuntimeStep1Test(aotRuntimeStep, benchHcCount > 0 ? benchHcCount : 1, aotMinEmittable);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);

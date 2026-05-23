@@ -126,6 +126,81 @@ namespace AprVisual.Codegen
             return allChecksumsEqual ? 0 : 1;
         }
 
+        /// <summary>Phase E-2: AotRuntime first-step test. Init AotRuntime from S1's settled state;
+        /// run AotRuntime.Step() once; compare NodeStates to S1's NodeStates after S1.Step(1).
+        /// Reports per-node mismatch count and first divergence — informs E-3+ priorities.</summary>
+        public static int RunAotRuntimeStep1Test(string romPath, int hcCount, int minEmittable)
+        {
+            if (hcCount < 1) hcCount = 1;
+            if (minEmittable < 1) minEmittable = 5;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-runtime-step1: {System.IO.Path.GetFileName(romPath)} — {hcCount:N0} hc test");
+
+            try
+            {
+                // ── A. Load S1, settle initial state, snapshot ──
+                WireCore.LoadSystem(rom);
+                int clockId = WireCore.LookupNode("clk");
+                if (clockId == WireCore.EmptyNode) { Console.Error.WriteLine("clk node not found"); return 1; }
+                int nodeCount = WireCore.NodeCount;
+                var initState = new byte[nodeCount];
+                unsafe { byte* p = WireCore.NodeStates; for (int i = 0; i < nodeCount; i++) initState[i] = p[i]; }
+                Console.WriteLine($"#   initial state from S1 settled (NodeCount={nodeCount}, clk={clockId}, initial value={initState[clockId]})");
+
+                // ── B. Build AOT, compile, load ──
+                var partition = WireCore.AutoPartition();
+                var picked = new List<(WireCore.Block pb, AotBlock ab)>();
+                foreach (var pb in partition)
+                {
+                    var ab = AotBlockBuilder.Build(pb);
+                    if (ab.Evals.Count >= minEmittable) picked.Add((pb, ab));
+                }
+                int totalEvals = 0; foreach (var (_, ab) in picked) totalEvals += ab.Evals.Count;
+                string source = AotBlockBuilder.EmitMasterSource(picked, System.IO.Path.GetFileName(romPath));
+                var loaded = AotRoslynLoader.CompileMaster(source);
+                if (!loaded.Success || loaded.EvalAll == null)
+                {
+                    Console.WriteLine($"# compile FAILED:");
+                    Console.WriteLine(loaded.Log);
+                    return 3;
+                }
+                Console.WriteLine($"#   AOT: {picked.Count} blocks, {totalEvals} delegates, source {source.Length:N0} bytes");
+
+                // ── C. AotRuntime: init from initState + run hcCount steps ──
+                var aotRt = new AotRuntime(initState, loaded.EvalAll, clockId);
+                for (int hc = 0; hc < hcCount; hc++) aotRt.Step();
+                Console.WriteLine($"#   AotRuntime did {hcCount} step(s), last settle iter count = {aotRt.LastSettleIterations}");
+
+                // ── D. S1: run hcCount steps from the SAME initial state (which S1 is already in) ──
+                for (int hc = 0; hc < hcCount; hc++) WireCore.Step(1);
+                var s1State = new byte[nodeCount];
+                unsafe { byte* p = WireCore.NodeStates; for (int i = 0; i < nodeCount; i++) s1State[i] = p[i]; }
+
+                // ── E. Compare ──
+                var (match, mismatch, firstMiss) = aotRt.CompareWith(s1State);
+                Console.WriteLine($"# === Phase E-2 first-step comparison ===");
+                Console.WriteLine($"#   matches    : {match:N0} / {nodeCount:N0}  ({(double)match / nodeCount:P2})");
+                Console.WriteLine($"#   mismatches : {mismatch:N0}  ({(double)mismatch / nodeCount:P2})");
+                if (firstMiss >= 0)
+                {
+                    var node = WireCore.Nodes[firstMiss];
+                    Console.WriteLine($"#   first mismatch: nn={firstMiss} name='{(string.IsNullOrEmpty(node?.Name) ? "(anon)" : node!.Name)}', AOT={aotRt.NodeStates[firstMiss]}, S1={s1State[firstMiss]}");
+                }
+                // Categorise mismatches by node having pull-up vs not (gives a sense of what category drifts)
+                int puMiss = 0, npuMiss = 0;
+                for (int i = 0; i < nodeCount; i++)
+                {
+                    if (aotRt.NodeStates[i] == s1State[i]) continue;
+                    var n = WireCore.Nodes[i]; if (n == null) continue;
+                    if (n.Pullups > 0) puMiss++; else npuMiss++;
+                }
+                Console.WriteLine($"#   mismatch breakdown: pull-up nodes: {puMiss:N0}, no-pullup: {npuMiss:N0}");
+                return mismatch == 0 ? 0 : 1;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         /// <summary>Phase E-1 prep: classify all no-pullup nodes (the 8,331 nodes AotEmitter can't
         /// pattern-match) by topology, to scope the Route B full-pivot work. Categories:
         ///   external_drive : c1c2s=0, gates>=1 (driven by handler, e.g. clk, res, BA0)

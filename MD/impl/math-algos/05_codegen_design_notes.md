@@ -13,15 +13,34 @@
 | **VS Dev shell** | ✅ 一鍵激活 | `Common7\Tools\Launch-VsDevShell.ps1 -Arch amd64 -HostArch amd64 -SkipAutomaticLocation` —— 在 PowerShell session 內把 cl/link/INCLUDE/LIB 都載入 |
 | C# **P/Invoke** | ✅ 內建 .NET 10 SDK 已具備 | |
 | **clang-cl / clang** | ❌ 未裝(VS 沒帶 LLVM 元件)| 不需要 —— C# 端 LLVM 走 NuGet(見下) |
-| **LLVM via NuGet** | ✅ **main 已驗證可用** | `LLVMSharp.Interop` v20.1.2 + `libLLVM.runtime.win-x64` v20.1.2 —— libLLVM.dll 由 NuGet bundle 提供,**不用裝系統 LLVM**。main 的 `Sim/Logic/LlvmSpike.cs` + `LlvmCodegen.cs` 是直接可參考的整合範本。要真寫 codegen backend 時加這兩個 PackageReference 即可。 |
-| `llc`/`opt`/lld(獨立 binary)| ❌ 未裝 | **不需要** —— LLVMSharp 已涵蓋我們會用的 API(BuildModule/IRBuilder/MCJIT) |
+| **LLVM via NuGet(C# JIT 用)** | ✅ **main 已驗證可用** | `LLVMSharp.Interop` v20.1.2 + `libLLVM.runtime.win-x64` v20.1.2 —— libLLVM.dll 由 NuGet bundle 提供。main 的 `Sim/Logic/LlvmSpike.cs` + `LlvmCodegen.cs` 是直接可參考的整合範本。要真寫 codegen backend 時加這兩個 PackageReference 即可。 |
+| **LLVM 獨立 CLI(設計探索用)** | ✅ 已裝 **22.1.6** via winget | `C:\Program Files\LLVM\bin\`(已加進 user PATH)。**有**:`clang`/`clang++`/`clang-cl`(22.1.6)、`lld`+ `lld-link` + `ld.lld` + `wasm-ld`、`lldb`、`llvm-ar`/`nm`/`objdump`/`readobj`/`mca`/`ml`/`rc` 等 binary utils、`clangd`、`clang-format`/`tidy`。**沒有**:`llc`/`opt`/`llvm-as`/`llvm-dis`/`llvm-mc`(官方 Windows release 不包,屬於 dev 工具)—— 但 **clang 加旗標完全涵蓋等價功能**,見 §1.6 |
 | CMake / Ninja | ❌ | 不需要;C++ DLL 直接 `cl /LD foo.cpp` |
 | **wla-dx 6502 assembler** | ✅ `tools/wla-dx/` | `wla-6502.exe v10.6` + `wlalink.exe v5.21`,**可造特製 NES 測試 ROM**(緊湊 ALU loop、PPU 特定 sub-block 壓力測試等)。比拿 `full_palette` demo 來測 ALU 精準很多 —— 真實工作量可控 + 可重現 |
 | Python | ✅ | gemini_query.py 已驗證可用 |
 
 **結論**:工具鏈完整到位 —— ALU 黑盒實驗 + 未來的 LLVM codegen 都不缺東西。**這比預期樂觀** —— LLVMSharp NuGet 走過(main 已驗),wla-dx 可造專屬測試 ROM。
 
-### 1.5 既有可重用資產(來自 main + 工具目錄)
+### 1.5 缺少 `llc`/`opt`/`llvm-as` 的 clang 旗標替代(已 smoke-test 過)
+
+LLVM 官方 Windows release 不含 `llc`/`opt`/`llvm-as`/`llvm-dis`/`llvm-mc`(historical convention)。但 `clang` 加旗標可完全涵蓋我們會用到的場景:
+
+| 想做的事 | 一般 LLVM 工具 | **改用 clang 的指令** |
+|---|---|---|
+| C → LLVM IR(text)| `clang -S -emit-llvm foo.c` 或 `llc` 不適用 | ✅ `clang -O3 -S -emit-llvm foo.c -o foo.ll` |
+| C → asm | `clang -O3 -S foo.c` | ✅ `clang -O3 -S foo.c -o foo.s` |
+| LLVM IR(.ll)→ asm | `llc -O3 foo.ll -o foo.s` | ✅ `clang -O3 -S -x ir foo.ll -o foo.s` |
+| LLVM IR(.ll)→ object | `llc -O3 -filetype=obj foo.ll -o foo.o` | ✅ `clang -O3 -c -x ir foo.ll -o foo.o` |
+| LLVM IR(.ll)→ optimized .ll | `opt -O3 -S foo.ll -o foo_opt.ll` | ✅ `clang -O3 -S -emit-llvm -x ir foo.ll -o foo_opt.ll` |
+| .ll → bitcode .bc | `llvm-as foo.ll -o foo.bc` | ✅ `clang -c -emit-llvm -x ir foo.ll -o foo.bc` |
+| .bc → .ll | `llvm-dis foo.bc -o foo.ll` | ⚠️ 沒直接對應 — 用 `llvm-objdump --raw-clang-ast` 或乾脆從 source 重新 emit |
+| 編 DLL | `cl /LD` 或 `clang -shared` | ✅ `clang -O3 -shared foo.c -o foo.dll`(也支援 C++)|
+
+**Smoke-test 確認(temp/smoke.c, `uint8_t alu_smoke(a,b,cin) { return a+b+cin; }`)**:LLVM 把它優化到 `lea (%rcx,%rdx),%eax; add %r8b,%al`(register-only, 2 instructions)—— **完美符合 §2.2 期望的 macro-block 純 SSA 暫存器形狀**。所有四條路徑(emit-llvm / asm / DLL / -x ir consume)都能跑。
+
+→ 結論:**標準 LLVM CLI 工作流不缺**。
+
+### 1.6 既有可重用資產(來自 main + 工具目錄)
 
 **main 的 LLVM 整合 scaffolding(`origin/main:src/AprVisual/Sim/Logic/`)**:
 - `LlvmSpike.cs` —— 最小 spike,build 一個 `int add(int,int)`,MCJIT 編 + 呼叫。**驗證 LLVMSharp + libLLVM toolchain 接好的 boilerplate**,我們的 codegen 階段可以直接複用做 smoke test。

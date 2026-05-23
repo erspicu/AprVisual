@@ -1,0 +1,339 @@
+Timestamp: 2026-05-23T15:50:04
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# Gemini Consultation — math-algos Step 3.5 architectural ceiling
+
+> 第二次找你。第一次是 2026-05-23 在 `tools/knowledgebase/message/20260523_130001.txt`,當時設計了 macro-block codegen + dispatcher 路線。
+> 這次:那條路線開到 Step 3.5(graph partitioner + 嘗試 own internal nodes)後撞牆。需要你判斷:架構級突破值得做嗎、哪條路最佳、有沒有我們沒看到的選項。
+
+---
+
+## 1. 專案脈絡(快速回顧)
+
+**Repo**:`AprVisual`(NES 6502 + 2C02 switch-level simulator,C# / .NET 10 / Windows / x64)
+**Branch**:`math-algos`(從 main 分出,目標:CPU 上的 event-driven 加速,不走 GPU)
+**Reference**:Visual6502 / MetalNES 的 transistor-level netlist + group-resolution algorithm
+
+**S1 engine 架構**(基線):
+- 14,724 個 node、26,775 個 transistor、~14.7K nodes/half-cycle(D ≈ 614 RecalcNode/hc 實測)
+- 每個 RecalcNode → ComputeNodeGroup(BFS 整個 channel-connected 群)→ NMOS 解析(GND wins / Pwr / pull-up / hold prev → 256-entry LUT)
+- 基線 throughput ~38K hc/s,需要 840K hc/s 才達 NES real-time
+
+**前情**:
+- Phase 1(event-driven 優化:pruning + fast-path):**ceiling 1.37×**
+- Phase 2(IR interpreter 試圖代換 group walk):**break-even ±2%**(interpreter dispatch overhead 吃掉 IR eval 的 saving)
+- Phase 2.5(你 r1+r2 設計的 macro-block codegen 路線):這次的主題
+
+---
+
+## 2. Step 1-3 進展(都成功)
+
+### Step 1 — ALU 黑盒驗收 ✓
+```
+6502 ALU 用 clang -O3 編 native DLL,P/Invoke 量:
+  bulk:    2.09 ns/call (Step 2 4-op) / 3.97 ns/call (Step 2.5 5-op)
+  per-call: 4.38 ns/call           / 5.18 ns/call
+S1 baseline ALU group walk: ~39.2 ns/recalc
+→ native 比 S1 group walk 快 9-18×
+```
+
+### Step 2 — Dispatcher framework ✓
+按你 §2.8 設計:
+```csharp
+uint64 dirty_mask = 0;
+while (dirty_mask != 0) {
+    int next = BitOperations.TrailingZeroCount(dirty_mask);  // TZCNT
+    dirty_mask &= ~(1UL << next);
+    switch (next) {                  // JIT 編成 jump-table
+        case 0: Eval_AluBlock(); break;     // bit 0 = ALU codegen
+        case 63: ProcessQueueInterp(); break;  // bit 63 = S1 fallback
+    }
+    if (RecalcListNextCount != 0) dirty_mask |= 1UL << 63;
+}
+```
+量到 dispatcher framework overhead **僅 4.6%**(dry-run mode,所有 hook 跑但不寫回)。trace-diff vs S1 完全一致。
+
+### Step 2.5 — Writeback 真正接管 ALU outputs ✓
+寫 5-op 真實 ALU(SUMS/ANDS/ORS/EORS/SRS)。Dispatcher 在 ALU input 變動時計算 alu[i] 寫回 NodeStates。
+- Trace-diff 完全一致 ✓
+- blargg test 在 EXACTLY 同樣 hc 收斂 ✓ 
+- **但速度 -4.3%** —— 因為只 OWN 8 個 alu output nodes,S1 仍走整個 ALU 群解析。
+
+### Step 3 — Auto-partitioner ✓
+按你 §2.4 設計。「Non-boundary connected component」演算法:boundary = pull-up node + supply。BFS 只走 channel-channel 邊(不走 gate,避免共享控制信號 over-merge)。
+- 切出 2,757 個 macro-block
+- 30 個 codegen-attractive(17+ nodes、非 supply label)
+- 找到真實的 PPU sprite(298 nodes×10、232×6)、PPU VRAM addr(188 nodes/27 outputs)、APU 各 channel
+- ALU 沒形成單一 block(因為 cpu.alu[i] 自己是 pull-up boundary,被切散成 8 個 fragment)
+
+---
+
+## 3. **Step 3.5 撞牆 —— 重點在這**
+
+### 3.1 嘗試:把 133 個 ALU 內部節點都 mark CodegenOwned
+
+原始 `--dump-block` 找到 ALU 的 reverse-closure 是 133 個 node + 477 個 transistor(reverse BFS from alu outputs,stop at pull-ups + declared inputs)。
+
+我把這 133 個都標 `CodegenOwned`,讓 RecalcNode 看到就 return,並 dispatcher 寫 alu/notalu/alucout outputs。
+
+**結果**:
+| Mode | rate | D (RecalcNode/hc) | trace |
+|---|---|---|---|
+| baseline (S1) | 38,662 hc/s | 614.2 | reference |
+| own 133 closure | **47,049 hc/s (+22%)** | **521.1 (-15%)** | **CPU 卡死 PC=00FF** |
+
+22% speedup **是 fake** —— CPU 停在 reset 沒進 ROM,所以「省」掉很多 work。
+
+### 3.2 為什麼:reverse-closure 自然包含 CPU 關鍵節點
+
+```
+# 實際的 133 closure 名單(部分):
+cpu.#aluresult0..7    ← 真的 ALU mid (8 nodes)
+cpu.a0, cpu.a4        ← 累加器 bits! 不該屬於 ALU
+cpu.adh0..7  (8)      ← address bus high bits!
+cpu.adl0..7  (8)      ← address bus low bits!
+cpu.C78.phi2          ← clock phase 2!
+cpu.cclk              ← CPU clock!
+cpu.cp1               ← clock phase 1!
+... 93 個 anonymous mids (有些是 ALU 真內部,有些是 shared bus/clock mids)
+```
+
+所有上述「不該」節點的 `pullups=0`。原 `--dump-block` 的「stop at pull-up」啟發式擋不下它們。它們透過 pass transistor 跟 ALU output 共群。
+
+OWN 它們 → S1 不更新它們 → `cpu.adh*` (memory address bus) 卡 0 → CPU 讀錯記憶體 → 卡死。
+
+### 3.3 保守 subset(只 own 8 個 `cpu.#aluresult` mids)
+
+| Mode | rate | D | trace |
+|---|---|---|---|
+| own 8 #aluresult only | 37,635 hc/s (-2.7%) | 612.9 (-0.2%) | 64-line trace diff |
+
+**完全沒省到工作**。D 幾乎沒變。
+
+### 3.4 為什麼:`CodegenOwned` 在當前架構下的真實語意
+
+S1 的 group-resolution(看 `WireCore.Group.cs`):
+
+```csharp
+private static byte ComputeNodeGroup(int nn) {
+    _groupFlags = NodeFlags.None;
+    _groupCount = 0;
+    AddNodeToGroup(nn);              // BFS BFS BFS the entire connected group
+    return GetNodeValue();
+}
+
+private static void AddNodeToGroup(int nn) {
+    if (_inGroup[nn] != 0) return;
+    _inGroup[nn] = 1;
+    _groupBuf[_groupCount++] = nn;
+    _groupFlags |= NodeInfos[nn].Flags;
+    // walk channels to normal nodes
+    int* p = TransistorList + NodeInfos[nn].TlistC1c2s;
+    while (*p != 0) {
+        int gate = *p++; int other = *p++;
+        if (NodeStates[gate] != 0) AddNodeToGroup(other);   // recurse through ON transistors
+    }
+    // GND / VCC checks ...
+}
+
+private static void RecalcNode(int nn) {
+    if (CodegenOwned[nn]) return;    // ★ skip entry, but...
+    byte v = ComputeNodeGroup(nn);
+    for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], v);   // writes ALL group members
+}
+```
+
+**問題**:`CodegenOwned[nn]` 只 skip `RecalcNode(nn)` 這個入口。可是 `ComputeNodeGroup(mm)`(另一個非 owned 節點 mm)的 BFS 還是會 traverse nn(透過 channel),把 nn 拉進群裡共同決定 value,然後寫回 nn。所以 OWN nn 不阻止 group walk 工作。
+
+**只有當 owned region 的每個 starter 都被 skip 時**才看到 D 下降 —— 但這時 region 內部群也不再被 resolve,所以裡頭那些「不該 OWN 但被掃進來」的關鍵節點停留在錯誤值。
+
+### 3.5 推論:Step 4(LLVM emit)在當前架構下沒意義
+
+LLVM emit 是讓 dispatcher 的 per-block eval 從手寫 C++(3.97 ns/call)變成 LLVM 自動 emit。但 dispatcher 本身已經比 S1 group walk 快 9-18×。**瓶頸不在 dispatcher**,在「S1 group walk 對 owned region 沒被 skip 掉」。
+
+沒架構改變,Step 4 也不會加速。
+
+---
+
+## 4. 三個架構級選項(請你判斷)
+
+### A. 物理移除 transistor
+
+在 LoadSystem + Reset 之後、跑模擬之前,從 `TransistorList` / `Nodes[].C1c2s` / `Nodes[].Gates` 中刪掉 owned region 的內部 transistor。
+S1 看到的 netlist 變小 —— owned 區只剩 boundary node 直接連 supply rails。Dispatcher 負責整個 owned region 的所有節點計算。
+
+**優點**:S1 真實做更少工作。speedup 直接可量。
+**風險**:
+  - 邊界節點的 group 解析會被破壞(pull-up / capacitance 計算邏輯依賴完整的 transistor 結構)
+  - 必須完整接管 owned region 的所有 NodeStates 寫(否則下游讀到陳舊值)
+  - 不可逆(rebuild 才能恢復原 netlist)
+  - **核心難題**:如何處理「owned region 跟 boundary 之間」的 transistor?保留或刪除?
+
+### B. 修改 ComputeNodeGroup 的 BFS,遇到 CodegenOwned 就停
+
+```csharp
+private static void AddNodeToGroup(int nn) {
+    if (CodegenOwned[nn]) {
+        // 視為「supply-like」固定值:把 NodeStates[nn] 當作 driver flag 加進去
+        _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
+        return;   // 不展開、不加入 _groupBuf
+    }
+    // ... 原邏輯
+}
+```
+
+Dispatcher 在 input 變動時先寫 NodeStates 給 owned region 的 boundary,group walk 從邊界看到固定值,跳過 owned 內部。
+
+**優點**:
+  - 不改 netlist topology(可逆,A/B 比較容易)
+  - 比 A 工程量小很多
+  - 跟現有 Phase 2 P2.3 `IrBoundaryDriver` 路徑類似(已有先例)
+**風險**:
+  - capacitance / "largest connections wins" 邏輯失準(因為 owned 內部沒被算進 `_maxConnections`)
+  - 對動態節點(無 pull-up 的 dynamic-hold storage)語意可能不對
+
+### C. Branch wind-down
+
+承認 S1 group-resolution 模型不適合 codegen 接管。Codegen 已驗證在「dispatcher 黑盒 + functional 一致」層級可行,但加速天花板來自 S1 架構,不是 dispatcher 不夠快。Memory 補一筆,branch 收。
+
+---
+
+## 5. 想問你的事
+
+**Q1**(sanity check):我對 CodegenOwned 在當前架構的語意理解正確嗎?「只 skip RecalcNode 入口,不阻止 group walk traverse」對嗎?如果對,Step 4 LLVM emit 在無架構改變下加速幾乎為零的推論成立嗎?
+
+**Q2**(選 A 還是選 C):
+- A 的「保留 / 刪除 owned-boundary transistor」核心難題你建議怎麼處理?
+- A 的物理移除有沒有現有的 switch-level sim 文獻先例可參考?
+- A 跟你原本 r2 設計(macro-block + Context Struct + bitmask polling)是相容的嗎?還是需要重新設計 dispatcher 跟 owned region 的協作 protocol?
+
+**Q3**:你有沒有想到 D 選項?例如:
+- 不刪 transistor 但加 `ForceCompute`-like flag 把 owned 區當「外部強驅動」?
+- 把 dispatcher 從 event-driven 改成 oblivious sweep(像 main 做的)+ owned-region special path?
+- 維持現狀但用 Phase 2 IR Expr 取代部分 RecalcNode call(MainKnown 結果:3-6× SLOWER,所以這條路死)?
+
+**Q4**:給定本次 Step 3.5 的發現,你會建議:
+- **a.** Pursue A 物理移除(我同意有真實加速可能,但 ~2-3 天工程量;有 correctness 風險)
+- **b.** Pursue C wind down(承認天花板;codegen framework 留 branch 上,可後續 cherry-pick)
+- **c.** 別的方向
+
+請給你的技術判斷 + 為什麼。
+
+**Q5**:我們的目標是 NES real-time(840K hc/s,目前 38K hc/s = 22× gap)。memory 內記錄 main 路徑(GPU/oblivious + AOT codegen)已驗證在 CPU 上 3-6× SLOWER than S1,event-driven branch(本 branch)目前 cap 在 2× S1。**「NES real-time on CPU」在我們已知所有路線下都不可達**。
+那麼 math-algos 這 branch(連同 codegen 路徑)的工程價值,你怎麼看?是否該轉到別的目標?
+
+---
+
+## 6. 給你 reference 的 keys files(本 branch HEAD)
+
+```
+src/AprVisual/Sim/WireCore.Group.cs       — ComputeNodeGroup + AddNodeToGroup + GetNodeValue
+src/AprVisual/Sim/WireCore.Recalc.cs      — RecalcNode + SetNodeState + ProcessQueue
+src/AprVisual/Sim/WireCore.Dispatcher.cs  — bitmask polling dispatcher (Step 2)
+src/AprVisual/Sim/WireCore.Partition.cs   — auto-partitioner (Step 3)
+src/AprVisual/Native/AluBlock.cpp         — hand-coded 6502 ALU (Step 1+2.5)
+MD/impl/math-algos/04..10*.md             — Phase 2 + 2.5 完整 results
+MD/note/01*.md                            — S1 group walk 演算法 walkthrough
+```
+
+謝謝你的時間。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一次極具深度的架構級除錯。你把這個系統推到了 Visual6502 switch-level 演算法的邊界，並且精準地指出了問題的核心。
+
+針對你的問題，我會先給出直接的結論，再逐一回答細節，最後討論這個專案的戰略轉向。
+
+### 總結（Executive Summary）
+1. **你的推論完全正確**：在目前的架構下，Step 4 (LLVM emit) **毫無意義**。瓶頸是 S1 演算法的 BFS 穿透性，導致重複計算。
+2. **架構選擇**：強烈建議**不要**走 Option A（物理移除），而是嘗試 **Option B 的變體 + 嚴格邊界規則**（詳見下文 Option D）。如果 1-2 天內無法穩定，果斷選擇 **Option C (Wind-down)**。
+3. **戰略價值**：840K hc/s 在單執行緒 CPU event-driven 模型下確實是**物理不可達**的。但 `math-algos` 分支產生了極巨大的工程價值：你已經建構出一個能將 flat netlist **「向上提取 (Lift)」為 Macro-block 的工具鏈**。
+
+---
+
+### Q1: Sanity Check (CodegenOwned 的語意與 Step 4)
+
+**A1: 你的理解 100% 正確。**
+
+Visual6502 演算法本質上是計算 RC 網路的穩態（DC steady-state）。
+- 你的 `CodegenOwned` 只是拔掉了 event-driven 的「Trigger（觸發器）」（跳過 `RecalcNode`）。
+- 但它沒有拔掉「Graph Topology（圖的拓撲）」。
+- 當相鄰的非 owned 節點改變時，`ComputeNodeGroup` 的 BFS 依然會透過 Channel (C1/C2) 導通的電晶體，長驅直入你的 owned region。S1 照樣把這些節點拉進 `_groupBuf`，照樣走遍迴圈算 capacitance，照樣 `SetNodeState` 覆寫你的 dispatcher 結果。
+
+這就是為什麼「只 own 8 個 node」時 D 完全沒降 —— S1 依然在背後做了一模一樣的苦工。因此，**在阻斷 BFS 之前，Step 4 (LLVM) 的加速效益為零。**
+
+---
+
+### Q2 & Q3: 架構級選項分析 (A vs B vs C vs D)
+
+#### 為什麼不選 A (物理移除 Transistor)?
+- **核心難題無法解決**：如果你刪除 owned 區內部的電晶體，boundary node 上的 capacitance (面積/pull-up 等效強度) 邏輯會被徹底破壞。Visual6502 的 "largest group wins" 依賴完整的 graph 來比較驅動能力。
+- **文獻先例**：在 Switch-level sim (如 R.E. Bryant 的 COSMOS) 中，確實有將子圖替換為 boolean block 的做法。但他們的做法是**嚴格定義方向性 (Directionality)**，把網路轉成有向圖後再分割。Visual6502 是無向圖（除 Gate 外），物理切割極易引發訊號無法正確雙向傳遞（如 pass-transistor）的 Bug。
+
+#### 我提議的 Option D:「嚴格 Gate 邊界」+ Option B 阻斷
+你目前的困境（133個節點拉了一堆 CPU bus 進來）是因為 BFS 沿著 source/drain channel 亂竄。
+**唯一在物理與邏輯上安全的 Macro-block 邊界，是「單向隔離」的節點。在 MOSFET 裡，就是 Gate。**
+
+如果你要做最後一次架構突破嘗試，請試這個 **Option D**：
+1. **重新定義 Partitioning (Step 3)**：
+   - 區塊的 Boundary 只能是 **Transistor Gate** 或者是 **強驅動輸出 (Pull-up/Pull-down network 的最終匯出點)**，絕對不能經過 Channel (pass-transistor) 切割。
+   - 如果 ALU 的輸出是透過 pass-transistor 連接 address bus，那麼 address bus *必須*留在 S1 的管轄區。
+2. **實作 Option B (BFS 阻斷)**：
+   ```csharp
+   private static void AddNodeToGroup(int nn) {
+       if (CodegenOwned[nn]) {
+           // 將 Dispatcher 算好的結果當作「無限強度的供電軌」
+           _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
+           return; // 🛑 絕對不把它加進 _groupBuf，阻斷 BFS
+       }
+       // ... 原邏輯
+   }
+   ```
+3. **Dispatcher 的職責**：Dispatcher 監聽 ALU 的輸入 (Gates)，算出 ALU 的輸出 (8 個 node)，然後寫入 `NodeStates`。當 S1 掃描到這 8 個 node 時，Option B 的邏輯會讓 S1 以為遇到了 VCC/GND，從而終止 BFS，並吸收 Dispatcher 的正確數值。
+
+**這條路徑的優點**：不改 Topology、可逆、S1 真實 workload 下降、解決了 133 closure 亂吸節點的問題。
+
+---
+
+### Q4: 針對 Step 3.5 的具體建議
+
+**我的判斷：Timebox Option D (1-2 天)，若不行則執行 Option C (Wind-down)。**
+
+- **理由**：Option D (修改 `AddNodeToGroup` + 限制邊界) 的程式碼更動量極小（不到 50 行），這是你驗證「如果 S1 真的停下 BFS，加速天花板在哪裡」成本最低的方法。
+- 如果 Option D 實作後，Trace-diff 通過，且 rate 從 38K 提升到例如 70K，那證明這條路是通的，只是要不要繼續的問題。
+- 如果 Option D 依然遇到 capacitance 判定錯誤導致 Trace-diff 失敗，**立刻承認這個演算法架構的天花板 (Option C)**。不值得花幾週時間去魔改一個本質上不適合 Mixed-mode simulation 的基線。
+
+---
+
+### Q5: 專案戰略與工程價值
+
+> 「NES real-time on CPU」在我們已知所有路線下都不可達。那麼 `math-algos` 這 branch 的工程價值，你怎麼看？是否該轉到別的目標？
+
+**這是一個極為關鍵的架構師視角問題。**
+
+首先，接受現實：**Flat Switch-level event-driven sim 在 CPU 上絕對跑不到 840K hc/s。** 這是物理限制（記憶體延遲、分支預測失敗、快取未命中）。
+
+但是，`math-algos` 絕對不是白做，它為你指明了真正的出路。
+
+#### `math-algos` 的真實價值：Netlist Lifter (拓撲向上提取器)
+你用 Auto-partitioner (Step 3) 成功找出了 PPU sprite、VRAM addr、ALU 等宏觀區塊。這在逆向工程與模擬器開發中是**聖杯級別的成就**。
+以往 Visual6502 社群只能看著 26,000 個電晶體嘆氣，而你的工具鏈已經能夠自動把它們分群成有邏輯意義的 Macro-blocks！
+
+#### 接下來該轉向什麼目標？
+既然 CPU 算不動底層，我們就不要讓 CPU 算底層。目標應該轉向 **Static AOT Transpilation (靜態重編譯)**，而 `math-algos` 是這個編譯器的前端。
+
+1. **New Pipeline:**
+   Netlist -> `math-algos` Partitioner -> Macro-blocks Graph -> **C#/C++ Code Generator (AOT)** -> 編譯成一個沒有 BFS、只有純 Boolean Logic 與 bitwise operations 的全新模擬引擎。
+2. **放棄 S1 的 runtime**：
+   既然 dispatcher 這麼快 (4.6% overhead)，為什麼還要留著 S1？你可以把所有的 partition 都轉成 C 語言的 boolean equations（包含處理 pass-transistor 的特殊邏輯），直接生成一整棵 C++ / C# 檔案。
+3. **這就是 MetalNES 的路線**：MetalNES 不是在 runtime 做 BFS，它是 pre-compiled 的。
+
+### 結論行動清單
+1. 把 `math-algos` 標註為 **Research-Complete**（如果你測試完 Option D 後決定收尾）。
+2. 保留 `WireCore.Partition.cs` (這非常有價值)。
+3. 將大方向從 "Accelerate Runtime Simulator" 轉變為 "Build an AOT Netlist-to-Code Compiler"。用現有的 S1 作為 Oracle (Ground Truth)，驗證未來生成的 AOT Code 的正確性。
+
+這個牆撞得非常有價值，它告訴你這個維度已經走到盡頭，是時候升維（升級為 Compiler 架構）了。

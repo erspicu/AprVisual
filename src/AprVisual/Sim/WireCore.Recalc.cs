@@ -80,6 +80,16 @@ namespace AprVisual.Sim
         {
             if (EnableOblivious) { ProcessAllOblivious(); return; }   // math-algos X: replace BFS with all-node sweep until fixpoint
             if (EnableLevelize)  { ProcessQueueLevelized(); return; } // math-algos 策略三: level-ordered settle (priority = gate-only level; fixpoint preserved)
+            if (EnableCodegenDispatcher) { DispatcherRun(); return; } // Phase 2.5 Step 2: bitmask-polling macro-block dispatcher (delegates to ProcessQueueInterp for hybrid fallback)
+            ProcessQueueInterp();
+        }
+
+        // Original ProcessQueue body — the per-node FIFO double-buffer settle. Reachable as block 63
+        // of the codegen dispatcher (Phase 2.5 Step 2) AND as the default ProcessQueue when no codegen
+        // mode is active. The InvokeCallbacks at the end fires only when called from the no-codegen
+        // path; the dispatcher arranges its own InvokeCallbacks after the full dispatcher loop drains.
+        private static void ProcessQueueInterp()
+        {
             int iteration = 0;
             while (RecalcListNextCount != 0)
             {
@@ -111,12 +121,15 @@ namespace AprVisual.Sim
                 }
                 RecalcListCount = 0;
             }
-            InvokeCallbacks();   // WireCore.Handlers.cs — memory accesses etc. fire once the dust settles
+            if (!EnableCodegenDispatcher) InvokeCallbacks();   // WireCore.Handlers.cs — fired by dispatcher after the full block loop drains when codegen mode is on
         }
 
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
+            // Phase 2.5 Step 2: nodes claimed by a codegen block skip the interpreter walk; the
+            // block dispatcher will compute them. Cheap byte read; the bulk of nodes have it 0.
+            if (EnableCodegenDispatcher && CodegenOwned != null && CodegenOwned[nn] != 0) return;
             if (CountEvents)
             {
                 RecalcNodeCount++;
@@ -193,6 +206,10 @@ namespace AprVisual.Sim
             // hybrid nodes (most have 0 IR consumers). IrBoundaryDriver path is off-by-default (option
             // B / closed islands made it unnecessary), so removed from the hot path.
             if (EnableIrInterp && IrHasConsumers != null && IrHasConsumers[nn] != 0) EnqueueIrConsumers(nn);
+            // Phase 2.5 Step 2: re-arm any codegen block whose input set contains nn. One byte read
+            // + a branchless or-into-mask; for the bulk of (un-watched) nodes the byte is 0 and the
+            // branch is well predicted.
+            if (EnableCodegenDispatcher) CodegenInputChanged(nn);
         }
 
         // ── external pin drive / float (port of setHigh/setLow/setFloat) ──

@@ -72,6 +72,8 @@ namespace AprVisual.Test
                     case "--fast-path":       WireCore.EnableFastPath = true; break;     // math-algos 策略二: O(1) RecalcNode for pure-logic-gnd nodes (bypass group DFS)
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--ir-interp":       WireCore.EnableIrInterp = true; break;     // Phase 2 P2.3: event-driven IR interpreter (Expr eval for extracted nodes, hybrid switch-level for the rest)
+                    case "--codegen-dispatcher": WireCore.EnableCodegenDispatcher = true; break;  // Phase 2.5 Step 2: bitmask-polling macro-block dispatcher (dry-run; ALU eval but no output writeback)
+                    case "--codegen-writeback":  WireCore.EnableCodegenDispatcher = true; WireCore.EnableCodegenAluWriteback = true; break;  // Step 2.5: writeback enabled — CORRECTNESS RISK until op-selectors are verified
                     case "--ir-pure":         WireCore.EnableIrInterp = true; WireCore.IrPureOnly = true; break;   // debug: interp with pure-logic-only IR (isolate dispatch)
                     case "--ir-brute":        WireCore.IrBruteForce = true; break;       // debug: oblivious re-eval each half-cycle (isolate triggering vs eval bug)
                     case "--count-events":    WireCore.CountEvents = true; break;        // diagnostic: count EnqueueNode + RecalcNode hits (measures D)
@@ -758,6 +760,7 @@ namespace AprVisual.Test
                 if (WireCore.EnableIrInterp) { WireCore.BuildCombinationalIr(); WireCore.BuildRevDep(); }   // Phase 2 P2.3: build IR after reset, then the timed run uses it
                 swLoad.Stop();
                 WireCore.EnqueueCount = 0; WireCore.RecalcNodeCount = 0;
+                WireCore.DispBlockEvalCount = WireCore.DispAluEvalCount = WireCore.DispInterpEvalCount = 0;   // Phase 2.5 Step 2 reset
                 if (WireCore.CountEvents) WireCore.InitGlitchDiag();   // 策略三: arm per-half-cycle re-recalc counting over the timed window only
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -788,6 +791,14 @@ namespace AprVisual.Test
                     // 策略三 glitch factor: avg times the same node is re-evaluated within one half-cycle (~1.0 ⇒ no glitching)
                     double glitch = WireCore.DistinctRecalcCount > 0 ? (double)WireCore.RecalcNodeCount / WireCore.DistinctRecalcCount : 0;
                     Console.WriteLine($"# glitch factor: {WireCore.RecalcNodeCount:N0} RecalcNode / {WireCore.DistinctRecalcCount:N0} distinct (node,hc) = {glitch:F3} recalcs/node/hc  (>1.1 ⇒ glitches worth chasing; ~1.0 ⇒ none)");
+                    if (WireCore.EnableCodegenDispatcher)
+                    {
+                        // Phase 2.5 Step 2: dispatcher block-eval frequencies. ALU/hc shows how often the
+                        // dirty bit fires (cheap byte-watch); a typical 6502 has ALU evals on a fraction
+                        // of every cycle (operand fetch + execute), so a healthy figure is single-digit per hc.
+                        Console.WriteLine($"# {WireCore.LastDispatcherStats}");
+                        Console.WriteLine($"# dispatcher: {WireCore.DispBlockEvalCount:N0} block-evals ({WireCore.DispInterpEvalCount:N0} interp, {WireCore.DispAluEvalCount:N0} ALU) over {halfCycles:N0} hc  ({(double)WireCore.DispAluEvalCount / halfCycles:F2} ALU evals/hc; mode = {(WireCore.EnableCodegenAluWriteback ? "WRITEBACK" : "dry-run")})");
+                    }
                 }
             }
             finally { WireCore.Shutdown(); }

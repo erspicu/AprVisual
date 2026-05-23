@@ -93,6 +93,13 @@ namespace AprVisual.Sim
             ResolveCachedNodes();
 
             ResetNes(full: true);     // clear RAMs + Reset() + alloc FrameBuffer + assert/run/deassert res
+
+            // Phase 2.5 Step 2: setup AFTER ResetNes so NodeCount is finalised (Reset() sets it from
+            // NodeArrayCount). Doing this earlier would AllocArray<byte>(0) → zero-byte buffers, then
+            // SetNodeState's CodegenInputChanged hook would read OOB on every node write during reset.
+            // The reset itself ran without the watch armed; that's fine, the dispatcher will pick up
+            // bit 0 on the next SetNodeState that flips an ALU input after reset deasserts.
+            if (EnableCodegenDispatcher) CodegenDispatcherSetup();
         }
 
         private static void CopyRomBytes(NesRom rom)

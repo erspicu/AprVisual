@@ -170,6 +170,17 @@ namespace AprVisual.Codegen
                 // ── C. AotRuntime: init from initState + run hcCount steps ──
                 int resetId = WireCore.LookupNode("res");
                 var aotRt = new AotRuntime(initState, loaded.EvalAll, clockId) { ResetNodeId = resetId };
+                // Phase E-4a: wire cart ROM
+                var prgMem = WireCore.ResolveMemory("cart.prg.rom");
+                if (prgMem != null)
+                {
+                    aotRt.PrgRom = prgMem.Data;
+                    aotRt.AbIds = new int[16];
+                    aotRt.DbIds = new int[8];
+                    for (int i = 0; i < 16; i++) aotRt.AbIds[i] = WireCore.LookupNode($"cpu.ab{i}");
+                    for (int i = 0; i < 8; i++) aotRt.DbIds[i] = WireCore.LookupNode($"cpu.db{i}");
+                    Console.WriteLine($"#   wired cart ROM ({aotRt.PrgRom.Length / 1024} KB), AB ids: [{string.Join(',', aotRt.AbIds)}]");
+                }
                 long totalChanges = 0, totalFirstIterChanges = 0; int maxSettle = 0;
                 for (int hc = 0; hc < hcCount; hc++)
                 {
@@ -182,6 +193,7 @@ namespace AprVisual.Codegen
                 Console.WriteLine($"#     max settle iter   : {maxSettle}");
                 Console.WriteLine($"#     total node changes: {totalChanges:N0}  ({(double)totalChanges / hcCount:F1} per hc)");
                 Console.WriteLine($"#     first-iter changes: {totalFirstIterChanges:N0}  ({(double)totalFirstIterChanges / hcCount:F1} per hc)");
+                Console.WriteLine($"#     ROM reads issued  : {aotRt.RomReadCount:N0}");
 
                 // ── D. S1: run hcCount steps from the SAME initial state (which S1 is already in) ──
                 for (int hc = 0; hc < hcCount; hc++) WireCore.Step(1);

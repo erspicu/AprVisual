@@ -37,6 +37,13 @@ namespace AprVisual.Codegen
         public int ResetHoldHc = 192;        // hc count to hold /res low at start
         public int HcSinceStart;             // counter
 
+        // Phase E-4a — cart ROM memory handler. When AB is in $8000-$FFFF range, look up byte
+        // in PrgRom + write to DB. Lets CPU fetch instructions and propagate state changes.
+        public byte[]? PrgRom;               // 16/32 KB cart PRG ROM
+        public int[] AbIds = Array.Empty<int>();   // 16 node IDs for cpu.ab0..ab15 (NOT consecutive)
+        public int[] DbIds = Array.Empty<int>();   // 8 node IDs for cpu.db0..db7  (NOT consecutive)
+        public long RomReadCount;            // diagnostic: how many step-level ROM reads happened
+
         public AotRuntime(byte[] initialNodeStates, AotRoslynLoader.EvalAllDelegate evalAll, int clockNodeId)
         {
             NodeStates = (byte[])initialNodeStates.Clone();
@@ -75,6 +82,23 @@ namespace AprVisual.Codegen
             }
             LastSettleIterations = iter + 1;
             HcSinceStart++;
+
+            // Phase E-4a: after AOT settle, simulate cart ROM read. If AB in $8000-$FFFF,
+            // fetch byte from PrgRom + write to DB. Then re-settle so CPU sees the new DB.
+            if (PrgRom != null && AbIds.Length == 16 && DbIds.Length == 8)
+            {
+                int addr = 0;
+                for (int i = 0; i < 16; i++) addr |= NodeStates[AbIds[i]] << i;
+                if ((addr & 0x8000) != 0)
+                {
+                    int romOffset = (addr - 0x8000) % PrgRom.Length;
+                    byte b = PrgRom[romOffset];
+                    for (int i = 0; i < 8; i++) NodeStates[DbIds[i]] = (byte)((b >> i) & 1);
+                    RomReadCount++;
+                    // Re-settle so the CPU sees the data bus update
+                    fixed (byte* p = NodeStates) { EvalAll(p); }
+                }
+            }
         }
 
         /// <summary>Compare own NodeStates to a reference (typically S1's settled state).

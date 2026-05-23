@@ -217,7 +217,8 @@ namespace AprVisual.Sim
 
             const NodeFlags badOut = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
 
-            int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0, nReject = 0;
+            int nLogic = 0, nStack = 0, nAbsorbed = 0, nComplex = 0;
+            int nRejMultiPull = 0, nRejNoPull = 0, nRejMidGates = 0, nRejBadFlags = 0, nRejPureDbg = 0;
             foreach (var kv in members)
             {
                 var list = kv.Value;
@@ -228,15 +229,12 @@ namespace AprVisual.Sim
                     if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) { pulls++; outV = m; }
                     else if (NodeInfos[m].TlistGates != 0) { clean = false; break; }   // a mid that drives logic => not a pure stack
                 }
-                if (!clean || pulls != 1) { nReject++; continue; }
+                if (pulls == 0) { nRejNoPull++; continue; }
+                if (pulls > 1) { nRejMultiPull++; continue; }
+                if (!clean) { nRejMidGates++; continue; }
                 ref NodeInfo ns = ref NodeInfos[outV];
-                if ((ns.Flags & badOut) != 0) { nReject++; continue; }
-                // (Earlier we required output to be a gate-only SCC singleton — too strict. A node
-                //  in a gate-only multi-SCC IS still extractable as long as it's a single-output pass
-                //  island with clean mids: PullDownCond yields NOT(pulldown over gates), where its
-                //  cross-coupled SCC peers appear as NodeRef leaves; the event-driven dirty queue +
-                //  revDep iterates the feedback to a fixpoint exactly like S1's group walk does.)
-                if (IrPureOnly && list.Count > 1) { nReject++; continue; }                     // debug: pure-logic islands only
+                if ((ns.Flags & badOut) != 0) { nRejBadFlags++; continue; }
+                if (IrPureOnly && list.Count > 1) { nRejPureDbg++; continue; }                 // debug: pure-logic islands only
 
                 _irVisited.Clear(); _irVisited.Add(outV);
                 _irBudget = 4000; _irAbort = false;
@@ -247,7 +245,8 @@ namespace AprVisual.Sim
                 foreach (int m in list) if (m != outV) { IrAbsorbed[m] = 1; nAbsorbed++; }
             }
             IrExtractedCount = nLogic + nStack;
-            LastIrStats = $"IR (P2.3 island): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node islands), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nReject:N0} islands rejected->hybrid, pool {_ir.Count:N0}";
+            int nRejTotal = nRejMultiPull + nRejNoPull + nRejMidGates + nRejBadFlags + nRejPureDbg;
+            LastIrStats = $"IR (P2.3 island): {IrExtractedCount:N0} extracted ({nLogic:N0} logic + {nStack:N0} multi-node), {nAbsorbed:N0} mids absorbed, {nComplex:N0} too-complex, {nRejTotal:N0} islands rejected (multi-pull={nRejMultiPull}, no-pull={nRejNoPull}, mid-gates={nRejMidGates}, bad-flags={nRejBadFlags}, pure-dbg={nRejPureDbg}), pool {_ir.Count:N0}";
 
             // Strategy A (Gemini r1): flatten managed pool to unmanaged, build per-node LUTs, drop managed _ir.
             FlattenIrPool();

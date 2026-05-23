@@ -95,6 +95,21 @@ namespace AprVisual.Sim
                 return;
             }
 
+            // Phase 2.5 Step 3.5 Option D — codegen-owned BFS block (per Gemini r2 §Q3):
+            // The dispatcher has written the correct value to NodeStates[nn] before settle.
+            // To prevent S1's BFS from re-resolving the owned region (which would either
+            // overwrite the dispatcher's value or do redundant work walking owned internals),
+            // we treat the owned node as an "infinite-strength driver" — OR-in PullUp/Gnd based
+            // on its current value and STOP the BFS here. _inGroup left 0 (idempotent on re-visit).
+            // This is the only mechanism that actually SKIPS S1 work on owned regions; without
+            // this, CodegenOwned only skips the RecalcNode entry, not the BFS group walk
+            // (see MD/impl/math-algos/10_step35_architecture_finding.md).
+            if (EnableCodegenDispatcher && CodegenOwned != null && CodegenOwned[nn] != 0)
+            {
+                _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
+                return;
+            }
+
             _inGroup[nn] = 1;
 
             ref NodeInfo ns = ref NodeInfos[nn];

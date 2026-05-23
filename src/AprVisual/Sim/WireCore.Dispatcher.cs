@@ -75,6 +75,14 @@ namespace AprVisual.Sim
         private static int[] _aluCoutNodes    = Array.Empty<int>();   // 2 ids (alucout + notalucout)
         // Step 3.5a: full 133-node closure (alu output + notalu + carry-save intermediates + mux mids)
         private static int[] _aluClosureNodes = Array.Empty<int>();
+        // Option D-step3: named carry-save intermediates — Eval_AluBlock computes + writes them
+        // when EnableCodegenAluOwnInternal. These are derivable from alua/alub/cin so we can model
+        // them faithfully without phi tracking (assuming they're a function of the same inputs).
+        private static int[] _aluAndAB        = Array.Empty<int>();   // 8 ids: cpu.#A.B[0..7]    = alua AND alub
+        private static int[] _aluOrAB         = Array.Empty<int>();   // 8 ids: cpu.#(A+B)[0..7]  = alua OR  alub
+        private static int[] _aluXorAB        = Array.Empty<int>();   // 8 ids: cpu.#(AxB)[0..7]  = alua XOR alub
+        private static int[] _aluXorABC       = Array.Empty<int>();   // 8 ids: cpu.#(AxBxC)[0..7] = sum-with-carry bit
+        private static int[] _aluInterCarry   = Array.Empty<int>();   // 4 ids: cpu.#(AxB1).C01 / .C23 / .C45 / .C67 (group-carry mids)
         private static AluBlockBindings.AluCtx _aluCtx;               // persistent (no per-call alloc)
 
         public static int CodegenAluInputCount  => _aluInputNodes.Length + _aluOpNodes.Length;
@@ -118,6 +126,29 @@ namespace AprVisual.Sim
             _aluNotaluNodes = notalu;
             _aluCoutNodes   = new List<int>(alucoutR).Concat(notcoutR).ToArray();
 
+            // Option D-step3: named carry-save mid arrays — these are clearly derivable from alua/alub/cin
+            // (combinational, not phi-latched at the semantic level), so dispatcher can write them.
+            int[] R8(string baseName)
+            {
+                var l = new List<int>();
+                for (int i = 0; i < 8; i++)
+                {
+                    int nn = LookupNode("cpu." + baseName + i);
+                    l.Add(nn == EmptyNode ? Ngnd : nn);
+                }
+                return l.ToArray();
+            }
+            _aluAndAB      = R8("#A.B");          // cpu.#A.B0..7
+            _aluOrAB       = R8("#(A+B)");        // cpu.#(A+B)0..7
+            _aluXorAB      = R8("#(AxB)");        // cpu.#(AxB)0..7
+            _aluXorABC     = R8("#(AxBxC)");      // cpu.#(AxBxC)0..7
+            int n01 = LookupNode("cpu.#(AxB1).C01"); int n23 = LookupNode("cpu.#(AxB3).C23");
+            int n45 = LookupNode("cpu.#(AxB5).C45"); int n67 = LookupNode("cpu.#(AxB7).C67");
+            _aluInterCarry = new int[] {
+                n01 == EmptyNode ? Ngnd : n01, n23 == EmptyNode ? Ngnd : n23,
+                n45 == EmptyNode ? Ngnd : n45, n67 == EmptyNode ? Ngnd : n67,
+            };
+
             // Step 3.5a: compute the 133-node ALU reverse-closure (same algorithm as --dump-block:
             // BFS backwards along channel edges, stop at other pull-up nodes / declared inputs /
             // supply rails). The full closure naively LEAKS into critical CPU clock/bus nodes
@@ -160,6 +191,13 @@ namespace AprVisual.Sim
                 foreach (int nn in _aluClosureNodes) if ((uint)nn < (uint)NodeCount) CodegenOwned[nn] = 1;
                 foreach (int nn in _aluNotaluNodes)  if ((uint)nn < (uint)NodeCount) CodegenOwned[nn] = 1;
                 foreach (int nn in _aluCoutNodes)    if ((uint)nn < (uint)NodeCount) CodegenOwned[nn] = 1;
+                // Option D-step3: also own the carry-save named intermediates (32 + 4 = 36 nodes).
+                // Dispatcher computes + writes them; with Option D BFS block, S1 doesn't traverse.
+                foreach (int nn in _aluAndAB)      if ((uint)nn < (uint)NodeCount && nn != Ngnd) CodegenOwned[nn] = 1;
+                foreach (int nn in _aluOrAB)       if ((uint)nn < (uint)NodeCount && nn != Ngnd) CodegenOwned[nn] = 1;
+                foreach (int nn in _aluXorAB)      if ((uint)nn < (uint)NodeCount && nn != Ngnd) CodegenOwned[nn] = 1;
+                foreach (int nn in _aluXorABC)     if ((uint)nn < (uint)NodeCount && nn != Ngnd) CodegenOwned[nn] = 1;
+                foreach (int nn in _aluInterCarry) if ((uint)nn < (uint)NodeCount && nn != Ngnd) CodegenOwned[nn] = 1;
             }
             // Mark CodegenInputWatched for inputs + op selectors (SetNodeState sets bit 0 on change).
             foreach (int nn in _aluInputNodes)
@@ -314,6 +352,32 @@ namespace AprVisual.Sim
                 }
                 if (_aluCoutNodes.Length >= 1) SetNodeState(_aluCoutNodes[0], _aluCtx.cout);
                 if (_aluCoutNodes.Length >= 2) SetNodeState(_aluCoutNodes[1], (byte)(1 - _aluCtx.cout));
+
+                // Option D-step3: compute + write carry-save intermediates from alua/alub/cin.
+                // These are pure boolean functions, no phi involved at the semantic level.
+                byte alua = _aluCtx.alua, alub = _aluCtx.alub, cinBit = _aluCtx.cin;
+                byte andAB = (byte)(alua & alub);  // #A.B    = carry generate
+                byte orAB  = (byte)(alua | alub);  // #(A+B)  = carry propagate
+                byte xorAB = (byte)(alua ^ alub);  // #(AxB)  = sum bit pre-carry
+                // ripple-carry to compute #(AxBxC) per bit + the 4 inter-group carries (after bits 1,3,5,7)
+                byte carry = cinBit; byte xorABC = 0;
+                byte[] groupCarry = new byte[4];   // c01, c23, c45, c67 — carry-out of bit pairs (0..1, 2..3, 4..5, 6..7)
+                for (int i = 0; i < 8; i++)
+                {
+                    byte aiXorBi = (byte)((xorAB >> i) & 1);
+                    byte sumi = (byte)(aiXorBi ^ carry);
+                    xorABC |= (byte)(sumi << i);
+                    carry = (byte)(((andAB >> i) & 1) | (aiXorBi & carry));
+                    if ((i & 1) == 1) groupCarry[i / 2] = carry;   // store carry-out at the end of each pair
+                }
+                for (int i = 0; i < 8; i++)
+                {
+                    if (_aluAndAB[i] != Ngnd)  SetNodeState(_aluAndAB[i],  (byte)((andAB  >> i) & 1));
+                    if (_aluOrAB[i]  != Ngnd)  SetNodeState(_aluOrAB[i],   (byte)((orAB   >> i) & 1));
+                    if (_aluXorAB[i] != Ngnd)  SetNodeState(_aluXorAB[i],  (byte)((xorAB  >> i) & 1));
+                    if (_aluXorABC[i] != Ngnd) SetNodeState(_aluXorABC[i], (byte)((xorABC >> i) & 1));
+                }
+                for (int g = 0; g < 4; g++) if (_aluInterCarry[g] != Ngnd) SetNodeState(_aluInterCarry[g], groupCarry[g]);
             }
         }
 

@@ -40,6 +40,7 @@ namespace AprVisual.Test
             string? aotEmitBlockRom = null; int aotEmitBlockId = -1; string? aotEmitBlockPath = null;
             string? aotEmitAllRom = null; string? aotEmitAllPath = null; int aotMinEmittable = 5;
             string? aotCompileLoad = null;
+            string? aotRun = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             int maxWait = 15;
@@ -85,6 +86,7 @@ namespace AprVisual.Test
                     case "--aot-emit-all":       if (i + 2 < args.Length) { aotEmitAllRom = args[++i]; aotEmitAllPath = args[++i]; } break;   // aot-codegen Phase D-1: <ROM> <out.cs>, mass emit all blocks (>= 5 emittable)
                     case "--min-emittable":      if (i + 1 < args.Length) int.TryParse(args[++i], out aotMinEmittable); break;
                     case "--aot-compile-load":   if (i + 1 < args.Length) aotCompileLoad = args[++i]; break;   // aot-codegen Phase D-2: Roslyn-compile master, load delegate, verify vs S1
+                    case "--aot-run":            if (i + 1 < args.Length) aotRun = args[++i]; break;   // aot-codegen Phase D-3: run sim with AOT delegate in the loop, compare hc/s + checksum to S1-only
                     case "--alu-bench":       aluBench = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out var nv)) { aluBenchN = nv; i++; } break;
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -137,6 +139,7 @@ namespace AprVisual.Test
             if (aotEmitBlockRom != null && aotEmitBlockId >= 0 && aotEmitBlockPath != null) return AprVisual.Codegen.AotVerifier.EmitBlockSource(aotEmitBlockRom, aotEmitBlockId, aotEmitBlockPath);
             if (aotEmitAllRom != null && aotEmitAllPath != null) return AprVisual.Codegen.AotVerifier.EmitAllBlocks(aotEmitAllRom, aotEmitAllPath, aotMinEmittable);
             if (aotCompileLoad != null) return AprVisual.Codegen.AotVerifier.CompileAndLoadAll(aotCompileLoad, benchHcCount > 0 ? benchHcCount : 30_000, aotMinEmittable);
+            if (aotRun != null) return AprVisual.Codegen.AotVerifier.RunWithAotEngine(aotRun, benchHcCount > 0 ? benchHcCount : 30_000, aotMinEmittable);
             if (aluBench) return AluBench(aluBenchN);
             if (tracePath != null) return Trace(tracePath, traceCycles);
             if (shotPath != null) return Screenshot(shotPath, shotFrames, shotOut);

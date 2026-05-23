@@ -17,6 +17,115 @@ namespace AprVisual.Codegen
     /// </summary>
     public static unsafe class AotVerifier
     {
+        /// <summary>Phase D-3: AOT engine in the simulation hot path. Loads the master AOT, then
+        /// runs the simulation with AOT called AFTER each S1 step. AOT predictions overwrite
+        /// the corresponding NodeStates entries — since they should be byte-equal to S1's just-
+        /// computed values (per Phase D-2 verification), this should be functionally inert.
+        /// Compares overall throughput (hc/s) to S1-baseline and verifies trace equivalence.
+        ///
+        /// Runs 4 passes: warmup, S1-only, AOT-in-loop, S1-only-again — to cancel out OS file
+        /// cache + .NET JIT warmup effects. The last two are the meaningful comparison.</summary>
+        public static int RunWithAotEngine(string romPath, int hcCount, int minEmittable)
+        {
+            if (hcCount < 1) hcCount = 30_000;
+            if (minEmittable < 1) minEmittable = 5;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# aot-run: {System.IO.Path.GetFileName(romPath)} — {hcCount:N0} hc per pass");
+
+            // ── pre-build the AOT (so JIT warmup happens before any timed pass) ──
+            AotRoslynLoader.CompileResult? loaded = null;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                var partition = WireCore.AutoPartition();
+                var picked = new List<(WireCore.Block pb, AotBlock ab)>();
+                foreach (var pb in partition)
+                {
+                    var ab = AotBlockBuilder.Build(pb);
+                    if (ab.Evals.Count >= minEmittable) picked.Add((pb, ab));
+                }
+                int totalEvals = 0; foreach (var (_, ab) in picked) totalEvals += ab.Evals.Count;
+                string source = AotBlockBuilder.EmitMasterSource(picked, System.IO.Path.GetFileName(romPath));
+                Console.WriteLine($"# AOT: {picked.Count} blocks, {totalEvals} emittable nodes, source {source.Length:N0} bytes");
+
+                var swCompile = System.Diagnostics.Stopwatch.StartNew();
+                loaded = AotRoslynLoader.CompileMaster(source);
+                swCompile.Stop();
+                if (!loaded.Success || loaded.EvalAll == null)
+                {
+                    Console.WriteLine($"# AOT compile FAILED:");
+                    Console.WriteLine(loaded.Log);
+                    return 3;
+                }
+                Console.WriteLine($"# AOT compile + load: {swCompile.Elapsed.TotalSeconds:F2} s");
+                // JIT-warm the delegate with a dozen calls so timed pass below isn't penalised
+                unsafe
+                {
+                    for (int i = 0; i < 16; i++) loaded.EvalAll(WireCore.NodeStates);
+                }
+            }
+            finally { WireCore.Shutdown(); }
+
+            // ── 4 timed passes ──
+            var results = new List<(string label, double seconds, ulong checksum)>();
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool aotInLoop = (pass == 0 || pass == 2);  // alternate so each mode runs twice
+                string label = aotInLoop ? "AOT-in-loop" : "S1-only";
+                try
+                {
+                    WireCore.LoadSystem(rom);
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    if (aotInLoop)
+                    {
+                        unsafe
+                        {
+                            for (int hc = 0; hc < hcCount; hc++)
+                            {
+                                WireCore.Step(1);
+                                loaded!.EvalAll!(WireCore.NodeStates);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int hc = 0; hc < hcCount; hc++) WireCore.Step(1);
+                    }
+                    sw.Stop();
+                    ulong cs = ChecksumNodeStates();
+                    results.Add((label, sw.Elapsed.TotalSeconds, cs));
+                    Console.WriteLine($"# pass {pass + 1} {label,-12}: {hcCount / sw.Elapsed.TotalSeconds,8:N0} hc/s ({sw.Elapsed.TotalSeconds:F3} s)  checksum 0x{cs:X16}");
+                }
+                finally { WireCore.Shutdown(); }
+            }
+
+            // ── analysis ──
+            double s1Avg  = results.Where(r => r.label == "S1-only").Select(r => r.seconds).Average();
+            double aotAvg = results.Where(r => r.label == "AOT-in-loop").Select(r => r.seconds).Average();
+            ulong s1cs  = results.First(r => r.label == "S1-only").checksum;
+            ulong aotcs = results.First(r => r.label == "AOT-in-loop").checksum;
+            bool allChecksumsEqual = results.All(r => r.checksum == results[0].checksum);
+            Console.WriteLine($"# === Phase D-3 averaged ===");
+            Console.WriteLine($"#   S1-only       avg: {hcCount / s1Avg,8:N0} hc/s ({s1Avg:F3} s)");
+            Console.WriteLine($"#   AOT-in-loop   avg: {hcCount / aotAvg,8:N0} hc/s ({aotAvg:F3} s)");
+            Console.WriteLine($"#   AOT overhead     : {(aotAvg / s1Avg - 1) * 100:F2}%  ({(aotAvg - s1Avg) * 1e6 / hcCount:F2} µs/hc)");
+            Console.WriteLine($"#   checksums all equal: {(allChecksumsEqual ? "✓ functional equivalence verified" : "✗ DIVERGENCE")}");
+            if (!allChecksumsEqual)
+                foreach (var r in results) Console.WriteLine($"#     {r.label}: 0x{r.checksum:X16}");
+            return allChecksumsEqual ? 0 : 1;
+        }
+
+        private static unsafe ulong ChecksumNodeStates()
+        {
+            // Cheap FNV-1a over NodeStates (good enough to detect any divergence)
+            ulong h = 14695981039346656037UL;
+            byte* p = WireCore.NodeStates;
+            int n = WireCore.NodeCount;
+            for (int i = 0; i < n; i++) { h = (h ^ p[i]) * 1099511628211UL; }
+            return h;
+        }
+
         /// <summary>Phase D-2: emit master .cs in-memory, Roslyn-compile, load, run the loaded
         /// AotEngine.EvalAllBlocks delegate alongside S1; verify the written NodeStates match
         /// what the direct runtime delegates would have written (i.e., Roslyn-emitted code is

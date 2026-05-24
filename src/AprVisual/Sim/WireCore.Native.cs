@@ -54,6 +54,7 @@ namespace AprVisual.Sim
             _inGroup = null;
             IsPureLogic = null;   // math-algos 策略二 (re-built by ClassifyPureLogicNodes when --fast-path)
             NodeGroupIDs = null;  // math-algos #1 (re-built by InitGroupIDs when --prune-merge)
+            NodeChip = null;      // chip-diag (re-built by ClassifyChips when --chip-diag)
             NodeLevel = null;     // math-algos 策略三 (re-built by ComputeNodeLevels when --levelize)
             _lvlSorted = null;
             _lvlCount = null;

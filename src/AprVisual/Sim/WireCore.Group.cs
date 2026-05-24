@@ -72,7 +72,14 @@ namespace AprVisual.Sim
             _groupCount = 0;
             _maxState = 0;
             _maxConnections = 0;
+            if (EnableChipDiag) { _chipDiagCurrent = NodeChip[nn]; _chipDiagMultiSeen = false; }
             AddNodeToGroup(nn);
+            if (EnableChipDiag)
+            {
+                ChipDiagTotalWalks++;
+                if (_chipDiagMultiSeen) ChipDiagCrossChipWalks++;
+                else ChipDiagWalksByChip[_chipDiagCurrent]++;
+            }
             return GetNodeValue();
         }
 
@@ -114,6 +121,12 @@ namespace AprVisual.Sim
 
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = nn;
+            if (EnableChipDiag)
+            {
+                byte c = NodeChip[nn];
+                ChipDiagNodesByChip[c]++;
+                if (c != _chipDiagCurrent) _chipDiagMultiSeen = true;
+            }
 
             // track the highest-connection ("largest capacitance") node's state for the all-floating case
             if (ns.Connections > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = ns.Connections; }

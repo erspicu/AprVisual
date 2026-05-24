@@ -210,6 +210,10 @@ namespace AprVisual.Sim
 
             // ── math-algos 策略三: gate-only condensation levels for the soft levelized settle.
             if (EnableLevelize) ComputeNodeLevels();        // else NodeLevel stays null (FreeUnmanagedMemory above)
+
+            // ── chip-diag: classify each node by name prefix for the per-chip BFS-walk diagnostic.
+            //    Runs after node names are finalised. See WireCore.ChipDiag.cs.
+            if (EnableChipDiag) ClassifyChips();
         }
 
         // length of TransistorList (for diagnostics)

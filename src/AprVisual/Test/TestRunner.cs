@@ -104,6 +104,7 @@ namespace AprVisual.Test
                     case "--prune-merge":     WireCore.EnablePruneMerge = true; break;   // math-algos #1: skip ON-case (merge) enqueue when endpoints already equal
                     case "--fast-path":       WireCore.EnableFastPath = true; break;     // math-algos 策略二: O(1) RecalcNode for pure-logic-gnd nodes (bypass group DFS)
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
+                    case "--chip-diag":       WireCore.EnableChipDiag = true; break;     // per-chip BFS-walk diagnostic: how many walks stay in one chip vs cross
                     case "--ir-interp":       WireCore.EnableIrInterp = true; break;     // Phase 2 P2.3: event-driven IR interpreter (Expr eval for extracted nodes, hybrid switch-level for the rest)
                     case "--codegen-dispatcher": WireCore.EnableCodegenDispatcher = true; break;  // Phase 2.5 Step 2: bitmask-polling macro-block dispatcher (dry-run; ALU eval but no output writeback)
                     case "--codegen-writeback":  WireCore.EnableCodegenDispatcher = true; WireCore.EnableCodegenAluWriteback = true; break;  // Step 2.5: writeback enabled (functional ≡ S1)
@@ -949,6 +950,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastRcmStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastLevelizeStats}");
+                if (WireCore.EnableChipDiag) { WireCore.ChipDiagAfterReport(); Console.WriteLine($"# {WireCore.LastChipDiagStats}"); }
                 if (WireCore.EnableIrInterp) { Console.WriteLine($"# {WireCore.LastIrStats}"); Console.WriteLine($"# {WireCore.LastRevDepStats}"); }
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");

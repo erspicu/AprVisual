@@ -192,3 +192,44 @@ Gemini 的 sanity check 在 main 上的「fundamentally unsound」級判斷（β
 **所以 S1 的「物理極限」不是 ~47K、而是「~47K × (能再削多少 D)」。** #1 把它推到 ~62K（1.32×）。要再往上、得繼續找「哪些 enqueue / recalc 是冗餘的」—— 而那是有限的、且每一步都要驗「observably-identical」。real-time（~840×）仍然不可達（那是 paradigm 的事、見 `MD/RETROSPECTIVE.md`）；但「single-instance switch-level on CPU」的天花板被 #1 從 ~47K 抬到 ~62K hc/s，證明了「D-reduction」這個 lever 是真的。
 
 **目前狀態**：G / Y / X / #1 / 策略二 fast-path / 策略三 glitch 診斷 都實作了、量過了、commit 進歷史了。**值得開的兩個**：#1（1.32×、observably-identical）+ 策略二 fast-path（疊到 1.37×、bit-identical）。下個 session 讀到這 doc 不用重撞 —— 而且知道「下一步要繼續削 D，且策略三已經量出拓樸層級化能打的那 ~12%」。
+
+---
+
+## 7. ⚠️ 2026-05-24 修正：#1 的 "observably-identical" 聲明是 over-claim
+
+第 4b/4c/6 節說 `--prune-merge` 「observably-identical」/ 「CPU 行為 + PPU 輸出 byte-identical、只有內部 dynamic/indeterminate node 不同」── 這個聲明**只在 bench-hc 用 `01-basics.nes`（blargg CPU 測試）跑時成立**，因為那個 ROM 只測 CPU、不依賴 PPU rendering output。
+
+**用 `full_palette.nes`（測試 PPU palette 顯示）做 visual 驗證,`--prune-merge` 在 frame 48 渲染出全黑、不是預期的色票網格**(對照 baseline 同 ROM/同 frame = 完整色票)。 
+
+### 7a. Root cause
+
+dump-states 在 500K hc 的 diff 只有 118 行,集中在三類:
+
+1. `ppu.pal_ram_{11,13}_*` 6T SRAM cell ── `_a` 跟 `_b` 顛倒
+2. `ppu.oam_ram_100_*` 6T SRAM cell ── 同上
+3. ~30 個 unnamed PPU 內部 node:**`vpos2` `hpos2` `vpos_eq_241/261` `+spr_d7` `inc_spr_ptr` 等** ── 也就是 PPU 計數器跟 vblank 觸發比對
+
+cross-coupled latches(D-FF、6T cell)有**兩個合法 stable state**。 prune-merge 的「c1==c2 時跳過 enqueue」假設「equal-value merge 不會改變 resolved value」── 對純靜態邏輯成立,但對 cross-coupled feedback 不成立(merge 改變 group topology + 可能改變 stable state 的選擇)。 power-on settle 時 cell 收斂到 inverted 邊 → vpos/hpos 計數器一開始就 offset → `vpos_eq_241` 在錯誤 scanline 觸發 → vblank 狀態機 desync → `rendering_disabled` 永遠拉著 → 全黑。
+
+OAM/palette cell 雖然 CPU writes 會 overwrite 修正,但 vpos/hpos 是 PPU 內部、CPU 不能直接寫 → 永遠錯下去。
+
+### 7b. Partial mitigation in WireCore.System.cs
+
+`ResetNes` 包了 save/restore EnablePruneMerge,強制 power-on settle + reset assertion 期間關閉 prune-merge。 dump @ 500K hc 跟 5M hc 跟 baseline byte-identical(0 行 diff)。 **但 full_palette @ 48 frame 仍渲染全黑** ── 證明 normal frame stepping 期間,每次 D-FF clock-edge 翻 state 也會 expose 同樣 skip,divergence 持續累積(35M hc 範圍內 5M hc 沒事 但 35M 已 黑)。
+
+### 7c. 真正的 fix(未實作)
+
+需要 parse-time 識別所有 cross-coupled SCC(D-FF、latches、6T cell),把這些 node 標記為「prune-merge 不可 skip」── 跟「策略三 拓樸層級化」是同類分析(需要 SCC detection + 邊界判斷)。 不在 math-algos 原本 scope 內。
+
+### 7d. 對 showcase / 實際 usage 的影響
+
+| 用途 | `--prune-merge` 是否安全 |
+|---|---|
+| bench-hc CPU-only ROM(blargg) | ✅ 安全(CPU 行為不受影響)|
+| visual ROM(SMB / full_palette / 任何需要 PPU output 的)| ❌ **黑屏** |
+
+→ 「math-algos 天花板 1.37×」這個數字**只對 CPU-only workload 成立**。 visual sim 必須關掉 `--prune-merge`,只能用 baseline + `--fast-path`(bit-identical,~1.05×)。
+
+### 7e. 教訓
+
+bench-hc + checksum 用單一 CPU-only ROM 不夠 ── observably-identical 的驗證集要至少涵蓋一個 PPU visual ROM(full_palette / Mario title screen / 任何 frame-screenshot 可 byte-compare 的)。 這條 lesson 也適用於後續任何 S1 優化的「等價性」聲明。

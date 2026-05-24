@@ -155,25 +155,40 @@ namespace AprVisual.Sim
         /// </summary>
         public static void ResetNes(bool full)
         {
-            if (full)
+            // PARTIAL mitigation: force --prune-merge off during power-on settle + reset assertion.
+            // Cross-coupled latches (PPU vpos/hpos counters, vblank-fire comparators, OAM/palette 6T
+            // cells) have two valid stable states; prune-merge's "c1==c2 skip" can let them lock into
+            // the INVERTED stable state during the initial settle. This wrapping makes the 500K-hc
+            // node state byte-identical to baseline. NOT A FULL FIX: divergence still develops over
+            // many millions of half-cycles during normal frame stepping (D-FF clock-edge state
+            // changes also expose the skip), so full_palette @ 48 frames still renders black even
+            // with this wrapper. A real fix requires identifying cross-coupled SCCs at parse time
+            // and never skipping for their nodes. See MD/impl/math-algos/01_results.md §observability.
+            bool savedPruneMerge = EnablePruneMerge;
+            EnablePruneMerge = false;
+            try
             {
-                ResolveMemory("u1.ram")?.Clear();
-                ResolveMemory("u4.ram")?.Clear();
-                ResolveMemory("cart.chrram.ram")?.Clear();
-                Reset();                                  // re-power node state + rebuild hot arrays (frees FrameBuffer too)
-                FrameBuffer = AllocArray<uint>(ScreenW * ScreenH);
-                RecomputeAllNodes();                      // settle the raw power-on state — MetalNES's resetState() does this
+                if (full)
+                {
+                    ResolveMemory("u1.ram")?.Clear();
+                    ResolveMemory("u4.ram")?.Clear();
+                    ResolveMemory("cart.chrram.ram")?.Clear();
+                    Reset();                                  // re-power node state + rebuild hot arrays (frees FrameBuffer too)
+                    FrameBuffer = AllocArray<uint>(ScreenW * ScreenH);
+                    RecomputeAllNodes();                      // settle the raw power-on state — MetalNES's resetState() does this
+                }
+                if (N_Res != EmptyNode)
+                {
+                    SetHigh(N_Res);
+                    Step(12 * 8 * 2);                         // = 192 half-cycles with reset asserted
+                    SetLow(N_Res);
+                }
+                else
+                {
+                    Console.Error.WriteLine("ResetNes: no 'res' node — sim may not start");
+                }
             }
-            if (N_Res != EmptyNode)
-            {
-                SetHigh(N_Res);
-                Step(12 * 8 * 2);                         // = 192 half-cycles with reset asserted
-                SetLow(N_Res);
-            }
-            else
-            {
-                Console.Error.WriteLine("ResetNes: no 'res' node — sim may not start");
-            }
+            finally { EnablePruneMerge = savedPruneMerge; }
         }
 
         public static void SoftReset() => ResetNes(full: false);

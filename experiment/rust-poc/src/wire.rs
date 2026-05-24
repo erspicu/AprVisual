@@ -68,6 +68,16 @@ pub struct WireCore {
     pub pal_ptr_nodes: Vec<i32>,
     pub pal_ram_nodes: Vec<Vec<i32>>,
     pub framebuffer: Vec<u32>,    // ARGB, SCREEN_W * SCREEN_H
+
+    // math-algos 策略二 — pure-logic-gnd fast-path classifier (--fast-path)
+    pub enable_fast_path: bool,
+    pub is_pure_logic: Vec<u8>,
+    pub fast_path_count: usize,
+
+    // math-algos #1 — prune-merge with topology-group-ID fix (--prune-merge)
+    pub enable_prune_merge: bool,
+    pub node_group_ids: Vec<i64>,
+    pub next_group_id: i64,
 }
 
 const MAX_SETTLE_PASSES: u32 = 1000;
@@ -118,7 +128,73 @@ impl WireCore {
             pal_ptr_nodes: snap.pal_ptr_nodes,
             pal_ram_nodes: snap.pal_ram_nodes,
             framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
+            enable_fast_path: false,
+            is_pure_logic: Vec::new(),
+            fast_path_count: 0,
+            enable_prune_merge: false,
+            node_group_ids: Vec::new(),
+            next_group_id: 0,
         }
+    }
+
+    // ── math-algos 策略二: classify pure-logic-gnd nodes for the O(1) RecalcNodeFast path. ──
+    //    Mirrors C# WireCore.FastPath.cs:ClassifyPureLogicNodes. Eligible ⇔ has PullUp,
+    //    no HasCallback / ForceCompute / Pwr / Gnd, and TlistC1c2s == 0 (no normal-node channels,
+    //    so the group is provably {nn}).
+    pub fn enable_fast_path(&mut self) {
+        self.enable_fast_path = true;
+        self.is_pure_logic = vec![0u8; self.node_count];
+        let exclude = FLAG_HAS_CALLBACK | FLAG_FORCE_COMPUTE | FLAG_PWR | FLAG_GND;
+        let mut count = 0;
+        for nn in 0..self.node_count {
+            if (nn as i32) == self.npwr || (nn as i32) == self.ngnd { continue; }
+            let ni = &self.node_infos[nn];
+            if (ni.flags & FLAG_PULLUP) == 0 { continue; }
+            if (ni.flags & exclude) != 0 { continue; }
+            if ni.tlist_c1c2s != 0 { continue; }
+            self.is_pure_logic[nn] = 1;
+            count += 1;
+        }
+        self.fast_path_count = count;
+    }
+
+    // ── math-algos #1 (Gemini r3 fix): topology-group-ID bookkeeping for prune-merge. ──
+    //    Mirrors C# WireCore.PruneMerge.cs:InitGroupIDs.
+    pub fn enable_prune_merge(&mut self) {
+        self.enable_prune_merge = true;
+        self.node_group_ids = (0..self.node_count as i64).collect();
+        self.next_group_id = self.node_count as i64;
+    }
+
+    fn recalc_node_fast(&mut self, nn: i32) {
+        let u = nn as usize;
+        let ni = self.node_infos[u];
+        let mut f = ni.flags;
+        if ni.tlist_c1gnd != 0 {
+            let mut p = ni.tlist_c1gnd as usize;
+            loop {
+                let gate = self.transistor_list[p];
+                if gate == 0 { break; }
+                p += 1;
+                if self.node_states[gate as usize] != 0 { f |= FLAG_GND; break; }
+            }
+        }
+        if ni.tlist_c1pwr != 0 {
+            let mut p = ni.tlist_c1pwr as usize;
+            loop {
+                let gate = self.transistor_list[p];
+                if gate == 0 { break; }
+                p += 1;
+                if self.node_states[gate as usize] != 0 { f |= FLAG_PWR; break; }
+            }
+        }
+        // topology-group-ID: fast-path nodes are singleton groups, so they get their own fresh gid
+        if self.enable_prune_merge {
+            let gid = self.next_group_id;
+            self.next_group_id = gid + 1;
+            self.node_group_ids[u] = gid;
+        }
+        self.set_node_state(nn, self.flags_to_state[f as usize]);
     }
 
     #[inline(always)]
@@ -254,19 +330,27 @@ impl WireCore {
         let ni = self.node_infos[u];
         if ni.tlist_gates != 0 {
             let mut p = ni.tlist_gates as usize;
+            // math-algos #1 (Gemini r3): when gate goes HIGH, skip enqueue if c1 and c2 already
+            // share a GroupID (topologically merged — adding a parallel transistor is a true no-op).
+            let prune = self.enable_prune_merge && new_state != 0;
             loop {
                 let c1 = self.transistor_list[p];
                 if c1 == 0 { break; }
                 let c2 = self.transistor_list[p + 1];
                 p += 2;
                 if c1 != self.npwr && c1 != self.ngnd {
-                    let cu = c1 as usize;
-                    unsafe {
-                        if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                            let i = self.list_next_count;
-                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
-                            self.list_next_count = i + 1;
-                            *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
+                    let should_enqueue = if prune {
+                        self.node_group_ids[c1 as usize] != self.node_group_ids[c2 as usize]
+                    } else { true };
+                    if should_enqueue {
+                        let cu = c1 as usize;
+                        unsafe {
+                            if *self.recalc_hash_next.get_unchecked(cu) == 0 {
+                                let i = self.list_next_count;
+                                *self.recalc_list_next.get_unchecked_mut(i) = c1;
+                                self.list_next_count = i + 1;
+                                *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
+                            }
                         }
                     }
                 }
@@ -287,14 +371,29 @@ impl WireCore {
 
     fn recalc_node(&mut self, nn: i32) {
         if nn == self.npwr || nn == self.ngnd { return; }
+        // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
+        if self.enable_fast_path && self.is_pure_logic[nn as usize] != 0 {
+            self.recalc_node_fast(nn);
+            return;
+        }
         let new_state = self.compute_node_group(nn);
         let gc = self.group_count;
-        // First, propagate values
+        // math-algos #1: ratify the walked group with a fresh GroupID — every member shares it
+        // for the topology-equivalence skip check in SetNodeState's prune-merge path.
+        if self.enable_prune_merge {
+            let gid = self.next_group_id;
+            self.next_group_id = gid + 1;
+            for i in 0..gc {
+                let id = self.group_buf[i] as usize;
+                self.node_group_ids[id] = gid;
+            }
+        }
+        // Propagate values
         for i in 0..gc {
             let id = self.group_buf[i];
             self.set_node_state(id, new_state);
         }
-        // Then, dispatch callbacks for any nodes in the group whose flag has HAS_CALLBACK
+        // Dispatch callbacks for any nodes in the group whose flag has HAS_CALLBACK
         if (self.group_flags & FLAG_HAS_CALLBACK) != 0 {
             for i in 0..gc {
                 let id = self.group_buf[i];

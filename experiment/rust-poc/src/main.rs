@@ -6,6 +6,7 @@
 
 mod snapshot;
 mod wire;
+mod parallel;
 
 use std::time::Instant;
 use std::fs::File;
@@ -33,6 +34,7 @@ fn flag_set(args: &[String], flag: &str) -> bool {
 fn configure(wc: &mut wire::WireCore, args: &[String]) {
     if flag_set(args, "--fast-path")   { wc.enable_fast_path();   eprintln!("# --fast-path: {} pure-logic-gnd nodes classified", wc.fast_path_count); }
     if flag_set(args, "--prune-merge") { wc.enable_prune_merge(); eprintln!("# --prune-merge: topology-group-ID skip armed"); }
+    if flag_set(args, "--parallel")    { wc.enable_parallel();    eprintln!("# --parallel: per-chip bucketed settle (Phase 1: serial-bucketed for correctness verification)"); }
 }
 
 fn bench(args: &[String]) {
@@ -58,6 +60,13 @@ fn bench(args: &[String]) {
     println!("# rate: {hcps:.0} hc/s ({us_per_hc:.2} µs/hc)");
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
+    if wc.enable_parallel {
+        println!("# parallel walks: total {} | pure-CPU {} ({:.1}%) | pure-PPU {} ({:.1}%) | pure-other {} ({:.1}%) | crossed→serial {} ({:.1}%)",
+                 wc.walks_total, wc.walks_pure_cpu, 100.0 * wc.walks_pure_cpu as f64 / wc.walks_total as f64,
+                 wc.walks_pure_ppu, 100.0 * wc.walks_pure_ppu as f64 / wc.walks_total as f64,
+                 wc.walks_pure_other, 100.0 * wc.walks_pure_other as f64 / wc.walks_total as f64,
+                 wc.walks_crossed, 100.0 * wc.walks_crossed as f64 / wc.walks_total as f64);
+    }
 }
 
 fn shot(args: &[String]) {

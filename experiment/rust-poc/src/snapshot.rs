@@ -6,7 +6,11 @@ use std::fs::File;
 use std::io::{BufReader, Read, Result as IoResult};
 
 const MAGIC: &[u8; 8] = b"APRSNAP\0";
-const VERSION: u32 = 2;   // v2: video node ids appended
+const VERSION: u32 = 3;   // v3: chip_id byte per node appended (for parallel settle)
+
+pub const CHIP_CPU: u8 = 0;
+pub const CHIP_PPU: u8 = 1;
+pub const CHIP_OTHER: u8 = 2;
 
 // NodeFlags bit values — MUST match C# WireCore.NodeFlags exactly (FlagsToState LUT is exported
 // pre-indexed against these bit positions).
@@ -67,6 +71,8 @@ pub struct Snapshot {
     pub vpos_nodes: Vec<i32>,
     pub pal_ptr_nodes: Vec<i32>,
     pub pal_ram_nodes: Vec<Vec<i32>>,  // 32 entries, each up to 6 bit-nodes
+    // v3: per-node chip_id
+    pub chip_id: Vec<u8>,
 }
 
 struct R<'a> { rd: BufReader<&'a mut File> }
@@ -172,9 +178,13 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         pal_ram_nodes.push(bits);
     }
 
+    // v3: per-node chip_id
+    let chip_id = r.bytes(node_count)?;
+
     Ok(Snapshot {
         node_count, tlist_len, npwr, ngnd, clock_node, reset_node, ppu_vblank_node,
         node_states, node_infos, transistor_list, flags_to_state, memories, handlers,
         pclk1_node, hpos_nodes, vpos_nodes, pal_ptr_nodes, pal_ram_nodes,
+        chip_id,
     })
 }

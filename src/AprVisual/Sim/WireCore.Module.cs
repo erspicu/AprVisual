@@ -193,6 +193,11 @@ namespace AprVisual.Sim
         /// recurse into sub-modules, apply connections, and collect forceCompute nodes.
         /// Port of Wires::addInstance.
         /// </summary>
+        // Per-instance node-id range — recorded so the chip-diag (and any future per-chip strategy)
+        // can correctly attribute UNNAMED internal nodes (most of a transistor netlist) to their
+        // owning module instance. Populated as a side-effect of the AllocNodes call below.
+        public static System.Collections.Generic.List<(int Start, int End, string Prefix)> InstanceRanges = new();
+
         public static void AddInstance(ModuleDef def, string prefix)
         {
             if (_instancesSetUp.Add(prefix))
@@ -200,6 +205,7 @@ namespace AprVisual.Sim
                 int maxNode = MaxNodeIdOf(def);
                 int alignment = maxNode < 100 ? 100 : 1000;
                 int nodeStart = AllocNodes(alignment, maxNode + 1);
+                InstanceRanges.Add((nodeStart, nodeStart + maxNode + 1, prefix));
                 int nodeGnd = def.NodeNames.GetValueOrDefault("vss", EmptyNode);
                 int nodePwr = def.NodeNames.GetValueOrDefault("vcc", EmptyNode);
 

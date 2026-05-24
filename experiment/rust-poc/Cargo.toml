@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 png = "0.17"
+rayon = "1.10"
 
 [profile.release]
 lto = "fat"

@@ -22,7 +22,7 @@ namespace AprVisual.Test
     {
         // Magic + version. Bump version if format changes.
         const string MAGIC = "APRSNAP\0";   // 8 bytes
-        const uint VERSION = 2;   // v2: added video-related node-id arrays at end (pclk1, hpos[], vpos[], pal_ptr[], pal_ram[32].b[6])
+        const uint VERSION = 3;   // v3: appended chip_id byte[NodeCount] for per-chip parallel settle (after the video section)
 
         public static int Export(string outPath, string romPath)
         {
@@ -34,6 +34,7 @@ namespace AprVisual.Test
             WireCore.EnablePruneMerge = false;
             WireCore.EnableIrInterp = false;
             WireCore.EnableCodegenDispatcher = false;
+            WireCore.EnableChipDiag = true;     // force chip classification so v3 chip_id field is populated
             WireCore.LoadSystem(rom);
 
             try
@@ -137,6 +138,21 @@ namespace AprVisual.Test
                     bw.Write(bits.Count);
                     foreach (int n in bits) bw.Write(n);
                 }
+
+                // ── v3: per-node chip_id (0=CPU, 1=PPU, 2=OTHER) — for parallel settle ──
+                if (WireCore.NodeChip == null)
+                {
+                    Console.Error.WriteLine("NodeChip not populated — chip classification failed");
+                    return 2;
+                }
+                int cpu = 0, ppu = 0;
+                for (int i = 0; i < WireCore.NodeCount; i++)
+                {
+                    byte c = WireCore.NodeChip[i];
+                    bw.Write(c);
+                    if (c == WireCore.CHIP_CPU) cpu++; else if (c == WireCore.CHIP_PPU) ppu++;
+                }
+                Console.WriteLine($"# snapshot v3: chip_id — CPU {cpu:N0} PPU {ppu:N0} OTHER {WireCore.NodeCount - cpu - ppu:N0}");
 
                 fs.Flush();
                 Console.WriteLine($"# snapshot: {WireCore.NodeCount:N0} nodes, {WireCore.TransistorListLength:N0} tlist entries, {memList.Count} memories, {handlers.Count} mem-handlers → {outPath} ({fs.Length:N0} bytes)");

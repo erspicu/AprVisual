@@ -78,6 +78,23 @@ pub struct WireCore {
     pub enable_prune_merge: bool,
     pub node_group_ids: Vec<i64>,
     pub next_group_id: i64,
+
+    // Per-chip parallel settle infrastructure (--parallel)
+    pub chip_id: Vec<u8>,
+    pub enable_parallel: bool,
+    pub serial_queue: Vec<i32>,           // walks that crossed chip boundary in chip-aware walk
+    pub walks_pure_cpu: u64,
+    pub walks_pure_ppu: u64,
+    pub walks_pure_other: u64,
+    pub walks_crossed: u64,
+    pub walks_total: u64,
+    // chip-aware walk scratch
+    pub walk_chip: u8,
+    pub walk_crossed: bool,
+
+    // Phase 2: per-thread scratch for actual std::thread::scope parallel
+    pub cpu_scratch: crate::parallel::ChipScratch,
+    pub ppu_scratch: crate::parallel::ChipScratch,
 }
 
 const MAX_SETTLE_PASSES: u32 = 1000;
@@ -134,7 +151,23 @@ impl WireCore {
             enable_prune_merge: false,
             node_group_ids: Vec::new(),
             next_group_id: 0,
+            chip_id: snap.chip_id,
+            enable_parallel: false,
+            serial_queue: Vec::with_capacity(nc),
+            walks_pure_cpu: 0,
+            walks_pure_ppu: 0,
+            walks_pure_other: 0,
+            walks_crossed: 0,
+            walks_total: 0,
+            walk_chip: 0,
+            walk_crossed: false,
+            cpu_scratch: crate::parallel::ChipScratch::new(nc),
+            ppu_scratch: crate::parallel::ChipScratch::new(nc),
         }
+    }
+
+    pub fn enable_parallel(&mut self) {
+        self.enable_parallel = true;
     }
 
     // ── math-algos 策略二: classify pure-logic-gnd nodes for the O(1) RecalcNodeFast path. ──
@@ -412,7 +445,298 @@ impl WireCore {
         }
     }
 
+    // ── chip-aware walk: aborts if a node of different chip_id is reached ──
+    fn add_node_to_group_chip_aware(&mut self, nn: i32) {
+        if self.walk_crossed { return; }
+        let u = nn as usize;
+        // chip boundary check — OTHER nodes are "wildcards" that join any walk
+        let nc = self.chip_id[u];
+        if nc != self.walk_chip && nc != crate::snapshot::CHIP_OTHER && self.walk_chip != crate::snapshot::CHIP_OTHER {
+            self.walk_crossed = true;
+            return;
+        }
+        unsafe {
+            if *self.in_group.get_unchecked(u) != 0 { return; }
+            *self.in_group.get_unchecked_mut(u) = 1;
+        }
+        let ni = self.node_infos[u];
+        let gc = self.group_count;
+        self.group_buf[gc] = nn;
+        self.group_count = gc + 1;
+        if ni.connections > self.max_connections {
+            self.max_state = self.node_states[u];
+            self.max_connections = ni.connections;
+        }
+        self.recalc_hash[u] = 0;
+        self.group_flags |= ni.flags;
+        if ni.tlist_c1c2s != 0 {
+            let mut p = ni.tlist_c1c2s as usize;
+            loop {
+                let gate = self.transistor_list[p];
+                if gate == 0 { break; }
+                let other = self.transistor_list[p + 1];
+                p += 2;
+                if self.node_states[gate as usize] != 0 {
+                    self.add_node_to_group_chip_aware(other);
+                    if self.walk_crossed { return; }
+                }
+            }
+        }
+        if ni.tlist_c1gnd != 0 {
+            let mut p = ni.tlist_c1gnd as usize;
+            loop {
+                let gate = self.transistor_list[p];
+                if gate == 0 { break; }
+                p += 1;
+                if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_GND; break; }
+            }
+        }
+        if ni.tlist_c1pwr != 0 {
+            let mut p = ni.tlist_c1pwr as usize;
+            loop {
+                let gate = self.transistor_list[p];
+                if gate == 0 { break; }
+                p += 1;
+                if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_PWR; break; }
+            }
+        }
+    }
+
+    // Recalc node with chip-awareness: returns false if walk crossed (caller should retry serial).
+    fn recalc_node_chip_aware(&mut self, nn: i32) -> bool {
+        if nn == self.npwr || nn == self.ngnd { return true; }
+        // reset scratch + walk
+        for i in 0..self.group_count { self.in_group[self.group_buf[i] as usize] = 0; }
+        self.group_flags = 0;
+        self.group_count = 0;
+        self.max_state = 0;
+        self.max_connections = 0;
+        self.walk_chip = self.chip_id[nn as usize];
+        self.walk_crossed = false;
+        self.add_node_to_group_chip_aware(nn);
+        if self.walk_crossed {
+            // clean up partial walk's in_group
+            for i in 0..self.group_count { self.in_group[self.group_buf[i] as usize] = 0; }
+            self.group_count = 0;
+            return false;   // caller should serialize this walk
+        }
+        // resolve normally
+        let mut f = self.group_flags;
+        if (f & FLAG_FORCE_COMPUTE) != 0 && (f & FLAG_GND) != 0 && (f & FLAG_PWR) != 0 {
+            f &= !(FLAG_GND | FLAG_PWR);
+        }
+        let new_state = if f == 0 { self.max_state } else { self.flags_to_state[f as usize] };
+        let gc = self.group_count;
+        if self.enable_prune_merge {
+            let gid = self.next_group_id;
+            self.next_group_id = gid + 1;
+            for i in 0..gc { self.node_group_ids[self.group_buf[i] as usize] = gid; }
+        }
+        for i in 0..gc {
+            let id = self.group_buf[i];
+            self.set_node_state(id, new_state);
+        }
+        if (self.group_flags & FLAG_HAS_CALLBACK) != 0 {
+            for i in 0..gc {
+                let id = self.group_buf[i];
+                let u = id as usize;
+                if (self.node_infos[u].flags & FLAG_HAS_CALLBACK) != 0 {
+                    let hi = self.target_to_handler[u];
+                    if hi >= 0 {
+                        let h = hi as usize;
+                        if self.handler_enqueued[h] == 0 {
+                            self.handler_enqueued[h] = 1;
+                            self.pending_handlers.push(hi);
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    // Phase 2: threaded settle via std::thread::scope. Replaces process_queue_parallel.
+    pub fn process_queue_threaded(&mut self) {
+        const MAX_PASSES: u32 = 1000;
+        let mut iters = 0u32;
+        while self.list_next_count != 0 {
+            iters += 1;
+            if iters > MAX_PASSES {
+                for i in 0..self.list_next_count {
+                    let nn = self.recalc_list_next[i] as usize;
+                    self.recalc_hash_next[nn] = 0;
+                }
+                self.list_next_count = 0;
+                break;
+            }
+            std::mem::swap(&mut self.recalc_list, &mut self.recalc_list_next);
+            std::mem::swap(&mut self.recalc_hash, &mut self.recalc_hash_next);
+            self.list_count = self.list_next_count;
+            self.list_next_count = 0;
+
+            // Partition current dirty list by chip; clear hash for live items.
+            let mut cpu_bucket: Vec<i32> = Vec::with_capacity(self.list_count);
+            let mut ppu_bucket: Vec<i32> = Vec::with_capacity(self.list_count);
+            let mut other_bucket: Vec<i32> = Vec::with_capacity(64);
+            for i in 0..self.list_count {
+                let nn = self.recalc_list[i];
+                let u = nn as usize;
+                if self.recalc_hash[u] == 0 { continue; }
+                self.recalc_hash[u] = 0;
+                match self.chip_id[u] {
+                    crate::snapshot::CHIP_CPU => cpu_bucket.push(nn),
+                    crate::snapshot::CHIP_PPU => ppu_bucket.push(nn),
+                    _ => other_bucket.push(nn),
+                }
+            }
+
+            // Build shared view (raw ptrs — sound by chip-disjoint-write discipline).
+            let view = crate::parallel::SharedView {
+                node_states: self.node_states.as_mut_ptr(),
+                node_infos: self.node_infos.as_ptr(),
+                transistor_list: self.transistor_list.as_ptr(),
+                flags_to_state: self.flags_to_state.as_ptr(),
+                chip_id: self.chip_id.as_ptr(),
+                target_to_handler: self.target_to_handler.as_ptr(),
+                recalc_hash_seen: self.recalc_hash.as_mut_ptr(),
+                handler_enqueued: self.handler_enqueued.as_mut_ptr(),
+                handler_enqueued_len: self.handler_enqueued.len(),
+                node_count: self.node_count,
+                npwr: self.npwr,
+                ngnd: self.ngnd,
+            };
+
+            // Two mutable disjoint borrows (split-borrow pattern); each thread owns one.
+            let cpu_scratch = &mut self.cpu_scratch;
+            let ppu_scratch = &mut self.ppu_scratch;
+
+            // rayon::join — uses pre-allocated thread pool, much cheaper per-call than thread::spawn.
+            let cpu_bucket_ref = &cpu_bucket;
+            let ppu_bucket_ref = &ppu_bucket;
+            rayon::join(
+                || unsafe { crate::parallel::drain_bucket(view, cpu_scratch, cpu_bucket_ref, crate::snapshot::CHIP_CPU); },
+                || unsafe { crate::parallel::drain_bucket(view, ppu_scratch, ppu_bucket_ref, crate::snapshot::CHIP_PPU); },
+            );
+
+            // Diagnostics (accumulated from per-thread).
+            self.walks_pure_cpu += self.cpu_scratch.walks_pure;
+            self.walks_pure_ppu += self.ppu_scratch.walks_pure;
+            self.walks_crossed += self.cpu_scratch.walks_crossed + self.ppu_scratch.walks_crossed;
+            self.cpu_scratch.walks_pure = 0;
+            self.cpu_scratch.walks_crossed = 0;
+            self.ppu_scratch.walks_pure = 0;
+            self.ppu_scratch.walks_crossed = 0;
+            self.walks_total += (cpu_bucket.len() + ppu_bucket.len() + other_bucket.len()) as u64;
+
+            // Serial: OTHER bucket (small, no threading benefit).
+            for &nn in &other_bucket {
+                self.recalc_node(nn);
+                self.walks_pure_other += 1;
+            }
+            // Serial: crossed walks from CPU thread + PPU thread (~0.3% rate).
+            for &nn in &self.cpu_scratch.crossed_walks.clone() { self.recalc_node(nn); }
+            for &nn in &self.ppu_scratch.crossed_walks.clone() { self.recalc_node(nn); }
+
+            // Merge per-thread next-buckets into shared next-queue.
+            for &nn in &self.cpu_scratch.next_cpu.clone() { self.enqueue(nn); }
+            for &nn in &self.cpu_scratch.next_ppu.clone() { self.enqueue(nn); }
+            for &nn in &self.cpu_scratch.next_other.clone() { self.enqueue(nn); }
+            for &nn in &self.ppu_scratch.next_cpu.clone() { self.enqueue(nn); }
+            for &nn in &self.ppu_scratch.next_ppu.clone() { self.enqueue(nn); }
+            for &nn in &self.ppu_scratch.next_other.clone() { self.enqueue(nn); }
+
+            // Merge pending handlers.
+            for &hi in &self.cpu_scratch.pending_handlers.clone() {
+                let h = hi as usize;
+                if self.handler_enqueued[h] != 0 {
+                    self.pending_handlers.push(hi);
+                }
+            }
+            for &hi in &self.ppu_scratch.pending_handlers.clone() {
+                let h = hi as usize;
+                if self.handler_enqueued[h] != 0 {
+                    self.pending_handlers.push(hi);
+                }
+            }
+            self.cpu_scratch.pending_handlers.clear();
+            self.ppu_scratch.pending_handlers.clear();
+
+            self.list_count = 0;
+        }
+        if !self.pending_handlers.is_empty() {
+            self.invoke_callbacks();
+        }
+    }
+
+    pub fn process_queue_parallel(&mut self) {
+        const MAX_PASSES: u32 = 1000;
+        let mut iters = 0u32;
+        while self.list_next_count != 0 {
+            iters += 1;
+            if iters > MAX_PASSES {
+                for i in 0..self.list_next_count {
+                    let nn = self.recalc_list_next[i] as usize;
+                    self.recalc_hash_next[nn] = 0;
+                }
+                self.list_next_count = 0;
+                break;
+            }
+            std::mem::swap(&mut self.recalc_list, &mut self.recalc_list_next);
+            std::mem::swap(&mut self.recalc_hash, &mut self.recalc_hash_next);
+            self.list_count = self.list_next_count;
+            self.list_next_count = 0;
+
+            // Phase A: chip-aware passes on CPU and PPU subsets (currently still serial — Phase B
+            // adds threads). Cross-chip walks get queued to serial_queue. OTHER goes serial too.
+            self.serial_queue.clear();
+            for i in 0..self.list_count {
+                let nn = self.recalc_list[i];
+                let u = nn as usize;
+                if self.recalc_hash[u] == 0 { continue; }
+                let chip = self.chip_id[u];
+                if chip == crate::snapshot::CHIP_OTHER {
+                    // OTHER nodes (TTL/cart): too few to specialize, just serial via normal recalc
+                    self.recalc_node(nn);
+                    self.recalc_hash[u] = 0;
+                    self.walks_total += 1;
+                    self.walks_pure_other += 1;
+                    continue;
+                }
+                if self.recalc_node_chip_aware(nn) {
+                    self.recalc_hash[u] = 0;
+                    self.walks_total += 1;
+                    if chip == crate::snapshot::CHIP_CPU { self.walks_pure_cpu += 1; }
+                    else { self.walks_pure_ppu += 1; }
+                } else {
+                    // crossed — defer to serial
+                    self.serial_queue.push(nn);
+                }
+            }
+
+            // Phase B: serial pass for crossed walks
+            for i in 0..self.serial_queue.len() {
+                let nn = self.serial_queue[i];
+                let u = nn as usize;
+                if self.recalc_hash[u] != 0 {
+                    self.recalc_node(nn);
+                    self.recalc_hash[u] = 0;
+                    self.walks_total += 1;
+                    self.walks_crossed += 1;
+                }
+            }
+            self.list_count = 0;
+        }
+        if !self.pending_handlers.is_empty() {
+            self.invoke_callbacks();
+        }
+    }
+
     pub fn process_queue(&mut self) {
+        if self.enable_parallel { self.process_queue_threaded(); return; }
+        self.process_queue_serial();
+    }
+
+    fn process_queue_serial(&mut self) {
         let mut iters = 0u32;
         while self.list_next_count != 0 {
             iters += 1;

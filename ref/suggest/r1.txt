@@ -1,0 +1,173 @@
+很高興看到你勇敢地跨入了 IR（Intermediate Representation）這個深水區！從純粹的電晶體 BFS 走向邏輯抽象，是模擬器開發的必經之路。
+
+但你目前遇到的情況——**「上了 IR 卻跟 S1 打平甚至略降」**——在我的意料之中。身為一個走過這條路的工程師，我可以很直接地告訴你：**你掉進了「大 O 迷思與常數陷阱」裡。**
+
+你的 IR 在「演算法複雜度」上贏了（把 BFS 走訪降維成了直接算 Boolean 邏輯），但在「底層常數（Constant Factor）」上卻輸得一塌糊塗。
+
+以下我將為你深度剖析**為什麼會變慢**，並提出**純非託管（Unmanaged）、零 GC、高快取命中**的強效 IR 優化與 Coding 策略。
+
+---
+
+### 一、 深度分析：為什麼目前的 IR 會輸給 S1 原生跑法？
+
+請回顧一下你 `WireCore.Ir.cs` 中的 `EvalExpr(int idx)` 實作：
+
+1. **致命的遞迴呼叫 (Recursive Calls)**
+`EvalExpr` 是一個包含 `switch` 的**遞迴函數**。每一次解析 `Op.And` 或 `Op.Or`，都會把狀態推入 Call Stack。
+* **S1 的成本**：`ComputeNodeGroup` 雖然也是 DFS，但它對大部分小邏輯閘的走訪深度極淺，且核心是陣列操作與最後的 $O(1)$ LUT 查表（`FlagsToState`）。
+* **IR 的成本**：C# 的函數呼叫（特別是帶有 switch 分支的遞迴）成本極高。你省下了幾十個 CPU cycle 的記憶體走訪，卻賠上了上百個 cycle 的 Function Call Overhead。
+
+
+2. **託管物件的 Bounds Check (邊界檢查)**
+你的 `_ir` 是一個 `List<IrNode>`。在 C# 中，每次存取 `_ir[idx]`，底層都會隱式執行一次邊界檢查（Bounds Check）。但在你的 S1 核心路徑中，你用的是 `byte*` 和 `int*`，這些是**零邊界檢查**的。這來回一算，IR 的記憶體存取速度反而比 S1 慢。
+3. **RevDep (反向依賴) 帶來的 Queue 雪崩**
+在 S1 的 `#1 EnablePruneMerge` 中，你很聰明地利用物理特性剪枝（Gate 打開但兩端同值時不 Enqueue）。
+但在 IR 模式下，當一個節點 $A$ 改變，`EnqueueIrConsumers` 會**無腦**把所有依賴 $A$ 的 IR 節點塞進 Queue。這導致了 Dirty-set ($D$) 變大，或者至少抵銷了你省下來的運算量。
+
+---
+
+### 二、 IR 優化策略：如何把運算量與常數壓到極致？
+
+既然你強烈希望避免 GC、偏好非託管物件，我們要徹底放棄「AST 樹狀節點與遞迴」，把 IR **壓平 (Flatten)**。
+
+#### 策略 A：Truth Table (LUT) 終極查表法 —— 將 AST 化為 $O(1)$
+
+這是針對 NES（2A03/2C02）最暴力的解法。一個島（Island / Combinational Gate）通常只有 2 到 6 個輸入節點。既然是純邏輯組合，我們**根本不需要在 Runtime 算邏輯**。
+
+* **做法**：
+1. 在 Build-time，分析該 IR Island 有哪幾個「輸入節點 (Input Nodes)」。
+2. 假設有 $K$ 個輸入節點（$K \le 8$），這代表只有 $2^K$ 種可能的輸入組合。
+3. 在 Build-time，把這 $2^K$ 種組合窮舉餵給 `EvalExpr`，生成一張專屬的 Truth Table（一個 `byte` 陣列，長度為 $2^K$）。
+4. Runtime 時，完全捨棄 IR Node 樹。
+
+
+* **非託管實作設計**：
+```csharp
+// 每個 IR 島被壓縮成這樣一個結構 (連續存在一個 Unmanaged Array 裡)
+internal struct IrLutNode {
+    public int InputCount;      // 有幾個輸入
+    public int* InputNodes;     // 指向一個 unmanaged int 陣列 (存輸入節點的 ID)
+    public byte* TruthTable;    // 指向長度為 2^K 的 unmanaged byte 陣列
+}
+
+```
+
+
+**Runtime 評估函數**：
+```csharp
+// O(1) 的完美解析，沒有遞迴、沒有分支 (Branch-free)
+byte EvalIrLut(IrLutNode* irNode) {
+    int mask = 0;
+    // 把散落的輸入狀態，打包成一個 bitmask
+    for (int i = 0; i < irNode->InputCount; i++) {
+        if (NodeStates[irNode->InputNodes[i]] != 0) {
+            mask |= (1 << i);
+        }
+    }
+    return irNode->TruthTable[mask];
+}
+
+```
+
+
+**效益**：這會徹底秒殺遞迴，把複雜的 Pull-Down 網路坍縮成幾次連續的記憶體讀取。
+
+#### 策略 B：Linearized Bytecode VM (線性字節碼虛擬機)
+
+對於輸入超過 8 個、或者結構過於龐大的 IR，LUT 會太大。這時必須把 AST 展平為**後序式（Reverse Polish Notation, RPN）的位元組碼**。
+
+* **做法**：把樹狀的 `IrNode` 編譯成一串 `int` 指令序列。用一個簡單的迴圈配合 `stackalloc` 陣列作為虛擬機堆疊來執行。
+* **非託管實作設計**：
+```csharp
+// OpCodes 定義
+const int OP_LOAD_NODE = 0;
+const int OP_AND = 1;
+const int OP_OR = 2;
+const int OP_NOT = 3;
+
+// 每個節點的 IR Root 指向一段 unmanaged int* bytecode
+byte EvalBytecode(int* pc) {
+    byte* stack = stackalloc byte[32]; // 在 L1 Cache 的暫存器區，極快
+    int sp = 0;
+
+    while(true) {
+        int op = *pc++;
+        switch(op) {
+            case OP_LOAD_NODE:
+                stack[sp++] = NodeStates[*pc++];
+                break;
+            case OP_AND:
+                sp--;
+                stack[sp - 1] = (byte)(stack[sp - 1] & stack[sp]);
+                break;
+            case OP_OR:
+                sp--;
+                stack[sp - 1] = (byte)(stack[sp - 1] | stack[sp]);
+                break;
+            case OP_NOT:
+                stack[sp - 1] = (byte)(stack[sp - 1] ^ 1);
+                break;
+            case -1: // End of execution
+                return stack[0];
+        }
+    }
+}
+
+```
+
+
+**效益**：消滅所有函數呼叫開銷（Call Overhead），指令高度緊湊，對 CPU 的 Instruction Cache 極度友善。
+
+#### 策略 C：宏觀節點融合 (Macro-Node Coalescing) 減少 Queue 壓力
+
+目前如果 A 驅動 B (IR) -> B 驅動 C (IR)。A 變動時，Queue 加入 B，B 算完改變後，Queue 再加入 C。
+既然 B 和 C 都是 IR，為什麼不**在編譯期把它們融合 (Inline)**？
+如果 C 的輸入只有 B，直接將 B 的表示式代入 C 中。雖然這會讓 C 的表示式變大，但減少了 Event Queue 的 Push/Pop 成本。記住，你的瓶頸是 Dirty-Set ($D$) 的數量。把多個小 IR 融合為一個大 IR LUT，能實質減少 $D$。
+
+---
+
+### 三、 針對現有 Coding 技巧的非託管 (Unmanaged) 改善建議
+
+在不改變現有架構太多的前提下，你現有的 C# 程式碼有幾個可以立刻修改以提升效能的「託管轉非託管」技巧：
+
+**1. 徹底消滅 `List<T>` 作為 Runtime 查表物件**
+你的 `WireCore.Ir.cs` 中，`_ir` 是 `List<IrNode>`。
+
+* **改善法**：`List<T>` 只應該在 Build-time (`BuildPureLogicIr`) 使用。一旦建立完成，立刻將其轉換為 `NativeMemory.Alloc` 出來的 `IrNode*`，並將 `List<T>` 設為 null 讓 GC 回收。
+```csharp
+internal static IrNode* NativeIrPool;
+
+// Build 完後
+NativeIrPool = AllocArray<IrNode>(_ir.Count);
+for(int i = 0; i < _ir.Count; i++) NativeIrPool[i] = _ir[i];
+_ir = null; // 放開託管物件
+
+```
+
+
+在 `EvalExpr` 中，改用 `IrNode* e = &NativeIrPool[idx];`。
+
+**2. RevDep 的 CSR 結構優化（消除隱藏的分支預測懲罰）**
+在 `EnqueueIrConsumers` 中：
+
+```csharp
+int s = _revDepStart[nn], e = _revDepStart[nn + 1];
+for (int k = s; k < e; k++) EnqueueNode(_revDepList[k]);
+
+```
+
+這種寫法很好，已經是 CSR 格式了。但是如果某個節點**沒有** IR consumer，`s == e`，CPU 依然要進行分支判定。
+
+* **改善法**：
+在 `_revDepStart` 中，如果沒有 Consumer，直接跳過，或者在 `SetNodeState` 中利用 S1 `TlistGates` 的類似技巧（Zero-terminated array）來實作 `RevDep`，這樣走訪的邏輯跟原來的 S1 記憶體存取模式完全一致，CPU 預測器會跑得更順。
+
+**3. 利用 `[MethodImpl(MethodImplOptions.AggressiveOptimization)]**`
+你在部分方法用了 `AggressiveInlining`，這很好。對於 `EvalExpr` 或未來的 `EvalBytecode`，加上 `AggressiveOptimization` 可以強迫 JIT 產生更高品質的 Tier-1 機械碼，甚至利用暫存器分配來最佳化你的迴圈。
+
+### 總結下一步
+
+你目前的「IR 沒變快」不是大方向錯了，而是**實作方式太「高階（High-level）」了**。
+模擬器的熱區容不下任何 Reference Type 的 Overhead 與 Recursion。
+
+**我強烈建議你先從「策略 A：Truth Table (LUT)」下手。**
+找出那些 IsPureLogic 的節點，找出它們真正的「源頭輸入」，在 Build-time 產生 LUT。你會發現原本需要層層 BFS 或遞迴求解的電路，突然變成了一行 `return LUT[mask];`。這才是 IR 優化能在模擬器中帶來輾壓性速度提升的真面目！

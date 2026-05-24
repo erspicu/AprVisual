@@ -1,0 +1,137 @@
+這份文件和實測數據非常精彩！你用 Profiler 和實測數據狠狠地打了「純理論推演」一巴掌，這才是最紮實的工程做法。我先為上次高估 Cache 重排（G）的作用道歉——確實，當 `NodeStates` 只有 ~15KB 時，它早就舒舒服服地躺在 L1d Cache 裡了，Memory bound 根本不存在，真正的敵人就只有 **邏輯上的冗餘運算量（D）**。
+
+你的 `#1 (merge-pruning)` 是一次非常漂亮且精準的打擊。利用「同值合併不改變群解析結果」的物理特性，安全地剪掉了 27% 的 D，換來 1.32× 的提速。這證明了 **「尋找 Value-preserving 的跳過條件」** 是在不打破 Switch-level 框架下唯一的活路。
+
+既然方向確定了，我們繼續順著「削減 D（減少 Queue 的擴張）」和「降低常數（把 BFS 降維）」這兩條路往下挖。以下是三個我認為極具潛力、且完全符合你不搞 IR / Codegen 精神的演算法級策略：
+
+---
+
+### 策略一：隔離斷開剪枝 (Isolated Split Pruning) —— `#1` 的另一半拼圖
+
+你提到：「gate 變 LOW（分裂）絕不剪 —— 分裂那刻兩端必然同值、但斷線後可發散」。這是對的，因為斷開後，其中一端可能因為失去驅動源而改變狀態（例如原本被 VCC 驅動，斷開後被 GND 拉低）。
+
+**但是，有一種特例的斷開是「絕對不會改變狀態」的：變成完全孤立的浮接節點 (Isolated Floating Node)。**
+
+在 NMOS 的動態邏輯（Dynamic Logic）中，很多節點是作為電容來保持電荷的。
+當一個 Gate 變 LOW，切斷了電晶體 $t$，導致端點 `c2` 瞬間失去了**所有**導通的 Channel（也就是說，`c2` 當下沒有跟任何其他節點連通），那麼：
+
+1. 它沒有被 GND/Pwr 驅動。
+2. 群走訪時，這個群只剩下 `c2` 自己。
+3. 根據你的解析邏輯 `If purely floating: largest-cap node wins`，它會保持自己原本的狀態（`State -> 1` 或維持 `0`）。
+
+**既然值絕對不會變，我們為什麼要 Enqueue 它讓它跑一次無用的 `RecalcNode`？**
+
+* **實作方法**：
+在 `NodeStates` 旁邊，多維護一個 Unmanaged Array：`byte* ActiveChannels`（記錄每個節點當下「導通的通道數」）。
+1. 當 `gate` 變 HIGH：`ActiveChannels[c1]++`, `ActiveChannels[c2]++`。
+2. 當 `gate` 變 LOW：`ActiveChannels[c1]--`, `ActiveChannels[c2]--`。
+3. 在 `SetNodeState` 的 OFF 傳播邏輯中加入剪枝：
+
+
+```csharp
+// gate 變 LOW (分裂)
+if (newState == 0 && c2 != Npwr && c2 != Ngnd) {
+    // 如果 c2 斷開後變成徹底的孤島，它的值依物理定律絕對會保持現狀 (Hold State)
+    // 直接 Skip，省下一次 RecalcNode 與 BFS！
+    if (ActiveChannels[c2] != 0) { 
+        EnqueueNode(c2); 
+    }
+}
+
+```
+
+
+* **預期效益**：PPU 內部有大量的 Latch 和 Shift Register，它們在 Clock phase 切換時會產生大量的斷開操作。這個剪枝能進一步把 D 往下壓。
+
+---
+
+### 策略二：純邏輯閘的 Fast-Path (Data-Structure Condensation)
+
+你拒絕了「全域的巨集建模 (IR)」，但我們可以做 **「資料結構上的微觀特化」**。
+
+NES 的 2A03/2C02 是 NMOS 製程。80% 以上的節點，其實是標準的 Depletion-load Inverter 或 NAND/NOR 邏輯閘輸出。
+這些節點的物理特徵非常明顯：
+
+1. 身上帶有 `PullUp` (弱上拉) 或連著 VCC。
+2. 只有連向 GND 的 Transistor (`TlistC1gnd`)。
+3. **絕對沒有** 雙向的 Pass-transistor (`TlistC1c2s` 為空)。
+
+對於這種「純邏輯節點」，使用 `ComputeNodeGroup` 去做遞迴 DFS 是巨大的殺雞用牛刀。它的值完全可以 $O(1)$ 決定：**只要任何一個通往 GND 的路徑導通，值就是 0；否則就是 1。**
+
+* **實作方法**：
+在 S1.5 Lowering 階段，標記這類節點：
+```csharp
+// 在 NodeInfo 中利用 NodeFlags 的剩餘 bit 加入一個 IsPureLogicGnd
+[Flags] public enum NodeFlags : byte {
+    // ... 原本的 ...
+    IsPureLogicGnd = 1 << 8  // 標記：只有 PullUp 且只有通往 GND 的開關
+}
+
+```
+
+
+在 `RecalcNode` 中攔截並走 Fast Path：
+```csharp
+internal static void RecalcNode(int nn)
+{
+    if (nn == Npwr || nn == Ngnd) return;
+    ref NodeInfo ns = ref NodeInfos[nn];
+
+    byte newState;
+    // ⭐ Fast Path: O(1) 解析，徹底繞過 ComputeNodeGroup 和 _groupBuf 的維護
+    if ((ns.Flags & NodeFlags.IsPureLogicGnd) != 0) 
+    {
+        newState = 1; // 預設 PullUp
+        int* p = TransistorList + ns.TlistC1gnd;
+        while (*p != 0) {
+            if (NodeStates[*p++] != 0) { newState = 0; break; } // 被拉到 GND 了
+        }
+    }
+    else 
+    {
+        newState = ComputeNodeGroup(nn); // 原本的緩慢 BFS 路徑
+    }
+
+    // ... 後續 SetNodeState 邏輯 ...
+}
+
+```
+
+
+* **預期效益**：這不減少 D 的數量，但會把佔比極大的邏輯閘 Evaluate 成本從 $O(GroupSize + ArrayClears)$ 變成幾條 CPU 指令。常數時間的縮減會非常驚人。
+
+---
+
+### 策略三：Glitch 濾波 (Delay-Line Deduplication)
+
+你目前的 Queue 是簡單的 Double-buffered (`RecalcList` 倒到 `RecalcListNext`)。這在模擬非同步硬體時會遇到一個經典問題：**Glitch (突波)**。
+
+假設一個節點的狀態在一個半週期內經歷了 `0 -> 1 -> 0` 的變化（因為它的兩個輸入端子到達時間不同，產生了 Race condition）。
+在現有的架構下：
+
+1. 第一次 `0 -> 1`，觸發 `SetNodeState`，把下游 Enqueue。
+2. 下游跟著 `RecalcNode`，擴散出去。
+3. 隨後同一波 BFS 裡，該節點又被算了一次變成 `0`。
+4. 再次觸發 `SetNodeState`，把下游**又** Enqueue 了一次。
+
+我們稱之為「Settle Transient」。雖然你驗證了穩態結果是等價的，但在這震盪的過程中，你浪費了大量的 $D$。
+
+* **實作方法 (Timestamp 抑制)**：
+不改變 BFS 架構，但引入一個「同波抑制」。
+1. 維護一個全域的 `int WaveCount`（每做一次 `ProcessQueue` 裡的 while 迴圈就 +1）。
+2. 新增一個 `int* LastChangeWave` 陣列，記錄每個節點最後一次「真正改變值」的 Wave 序號。
+3. 如果一個節點在極短時間內（例如同一個 Half-cycle 內）反覆震盪，嘗試延遲它的傳播。不過這招需要極度小心，容易打破因果關係，導致某些鎖存器（Latch）錯失邊緣觸發（Edge-trigger）。
+*退而求其次的安全做法*：確保 `RecalcHash` 的 Dedup 發揮最大功效。你現在的 Dedup 只能防同一個 Wave 的重複 Enqueue，對於跨 Wave 的震盪是無防備的。這點可能需要你用 Profiler 算一下：`一個半週期內，同一個 node 平均被 Recalc 幾次？` 如果這個數字大於 1.1，那就代表 Glitch 正在吃掉你的效能，值得為此設計一個延遲 Buffer。
+
+
+
+---
+
+### 總結
+
+你目前的極限是 ~54K hc/s。
+
+1. **策略一 (Isolated Split Pruning)** 是 `#1` 的物理延伸，能實打實地再砍掉一部分的 $D$。
+2. **策略二 (Logic Fast-Path)** 是繞過 BFS 常數的最佳解，把 80% 的節點從圖論問題退化回簡單的布林陣列讀取。這是我認為**投資報酬率最高**的下一步。
+
+建議你可以先實驗 **策略二**，因為它連 $D$ 的擴張都不用管，直接把處理單個 $D$ 的成本降到極低，而且實作起來只要在 S1.5 裡加個 Flag 就行了。

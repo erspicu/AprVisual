@@ -8,6 +8,22 @@
 use crate::snapshot::{NodeInfo, MemHandlerSpec, FLAG_GND, FLAG_PWR, FLAG_PULLUP, FLAG_SETHIGH,
                       FLAG_SETLOW, FLAG_STATE, FLAG_FORCE_COMPUTE, FLAG_HAS_CALLBACK};
 
+pub const SCREEN_W: usize = 256;
+pub const SCREEN_H: usize = 240;
+
+// 64-colour NES master palette (common "2C02 NTSC" RGB approximation). ARGB 0x00RRGGBB.
+// Mirrors src/AprVisual/Sim/WireCore.Handlers.cs:NesPalette.
+pub const NES_PALETTE: [u32; 64] = [
+    0x666666, 0x002A88, 0x1412A7, 0x3B00A4, 0x5C007E, 0x6E0040, 0x6C0600, 0x561D00,
+    0x333500, 0x0B4800, 0x005200, 0x004F08, 0x00404D, 0x000000, 0x000000, 0x000000,
+    0xADADAD, 0x155FD9, 0x4240FF, 0x7527FE, 0xA01ACC, 0xB71E7B, 0xB53120, 0x994E00,
+    0x6B6D00, 0x388700, 0x0C9300, 0x008F32, 0x007C8D, 0x000000, 0x000000, 0x000000,
+    0xFFFEFF, 0x64B0FF, 0x9290FF, 0xC676FF, 0xF36AFF, 0xFE6ECC, 0xFE8170, 0xEA9E22,
+    0xBCBE00, 0x88D800, 0x5CE430, 0x45E082, 0x48CDDE, 0x4F4F4F, 0x000000, 0x000000,
+    0xFFFEFF, 0xC0DFFF, 0xD3D2FF, 0xE8C8FF, 0xFBC2FF, 0xFEC4EA, 0xFECCC5, 0xF7D8A5,
+    0xE4E594, 0xCFEF96, 0xBDF4AB, 0xB3F3CC, 0xB5EBF2, 0xB8B8B8, 0x000000, 0x000000,
+];
+
 pub struct WireCore {
     pub node_count: usize,
     pub npwr: i32,
@@ -43,6 +59,15 @@ pub struct WireCore {
 
     // post-settle queue of handlers to invoke
     pub pending_handlers: Vec<i32>,
+
+    // video output (PPU pclk1 rising-edge → pixel write)
+    pub pclk1_node: i32,
+    pub prev_pclk1: u8,
+    pub hpos_nodes: Vec<i32>,
+    pub vpos_nodes: Vec<i32>,
+    pub pal_ptr_nodes: Vec<i32>,
+    pub pal_ram_nodes: Vec<Vec<i32>>,
+    pub framebuffer: Vec<u32>,    // ARGB, SCREEN_W * SCREEN_H
 }
 
 const MAX_SETTLE_PASSES: u32 = 1000;
@@ -58,6 +83,7 @@ impl WireCore {
         }
         let memories: Vec<Vec<u8>> = snap.memories.into_iter().map(|m| m.data).collect();
         let h_count = snap.handlers.len();
+        let prev_pclk1 = if snap.pclk1_node >= 0 { snap.node_states[snap.pclk1_node as usize] } else { 0 };
 
         WireCore {
             node_count: nc,
@@ -85,7 +111,40 @@ impl WireCore {
             memories,
             handler_enqueued: vec![0u8; h_count],
             pending_handlers: Vec::with_capacity(h_count),
+            pclk1_node: snap.pclk1_node,
+            prev_pclk1,
+            hpos_nodes: snap.hpos_nodes,
+            vpos_nodes: snap.vpos_nodes,
+            pal_ptr_nodes: snap.pal_ptr_nodes,
+            pal_ram_nodes: snap.pal_ram_nodes,
+            framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
         }
+    }
+
+    #[inline(always)]
+    fn read_bits(&self, nodes: &[i32]) -> u32 {
+        let mut v: u32 = 0;
+        for (i, &nn) in nodes.iter().enumerate() {
+            if self.node_states[nn as usize] != 0 { v |= 1 << i; }
+        }
+        v
+    }
+
+    fn video_pixel_write_if_rising_edge(&mut self) {
+        if self.pclk1_node < 0 { return; }
+        let now = self.node_states[self.pclk1_node as usize];
+        let rose = self.prev_pclk1 == 0 && now != 0;
+        self.prev_pclk1 = now;
+        if !rose { return; }
+        let x = self.read_bits(&self.hpos_nodes);
+        let y = self.read_bits(&self.vpos_nodes);
+        if (x as usize) >= SCREEN_W || (y as usize) >= SCREEN_H { return; }
+        let slot = (self.read_bits(&self.pal_ptr_nodes) & 31) as usize;
+        let pal_bits = &self.pal_ram_nodes[slot];
+        if pal_bits.len() != 6 { return; }
+        let colour6 = self.read_bits(pal_bits);
+        let argb = NES_PALETTE[(colour6 & 0x3F) as usize];
+        self.framebuffer[(y as usize) * SCREEN_W + (x as usize)] = argb;
     }
 
     #[inline(always)]
@@ -338,7 +397,7 @@ impl WireCore {
         }
     }
 
-    // ── per-cycle step: toggle clock + drain settle ──
+    // ── per-cycle step: toggle clock + drain settle + write pixel on pclk1 rising edge ──
     pub fn step_cycle(&mut self, clock_node: i32) {
         // Clock handler equivalent: toggle clk
         if self.node_states[clock_node as usize] != 0 {
@@ -346,11 +405,29 @@ impl WireCore {
         } else {
             self.set_high(clock_node);
         }
+        self.video_pixel_write_if_rising_edge();
         self.time += 1;
     }
 
     pub fn step(&mut self, n: i64, clock_node: i32) {
         for _ in 0..n { self.step_cycle(clock_node); }
+    }
+
+    // Run until the vblank node rises (one frame boundary), or until max_hc hc have elapsed.
+    // Returns the actual hc count stepped.
+    pub fn run_frame(&mut self, clock_node: i32, vblank_node: i32, max_hc: i64) -> i64 {
+        if vblank_node < 0 { self.step(max_hc.min(714_736), clock_node); return max_hc.min(714_736); }
+        let mut prev = self.node_states[vblank_node as usize];
+        let start = self.time;
+        let mut count = 0i64;
+        while count < max_hc {
+            self.step_cycle(clock_node);
+            count += 1;
+            let now = self.node_states[vblank_node as usize];
+            if prev == 0 && now != 0 { break; }
+            prev = now;
+        }
+        self.time - start
     }
 
     pub fn node_states_checksum(&self) -> u64 {

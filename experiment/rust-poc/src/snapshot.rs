@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Result as IoResult};
 
 const MAGIC: &[u8; 8] = b"APRSNAP\0";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;   // v2: video node ids appended
 
 // NodeFlags bit values — MUST match C# WireCore.NodeFlags exactly (FlagsToState LUT is exported
 // pre-indexed against these bit positions).
@@ -61,6 +61,12 @@ pub struct Snapshot {
     pub flags_to_state: [u8; 256],
     pub memories: Vec<Memory>,
     pub handlers: Vec<MemHandlerSpec>,
+    // v2: video output
+    pub pclk1_node: i32,
+    pub hpos_nodes: Vec<i32>,
+    pub vpos_nodes: Vec<i32>,
+    pub pal_ptr_nodes: Vec<i32>,
+    pub pal_ram_nodes: Vec<Vec<i32>>,  // 32 entries, each up to 6 bit-nodes
 }
 
 struct R<'a> { rd: BufReader<&'a mut File> }
@@ -146,8 +152,29 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         handlers.push(MemHandlerSpec { is_rom, memory_index, cs, we, target, addr, data_out });
     }
 
+    // v2: video output node ids
+    let pclk1_node = r.i32()?;
+    let hpos_len = r.i32()? as usize;
+    let mut hpos_nodes = Vec::with_capacity(hpos_len);
+    for _ in 0..hpos_len { hpos_nodes.push(r.i32()?); }
+    let vpos_len = r.i32()? as usize;
+    let mut vpos_nodes = Vec::with_capacity(vpos_len);
+    for _ in 0..vpos_len { vpos_nodes.push(r.i32()?); }
+    let palptr_len = r.i32()? as usize;
+    let mut pal_ptr_nodes = Vec::with_capacity(palptr_len);
+    for _ in 0..palptr_len { pal_ptr_nodes.push(r.i32()?); }
+    let pal_count = r.i32()? as usize;
+    let mut pal_ram_nodes = Vec::with_capacity(pal_count);
+    for _ in 0..pal_count {
+        let blen = r.i32()? as usize;
+        let mut bits = Vec::with_capacity(blen);
+        for _ in 0..blen { bits.push(r.i32()?); }
+        pal_ram_nodes.push(bits);
+    }
+
     Ok(Snapshot {
         node_count, tlist_len, npwr, ngnd, clock_node, reset_node, ppu_vblank_node,
         node_states, node_infos, transistor_list, flags_to_state, memories, handlers,
+        pclk1_node, hpos_nodes, vpos_nodes, pal_ptr_nodes, pal_ram_nodes,
     })
 }

@@ -3,6 +3,9 @@ name = "wire_rustport"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+png = "0.17"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

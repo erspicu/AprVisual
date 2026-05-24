@@ -22,7 +22,7 @@ namespace AprVisual.Test
     {
         // Magic + version. Bump version if format changes.
         const string MAGIC = "APRSNAP\0";   // 8 bytes
-        const uint VERSION = 1;
+        const uint VERSION = 2;   // v2: added video-related node-id arrays at end (pclk1, hpos[], vpos[], pal_ptr[], pal_ram[32].b[6])
 
         public static int Export(string outPath, string romPath)
         {
@@ -108,6 +108,34 @@ namespace AprVisual.Test
                     foreach (int n in h.Addr) bw.Write(n);
                     bw.Write(h.DataOut.Length);
                     foreach (int n in h.DataOut) bw.Write(n);
+                }
+
+                // ── v2: video output node ids ──
+                int pclk1 = WireCore.LookupNode("ppu.pclk1");
+                var hpos = new List<int>();   WireCore.ResolveNodes("ppu.hpos[8:0]",   hpos,   quiet: true);
+                var vpos = new List<int>();   WireCore.ResolveNodes("ppu.vpos[8:0]",   vpos,   quiet: true);
+                var palPtr = new List<int>(); WireCore.ResolveNodes("ppu.pal_ptr[4:0]", palPtr, quiet: true);
+
+                bw.Write(pclk1);
+                bw.Write(hpos.Count);   foreach (int n in hpos)   bw.Write(n);
+                bw.Write(vpos.Count);   foreach (int n in vpos)   bw.Write(n);
+                bw.Write(palPtr.Count); foreach (int n in palPtr) bw.Write(n);
+
+                // 32 palette entries, each with up to 6 bit nodes (b5..b0 stored as b0..b5 here)
+                int palCount = 0;
+                var palNodes = new List<List<int>>();
+                for (int i = 0; i < 32; i++)
+                {
+                    var bits = new List<int>();
+                    WireCore.ResolveNodes($"ppu.pal_ram_{i:X2}_b[5:0]", bits, quiet: true);
+                    palNodes.Add(bits);
+                    if (bits.Count == 6) palCount++;
+                }
+                bw.Write(palNodes.Count);
+                foreach (var bits in palNodes)
+                {
+                    bw.Write(bits.Count);
+                    foreach (int n in bits) bw.Write(n);
                 }
 
                 fs.Flush();

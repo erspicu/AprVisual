@@ -95,6 +95,10 @@ pub struct WireCore {
     // Phase 2: per-thread scratch for actual std::thread::scope parallel
     pub cpu_scratch: crate::parallel::ChipScratch,
     pub ppu_scratch: crate::parallel::ChipScratch,
+    // Gemini fix #1: hoist bucket Vecs out of the per-wave hot loop
+    pub cpu_bucket: Vec<i32>,
+    pub ppu_bucket: Vec<i32>,
+    pub other_bucket: Vec<i32>,
 }
 
 const MAX_SETTLE_PASSES: u32 = 1000;
@@ -163,6 +167,9 @@ impl WireCore {
             walk_crossed: false,
             cpu_scratch: crate::parallel::ChipScratch::new(nc),
             ppu_scratch: crate::parallel::ChipScratch::new(nc),
+            cpu_bucket: Vec::with_capacity(nc),
+            ppu_bucket: Vec::with_capacity(nc),
+            other_bucket: Vec::with_capacity(128),
         }
     }
 
@@ -555,6 +562,73 @@ impl WireCore {
         true
     }
 
+    // Merge thread-local next-buckets + pending-handlers into shared next-queue.
+    // Inlines enqueue logic so we don't conflict with the &mut self borrow that enqueue needs.
+    fn merge_thread_next(&mut self) {
+        // Macro-ish helper: drain `field` (Vec on cpu_scratch / ppu_scratch) into recalc_list_next.
+        let pwr = self.npwr; let gnd = self.ngnd;
+
+        for chip in 0..2u8 {
+            let v: &mut Vec<i32> = if chip == 0 { &mut self.cpu_scratch.next_cpu }
+                                   else { &mut self.ppu_scratch.next_cpu };
+            for i in 0..v.len() {
+                let nn = v[i];
+                if nn == pwr || nn == gnd { continue; }
+                let u = nn as usize;
+                if self.recalc_hash_next[u] == 0 {
+                    self.recalc_list_next[self.list_next_count] = nn;
+                    self.list_next_count += 1;
+                    self.recalc_hash_next[u] = 1;
+                }
+            }
+            v.clear();
+        }
+        for chip in 0..2u8 {
+            let v: &mut Vec<i32> = if chip == 0 { &mut self.cpu_scratch.next_ppu }
+                                   else { &mut self.ppu_scratch.next_ppu };
+            for i in 0..v.len() {
+                let nn = v[i];
+                if nn == pwr || nn == gnd { continue; }
+                let u = nn as usize;
+                if self.recalc_hash_next[u] == 0 {
+                    self.recalc_list_next[self.list_next_count] = nn;
+                    self.list_next_count += 1;
+                    self.recalc_hash_next[u] = 1;
+                }
+            }
+            v.clear();
+        }
+        for chip in 0..2u8 {
+            let v: &mut Vec<i32> = if chip == 0 { &mut self.cpu_scratch.next_other }
+                                   else { &mut self.ppu_scratch.next_other };
+            for i in 0..v.len() {
+                let nn = v[i];
+                if nn == pwr || nn == gnd { continue; }
+                let u = nn as usize;
+                if self.recalc_hash_next[u] == 0 {
+                    self.recalc_list_next[self.list_next_count] = nn;
+                    self.list_next_count += 1;
+                    self.recalc_hash_next[u] = 1;
+                }
+            }
+            v.clear();
+        }
+
+        // Merge pending handlers.
+        for chip in 0..2u8 {
+            let v: &mut Vec<i32> = if chip == 0 { &mut self.cpu_scratch.pending_handlers }
+                                   else { &mut self.ppu_scratch.pending_handlers };
+            for i in 0..v.len() {
+                let hi = v[i];
+                let h = hi as usize;
+                if self.handler_enqueued[h] != 0 {
+                    self.pending_handlers.push(hi);
+                }
+            }
+            v.clear();
+        }
+    }
+
     // Phase 2: threaded settle via std::thread::scope. Replaces process_queue_parallel.
     pub fn process_queue_threaded(&mut self) {
         const MAX_PASSES: u32 = 1000;
@@ -575,18 +649,19 @@ impl WireCore {
             self.list_next_count = 0;
 
             // Partition current dirty list by chip; clear hash for live items.
-            let mut cpu_bucket: Vec<i32> = Vec::with_capacity(self.list_count);
-            let mut ppu_bucket: Vec<i32> = Vec::with_capacity(self.list_count);
-            let mut other_bucket: Vec<i32> = Vec::with_capacity(64);
+            // Gemini fix #1: reuse hoisted Vecs.
+            self.cpu_bucket.clear();
+            self.ppu_bucket.clear();
+            self.other_bucket.clear();
             for i in 0..self.list_count {
                 let nn = self.recalc_list[i];
                 let u = nn as usize;
                 if self.recalc_hash[u] == 0 { continue; }
                 self.recalc_hash[u] = 0;
                 match self.chip_id[u] {
-                    crate::snapshot::CHIP_CPU => cpu_bucket.push(nn),
-                    crate::snapshot::CHIP_PPU => ppu_bucket.push(nn),
-                    _ => other_bucket.push(nn),
+                    crate::snapshot::CHIP_CPU => self.cpu_bucket.push(nn),
+                    crate::snapshot::CHIP_PPU => self.ppu_bucket.push(nn),
+                    _ => self.other_bucket.push(nn),
                 }
             }
 
@@ -611,8 +686,8 @@ impl WireCore {
             let ppu_scratch = &mut self.ppu_scratch;
 
             // rayon::join — uses pre-allocated thread pool, much cheaper per-call than thread::spawn.
-            let cpu_bucket_ref = &cpu_bucket;
-            let ppu_bucket_ref = &ppu_bucket;
+            let cpu_bucket_ref = &self.cpu_bucket;
+            let ppu_bucket_ref = &self.ppu_bucket;
             rayon::join(
                 || unsafe { crate::parallel::drain_bucket(view, cpu_scratch, cpu_bucket_ref, crate::snapshot::CHIP_CPU); },
                 || unsafe { crate::parallel::drain_bucket(view, ppu_scratch, ppu_bucket_ref, crate::snapshot::CHIP_PPU); },
@@ -626,40 +701,35 @@ impl WireCore {
             self.cpu_scratch.walks_crossed = 0;
             self.ppu_scratch.walks_pure = 0;
             self.ppu_scratch.walks_crossed = 0;
-            self.walks_total += (cpu_bucket.len() + ppu_bucket.len() + other_bucket.len()) as u64;
+            self.walks_total += (self.cpu_bucket.len() + self.ppu_bucket.len() + self.other_bucket.len()) as u64;
 
-            // Serial: OTHER bucket (small, no threading benefit).
-            for &nn in &other_bucket {
+            // Serial: OTHER bucket (small, no threading benefit). Use index iteration to avoid
+            // borrow conflict with self.recalc_node.
+            let other_n = self.other_bucket.len();
+            for i in 0..other_n {
+                let nn = self.other_bucket[i];
                 self.recalc_node(nn);
                 self.walks_pure_other += 1;
             }
+
             // Serial: crossed walks from CPU thread + PPU thread (~0.3% rate).
-            for &nn in &self.cpu_scratch.crossed_walks.clone() { self.recalc_node(nn); }
-            for &nn in &self.ppu_scratch.crossed_walks.clone() { self.recalc_node(nn); }
-
-            // Merge per-thread next-buckets into shared next-queue.
-            for &nn in &self.cpu_scratch.next_cpu.clone() { self.enqueue(nn); }
-            for &nn in &self.cpu_scratch.next_ppu.clone() { self.enqueue(nn); }
-            for &nn in &self.cpu_scratch.next_other.clone() { self.enqueue(nn); }
-            for &nn in &self.ppu_scratch.next_cpu.clone() { self.enqueue(nn); }
-            for &nn in &self.ppu_scratch.next_ppu.clone() { self.enqueue(nn); }
-            for &nn in &self.ppu_scratch.next_other.clone() { self.enqueue(nn); }
-
-            // Merge pending handlers.
-            for &hi in &self.cpu_scratch.pending_handlers.clone() {
-                let h = hi as usize;
-                if self.handler_enqueued[h] != 0 {
-                    self.pending_handlers.push(hi);
-                }
+            // Gemini fix #2: drop .clone() — iterate by index, then clear.
+            let cpu_crossed_n = self.cpu_scratch.crossed_walks.len();
+            for i in 0..cpu_crossed_n {
+                let nn = self.cpu_scratch.crossed_walks[i];
+                self.recalc_node(nn);
             }
-            for &hi in &self.ppu_scratch.pending_handlers.clone() {
-                let h = hi as usize;
-                if self.handler_enqueued[h] != 0 {
-                    self.pending_handlers.push(hi);
-                }
+            self.cpu_scratch.crossed_walks.clear();
+            let ppu_crossed_n = self.ppu_scratch.crossed_walks.len();
+            for i in 0..ppu_crossed_n {
+                let nn = self.ppu_scratch.crossed_walks[i];
+                self.recalc_node(nn);
             }
-            self.cpu_scratch.pending_handlers.clear();
-            self.ppu_scratch.pending_handlers.clear();
+            self.ppu_scratch.crossed_walks.clear();
+
+            // Merge per-thread next-buckets into shared next-queue. Inline enqueue to avoid
+            // &mut self vs &self.scratch borrow conflict.
+            self.merge_thread_next();
 
             self.list_count = 0;
         }

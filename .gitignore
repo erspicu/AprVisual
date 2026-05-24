@@ -18,6 +18,7 @@ etc/
 
 # --- 未來 C# 建構產物 ---
 bin/
+!experiment/rust-poc/src/bin/   # exception: Rust crate bin sources, not C# build output
 obj/
 .vs/
 *.user

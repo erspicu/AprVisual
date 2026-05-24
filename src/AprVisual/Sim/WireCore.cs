@@ -203,6 +203,11 @@ namespace AprVisual.Sim
             //    Runs last — needs the Tlist* sub-lists + all static flags above to be final.
             if (EnableFastPath) ClassifyPureLogicNodes();   // else IsPureLogic stays null (FreeUnmanagedMemory above)
 
+            // ── math-algos #1 (--prune-merge) topology-group-ID bookkeeping: per-node group ID
+            //    so the skip check can use topological equivalence instead of digital equality.
+            //    See WireCore.PruneMerge.cs. Allocated only when --prune-merge is requested.
+            if (EnablePruneMerge) InitGroupIDs();           // else NodeGroupIDs stays null (FreeUnmanagedMemory above)
+
             // ── math-algos 策略三: gate-only condensation levels for the soft levelized settle.
             if (EnableLevelize) ComputeNodeLevels();        // else NodeLevel stays null (FreeUnmanagedMemory above)
         }

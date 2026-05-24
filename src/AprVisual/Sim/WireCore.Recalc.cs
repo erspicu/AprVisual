@@ -155,6 +155,14 @@ namespace AprVisual.Sim
             // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.
             if (EnableFastPath && IsPureLogic != null && IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
             byte newState = EnableSimdQueue ? ComputeNodeGroupSimd(nn) : ComputeNodeGroup(nn);   // math-algos Y: SIMD-unrolled inner walk (behaviour-identical)
+            // math-algos #1 topology-group-ID: ratify the walked group with a fresh GroupID before
+            // SetNodeState runs. Subsequent prune-merge skip checks compare GroupIDs (topological
+            // equivalence) instead of NodeStates (digital equality) — see WireCore.PruneMerge.cs.
+            if (NodeGroupIDs != null)
+            {
+                long gid = _nextGroupID++;
+                for (int i = 0; i < _groupCount; i++) NodeGroupIDs[_groupBuf[i]] = gid;
+            }
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
@@ -175,17 +183,20 @@ namespace AprVisual.Sim
                 int* p = TransistorList + ns.TlistGates;
                 if (EnablePruneMerge && newState != 0 && !EnableIrInterp)
                 {
-                    // math-algos #1: gate went HIGH → transistor turns ON → c1,c2 MERGE. Re-evaluating
-                    // is only needed when the endpoints currently differ; an equal-value merge can't
-                    // change either node's resolved value (and any later divergence re-enqueues the
-                    // endpoint itself). (c2 is normalised to be the supply when one side is vcc/vss, so
-                    // comparing NodeStates[c1] vs NodeStates[c2] also correctly handles pull-up/down:
-                    // a pull-up turning on when the node is already 1 is a no-op, etc.)
+                    // math-algos #1 (Gemini r3 fix): gate went HIGH → transistor turns ON → c1,c2 MERGE.
+                    // Skip enqueue ONLY when c1 and c2 are already in the same conducting group
+                    // (NodeGroupIDs assigned by the last ComputeNodeGroup walk of each endpoint —
+                    // see WireCore.PruneMerge.cs). Topological equivalence is the only mathematically
+                    // safe skip condition in a switch-level sim: a "1" driven by pull-up and a "1"
+                    // held by gate capacitance are digitally equal but topologically distinct, and
+                    // merging them DOES change cross-coupled feedback stable states. If c1 and c2 are
+                    // already physically tied, adding a parallel transistor between them only changes
+                    // resistance, never any resolved value → safe to skip.
                     while (*p != 0)
                     {
                         int c1 = *p++;
                         int c2 = *p++;
-                        if (NodeStates[c1] != NodeStates[c2]) EnqueueNode(c1);
+                        if (NodeGroupIDs[c1] != NodeGroupIDs[c2]) EnqueueNode(c1);
                     }
                 }
                 else

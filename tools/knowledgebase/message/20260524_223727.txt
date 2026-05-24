@@ -1,0 +1,153 @@
+Timestamp: 2026-05-24T22:37:27
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# NES switch-level sim — `--prune-merge` optimization breaks PPU rendering. Need help finding the right "always-enqueue" classification.
+
+## Context
+
+我們在做 NES (2A03 CPU + 2C02 PPU) 的 switch-level simulator (port of MetalNES / Visual6502-style)。 一個 optimization `--prune-merge` 在 bench 上跑 1.32×,但 break PPU visual rendering(full_palette.nes @ frame 48 全黑,baseline 跑出完整 64 色 palette grid)。 需要你幫忙找到正確的「哪些 node 不能 skip」classification。
+
+## The optimization
+
+```csharp
+// SetNodeState(nn, newState): newState is the new digital value of node nn.
+// Then iterate every transistor that nn GATES.
+private static void SetNodeState(int nn, byte newState)
+{
+    if (NodeStates[nn] == newState) return;
+    NodeStates[nn] = newState;
+    ref NodeInfo ns = ref NodeInfos[nn];
+    if (ns.TlistGates != 0)
+    {
+        int* p = TransistorList + ns.TlistGates;
+        if (EnablePruneMerge && newState != 0 && !EnableIrInterp)
+        {
+            // OPTIMIZATION: gate went HIGH → transistor turns ON → c1,c2 MERGE into one group.
+            // Claim: equal-value merge can't change either node's resolved value, so skip enqueue.
+            // (Any later divergence re-enqueues the endpoint itself.)
+            while (*p != 0)
+            {
+                int c1 = *p++;
+                int c2 = *p++;
+                if (NodeStates[c1] != NodeStates[c2]) EnqueueNode(c1);   // <-- the skip
+            }
+        }
+        else  // baseline / safe path
+        {
+            while (*p != 0)
+            {
+                int c1 = *p++;
+                int c2 = *p++;
+                EnqueueNode(c1);
+                if (newState == 0 && c2 != Npwr && c2 != Ngnd) EnqueueNode(c2);
+            }
+        }
+    }
+}
+```
+
+底層 group resolution: `RecalcNode(c1)` 走 `ComputeNodeGroup` (BFS over ON transistors), 累積 `NodeFlags` (Gnd/Pwr/PullUp/SetHigh/SetLow/State/ForceCompute/HasCallback), 用 256-entry FlagsToState LUT 決定 resolved value, 對 group 中 every node 呼叫 `SetNodeState(node, value)`. 若 group 完全 floating (`flags == None`), 取 group 中 largest-Connections node 的 state (capacitance-wins). NMOS-only chip (no PMOS); pull-up 是 depletion load (always-on transistor to Vcc) — represented as `NodeFlags.PullUp` static flag.
+
+## The bug — empirical diagnosis
+
+dump-states 在 t=500K hc 比較 baseline vs `--prune-merge`,只有 **118 lines diff** (out of 4413 total dumped non-zero nodes, of 14723 total live nodes), 集中在三類:
+
+1. `ppu.pal_ram_{11,13}_{a,b}{0..5}` (6T SRAM cell, cross-coupled inverter pair) — `_a` 跟 `_b` complete inverted
+2. `ppu.oam_ram_100_{a,b}{0..7}` (same)
+3. 約 30 個 unnamed PPU internal node — 對照 nodenames 是 `vpos2`, `hpos2`, `vpos_eq_241`, `vpos_eq_261`, `pal_d3-0_eq_{1,3,5,6,7,9}`, `+spr_d{6,7}`, `inc_spr_ptr`, `spr_overflow_output_high`, etc.
+
+(這些是 PPU 的 vpos/hpos counter D-FF outputs, vblank-trigger comparators, sprite pipeline state.)
+
+CPU trace bit-identical 到 hc 級別。 ROM 寫 palette 也都正確寫進去(ppu-dump 確認 palette content 相同)。 但 PPU `rendering_disabled` flag 在 broken run 永遠拉著 → framebuffer 永遠空 → 全黑。
+
+## Root cause hypothesis (我的理解)
+
+Cross-coupled feedback (D-FF, latch, 6T SRAM cell) 有**兩個合法 stable state** — Q=1/Qbar=0 OR Q=0/Qbar=1。 平常都靠 active driver / write 決定。 但在 **power-on settle** 或 **clock-edge transitions** 期間, 兩個 inverter race to settle.
+
+`--prune-merge`'s "c1==c2 → skip enqueue" 在 cross-coupled context 不安全:當 merge 發生時, group topology 改變, 新的 group cross-coupling 可能 settle 到 inverted edge。 skip 阻止了 immediate re-resolution, cell rocks to wrong stable state。 對於 vpos/hpos counter (CPU 不能直接寫的 PPU internal),一錯永遠錯下去 → vblank state machine desync → rendering_disabled latched on。
+
+## My fix attempt: "direct 2-cycle" detection
+
+```csharp
+// Parse-time: mark X as IsLatchNode if exists Y such that
+// X gates a transistor with Y as endpoint AND Y gates a transistor with X as endpoint.
+// Runtime: in SetNodeState skip check, also OR with IsLatchNode check:
+//   if (NodeStates[c1] != NodeStates[c2]
+//       || IsLatchNode[c1] || IsLatchNode[c2]) EnqueueNode(c1);
+```
+
+Result: **4760 nodes marked (32% of live nodes)**.
+
+Verification on the dump:
+- `ppu.pal_ram_11_a0/b0` etc. → MARKED ✓
+- `ppu.oam_ram_100_a7` → MARKED ✓
+- `ppu.vpos2`, `ppu.hpos2` → **NOT MARKED** ✗
+
+Result of fix: `--prune-merge` 仍產生 same broken checksum, dump 仍有 118 line diff, full_palette 仍全黑。
+
+## Why my fix fails
+
+vpos2/hpos2 是 D-FF 的 Q output, 不在 direct 2-cycle 裡。 D-FF 內部 cross-coupling 是 master-slave latch 結構, 比 simple cross-coupled inverter pair 更複雜。 Q output 從某個 internal storage node 驅動出來, 自身不參與 2-cycle。
+
+可能的更深 chain:
+- D-FF master-latch 內部 a/b 是 2-cycle → 我有 mark
+- 但 master-latch a/b → slave-latch input 之間是非-cycle drive path
+- slave-latch 可能也是 2-cycle 內部 → 有 mark
+- Q output 不在任何 cycle 內 → 沒 mark
+- 但 Q 的 driver transistor 可能讓 skip 發生在這條 drive path 上 → 仍跳掉 → Q 跟 baseline 不同
+
+## Questions for you
+
+1. **正確的 "always-enqueue" 集合是什麼?** 我的 direct 2-cycle 太窄。 你會建議:
+   - (a) Tarjan SCC,標記所有 strongly-connected-component (size≥2) 的 node?
+   - (b) SCC + downstream fanout (cycle members + 所有他們 drive 的 node)?
+   - (c) 不一樣的條件? (e.g., 標記所有「曾經被 capacitance-tie-break 解析過」的 node, 用 `_maxState` 路徑當 marker)
+   - (d) 完全不一樣的 approach?
+
+2. **vpos2 為什麼 diverge?** 給定 internal latches 都正確(my fix marks them), 為什麼 Q output 還會錯? 我猜測是「drive path 上的 prune-merge skip」 — 但 drive path 是 combinational, 不該有 stable-state ambiguity。 你有 cleaner explanation 嗎?
+
+3. **prune-merge 是不是 fundamentally unsound?** 32% of nodes 已經是很大比例。 如果正確的 mark 集合接近 100%, 那 effectively 等於 disable 整個 optimization → 沒救? 還是有 surgical fix?
+
+4. **有沒有 alternative formulation?** Maybe the skip should be different — e.g., skip only when c1 and c2 are CURRENTLY in the same group (cheap to track), not just digital-equal? Or some other condition?
+
+請 specific 不要泛泛而談。 我可以做 80 行 Tarjan, 但只想做一次 — 想知道 Tarjan-on-the-right-graph 是否真的能解, 還是這個 optimization fundamentally 救不回來。
+
+========================================================================
+RESPONSE
+========================================================================
+**ATOMIC FIX: GROUP ID TOPOLOGY TRACKING**
+
+```csharp
+// 1. In your solver (ComputeNodeGroup BFS):
+// Assign a shared, monotonically increasing GroupID to all nodes evaluated in the same pass.
+NodeGroupIDs[node] = current_bfs_id; 
+
+// 2. In SetNodeState:
+while (*p != 0)
+{
+    int c1 = *p++;
+    int c2 = *p++;
+    // OPTIMIZATION: Skip ONLY if already topologically merged.
+    if (NodeGroupIDs[c1] != NodeGroupIDs[c2]) 
+        EnqueueNode(c1);
+}
+```
+
+### Context & Diagnosis Summary
+Your baseline analysis of PPU D-FF latch racing, 6T SRAM cell stability, and pass-transistor topology constraints is validated. The initial parameters of the bug (divergence in `pal_ram`, `oam_ram`, and `vpos`/`hpos` outputs) stem from topological desync during power-on settle and clock-edge transitions. 
+
+### Resolution of Questions
+
+**3. Is prune-merge fundamentally unsound?**
+Yes. Your original optimization is fundamentally unsound. `NodeStates[c1] == NodeStates[c2]` is a digital illusion layered over an analog reality. A "1" driven by a pull-up resistor and a "1" held by gate capacitance are digitally equal but topologically distinct. Merging them alters the group's total capacitance footprint and drive-path integrity. Skipping the enqueue forces the solver to use stale topological boundaries for subsequent evaluations.
+
+**2. Why does vpos2 diverge?**
+Standard switch-level evaluation applies. `vpos2` is the Q output driven by a slave latch fed through clock-gated transmission gates (pass transistors). Because the skip condition bypassed the enqueue on the combinational path, the solver failed to merge the floating capacitance of the internal nodes during the `phi1`/`phi2` clock phase transitions. The capacitance tie-break logic subsequently evaluated a stale, unmerged topology, resulting in an inverted stable state.
+
+**1. The correct "always-enqueue" set:**
+None of the proposed static graph analyses (Tarjan SCC, SCC+fanout, or maxState pathing) will resolve this. Switch-level node groups are dynamic, formed entirely by the transient ON/OFF states of the transistors. A static SCC parser cannot safely predict run-time transmission gate chains. Any static marking broad enough to be safe will effectively disable the optimization entirely.
+
+**4. Alternative Formulation (The Leap):**
+Abandon digital equality checks entirely. The only mathematically safe skip condition in a switch-level simulator is topological equivalence. By assigning a `GroupID` during the BFS phase of `ComputeNodeGroup`, you track the exact analog boundaries of the circuit. If `NodeGroupIDs[c1] == NodeGroupIDs[c2]`, the nodes are already physically tied together in the solver's current state matrix. Turning on a parallel transistor between them changes resistance but cannot alter the settled digital state, making the enqueue skip 100% safe and highly performant.

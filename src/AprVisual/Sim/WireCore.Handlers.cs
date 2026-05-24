@@ -83,6 +83,15 @@ namespace AprVisual.Sim
 
         internal static void EnqueueCallback(CallbackInfo cb) { cb.Enqueued = true; }
 
+        // Find a previously-AddCallback'd callback by its name (the auto-generated "callback:<watched-node-names>"
+        // string) and return its fake target node id. Used by SnapshotExporter to pair memory-handler bindings
+        // with the target nodes their callbacks fire from. Returns EmptyNode if not found.
+        internal static int FindCallbackTargetByName(string name)
+        {
+            foreach (var cb in _callbacks) if (cb.Name == name) return cb.TargetNode;
+            return EmptyNode;
+        }
+
         // ── behavioral memory ──
         internal sealed class Memory
         {

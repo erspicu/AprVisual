@@ -1,0 +1,5 @@
+target/
+snapshot/*.aprsnap
+Cargo.lock
+csharp_microbench/bin/
+csharp_microbench/obj/

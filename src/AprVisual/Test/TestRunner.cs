@@ -28,7 +28,7 @@ namespace AprVisual.Test
     {
         public static int Run(string[] args)
         {
-            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null, dumpBlockOutputs = null, dumpBlockStops = null;
+            string? romPath = null, testPath = null, testDir = null, dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null, probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null, verifyIrPath = null, dumpStatesPath = null, dumpBlockOutputs = null, dumpBlockStops = null, exportSnapshotPath = null;
             bool dumpPartition = false;
             int dumpBlockId = -1;
             string? aotVerifyTileMux = null;
@@ -67,6 +67,7 @@ namespace AprVisual.Test
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
+                    case "--export-snapshot": if (i + 1 < args.Length) exportSnapshotPath = args[++i]; break;   // for Rust PoC
                     case "--dump-node":       if (i + 1 < args.Length) dumpNodeName = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
@@ -128,6 +129,7 @@ namespace AprVisual.Test
 
             WireCore.SystemDefDir = systemDefDir;
 
+            if (exportSnapshotPath != null) return SnapshotExporter.Export(exportSnapshotPath, benchPath ?? romPath ?? testPath ?? "");
             if (dumpModule != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem) return DumpSystem();
             if (dumpLevels) return DumpLevels();

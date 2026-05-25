@@ -72,9 +72,14 @@ namespace AprVisual.Sim
         }
 
         // Hard cap on settle passes. MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
-        // We keep a generous hard cap so a non-converging region can't hang the whole simulation —
-        // the state is a heuristic anyway (see MD/struct/01 §11.2). If this trips routinely it's a bug.
-        private const int MaxSettlePasses = 1000;
+        // We keep a hard cap so a non-converging region can't hang the whole simulation — the state
+        // is a heuristic anyway (see MD/struct/01 §11.2). If this trips routinely it's a bug.
+        //
+        // 2026-05-25: lowered 1000 → 128 after settle-stats measurement across two real workloads:
+        //   full_palette.nes / 50K hc:   max 45 iter, p99 in [33-64]
+        //   Super Mario Bros. / 71M hc:  max 41 iter, p99 in [17-32]
+        // 128 = ~2.8× safety margin over observed max. Soft warning at 100 still triggers earlier.
+        private const int MaxSettlePasses = 128;
 
         private static void ProcessQueue()
         {
@@ -94,8 +99,8 @@ namespace AprVisual.Sim
             while (RecalcListNextCount != 0)
             {
                 ++iteration;
-                if (iteration == 100)
-                    Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating; not necessarily a bug — see MD/struct/01 §11.2)");
+                if (iteration == 64)
+                    Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
                 {
                     Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
@@ -121,6 +126,7 @@ namespace AprVisual.Sim
                 }
                 RecalcListCount = 0;
             }
+            if (EnableSettleStats) RecordSettle(iteration);
             if (!EnableCodegenDispatcher) InvokeCallbacks();   // WireCore.Handlers.cs — fired by dispatcher after the full block loop drains when codegen mode is on
         }
 

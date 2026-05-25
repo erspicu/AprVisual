@@ -35,6 +35,7 @@ fn configure(wc: &mut wire::WireCore, args: &[String]) {
     if flag_set(args, "--fast-path")   { wc.enable_fast_path();   eprintln!("# --fast-path: {} pure-logic-gnd nodes classified", wc.fast_path_count); }
     if flag_set(args, "--prune-merge") { wc.enable_prune_merge(); eprintln!("# --prune-merge: topology-group-ID skip armed"); }
     if flag_set(args, "--parallel")    { wc.enable_parallel();    eprintln!("# --parallel: per-chip bucketed settle (Phase 1: serial-bucketed for correctness verification)"); }
+    if flag_set(args, "--settle-stats"){ wc.enable_settle_stats(); eprintln!("# --settle-stats: ProcessQueue iter histogram"); }
 }
 
 fn bench(args: &[String]) {
@@ -60,6 +61,7 @@ fn bench(args: &[String]) {
     println!("# rate: {hcps:.0} hc/s ({us_per_hc:.2} µs/hc)");
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
+    if wc.enable_settle_stats { println!("# {}", wc.settle_stats_report()); }
     if wc.enable_parallel {
         println!("# parallel walks: total {} | pure-CPU {} ({:.1}%) | pure-PPU {} ({:.1}%) | pure-other {} ({:.1}%) | crossed→serial {} ({:.1}%)",
                  wc.walks_total, wc.walks_pure_cpu, 100.0 * wc.walks_pure_cpu as f64 / wc.walks_total as f64,
@@ -113,4 +115,7 @@ fn shot(args: &[String]) {
 
     let checksum = wc.node_states_checksum();
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}", wc.time);
+    if wc.enable_settle_stats {
+        println!("# {}", wc.settle_stats_report());
+    }
 }

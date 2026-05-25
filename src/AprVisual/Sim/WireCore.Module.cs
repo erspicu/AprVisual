@@ -249,9 +249,16 @@ namespace AprVisual.Sim
                     foreach (int nid in list) { var n = GetOrCreateNode(nid); if (n != null) n.Pullups++; }
                 }
 
-                // setupTransistors
-                foreach (var td in def.Trans)
-                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak);
+                // setupTransistors — or LUT replacement for pure-combinational TTL support chips
+                if (EnableLutTtl && IsLutChip(def.Name))
+                {
+                    DeferLutInstance(def, prefix);   // skip def.Trans; AttachLutHandlers will register the callback POST-lowering
+                }
+                else
+                {
+                    foreach (var td in def.Trans)
+                        AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak);
+                }
             }
 
             // recurse into sub-modules

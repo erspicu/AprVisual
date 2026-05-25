@@ -57,6 +57,12 @@ pub struct WireCore {
     pub memories: Vec<Vec<u8>>,        // index matches handler.memory_index
     pub handler_enqueued: Vec<u8>,     // per-handler "needs to fire" flag
 
+    // LUT chip dispatch (v4 snapshot)
+    pub lut_chips: Vec<crate::snapshot::LutChipSpec>,
+    pub target_to_lut: Vec<i32>,       // -1 if target node is not a LUT chip
+    pub lut_enqueued: Vec<u8>,
+    pub pending_luts: Vec<i32>,
+
     // post-settle queue of handlers to invoke
     pub pending_handlers: Vec<i32>,
 
@@ -125,6 +131,14 @@ impl WireCore {
         let h_count = snap.handlers.len();
         let prev_pclk1 = if snap.pclk1_node >= 0 { snap.node_states[snap.pclk1_node as usize] } else { 0 };
 
+        let mut target_to_lut = vec![-1i32; nc];
+        for (i, lc) in snap.lut_chips.iter().enumerate() {
+            if lc.target_node >= 0 && (lc.target_node as usize) < nc {
+                target_to_lut[lc.target_node as usize] = i as i32;
+            }
+        }
+        let lut_count = snap.lut_chips.len();
+
         WireCore {
             node_count: nc,
             npwr: snap.npwr,
@@ -151,6 +165,10 @@ impl WireCore {
             memories,
             handler_enqueued: vec![0u8; h_count],
             pending_handlers: Vec::with_capacity(h_count),
+            lut_chips: snap.lut_chips,
+            target_to_lut,
+            lut_enqueued: vec![0u8; lut_count],
+            pending_luts: Vec::with_capacity(lut_count.max(1)),
             pclk1_node: snap.pclk1_node,
             prev_pclk1,
             hpos_nodes: snap.hpos_nodes,
@@ -354,6 +372,14 @@ impl WireCore {
         self.recalc_node_list(nn);
     }
 
+    pub fn set_float(&mut self, nn: i32) {
+        let u = nn as usize;
+        let f = self.node_infos[u].flags;
+        let new_f = f & !(FLAG_SETHIGH | FLAG_SETLOW);
+        self.node_infos[u].flags = new_f;
+        self.recalc_node_list(nn);
+    }
+
     fn add_node_to_group(&mut self, nn: i32) {
         let u = nn as usize;
         unsafe {
@@ -503,6 +529,14 @@ impl WireCore {
                             self.pending_handlers.push(hi);
                         }
                     }
+                    let li = self.target_to_lut[u];
+                    if li >= 0 {
+                        let l = li as usize;
+                        if self.lut_enqueued[l] == 0 {
+                            self.lut_enqueued[l] = 1;
+                            self.pending_luts.push(li);
+                        }
+                    }
                 }
             }
         }
@@ -610,6 +644,14 @@ impl WireCore {
                         if self.handler_enqueued[h] == 0 {
                             self.handler_enqueued[h] = 1;
                             self.pending_handlers.push(hi);
+                        }
+                    }
+                    let li = self.target_to_lut[u];
+                    if li >= 0 {
+                        let l = li as usize;
+                        if self.lut_enqueued[l] == 0 {
+                            self.lut_enqueued[l] = 1;
+                            self.pending_luts.push(li);
                         }
                     }
                 }
@@ -897,15 +939,74 @@ impl WireCore {
     }
 
     fn invoke_callbacks(&mut self) {
-        // Snapshot the pending list — a handler invocation may add more.
-        // For re-entrant safety we use a swap-and-drain pattern.
-        while !self.pending_handlers.is_empty() {
-            let pending: Vec<i32> = std::mem::take(&mut self.pending_handlers);
-            for hi in pending {
+        while !self.pending_handlers.is_empty() || !self.pending_luts.is_empty() {
+            // memory handlers first (RAM/ROM)
+            let pending_mem: Vec<i32> = std::mem::take(&mut self.pending_handlers);
+            for hi in pending_mem {
                 let h = hi as usize;
                 self.handler_enqueued[h] = 0;
                 self.run_mem_handler(h);
             }
+            // LUT chips (74HC04 / 74LS139 / 74LS368)
+            let pending_lut: Vec<i32> = std::mem::take(&mut self.pending_luts);
+            for li in pending_lut {
+                let l = li as usize;
+                self.lut_enqueued[l] = 0;
+                self.run_lut_chip(l);
+            }
+        }
+    }
+
+    fn run_lut_chip(&mut self, l: usize) {
+        let chip_type = self.lut_chips[l].chip_type;
+        match chip_type {
+            crate::snapshot::LUT_INVERTER => {
+                // Y = ~A
+                let a = self.lut_chips[l].inputs[0];
+                let y = self.lut_chips[l].outputs[0];
+                if self.node_states[a as usize] != 0 { self.set_low(y); } else { self.set_high(y); }
+            }
+            crate::snapshot::LUT_DECODER_2_TO_4 => {
+                // inputs = [E, A0, A1]; outputs = [Y0..Y3] active-low; when E=1 all outputs high
+                let e = self.lut_chips[l].inputs[0];
+                let a0 = self.lut_chips[l].inputs[1];
+                let a1 = self.lut_chips[l].inputs[2];
+                let y0 = self.lut_chips[l].outputs[0];
+                let y1 = self.lut_chips[l].outputs[1];
+                let y2 = self.lut_chips[l].outputs[2];
+                let y3 = self.lut_chips[l].outputs[3];
+                if self.node_states[e as usize] != 0 {
+                    self.set_high(y0); self.set_high(y1); self.set_high(y2); self.set_high(y3);
+                } else {
+                    let sel = (if self.node_states[a1 as usize] != 0 { 2 } else { 0 })
+                            | (if self.node_states[a0 as usize] != 0 { 1 } else { 0 });
+                    self.set_high(y0); self.set_high(y1); self.set_high(y2); self.set_high(y3);
+                    match sel {
+                        0 => self.set_low(y0),
+                        1 => self.set_low(y1),
+                        2 => self.set_low(y2),
+                        _ => self.set_low(y3),
+                    }
+                }
+            }
+            crate::snapshot::LUT_TRISTATE_BUFFER => {
+                // /OE = 1 → outputs Z (SetFloat); /OE = 0 → /Y = ~A
+                let oe = self.lut_chips[l].oe_node;
+                let n = self.lut_chips[l].inputs.len();
+                if self.node_states[oe as usize] != 0 {
+                    for i in 0..n {
+                        let y = self.lut_chips[l].outputs[i];
+                        self.set_float(y);
+                    }
+                } else {
+                    for i in 0..n {
+                        let a = self.lut_chips[l].inputs[i];
+                        let y = self.lut_chips[l].outputs[i];
+                        if self.node_states[a as usize] != 0 { self.set_low(y); } else { self.set_high(y); }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

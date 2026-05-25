@@ -22,7 +22,7 @@ namespace AprVisual.Test
     {
         // Magic + version. Bump version if format changes.
         const string MAGIC = "APRSNAP\0";   // 8 bytes
-        const uint VERSION = 3;   // v3: appended chip_id byte[NodeCount] for per-chip parallel settle (after the video section)
+        const uint VERSION = 4;   // v4: appended LUT chip specs after chip_id (empty when --lut-ttl not active)
 
         public static int Export(string outPath, string romPath)
         {
@@ -35,6 +35,7 @@ namespace AprVisual.Test
             WireCore.EnableIrInterp = false;
             WireCore.EnableCodegenDispatcher = false;
             WireCore.EnableChipDiag = true;     // force chip classification so v3 chip_id field is populated
+            WireCore.ResetLutChips();
             WireCore.LoadSystem(rom);
 
             try
@@ -153,6 +154,21 @@ namespace AprVisual.Test
                     if (c == WireCore.CHIP_CPU) cpu++; else if (c == WireCore.CHIP_PPU) ppu++;
                 }
                 Console.WriteLine($"# snapshot v3: chip_id — CPU {cpu:N0} PPU {ppu:N0} OTHER {WireCore.NodeCount - cpu - ppu:N0}");
+
+                // ── v4: LUT chip specs (empty list when --lut-ttl not active) ──
+                var lutSpecs = WireCore.RegisteredLutChips;
+                bw.Write(lutSpecs.Count);
+                foreach (var s in lutSpecs)
+                {
+                    bw.Write((byte)s.Type);
+                    bw.Write(s.TargetNode);
+                    bw.Write(s.OeNode);
+                    bw.Write(s.Inputs.Length);
+                    foreach (int n in s.Inputs) bw.Write(n);
+                    bw.Write(s.Outputs.Length);
+                    foreach (int n in s.Outputs) bw.Write(n);
+                }
+                Console.WriteLine($"# snapshot v4: LUT chip specs = {lutSpecs.Count} sub-callbacks");
 
                 fs.Flush();
                 Console.WriteLine($"# snapshot: {WireCore.NodeCount:N0} nodes, {WireCore.TransistorListLength:N0} tlist entries, {memList.Count} memories, {handlers.Count} mem-handlers → {outPath} ({fs.Length:N0} bytes)");

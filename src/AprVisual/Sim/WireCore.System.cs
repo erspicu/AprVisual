@@ -89,6 +89,7 @@ namespace AprVisual.Sim
             AttachClockHandler();     // WireCore.Handlers.cs — toggles "clk" each half-cycle
             AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
             AttachVideoHandler();     // (S1: placeholder — no-op; the real PPU vid_ → RGB decode is later)
+            if (EnableLutTtl) AttachLutHandlers();   // pure-combinational TTL chips: register callbacks now (post-lowering node ids)
 
             ResolveCachedNodes();
 

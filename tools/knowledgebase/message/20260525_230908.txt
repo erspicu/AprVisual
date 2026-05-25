@@ -1,0 +1,273 @@
+Timestamp: 2026-05-25T23:09:08
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# Bit-parallel BFS for NES switch-level simulator — design + pitfalls
+
+## 系統 context
+
+NES (2A03 + 2C02 + 主機板 TTL) switch-level simulator。 ~14,730 active node、~27,305 transistor。 baseline 大概 38K hc/s (C#) / 47K hc/s (Rust port)。
+
+核心 hot loop 在 `ComputeNodeGroup` ── 從 dirty list 取一個 node,BFS 走 conducting transistor(transistor 的 gate 必須 NodeStates[gate]≠0),收集所有 reachable node 形成 group,累積 flags,然後 group 解析出一個 final state 寫回所有 group members。
+
+## 量化 workload(實測 settle-stats)
+
+```
+full_palette.nes 50K hc bench:
+  ProcessQueue calls:  116,747 次 (= ~2.3 / hc)
+  Avg iter/call:       6.29
+  Max iter/call:       45
+  Histogram:
+    1 iter:  51.4%   ← 一半 call 是 handler 觸發 1-wave settle
+    5-8:     18.2%
+    9-16:    22.7%
+    17-32:    6.4%
+    33-64:    1.3%  (outlier)
+
+  Per-walk group size distribution(估計,沒精準量):
+    多數 walk 是 1-5 node 小 group(combinational 邏輯閘)
+    PPU 有 94.5% pass-coupled SCC → 進到 PPU 區的 walk 可能展開很大(數百 node?)
+    fast-path classifier(--fast-path)把 23% node 認定為 "group 必然 = {nn}",已用 O(1) 旁路
+```
+
+chip-diag 顯示:
+```
+CPU 28.3% / PPU 71.2% / OTHER 0.6% of group-member work
+```
+
+## 現有 BFS 結構(C# 簡化版)
+
+```csharp
+struct NodeInfo {
+    NodeFlags Flags;       // PullUp/Pwr/Gnd/SetHigh/SetLow/ForceCompute/HasCallback/State
+    int Connections;       // for floating-group tie-break
+    int TlistGates;        // 此 node 是 gate 的 transistor 列表
+    int TlistC1c2s;        // 此 node 是 channel endpoint 的 transistor(其他端是 normal node)
+    int TlistC1gnd, TlistC1pwr;  // channel 到 vss/vcc
+}
+
+int*  TransistorList;  // flat int array, sub-lists are 0-terminated
+byte* NodeStates;      // 0/1 per node
+
+private static void AddNodeToGroup(int nn) {
+    if (_inGroup[nn] != 0) return;
+    _inGroup[nn] = 1;
+    ref NodeInfo ns = ref NodeInfos[nn];
+    _groupBuf[_groupCount++] = nn;
+    if (ns.Connections > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = ns.Connections; }
+    _groupFlags |= ns.Flags;
+
+    // 走 channel 到 normal node(gate 必須 conducting)
+    if (ns.TlistC1c2s != 0) {
+        int* p = TransistorList + ns.TlistC1c2s;
+        while (*p != 0) {
+            int gate = *p++; int other = *p++;
+            if (NodeStates[gate] != 0) AddNodeToGroup(other);   // 遞迴
+        }
+    }
+    // 任何 ON channel 到 GND/VCC → 累積對應 flag
+    if (ns.TlistC1gnd != 0) { ... 找有沒有 conducting → _groupFlags |= Gnd; break; }
+    if (ns.TlistC1pwr != 0) { ... → _groupFlags |= Pwr; break; }
+}
+```
+
+關鍵點:
+1. **adjacency 是 dynamic**(transistor conducts iff `NodeStates[gate] != 0`)── 不能 precompute adjacency bitmap
+2. 不只是 BFS 找 reachable set,**還要累積 flags**(`_groupFlags |=`),最後用 `FlagsToState[(int)flags]` LUT 決定 group resolved value
+3. 還要追蹤 `_maxConnections / _maxState`(用於完全 floating group 的 tie-break)
+4. group walk 完之後對 **整個 group_buf 每個 node 都 SetNodeState** 寫回 resolved value
+
+## 我已知的 bit-parallel BFS 範例
+
+- Beamer direction-optimizing(top-down → bottom-up switch 在 dense frontier)
+- Ligra frontier sparse/dense 自動表示
+- GAP benchmark 標準實作
+- perfect6502 用 bitset 加速,但具體做法我沒細看過
+
+## 想請你幫忙的 specific 問題
+
+### Q1:dynamic adjacency 怎麼處理?
+
+每 BFS step,我要展開 frontier 的所有 conducting neighbor。 但 "conducting" 取決於 runtime `NodeStates[gate]`。
+
+選項:
+a) 每 step 動態 build adjacency bitmap(對 frontier 中每 node,讀其 transistor list,filter by gate state,write into next bitmap)── 還是 pointer-chase,只是 batch 化
+b) 維護一個 "currently-conducting transistor" bitmap,當 gate state 變化時 update。 BFS 用 fixed adjacency 加 conducting mask
+c) 把 graph 拆成 "always-on adjacency"(connection wires + supply pull-ups,gate=Vcc 永遠 on)跟 "conditional adjacency"(rest,gate state dependent),分別處理
+
+你會建議哪條? 還是有別的辦法?
+
+### Q2:flag accumulation 怎麼 bit-parallel?
+
+`_groupFlags |= ns.Flags` 是 group-level scalar accumulation。 bit-parallel 化 group BFS 的話,**多個 group 同時做** 才划算。 但 group 之間 flag 不共享(每 group 各自的 flags)。
+
+選項:
+a) 維護 8 個 bitmap,一個 per NodeFlags bit(PullUp/Pwr/Gnd/...),用 bitwise OR 累積 ── 但仍是 per-group
+b) 8 個 flag 對 N node = 8 個 N-bit bitmap (8 × ~230 u64 = 1.84 KB)。 group 全 member 的 OR = 個別 bitmap 在 group bitmap masked AND 後 popcount > 0
+c) 不 bit-parallel flag accumulation,只 bit-parallel frontier expansion
+
+你怎麼設計?
+
+### Q3:bulk-BFS-multiple-sources vs per-source
+
+我們 per ProcessQueue 有 ~120 dirty node,每個各自 ComputeNodeGroup。 兩種 bulk 化策略:
+
+a) **Sequential per source**:每 dirty 做一次 bit-parallel BFS。 group size 平均小(~5-10 node),overhead 怕大過 gain
+b) **Multi-source bulk BFS**:一次 bit-parallel BFS 從所有 dirty source 同時 expand,用 source-id colour bitmap 區分 groups
+c) **Group-equivalence partition**:先 bit-parallel 找出所有 connected component(SCC variant?),再 per-component resolve
+
+哪個 RoI 高?
+
+### Q4:fast-path 的 23% node(group 必為 {nn})還能 bit-parallel 化嗎?
+
+那批 node 已經 O(1) 解析,bit-parallel 化它們應該無效益。 我想保留 fast-path,bit-parallel 只處理剩下 77% node。 對嗎?
+
+### Q5:踩雷的點
+
+我前面試過 prune-merge(unsafe)、per-chip parallel(sync overhead 慘)、LUT chip(callback delay)── 都踩過坑。 bit-parallel BFS 你預判哪些雷:
+
+- 演算法正確性: ?
+- 效能反向(實際比 scalar 慢)的條件?
+- 跟現有 fast-path / prune-merge / chip-diag 等的衝突?
+- group flag 跟 capacitance tie-break 的 bit-parallel 化盲點?
+
+### Q6:給我一個 minimal viable implementation 的 step-by-step plan
+
+我傾向先做最小可驗證的子集(e.g., 只 bit-parallel 化 PPU 區的大 group walk),確認加速後再擴。 你建議 step 順序?
+
+## 期望
+
+我會把這個拿到 branch `bitset-bfs-experiment` 上做。 算 2-3 天 budget,做爛了沒關係,實驗 brain。 想要的是 Q5/Q6 的 **具體 actionable plan**,不要泛泛而談。 Q1-Q4 想要你 surgical 的 recommendation。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常硬核且極具挑戰性的優化方向。將 Bit-parallel BFS (如 Beamer 的 direction-optimizing 或 Ligra 概念) 應用到 Switch-level simulator，最大的衝突點在於：**傳統 Bit-parallel BFS 預設圖的拓樸是靜態的，而電晶體級模擬的圖是高度動態的（Gate state 決定 Edge 是否存在）。**
+
+我先說結論：**純粹全域的 Bit-parallel BFS 在這個 Workload 下有極高機率會「效能反向」**。因為你的 Group size 極端兩極化（50% 是 1-node，多數是 1-5 nodes，只有 PPU 是巨大的 Pass-transistor mesh）。Bit-parallel 的初始設定與掃描開銷（Zeroing bitsets, iterating `u64`）會把小 Group 的效能徹底吃光。
+
+但我完全支持你花 2-3 天在 `bitset-bfs-experiment` 分支上驗證。以下是針對你 Q1-Q6 的 Surgical recommendations 與具體 Actionable Plan。
+
+---
+
+### Q1: Dynamic adjacency 怎麼處理？
+
+**建議：採用選項 B 的變形 ── 維護 `ActiveTransistors` Bitset + SIMD-friendly 雙向映射，而非傳統的 Adjacency Matrix。**
+
+若用 Adjacency Bitmap (14.7k * 14.7k = 27MB)，會塞爆 L1/L2 Cache。你的 Edge 只有 27.3k 條。
+你應該將「節點」與「電晶體」視為 **Bipartite Graph (二分圖)**。
+
+1.  **維護 `ActiveT` Bitset** (27,305 bits $\approx$ 427 `u64`)：
+    只有當 Node state **發生翻轉 (0->1 或 1->0)** 時，才去 Update 這個 Node 作為 Gate 的所有 Transistors 的 `ActiveT` bit。由於單次 HC 翻轉的 Node 極少，這個維護成本極低。
+2.  **Frontier Expansion (Node $\rightarrow$ Transistor $\rightarrow$ Node)**：
+    與其去查動態 Bitmap，不如預先建構**靜態的** Incidence Bitmasks（關聯矩陣）。
+    但 27MB 還是太大，所以**只針對 PPU 區的高密度 Pass-transistor 重新編號**（例如把那 8000 個 Node 編號在 0-7999）。
+    *   展開時：`Frontier_T = Static_Node_to_T_Mask[Frontier_Nodes] & ActiveT;`
+    *   再轉回：`Frontier_Nodes_Next = Static_T_to_Node_Mask[Frontier_T] & ~Visited_Nodes;`
+
+### Q2: Flag accumulation 怎麼 bit-parallel？
+
+**建議：選項 C ── 不要 Bit-parallel 化 Flag Accumulation，只 Bit-parallel 化 Frontier Expansion。**
+
+*   **原因**：你要累積的不只是 8 個 bit 的 Flags，你還有 `_maxConnections` (Capacitance) 和 `_maxState` 用於 Floating group 的 Tie-break。這兩者是純 Scalar 的 Integer 比較，無法簡單用 Bitwise OR 解決。
+*   **做法**：BFS 走完後，你會得到一個 `Visited_Nodes` Bitset。使用硬體指令 `tzcnt` (Trailing Zero Count) 或 `popcnt`，快速掃描這個 Bitset 中為 1 的 bit index（即 Node ID），然後用一個 Scalar Loop 去查這些 Node ID 的 `Flags` 與 `Connections`。這等同於把 Bitset 轉回你原本的 `_groupBuf`，然後做 Array-of-Structs 的聚合。由於連續查表，Cache locality 會非常好。
+
+### Q3: Bulk-BFS-multiple-sources vs Per-source
+
+**建議：選項 A (Sequential per source)，但加上「Threshold 旁路」。**
+
+*   **絕對不要做 Bulk (多源同時)**：因為不同的 Dirty Source 可能屬於不同的獨立 Group（例如 CPU 和 PPU 同時有訊號）。如果把它們混進同一個 Bitset BFS，你會無法區分 Group 邊界，導致錯誤的電荷分享（Charge sharing）或短路（VCC 接 GND）。
+*   **Group-equivalence (找連通分量)**：這其實就是你現在做的事。但因為 Adjacency 動態變化，你無法預先 Cache 這些 Component。
+*   **最佳策略 (Hybrid)**：
+    從 Dirty source 取出時，先用原本的 Scalar pointer-chasing 走。
+    如果 `_groupCount` 超過閾值（例如 16），或者碰到了 PPU 的 Pass-transistor mesh 的入口節點，**立刻放棄 Scalar walk，切換到 Bit-parallel BFS** 去搜刮剩下的巨大網路。
+
+### Q4: Fast-path 的 23% node 還能 bit-parallel 化嗎？
+
+**建議：絕對保留現有的 Fast-path，Bit-parallel 完全不要碰它們。**
+
+Bit-parallel 的 Setup time (清空數百個 `u64`、準備 bitmask) 至少需要上百個 CPU Cycles。你的 Fast-path $O(1)$ 解析大概只要 5-10 個 Cycles。Bit-parallel 處理小 Group 必死無疑。只針對那 77% 裡面的「大 Group」(特別是 PPU 佔的 71.2% workload) 開火。
+
+---
+
+### Q5: 踩雷的點 (Pitfalls & Landmines)
+
+1.  **效能反向的最大雷區：Zeroing/Iterating Overhead**
+    為了表示 14.7k 個 Node，你需要 230 個 `u64`。如果你為了走一個 3 個 node 的 group，去 `memset` 230 個 `u64` 為 0，再用 `tzcnt` 掃描它們，效能會比原本的 Pointer chasing 慢 10 倍以上。**防禦機制：必須動態追蹤 Min/Max `u64` index，只清空/掃描有被觸碰到的 Chunk，不要全域掃描。**
+2.  **`tzcnt` 瓶頸**
+    從 Bitset 轉回 Scalar Array (`_groupBuf`) 時，如果用 `while(mask) { int bit = tzcnt(mask); mask &= mask - 1; }`，雖然是 CPU intrinsic，但在 C#/Rust 裡如果沒有正確 inline，迴圈本身的開銷會吃掉 BFS 省下的時間。
+3.  **Capacitance Tie-break 盲點**
+    Floating gate (沒有 VCC/GND，只有狀態 0 和 1 互撞) 依賴 `_maxConnections` 決定最終態。如果你在 Bit-parallel 過程中丟失了 Node Identity，你就無法正確比較電容大小。這是為什麼我 Q2 強烈建議 BFS 結束後再用 Scalar loop 結算的原因。
+4.  **與 Prune-merge 的衝突**
+    如果你之前做過靜態圖簡化 (Prune-merge)，代表現在的 14.7k node 已經是「超級節點 (Super-nodes)」。Bit-parallel 依賴緊湊且連續的 Node ID 分佈。如果 ID 因為 Merge 而變得稀疏，Bitset 會充滿空洞，浪費頻寬。確保 Node ID 已經重新 Pack 緊湊。
+
+---
+
+### Q6: Minimal Viable Implementation (MVI) 3天實驗計畫
+
+不要一開始就打掉重練，用「旁路 (Bypass)」的方式整合。
+
+#### Day 1: 基礎建設與 `ActiveT` 追蹤 (無害改動)
+1.  **分離 Node ID 空間**：把 PPU 區域那些高機率形成大 Group 的 Pass-transistor 相關 Nodes，重新 Mapping 到連續的 ID 空間 (例如 ID 0 ~ 4095)。只需要 64 個 `u64` 就能表示。
+2.  **建立 `ActiveTransistors` Bitset**：
+    *   新增一塊記憶體 `ulong[] ActiveT = new ulong[427];`
+    *   修改 `SetNodeState`：當 `NodeStates[nn]` 改變時，走訪該 Node 的 `TlistGates`，對應的電晶體 ID `tid`，執行 `ActiveT[tid / 64] |= (1ul << (tid % 64))` (或清 0)。
+    *   *驗證*：跑 1000 HC，確保 `ActiveT` 的狀態與原本靠 `NodeStates[gate] != 0` 判斷的結果 100% 一致，並量測這個額外維護動作帶來的 Overhead (應該 < 2%)。
+
+#### Day 2: 針對 PPU 大網路的 Bit-parallel Expansion
+1.  **實作 Static incidence lookup** (只針對前 4096 個 PPU Nodes)：
+    *   建構二維陣列 (或一維扁平化)：`ulong[] NodeToTMask = new ulong[4096 * (Transistor_Count/64)]`。這太大。
+    *   *妥協方案*：因為我們只需在 PPU 內部做，建立一個 **動態編譯的稀疏 CSR 結構**，但在 Frontier Expansion 時，改用 **SIMD (AVX2/Vector256)** 一次比對 8 個電晶體的 Gate state，而不是傳統的 Bitmap AND。
+    *   *真正的 Bit-parallel 實作*：
+        ```csharp
+        // 假設已經在一個 PPU walk 裡，改用迴圈而非遞迴
+        ulong[] frontierNodes = new ulong[64]; // 4096 nodes = 64 u64s
+        ulong[] visitedNodes  = new ulong[64];
+        // ... (將 initial node 設入 frontier)
+        
+        while(FrontierNotEmpty(frontierNodes)) {
+            ulong[] nextFrontier = new ulong[64];
+            // 這裡依然需要迭代 Frontier 裡的 bits，但我們只迭代那 64 個 u64
+            foreach(int nn in ExtractBits(frontierNodes)) {
+                // 利用 Day 1 的 ActiveT 加速:
+                // 不是去遞迴，而是把 nn 相連且 active 的 neighbors 塞進 nextFrontier
+                foreach(int tid in NodeToChannels[nn]) {
+                    if (IsBitSet(ActiveT, tid)) {
+                        int other = GetOtherNode(tid, nn);
+                        SetBit(nextFrontier, other);
+                    }
+                }
+            }
+            // Bitwise 操作核心：
+            for(int i=0; i<64; i++) {
+                nextFrontier[i] &= ~visitedNodes[i]; // 剔除已拜訪
+                visitedNodes[i] |= nextFrontier[i];  // 標記為已拜訪
+                frontierNodes[i] = nextFrontier[i];  // 進入下一層
+            }
+        }
+        ```
+    *   *注意*：你會發現上面的 `foreach(int nn in ExtractBits)` 還是 Scalar。因為在 CPU 上，沒有硬體能直接把 "Node adjacency" 做 Matrix-Vector 乘法。這就是 CPU Bit-parallel BFS 的極限。Ligra 的作法也是把 Frontier 壓成 Dense bitset 後，掃描 **所有** Edges 看是否命中 Frontier。
+
+#### Day 3: Ligra 風格 Dense 分支嘗試 & 結算
+1.  **Dense 模式 (只有當 Frontier 極大時啟動)**：
+    如果 `visitedNodes` 已經佔了 PPU nodes 的 20% 以上，放棄從 Node 出發。
+    直接掃描 **所有的 PPU 內部 Transistors** (大約幾千個)：
+    ```csharp
+    // Ligra Dense BFS 概念
+    for(int tid = 0; tid < PpuTransistorCount; tid++) {
+        if (!IsBitSet(ActiveT, tid)) continue; // Gate 沒開
+        int n1 = T_C1[tid];
+        int n2 = T_C2[tid];
+        bool v1 = IsBitSet(frontierNodes, n1);
+        bool v2 = IsBitSet(frontierNodes, n2);
+        if (v1 && !v2) SetBit(nextFrontier, n2);
+        else if (v2 && !v1) SetBit(nextFrontier, n1);
+    }
+    ```
+    *(這個 Dense loop 非常利於 CPU Branch prediction，且記憶體存取是完全線性的！這可能是你拿到大倍數加速的關鍵。)*
+2.  **收尾結算**：從 `visitedNodes` Extract 出所有 ID 放入 `_groupBuf`，跑原本的 Scalar Flag Accumulation 與 Max 運算。
+3.  **Benchmarking**：跑 `full_palette.nes`。觀察 PPU group resolve 時間是上升還是下降。
+
+### 總結你的實驗戰略
+不要試圖用 Bit-parallel 取代整個 BFS。你的目標是：**用原本的 Scalar BFS 處理前幾個 Node，一旦發現這是一個超過 N 個 Node 的「巨無霸 Group (通常在 PPU)」，無縫切換到 Day 3 的「Dense 線性掃描」模式**。這才是避開所有小 Group 開銷雷區，又能榨出大 Group 效能的唯一解法。

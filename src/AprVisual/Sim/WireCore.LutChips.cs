@@ -27,7 +27,13 @@ namespace AprVisual.Sim
 
         public static bool EnableLutTtl = false;
         public static bool LutEnable74HC04 = true;
-        public static bool LutEnable74LS139 = false;   // currently broken — renders black; debug TODO
+        // 74LS139 LUT is fundamentally INCOMPATIBLE with the AddCallback architecture for
+        // CPU-bus-timing-critical paths — even monolithic (Gemini r4 fix), the callback fires
+        // one wave AFTER the watched input change, so /ROMSEL settles a phase behind CPU clk0's
+        // own cascade. Real CPUs latch the chip-select during the same propagation as clk0;
+        // our event loop introduces a 1-wave delay that's invisible for HC04/LS368 (non-timing-
+        // critical) but breaks the CPU's read window for the address decoder. Left off by default.
+        public static bool LutEnable74LS139 = false;
         public static bool LutEnable74LS368 = true;
         public static int LutInstanceCount;
         public static long DiagDecoder139FireCount;
@@ -125,13 +131,133 @@ namespace AprVisual.Sim
         // ── 74LS139 dual 2-to-4 decoder ──
         //    For each half: when /E=0, /Yn = 0 iff (A1,A0)==n; otherwise /Y0..3 = 1.
         //    When /E=1: /Y0..3 = 1 (chip disabled, all outputs high).
+        //
+        //    CASCADE DETECTION (per Gemini r4): if half-1's /E pin is electrically merged with
+        //    one of half-2's /Y pins (via system-level always-on connection, observed after
+        //    lowering as the same node id), the chip is in a CASCADED configuration and the two
+        //    halves can't be handled by independent AddCallback's — the half-2 → half-1 cascade
+        //    would take TWO callback phases (each costing one ProcessQueue), making half-1's
+        //    outputs lag by 1-2 simulator phases. CPU then reads stale RAM/PPU CS during the
+        //    same clk0 phase → black screen.
+        //
+        //    Fix: when cascade is detected, install ONE monolithic callback that computes
+        //    half-2's sel, derives half-1's effective /E from that sel, computes half-1's sel,
+        //    and writes ALL 8 output pins together via one RecalcNodeList. This guarantees
+        //    /ROMSEL, WRAM_CS, PPU_CE settle in the same simulator phase as half-2's outputs.
         private static void Setup74LS139(string prefix)
         {
             string Full(string n) => CombinePrefix(prefix, n);
-            SetupHalfDecoder139(Full("1/E"), Full("1A0"), Full("1A1"),
-                                new[] { Full("1/Y0"), Full("1/Y1"), Full("1/Y2"), Full("1/Y3") }, prefix, "1");
-            SetupHalfDecoder139(Full("2/E"), Full("2A0"), Full("2A1"),
-                                new[] { Full("2/Y0"), Full("2/Y1"), Full("2/Y2"), Full("2/Y3") }, prefix, "2");
+            int e1 = LookupNode(Full("1/E"));
+            int y2_0 = LookupNode(Full("2/Y0"));
+            int y2_1 = LookupNode(Full("2/Y1"));
+            int y2_2 = LookupNode(Full("2/Y2"));
+            int y2_3 = LookupNode(Full("2/Y3"));
+
+            // post-lowering: if half-1's /E equals one of half-2's /Y pins, those nodes are
+            // physically merged (same global id) → cascade configuration.
+            int cascadeFromY = -1;
+            if      (e1 == y2_0) cascadeFromY = 0;
+            else if (e1 == y2_1) cascadeFromY = 1;
+            else if (e1 == y2_2) cascadeFromY = 2;
+            else if (e1 == y2_3) cascadeFromY = 3;
+
+            if (cascadeFromY >= 0)
+            {
+                SetupMonolithicCascaded139(prefix, cascadeFromY);
+            }
+            else
+            {
+                SetupHalfDecoder139(Full("1/E"), Full("1A0"), Full("1A1"),
+                                    new[] { Full("1/Y0"), Full("1/Y1"), Full("1/Y2"), Full("1/Y3") }, prefix, "1");
+                SetupHalfDecoder139(Full("2/E"), Full("2A0"), Full("2A1"),
+                                    new[] { Full("2/Y0"), Full("2/Y1"), Full("2/Y2"), Full("2/Y3") }, prefix, "2");
+            }
+        }
+
+        // Monolithic decoder: one callback compute s both halves, knowing that half-1's /E
+        // electrically follows half-2's /Y[cascadeFromY] (= 0 iff sel_2 == cascadeFromY).
+        private static void SetupMonolithicCascaded139(string prefix, int cascadeFromY)
+        {
+            string Full(string n) => CombinePrefix(prefix, n);
+
+            int e2 = LookupNode(Full("2/E"));
+            int a0_2 = LookupNode(Full("2A0"));
+            int a1_2 = LookupNode(Full("2A1"));
+            int a0_1 = LookupNode(Full("1A0"));
+            int a1_1 = LookupNode(Full("1A1"));
+
+            var yHalf2 = new[] { LookupNode(Full("2/Y0")), LookupNode(Full("2/Y1")),
+                                 LookupNode(Full("2/Y2")), LookupNode(Full("2/Y3")) };
+            var yHalf1 = new[] { LookupNode(Full("1/Y0")), LookupNode(Full("1/Y1")),
+                                 LookupNode(Full("1/Y2")), LookupNode(Full("1/Y3")) };
+
+            // Watch all real inputs. Skip half-1's /E because it's electrically tied to a half-2
+            // output (we derive its value, not read it).
+            var watched = new System.Collections.Generic.List<int> { e2, a0_2, a1_2, a0_1, a1_1 };
+
+            // allYs: 8 outputs, but half-1's /Y[cascadeFromY] coincides with half-1's /E (which is
+            // the same merged node). Skip duplicate to avoid double-Recalc on one node.
+            var allYsSet = new System.Collections.Generic.HashSet<int>();
+            foreach (var n in yHalf2) allYsSet.Add(n);
+            foreach (var n in yHalf1) allYsSet.Add(n);
+            int[] allYs = new int[allYsSet.Count];
+            allYsSet.CopyTo(allYs);
+
+            int cascadeIdx = cascadeFromY;
+            int e2Cap = e2, a0_2Cap = a0_2, a1_2Cap = a1_2;
+            int a0_1Cap = a0_1, a1_1Cap = a1_1;
+            var yH2 = yHalf2; var yH1 = yHalf1;
+
+            AddCallback(watched, () =>
+            {
+                DiagDecoder139FireCount++;
+                DiagDecoder139Half2Fires++;  // count once for monolithic
+
+                // Half-2 (only enabled when 2/E = 0)
+                int sel_2 = -1;
+                if (NodeStates[e2Cap] == 0)
+                {
+                    sel_2 = (NodeStates[a1_2Cap] != 0 ? 2 : 0) | (NodeStates[a0_2Cap] != 0 ? 1 : 0);
+                }
+
+                // Half-1's effective /E = the new state of half-2's /Y[cascadeIdx]:
+                //   0 (active) iff sel_2 == cascadeIdx, else 1 (disabled).
+                int sel_1 = -1;
+                if (sel_2 == cascadeIdx)
+                {
+                    sel_1 = (NodeStates[a1_1Cap] != 0 ? 2 : 0) | (NodeStates[a0_1Cap] != 0 ? 1 : 0);
+                }
+
+                // Set Flags atomically on all 8 outputs (with deduplication via allYsSet logic
+                // already applied to allYs).
+                for (int i = 0; i < 4; i++)
+                {
+                    ref NodeInfo ns = ref NodeInfos[yH2[i]];
+                    if (i == sel_2) { ns.Flags &= ~NodeFlags.SetHigh; ns.Flags |= NodeFlags.SetLow; }
+                    else            { ns.Flags &= ~NodeFlags.SetLow;  ns.Flags |= NodeFlags.SetHigh; }
+                }
+                for (int i = 0; i < 4; i++)
+                {
+                    ref NodeInfo ns = ref NodeInfos[yH1[i]];
+                    if (i == sel_1) { ns.Flags &= ~NodeFlags.SetHigh; ns.Flags |= NodeFlags.SetLow; }
+                    else            { ns.Flags &= ~NodeFlags.SetLow;  ns.Flags |= NodeFlags.SetHigh; }
+                }
+                RecalcNodeList(allYs);
+            });
+
+            // record for snapshot (Rust port). The "type" stays Decoder2to4 — Rust will need a
+            // monolithic equivalent if we ever want cascaded LUT in Rust. For now mark with a
+            // distinct Tag so Rust can detect + dispatch a monolithic compute.
+            string cbName = "callback:" + string.Join(",",
+                System.Linq.Enumerable.Select(watched, GetNodeName));
+            int tgt = FindCallbackTargetByName(cbName);
+            RegisteredLutChips.Add(new LutChipSpec
+            {
+                Type = LutChipType.Decoder2to4, Prefix = prefix, Tag = $"monolithic_cascade_y{cascadeIdx}",
+                TargetNode = tgt,
+                Inputs = new[] { e2, a0_2, a1_2, a0_1, a1_1, cascadeIdx },   // last field = cascade idx (encoded)
+                Outputs = allYs,
+            });
         }
 
         private static void SetupHalfDecoder139(string eName, string a0Name, string a1Name, string[] yNames,

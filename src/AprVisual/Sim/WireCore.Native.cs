@@ -70,6 +70,13 @@ namespace AprVisual.Sim
             IrClass = null;
             IrHasConsumers = null;
             FrameBuffer = null;
+            // bitset-bfs experiment
+            ActiveTransistors = null;
+            TransistorGateNode = null;
+            TransistorC1Node = null;
+            TransistorC2Node = null;
+            NodeGateTidsList = null;
+            NodeGateTidsStart = null;
         }
     }
 }

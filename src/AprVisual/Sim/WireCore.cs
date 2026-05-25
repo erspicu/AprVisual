@@ -190,6 +190,7 @@ namespace AprVisual.Sim
             TransistorList = AllocArray<int>(tl.Count);
             for (int i = 0; i < tl.Count; i++) TransistorList[i] = tl[i];
             _transistorListLength = tl.Count;
+            TransistorCount = _transistors.Count;   // bitset-bfs needs this; was declared but never set before
 
             // ── supply nodes (override whatever the loop set) ──
             NodeStates[Ngnd] = 0; NodeInfos[Ngnd].Flags = NodeFlags.Gnd;
@@ -214,6 +215,10 @@ namespace AprVisual.Sim
             // ── chip-diag: classify each node by name prefix for the per-chip BFS-walk diagnostic.
             //    Runs after node names are finalised. See WireCore.ChipDiag.cs.
             if (EnableChipDiag) ClassifyChips();
+
+            // ── bitset-bfs experiment: allocate ActiveTransistors bitset + per-node tid gate
+            //    list, populate from current NodeStates. Must run last (needs Nodes[].Gates final).
+            if (EnableBitsetBfs) InitBitsetBfs();
         }
 
         // length of TransistorList (for diagnostics)

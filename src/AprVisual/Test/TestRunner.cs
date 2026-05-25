@@ -106,6 +106,8 @@ namespace AprVisual.Test
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--chip-diag":       WireCore.EnableChipDiag = true; break;     // per-chip BFS-walk diagnostic: how many walks stay in one chip vs cross
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;  // ProcessQueue iter histogram — pick a sane MaxSettlePasses cap
+                    case "--bitset-bfs":      WireCore.EnableBitsetBfs = true; break;    // bitset-bfs experiment Day 1: ActiveTransistors bitset + maintenance hook (no consumer yet — measures overhead)
+                    case "--verify-active-trans": WireCore.EnableBitsetBfs = true; WireCore.VerifyActiveTransistors = true; break;  // assert ActiveTransistors == NodeStates[gate] each settle
                     case "--lut-ttl":         WireCore.EnableLutTtl = true; break;       // replace 74HC04 / 74LS139 / 74LS368 with LUT callback
                     case "--lut-only-hc04":   WireCore.EnableLutTtl = true; WireCore.LutEnable74LS139 = false; WireCore.LutEnable74LS368 = false; break;
                     case "--lut-only-ls139":  WireCore.EnableLutTtl = true; WireCore.LutEnable74HC04 = false; WireCore.LutEnable74LS368 = false; break;

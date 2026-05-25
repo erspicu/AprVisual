@@ -127,6 +127,7 @@ namespace AprVisual.Sim
                 RecalcListCount = 0;
             }
             if (EnableSettleStats) RecordSettle(iteration);
+            if (EnableBitsetBfs && VerifyActiveTransistors) VerifyActiveTransistorsNow();
             if (!EnableCodegenDispatcher) InvokeCallbacks();   // WireCore.Handlers.cs — fired by dispatcher after the full block loop drains when codegen mode is on
         }
 
@@ -183,6 +184,9 @@ namespace AprVisual.Sim
         {
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;
+            // bitset-bfs experiment: maintain ActiveTransistors bits in sync with NodeStates.
+            // O(gate fanout) per flip; typical fanout is small. Day 1 measures the overhead.
+            if (EnableBitsetBfs) UpdateActiveTransistorsOnFlip(nn, newState);
             ref NodeInfo ns = ref NodeInfos[nn];
             if (ns.TlistGates != 0)
             {

@@ -49,6 +49,23 @@ namespace AprVisual.Sim
         public static int NodeGateTidsListLength;
         public static int* NodeGateTidsStart;
 
+        // ── Day 2: PPU-region subset infrastructure (for Day 3's Ligra-dense scan). ──
+        //
+        // PPU node "local index": dense renumbering of NodeChip==CHIP_PPU nodes into 0..PpuNodeCount-1.
+        //   PpuLocalIdx[global_node_id] = -1 if non-PPU, else local 0-based index
+        //   PpuNodeList[local_idx]      = global_node_id (inverse map)
+        //
+        // PPU transistor list: subset of tids where gate AND c1 AND c2 are all PPU (or supplies — VCC/GND
+        //   are accepted as "non-divergent" endpoints; channels to supplies just contribute Pwr/Gnd to the
+        //   group flags, they don't cross to a different chip). Excludes any transistor touching CPU/OTHER
+        //   nodes so dense scan stays inside the PPU graph; cross-chip walks fall back to scalar BFS.
+        public static int PpuNodeCount;
+        public static int* PpuLocalIdx;      // size NodeCount; -1 if not PPU
+        public static int* PpuNodeList;      // size PpuNodeCount; global node id by local idx
+
+        public static int PpuTransistorCount;
+        public static int* PpuTransistorIds;   // size PpuTransistorCount; global tids of "PPU-internal" transistors
+
         /// <summary>Allocate + populate the bitset structures. Called from Reset() when
         /// EnableBitsetBfs. MUST run AFTER NodeStates is initialised (so the initial gate-on
         /// states get reflected into ActiveTransistors).</summary>
@@ -86,6 +103,53 @@ namespace AprVisual.Sim
                 bool on = NodeStates[gate] != 0;
                 Console.Error.WriteLine($"[bitset-bfs] INIT mismatch @ tid={initBad} gate={gate} bit={bit} gateOn={on}");
             }
+
+            // Day 2: build PPU subset infrastructure if chip classification is available.
+            // (Day 2/3 needs NodeChip[]; nudge the user to enable chip-diag if missing.)
+            if (NodeChip != null) BuildPpuSubset();
+            else Console.WriteLine("# bitset-bfs: NodeChip[] not populated (pass --chip-diag); Day 2 PPU subset skipped");
+        }
+
+        // ── Day 2: identify PPU-internal nodes + transistors. Requires chip-diag to have run
+        //    (i.e. NodeChip is populated). PPU "internal" transistor = all three endpoints
+        //    (gate, c1, c2) are either PPU nodes or supplies (Npwr/Ngnd). ──
+        private static void BuildPpuSubset()
+        {
+            int n = NodeCount;
+            PpuLocalIdx = AllocArray<int>(n);
+            for (int i = 0; i < n; i++) PpuLocalIdx[i] = -1;
+            int local = 0;
+            for (int nn = 0; nn < n; nn++)
+                if (NodeChip[nn] == CHIP_PPU) PpuLocalIdx[nn] = local++;
+            PpuNodeCount = local;
+            PpuNodeList = AllocArray<int>(PpuNodeCount);
+            for (int nn = 0; nn < n; nn++)
+                if (PpuLocalIdx[nn] >= 0) PpuNodeList[PpuLocalIdx[nn]] = nn;
+
+            // First pass: count PPU-internal transistors
+            int tCount = TransistorCount;
+            int ppuT = 0;
+            for (int tid = 0; tid < tCount; tid++)
+            {
+                int g = TransistorGateNode[tid], c1 = TransistorC1Node[tid], c2 = TransistorC2Node[tid];
+                if (IsPpuOrSupply(g) && IsPpuOrSupply(c1) && IsPpuOrSupply(c2)) ppuT++;
+            }
+            PpuTransistorCount = ppuT;
+            PpuTransistorIds = AllocArray<int>(ppuT);
+            int cursor = 0;
+            for (int tid = 0; tid < tCount; tid++)
+            {
+                int g = TransistorGateNode[tid], c1 = TransistorC1Node[tid], c2 = TransistorC2Node[tid];
+                if (IsPpuOrSupply(g) && IsPpuOrSupply(c1) && IsPpuOrSupply(c2)) PpuTransistorIds[cursor++] = tid;
+            }
+
+            Console.WriteLine($"# bitset-bfs Day 2: PPU subset — {PpuNodeCount:N0} nodes ({(double)PpuNodeCount * 100 / n:F1}% of all), {PpuTransistorCount:N0} transistors ({(double)PpuTransistorCount * 100 / tCount:F1}% of all)");
+        }
+
+        private static bool IsPpuOrSupply(int nodeId)
+        {
+            if (nodeId == Npwr || nodeId == Ngnd) return true;
+            return nodeId >= 0 && nodeId < NodeCount && NodeChip[nodeId] == CHIP_PPU;
         }
 
         // ── Build NodeGateTidsList: length-prefixed flat int array, with NodeGateTidsStart[nn]

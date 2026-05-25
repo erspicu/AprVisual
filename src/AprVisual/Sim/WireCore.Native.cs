@@ -77,6 +77,9 @@ namespace AprVisual.Sim
             TransistorC2Node = null;
             NodeGateTidsList = null;
             NodeGateTidsStart = null;
+            PpuLocalIdx = null;
+            PpuNodeList = null;
+            PpuTransistorIds = null;
         }
     }
 }

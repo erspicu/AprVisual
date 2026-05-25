@@ -108,6 +108,7 @@ namespace AprVisual.Test
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;  // ProcessQueue iter histogram — pick a sane MaxSettlePasses cap
                     case "--bitset-bfs":      WireCore.EnableBitsetBfs = true; break;    // bitset-bfs experiment Day 1: ActiveTransistors bitset + maintenance hook (no consumer yet — measures overhead)
                     case "--verify-active-trans": WireCore.EnableBitsetBfs = true; WireCore.VerifyActiveTransistors = true; break;  // assert ActiveTransistors == NodeStates[gate] each settle
+                    case "--bitset-bfs-dense": WireCore.EnableBitsetBfs = true; WireCore.EnableChipDiag = true; WireCore.EnableBitsetBfsDense = true; break;  // Day 3: route PPU walks through Ligra-dense BFS (needs chip-diag; off by default)
                     case "--lut-ttl":         WireCore.EnableLutTtl = true; break;       // replace 74HC04 / 74LS139 / 74LS368 with LUT callback
                     case "--lut-only-hc04":   WireCore.EnableLutTtl = true; WireCore.LutEnable74LS139 = false; WireCore.LutEnable74LS368 = false; break;
                     case "--lut-only-ls139":  WireCore.EnableLutTtl = true; WireCore.LutEnable74HC04 = false; WireCore.LutEnable74LS368 = false; break;

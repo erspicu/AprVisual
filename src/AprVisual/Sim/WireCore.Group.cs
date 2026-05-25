@@ -65,6 +65,15 @@ namespace AprVisual.Sim
         /// </summary>
         private static byte ComputeNodeGroup(int nn)
         {
+            // Day 3 dispatch: if dense BFS is enabled and start is PPU, take the bit-parallel path.
+            // The dense function manages its own scratch reset; bypass this header.
+            // Note: chip-diag walk accumulators won't update for dense walks (acceptable for this experiment).
+            if (EnableBitsetBfsDense && NodeChip != null && NodeChip[nn] == CHIP_PPU
+                && !EnableIrInterp && !EnableCodegenDispatcher /* not yet integrated */)
+            {
+                return ComputeNodeGroupDense(nn);
+            }
+
             // clear the previous group's dedup flags (only those entries — keeps _inGroup all-zero between calls)
             for (int i = 0; i < _groupCount; i++) _inGroup[_groupBuf[i]] = 0;
 

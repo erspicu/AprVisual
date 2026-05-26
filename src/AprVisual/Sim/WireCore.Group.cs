@@ -121,6 +121,7 @@ namespace AprVisual.Sim
 
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = nn;
+            if (EnableDeadEndDiag && NodeVisitCount != null) NodeVisitCount[nn]++;
             if (EnableChipDiag)
             {
                 byte c = NodeChip[nn];

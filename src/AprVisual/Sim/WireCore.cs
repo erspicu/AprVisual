@@ -214,6 +214,10 @@ namespace AprVisual.Sim
             // ── chip-diag: classify each node by name prefix for the per-chip BFS-walk diagnostic.
             //    Runs after node names are finalised. See WireCore.ChipDiag.cs.
             if (EnableChipDiag) ClassifyChips();
+
+            // ── dead-end-diag: per-node BFS visit counter for finding nodes with no downstream
+            //    consumer that S1 still computes. See WireCore.DeadEndDiag.cs.
+            if (EnableDeadEndDiag) InitDeadEndDiag();
         }
 
         // length of TransistorList (for diagnostics)

@@ -106,6 +106,7 @@ namespace AprVisual.Test
                     case "--levelize":        WireCore.EnableLevelize = true; break;     // math-algos 策略三: soft levelized event-driven settle (gate-only level priority; fixpoint preserved)
                     case "--chip-diag":       WireCore.EnableChipDiag = true; break;     // per-chip BFS-walk diagnostic: how many walks stay in one chip vs cross
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;  // ProcessQueue iter histogram — pick a sane MaxSettlePasses cap
+                    case "--dead-end-diag":   WireCore.EnableDeadEndDiag = true; break;  // per-node BFS visit count; reports "wasted work" candidates after bench-hc
                     case "--lut-ttl":         WireCore.EnableLutTtl = true; break;       // replace 74HC04 / 74LS139 / 74LS368 with LUT callback
                     case "--lut-only-hc04":   WireCore.EnableLutTtl = true; WireCore.LutEnable74LS139 = false; WireCore.LutEnable74LS368 = false; break;
                     case "--lut-only-ls139":  WireCore.EnableLutTtl = true; WireCore.LutEnable74HC04 = false; WireCore.LutEnable74LS368 = false; break;
@@ -957,6 +958,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastLevelizeStats}");
                 if (WireCore.EnableChipDiag) { WireCore.ChipDiagAfterReport(); Console.WriteLine($"# {WireCore.LastChipDiagStats}"); }
                 if (WireCore.EnableSettleStats) { WireCore.BuildSettleStatsString(); Console.WriteLine($"# {WireCore.LastSettleStats}"); }
+                if (WireCore.EnableDeadEndDiag) WireCore.ReportDeadEndDiag();
                 if (WireCore.EnableLutTtl) Console.WriteLine($"# LUT diag: decoder139 total {WireCore.DiagDecoder139FireCount:N0} fires (half1 {WireCore.DiagDecoder139Half1Fires:N0}, half2 {WireCore.DiagDecoder139Half2Fires:N0})");
                 if (WireCore.EnableIrInterp) { Console.WriteLine($"# {WireCore.LastIrStats}"); Console.WriteLine($"# {WireCore.LastRevDepStats}"); }
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");

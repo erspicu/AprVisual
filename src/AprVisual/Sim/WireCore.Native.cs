@@ -70,6 +70,7 @@ namespace AprVisual.Sim
             IrClass = null;
             IrHasConsumers = null;
             FrameBuffer = null;
+            NodeVisitCount = null;
         }
     }
 }

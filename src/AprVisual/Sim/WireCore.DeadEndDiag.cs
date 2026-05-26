@@ -30,6 +30,69 @@ namespace AprVisual.Sim
         public static bool EnableDeadEndDiag = false;
         public static long* NodeVisitCount;   // per-node count of AddNodeToGroup hits
 
+        // ── --dead-end-skip implementation: mark leaves we can safely skip in BFS.
+        //    Filter (must satisfy ALL):
+        //      Gates.Count == 0           (no transistor uses this node as a gate)
+        //      C1c2s.Count == 1           (single channel — leaf, not a bus junction)
+        //      Pullups == 0               (no pull-up — Flags has no PullUp contribution)
+        //      Callback == null           (not a watchpoint target)
+        //      name not in handler-read whitelist
+        //    For such nodes, AddNodeToGroup early-returns: no _groupBuf write, no flag OR,
+        //    no channel walk. The "lost" channel walk goes to at most 1 neighbor; that
+        //    neighbor was already reachable from the source side of this leaf, so the BFS
+        //    topology is preserved (in theory — bit-identical verify is mandatory).
+        public static bool EnableDeadEndSkip = false;
+        public static byte* DeadEndSkippable;     // 1 = skip, 0 = walk normally
+        public static int DeadEndSkippableCount;  // diagnostic: how many nodes are marked
+
+        internal static void BuildDeadEndSkipMap()
+        {
+            DeadEndSkippable = AllocArray<byte>(NodeCount);
+            var whitelist = BuildHandlerReadWhitelist();
+            int marked = 0;
+            for (int nn = 3; nn < NodeCount; nn++)
+            {
+                Node? node = Nodes[nn];
+                if (node == null) continue;
+                if (node.Gates.Count != 0) continue;
+                if (node.C1c2s.Count != 1) continue;
+                if (node.Pullups != 0) continue;
+                if (node.Callback != null) continue;
+                string name = node.Name ?? GetNodeName(nn);
+                if (whitelist.Contains(name)) continue;
+                DeadEndSkippable[nn] = 1;
+                marked++;
+            }
+            DeadEndSkippableCount = marked;
+            Console.WriteLine($"# --dead-end-skip: marked {marked:N0} leaves as skippable ({(double)marked * 100 / NodeCount:F1}% of nodes)");
+            // dump first 30 names for inspection
+            Console.WriteLine($"# --dead-end-skip first 30 marked nodes:");
+            int shown = 0;
+            for (int nn = 3; nn < NodeCount && shown < 30; nn++)
+            {
+                if (DeadEndSkippable[nn] == 0) continue;
+                Node? n = Nodes[nn];
+                string nm = string.IsNullOrEmpty(n?.Name) ? "(unnamed)" : n!.Name;
+                Console.WriteLine($"#   nn={nn,5} name='{nm}'  C1c2s={n?.C1c2s.Count}");
+                shown++;
+            }
+        }
+
+        // Centralised whitelist used by both --dead-end-diag and --dead-end-skip.
+        private static HashSet<string> BuildHandlerReadWhitelist()
+        {
+            var w = new HashSet<string> { "ppu.pclk1" };
+            for (int i = 0; i <= 8; i++) { w.Add($"ppu.hpos{i}"); w.Add($"ppu.vpos{i}"); }
+            for (int i = 0; i <= 4; i++) w.Add($"ppu.pal_ptr{i}");
+            for (int slot = 0; slot < 32; slot++)
+                for (int b = 0; b < 6; b++)
+                    w.Add($"ppu.pal_ram_{slot:X2}_b{b}");
+            foreach (string reg in new[] { "cpu.a", "cpu.x", "cpu.y", "cpu.s", "cpu.p" })
+                for (int b = 0; b < 8; b++) w.Add($"{reg}{b}");
+            for (int b = 0; b < 8; b++) { w.Add($"cpu.pcl{b}"); w.Add($"cpu.pch{b}"); }
+            return w;
+        }
+
         internal static void InitDeadEndDiag()
         {
             NodeVisitCount = AllocArray<long>(NodeCount);
@@ -39,25 +102,7 @@ namespace AprVisual.Sim
         {
             if (!EnableDeadEndDiag || NodeVisitCount == null) return;
 
-            // Names of nodes that some non-callback path reads directly via NodeStates[].
-            // Manually maintained allowlist — false positives here under-estimate the dead-end
-            // savings, but at worst they leave a node off the candidate list (safe).
-            var readByHandler = new HashSet<string>
-            {
-                // video handler reads (WireCore.Handlers.cs AttachVideoHandler) — NOT via AddCallback
-                // (the only watched node there is ppu.pclk1; hpos/vpos/pal_ptr/pal_ram_* are read at fire time)
-                "ppu.pclk1",
-            };
-            // hpos[8:0] / vpos[8:0] / pal_ptr[4:0]
-            for (int i = 0; i <= 8; i++) { readByHandler.Add($"ppu.hpos{i}"); readByHandler.Add($"ppu.vpos{i}"); }
-            for (int i = 0; i <= 4; i++) readByHandler.Add($"ppu.pal_ptr{i}");
-            for (int slot = 0; slot < 32; slot++)
-                for (int b = 0; b < 6; b++)
-                    readByHandler.Add($"ppu.pal_ram_{slot:X2}_b{b}");
-            // Trace reads CPU regs scalar (WireCore.Trace.cs)
-            foreach (string reg in new[] { "cpu.a", "cpu.x", "cpu.y", "cpu.s", "cpu.p" })
-                for (int b = 0; b < 8; b++) readByHandler.Add($"{reg}{b}");
-            for (int b = 0; b < 8; b++) { readByHandler.Add($"cpu.pcl{b}"); readByHandler.Add($"cpu.pch{b}"); }
+            var readByHandler = BuildHandlerReadWhitelist();
 
             // Collect candidates
             var rows = new List<(int nn, long visits, string name, int channels)>();

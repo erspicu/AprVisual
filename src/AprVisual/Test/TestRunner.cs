@@ -107,6 +107,7 @@ namespace AprVisual.Test
                     case "--chip-diag":       WireCore.EnableChipDiag = true; break;     // per-chip BFS-walk diagnostic: how many walks stay in one chip vs cross
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;  // ProcessQueue iter histogram — pick a sane MaxSettlePasses cap
                     case "--dead-end-diag":   WireCore.EnableDeadEndDiag = true; break;  // per-node BFS visit count; reports "wasted work" candidates after bench-hc
+                    case "--dead-end-skip":   WireCore.EnableDeadEndSkip = true; break;  // BFS skip for safe-classified leaf dead-ends (Gates=0, C1c2s=1, no Pullup, no Callback, not in handler whitelist)
                     case "--lut-ttl":         WireCore.EnableLutTtl = true; break;       // replace 74HC04 / 74LS139 / 74LS368 with LUT callback
                     case "--lut-only-hc04":   WireCore.EnableLutTtl = true; WireCore.LutEnable74LS139 = false; WireCore.LutEnable74LS368 = false; break;
                     case "--lut-only-ls139":  WireCore.EnableLutTtl = true; WireCore.LutEnable74HC04 = false; WireCore.LutEnable74LS368 = false; break;

@@ -218,6 +218,7 @@ namespace AprVisual.Sim
             // ── dead-end-diag: per-node BFS visit counter for finding nodes with no downstream
             //    consumer that S1 still computes. See WireCore.DeadEndDiag.cs.
             if (EnableDeadEndDiag) InitDeadEndDiag();
+            if (EnableDeadEndSkip) BuildDeadEndSkipMap();
         }
 
         // length of TransistorList (for diagnostics)

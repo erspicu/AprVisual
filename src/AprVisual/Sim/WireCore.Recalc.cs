@@ -169,7 +169,23 @@ namespace AprVisual.Sim
                 long gid = _nextGroupID++;
                 for (int i = 0; i < _groupCount; i++) NodeGroupIDs[_groupBuf[i]] = gid;
             }
-            for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
+            // --dead-end-skip: skip SetNodeState writeback for marked leaves (their state goes
+            // nowhere — no transistor reads them as gate, no callback watches them, no handler
+            // whitelist hit). Saves the SetNodeState body + downstream TlistGates walk for them.
+            // BFS itself is unchanged — group resolution still includes the leaf's flag/state.
+            if (EnableDeadEndSkip && DeadEndSkippable != null)
+            {
+                for (int i = 0; i < _groupCount; i++)
+                {
+                    int m = _groupBuf[i];
+                    if (DeadEndSkippable[m] != 0) continue;
+                    SetNodeState(m, newState);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
+            }
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
                 for (int i = 0; i < _groupCount; i++)

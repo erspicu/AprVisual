@@ -92,8 +92,11 @@ namespace AprVisual.Sim
         // ── Double-buffered recalc queue (see WireCore.Recalc.cs) ──
         public static int* RecalcList;
         public static int* RecalcListNext;
-        public static int* RecalcHash;       // dedupe: nonzero = already queued this pass
-        public static int* RecalcHashNext;
+        // byte* (was int*) — 0/1 only per node, 58 KB → 14 KB. Bitset variant (ulong*) was
+        // tested but the shift+mask per-access cost erased the cache benefit. byte* keeps
+        // straight-load semantics + same L1d footprint as _inGroup.
+        public static byte* RecalcHash;
+        public static byte* RecalcHashNext;
         public static int RecalcListCount;
         public static int RecalcListNextCount;
 
@@ -136,8 +139,8 @@ namespace AprVisual.Sim
             NodeTlistGates  = AllocArray<int>(NodeCount);   // cold — only SetNodeState writeback
             RecalcList     = AllocArray<int>(NodeCount);
             RecalcListNext = AllocArray<int>(NodeCount);
-            RecalcHash     = AllocArray<int>(NodeCount);
-            RecalcHashNext = AllocArray<int>(NodeCount);
+            RecalcHash     = AllocArray<byte>(NodeCount);
+            RecalcHashNext = AllocArray<byte>(NodeCount);
             _groupBuf      = AllocArray<ushort>(NodeCount);
             _inGroup       = AllocArray<byte>(NodeCount);
             FlagsToState   = AllocArray<byte>(256);

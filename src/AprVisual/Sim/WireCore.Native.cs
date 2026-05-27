@@ -51,7 +51,8 @@ namespace AprVisual.Sim
             NodeTlistGates = null;
             FlagsToState = null;
             TransistorList = null;
-            RecalcList = RecalcListNext = RecalcHash = RecalcHashNext = null;
+            RecalcList = RecalcListNext = null;
+            RecalcHash = RecalcHashNext = null;
             _groupBuf = null;
             _inGroup = null;
             IsPureLogic = null;   // math-algos 策略二 (re-built by ClassifyPureLogicNodes when --fast-path)

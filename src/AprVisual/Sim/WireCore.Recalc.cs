@@ -111,7 +111,7 @@ namespace AprVisual.Sim
 
                 // swap "next" ↔ "current" (can't tuple-swap pointers — use temps)
                 int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
-                int* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+                byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
                 RecalcListCount = RecalcListNextCount;
                 RecalcListNextCount = 0;
 

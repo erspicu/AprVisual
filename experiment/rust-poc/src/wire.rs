@@ -280,6 +280,7 @@ impl WireCore {
         self.next_group_id = self.node_count as i64;
     }
 
+    #[inline(always)]
     fn recalc_node_fast(&mut self, nn: i32) {
         let u = nn as usize;
         let ni = self.node_infos[u];
@@ -429,6 +430,7 @@ impl WireCore {
         }
     }
 
+    #[inline(always)]
     fn compute_node_group(&mut self, nn: i32) -> u8 {
         for i in 0..self.group_count {
             self.in_group[self.group_buf[i] as usize] = 0;
@@ -445,6 +447,7 @@ impl WireCore {
         if f == 0 { self.max_state } else { self.flags_to_state[f as usize] }
     }
 
+    #[inline(always)]
     fn set_node_state(&mut self, nn: i32, new_state: u8) {
         let u = nn as usize;
         if self.node_states[u] == new_state { return; }
@@ -491,6 +494,7 @@ impl WireCore {
         }
     }
 
+    #[inline(always)]
     fn recalc_node(&mut self, nn: i32) {
         if nn == self.npwr || nn == self.ngnd { return; }
         // math-algos 策略二: pure-logic-gnd nodes resolve in O(1), bypassing the group DFS entirely.

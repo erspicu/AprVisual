@@ -28,7 +28,7 @@ namespace AprVisual.Sim
         private static NodeFlags _groupFlags;
         private static int _groupCount;       // number of nodes currently in _groupBuf
         private static int* _groupBuf;        // node ids in the current group (alloc'd in Reset, sized NodeCount)
-        private static int* _inGroup;         // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup
+        private static byte* _inGroup;        // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup. byte* (was int*) — 0/1 only, 14KB vs 58KB fits L1d alongside NodeStates
         private static byte _maxState;        // state of the highest-connection node seen
         private static int _maxConnections;
 

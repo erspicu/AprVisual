@@ -125,7 +125,7 @@ namespace AprVisual.Sim
             RecalcHash     = AllocArray<int>(NodeCount);
             RecalcHashNext = AllocArray<int>(NodeCount);
             _groupBuf      = AllocArray<int>(NodeCount);
-            _inGroup       = AllocArray<int>(NodeCount);
+            _inGroup       = AllocArray<byte>(NodeCount);
             FlagsToState   = AllocArray<byte>(256);
             BuildFlagsToStateTable();   // WireCore.Group.cs
 

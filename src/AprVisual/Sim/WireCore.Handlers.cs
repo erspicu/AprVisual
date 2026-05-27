@@ -116,13 +116,18 @@ namespace AprVisual.Sim
 
         // Drive each bit high/low. Note: like MetalNES, this is a *persistent* drive (sets SetHigh/SetLow
         // flags); the data bus is released implicitly when the chip's select line deasserts (its internal
-        // pass transistors disconnect the bus). Each SetHigh/SetLow re-settles the network.
+        // pass transistors disconnect the bus).
+        // Batch enqueue (one ProcessQueue at end) instead of N settles per N pins — RAM read on the 8-bit
+        // data bus used to fire 8 settles per byte; now fires 1.
         public static void WriteBits(IReadOnlyList<int> nodes, int value)
         {
+            bool changed = false;
             for (int i = 0; i < nodes.Count; i++)
             {
-                if ((value & (1 << i)) != 0) SetHigh(nodes[i]); else SetLow(nodes[i]);
+                if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
+                else                          changed |= SetLowQueued(nodes[i]);
             }
+            if (changed) ProcessQueue();
         }
 
         // "u1.func<ram>" -> "u1." (keep the trailing dot, so CombinePrefix("u1.", "ram") == "u1.ram")

@@ -250,9 +250,33 @@ namespace AprVisual.Sim
         }
 
         // ── external pin drive / float (port of setHigh/setLow/setFloat) ──
-        public static void SetHigh(int nn) { ref NodeInfo ns = ref NodeInfos[nn]; ns.Flags &= ~NodeFlags.SetLow;  ns.Flags |= NodeFlags.SetHigh; RecalcNodeList(nn); }
-        public static void SetLow (int nn) { ref NodeInfo ns = ref NodeInfos[nn]; ns.Flags &= ~NodeFlags.SetHigh; ns.Flags |= NodeFlags.SetLow;  RecalcNodeList(nn); }
-        public static void SetFloat(int nn){ ref NodeInfo ns = ref NodeInfos[nn]; ns.Flags &= ~(NodeFlags.SetLow | NodeFlags.SetHigh);          RecalcNodeList(nn); }
+        // _queued variants: only enqueue if flag actually changed; return true if changed.
+        // Public SetHigh/etc.: settle only if changed. Used by handler batch loops
+        // (WriteBits etc.) to amortize the per-settle cost over an N-pin update.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool SetHighQueued(int nn) {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            var nf = (ns.Flags & ~NodeFlags.SetLow) | NodeFlags.SetHigh;
+            if (nf == ns.Flags) return false;
+            ns.Flags = nf; EnqueueNode(nn); return true;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool SetLowQueued(int nn) {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            var nf = (ns.Flags & ~NodeFlags.SetHigh) | NodeFlags.SetLow;
+            if (nf == ns.Flags) return false;
+            ns.Flags = nf; EnqueueNode(nn); return true;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool SetFloatQueued(int nn) {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            var nf = ns.Flags & ~(NodeFlags.SetLow | NodeFlags.SetHigh);
+            if (nf == ns.Flags) return false;
+            ns.Flags = nf; EnqueueNode(nn); return true;
+        }
+        public static void SetHigh(int nn)  { if (SetHighQueued(nn))  ProcessQueue(); }
+        public static void SetLow (int nn)  { if (SetLowQueued(nn))   ProcessQueue(); }
+        public static void SetFloat(int nn) { if (SetFloatQueued(nn)) ProcessQueue(); }
 
         public static void SetHigh(string name)  => SetHigh(RequireNode(name));
         public static void SetLow (string name)  => SetLow (RequireNode(name));

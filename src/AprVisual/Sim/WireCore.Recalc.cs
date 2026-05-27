@@ -197,6 +197,7 @@ namespace AprVisual.Sim
                 }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
             if (NodeStates[nn] == newState) return;

@@ -31,7 +31,7 @@ namespace AprVisual.Sim
             _inGroup[nn] = 1;
 
             ref NodeInfo ns = ref NodeInfos[nn];
-            _groupBuf[_groupCount++] = nn;
+            _groupBuf[_groupCount++] = (ushort)nn;
 
             if (ns.Connections > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = ns.Connections; }
             RecalcHash[nn] = 0;

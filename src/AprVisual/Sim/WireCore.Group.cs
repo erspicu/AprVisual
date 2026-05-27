@@ -27,7 +27,7 @@ namespace AprVisual.Sim
         // Scratch state for the current addNodeToGroup walk (single-threaded).
         private static NodeFlags _groupFlags;
         private static int _groupCount;       // number of nodes currently in _groupBuf
-        private static int* _groupBuf;        // node ids in the current group (alloc'd in Reset, sized NodeCount)
+        private static ushort* _groupBuf;     // node ids in the current group (alloc'd in Reset, sized NodeCount). ushort* (was int*) — node count <65K so 16 bit suffices, 29KB vs 58KB
         private static byte* _inGroup;        // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup. byte* (was int*) — 0/1 only, 14KB vs 58KB fits L1d alongside NodeStates
         private static byte _maxState;        // state of the highest-connection node seen
         private static int _maxConnections;
@@ -120,7 +120,7 @@ namespace AprVisual.Sim
             _inGroup[nn] = 1;
 
             ref NodeInfo ns = ref NodeInfos[nn];
-            _groupBuf[_groupCount++] = nn;
+            _groupBuf[_groupCount++] = (ushort)nn;
             if (EnableDeadEndDiag && NodeVisitCount != null) NodeVisitCount[nn]++;
             if (EnableChipDiag)
             {

@@ -163,6 +163,7 @@ namespace AprVisual.Sim
             }
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte GetNodeValue()
         {
             if ((_groupFlags & NodeFlags.ForceCompute) != 0 &&

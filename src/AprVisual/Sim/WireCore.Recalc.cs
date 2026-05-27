@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace AprVisual.Sim
 {
@@ -59,6 +60,7 @@ namespace AprVisual.Sim
             ProcessQueue();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void EnqueueNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;

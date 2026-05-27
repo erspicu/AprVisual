@@ -84,34 +84,65 @@ namespace AprVisual.Sim
             return GetNodeValue();
         }
 
-        // Port of wire_module.cpp addNodeToGroup (~L1931-2001). Recursive (matches MetalNES); the
-        // groups are bounded by the conduction structure so depth stays modest in practice. (If a
-        // pathological bus group ever overflows the stack, convert to an explicit work list.)
-        private static void AddNodeToGroup(int nn)
+        // Iterative BFS version: reuses _groupBuf as both the current-group list and the
+        // pending-work queue. No recursive calls — readIndex advances through queued nodes,
+        // _groupCount is the write cursor. Drained when readIndex == _groupCount.
+        // AddNodeOrApplyDriver handles the dedup + IR/Codegen intercepts that were inline in
+        // the recursive version.
+        //
+        // Non-recursive now → JIT can inline. Combined with ComputeNodeGroup's [AggressiveInlining],
+        // the whole BFS chain becomes inlined into RecalcNode's caller (ProcessQueueInterp inner loop).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void AddNodeToGroup(int seed)
         {
-            if (_inGroup[nn] != 0) return;          // O(1) dedup (MetalNES uses a linear scan; same effect)
+            int readIndex = 0;
+            AddNodeOrApplyDriver(seed);
 
-            // Phase 2 P2.3: an IR node resolves via its Expr, so to a hybrid group walk it is a *directed
-            // driver*, not a walked member: contribute its value (Gnd if 0 — its pull-down is active —
-            // else PullUp, exactly what S1's group would accumulate for it) and stop. Not added to
-            // _groupBuf, so the group's resolved value never overwrites the IR node. (_inGroup left 0:
-            // re-reaching it just re-ORs the same flag — idempotent.)
-            if (EnableIrInterp && IrAbsorbed != null && IrAbsorbed[nn] != 0) return;   // P2.3 B: absorbed mid is not a group member (its island is closed; nothing should reach it)
+            while (readIndex < _groupCount)
+            {
+                int nn = _groupBuf[readIndex++];
+                ref NodeInfo ns = ref NodeInfos[nn];
+
+                // walk channels to normal nodes: (gate, other) pairs, 0-terminated
+                if (ns.TlistC1c2s != 0)
+                {
+                    ushort* p = TransistorList + ns.TlistC1c2s;
+                    while (*p != 0)
+                    {
+                        int gate = *p++;
+                        int other = *p++;
+                        if (NodeStates[gate] != 0) AddNodeOrApplyDriver(other);
+                    }
+                }
+                // any ON channel to GND ⇒ the whole group is pulled low
+                if (ns.TlistC1gnd != 0)
+                {
+                    ushort* p = TransistorList + ns.TlistC1gnd;
+                    while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
+                }
+                // any ON channel to VCC ⇒ pulled high
+                if (ns.TlistC1pwr != 0)
+                {
+                    ushort* p = TransistorList + ns.TlistC1pwr;
+                    while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                }
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void AddNodeOrApplyDriver(int nn)
+        {
+            if (_inGroup[nn] != 0) return;
+
+            // P2.3 B: absorbed mid is not a group member (its island is closed; nothing should reach it).
+            if (EnableIrInterp && IrAbsorbed != null && IrAbsorbed[nn] != 0) return;
+            // P2.3 boundary drivers contribute current state as Gnd/PullUp, no membership.
             if (EnableIrInterp && IrBoundaryDriver && IrRoot != null && IrRoot[nn] >= 0)
             {
                 _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
                 return;
             }
-
-            // Phase 2.5 Step 3.5 Option D — codegen-owned BFS block (per Gemini r2 §Q3):
-            // The dispatcher has written the correct value to NodeStates[nn] before settle.
-            // To prevent S1's BFS from re-resolving the owned region (which would either
-            // overwrite the dispatcher's value or do redundant work walking owned internals),
-            // we treat the owned node as an "infinite-strength driver" — OR-in PullUp/Gnd based
-            // on its current value and STOP the BFS here. _inGroup left 0 (idempotent on re-visit).
-            // This is the only mechanism that actually SKIPS S1 work on owned regions; without
-            // this, CodegenOwned only skips the RecalcNode entry, not the BFS group walk
-            // (see MD/impl/math-algos/10_step35_architecture_finding.md).
+            // Phase 2.5 Step 3.5 Option D — codegen-owned nodes are "infinite-strength drivers".
             if (EnableCodegenDispatcher && CodegenOwned != null && CodegenOwned[nn] != 0)
             {
                 _groupFlags |= NodeStates[nn] == 0 ? NodeFlags.Gnd : NodeFlags.PullUp;
@@ -119,7 +150,6 @@ namespace AprVisual.Sim
             }
 
             _inGroup[nn] = 1;
-
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = (ushort)nn;
             if (EnableDeadEndDiag && NodeVisitCount != null) NodeVisitCount[nn]++;
@@ -129,39 +159,10 @@ namespace AprVisual.Sim
                 ChipDiagNodesByChip[c]++;
                 if (c != _chipDiagCurrent) _chipDiagMultiSeen = true;
             }
-
-            // track the highest-connection ("largest capacitance") node's state for the all-floating case
             int conn = NodeConnections[nn];
             if (conn > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = conn; }
-
-            // this node is now part of a group being resolved — it won't need separate re-processing this pass
             RecalcHash[nn] = 0;
-
             _groupFlags |= ns.Flags;
-
-            // walk channels to normal nodes: (gate, other) pairs, 0-terminated
-            if (ns.TlistC1c2s != 0)
-            {
-                ushort* p = TransistorList + ns.TlistC1c2s;
-                while (*p != 0)
-                {
-                    int gate = *p++;
-                    int other = *p++;
-                    if (NodeStates[gate] != 0) AddNodeToGroup(other);
-                }
-            }
-            // any ON channel to GND ⇒ the whole group is pulled low
-            if (ns.TlistC1gnd != 0)
-            {
-                ushort* p = TransistorList + ns.TlistC1gnd;
-                while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
-            }
-            // any ON channel to VCC ⇒ pulled high
-            if (ns.TlistC1pwr != 0)
-            {
-                ushort* p = TransistorList + ns.TlistC1pwr;
-                while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
-            }
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]

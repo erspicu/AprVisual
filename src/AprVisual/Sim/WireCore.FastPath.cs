@@ -73,6 +73,7 @@ namespace AprVisual.Sim
         /// single-node-group case, minus the DFS/_groupBuf/_inGroup bookkeeping. The classification
         /// excludes HasCallback nodes, so there is no callback-enqueue step here.
         /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static void RecalcNodeFast(int nn)
         {
             ref NodeInfo ns = ref NodeInfos[nn];

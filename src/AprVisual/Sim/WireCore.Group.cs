@@ -63,6 +63,7 @@ namespace AprVisual.Sim
         /// accumulating _groupFlags and _maxState, then resolve the group's value.
         /// TODO: port computeNodeGroup + addNodeToGroup.
         /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte ComputeNodeGroup(int nn)
         {
             // clear the previous group's dedup flags (only those entries — keeps _inGroup all-zero between calls)

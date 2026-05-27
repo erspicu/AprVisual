@@ -132,6 +132,7 @@ namespace AprVisual.Sim
             if (!EnableCodegenDispatcher) InvokeCallbacks();   // WireCore.Handlers.cs — fired by dispatcher after the full block loop drains when codegen mode is on
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;

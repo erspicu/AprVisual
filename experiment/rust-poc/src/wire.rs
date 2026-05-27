@@ -357,28 +357,58 @@ impl WireCore {
         self.process_queue();
     }
 
-    // SetHigh / SetLow / SetFloat — external pin drive
-    pub fn set_high(&mut self, nn: i32) {
+    // SetHigh / SetLow / SetFloat — external pin drive.
+    //
+    // The _queued variants only update flags + enqueue; they DON'T run process_queue.
+    // They return true iff the flag actually changed (no-op skip). Callers that drive
+    // multiple pins (RAM read, LUT chip output) use the _queued path in a batch loop
+    // then call process_queue once at the end — avoids the prior N settles per N pins.
+    //
+    // The public set_high/set_low/set_float still always call process_queue (callers
+    // outside the batch loops rely on settle-on-return semantics — e.g. step_cycle's
+    // clock toggle, external test drivers).
+
+    #[inline(always)]
+    fn set_high_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
         let f = self.node_infos[u].flags;
         let new_f = (f & !FLAG_SETLOW) | FLAG_SETHIGH;
+        if new_f == f { return false; }
         self.node_infos[u].flags = new_f;
-        self.recalc_node_list(nn);
+        self.enqueue(nn);
+        true
     }
-    pub fn set_low(&mut self, nn: i32) {
+
+    #[inline(always)]
+    fn set_low_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
         let f = self.node_infos[u].flags;
         let new_f = (f & !FLAG_SETHIGH) | FLAG_SETLOW;
+        if new_f == f { return false; }
         self.node_infos[u].flags = new_f;
-        self.recalc_node_list(nn);
+        self.enqueue(nn);
+        true
     }
 
-    pub fn set_float(&mut self, nn: i32) {
+    #[inline(always)]
+    fn set_float_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
         let f = self.node_infos[u].flags;
         let new_f = f & !(FLAG_SETHIGH | FLAG_SETLOW);
+        if new_f == f { return false; }
         self.node_infos[u].flags = new_f;
-        self.recalc_node_list(nn);
+        self.enqueue(nn);
+        true
+    }
+
+    pub fn set_high(&mut self, nn: i32) {
+        if self.set_high_queued(nn) { self.process_queue(); }
+    }
+    pub fn set_low(&mut self, nn: i32) {
+        if self.set_low_queued(nn) { self.process_queue(); }
+    }
+    pub fn set_float(&mut self, nn: i32) {
+        if self.set_float_queued(nn) { self.process_queue(); }
     }
 
     fn add_node_to_group(&mut self, nn: i32) {
@@ -835,7 +865,7 @@ impl WireCore {
 
             self.list_count = 0;
         }
-        if !self.pending_handlers.is_empty() {
+        if !self.pending_handlers.is_empty() || !self.pending_luts.is_empty() {
             self.invoke_callbacks();
         }
     }
@@ -898,7 +928,7 @@ impl WireCore {
             }
             self.list_count = 0;
         }
-        if !self.pending_handlers.is_empty() {
+        if !self.pending_handlers.is_empty() || !self.pending_luts.is_empty() {
             self.invoke_callbacks();
         }
     }
@@ -937,7 +967,7 @@ impl WireCore {
         }
         if self.enable_settle_stats { self.record_settle(iters); }
         // invoke pending handlers (memory dispatch)
-        if !self.pending_handlers.is_empty() {
+        if !self.pending_handlers.is_empty() || !self.pending_luts.is_empty() {
             self.invoke_callbacks();
         }
     }
@@ -963,33 +993,35 @@ impl WireCore {
 
     fn run_lut_chip(&mut self, l: usize) {
         let chip_type = self.lut_chips[l].chip_type;
+        let mut changed = false;
         match chip_type {
             crate::snapshot::LUT_INVERTER => {
                 // Y = ~A
                 let a = self.lut_chips[l].inputs[0];
                 let y = self.lut_chips[l].outputs[0];
-                if self.node_states[a as usize] != 0 { self.set_low(y); } else { self.set_high(y); }
+                if self.node_states[a as usize] != 0 { changed |= self.set_low_queued(y); }
+                else                                  { changed |= self.set_high_queued(y); }
             }
             crate::snapshot::LUT_DECODER_2_TO_4 => {
-                // inputs = [E, A0, A1]; outputs = [Y0..Y3] active-low; when E=1 all outputs high
+                // inputs = [E, A0, A1]; outputs = [Y0..Y3] active-low; when E=1 all outputs high.
+                // Direct target-state output (no high-then-low transient that would extra-settle).
                 let e = self.lut_chips[l].inputs[0];
                 let a0 = self.lut_chips[l].inputs[1];
                 let a1 = self.lut_chips[l].inputs[2];
-                let y0 = self.lut_chips[l].outputs[0];
-                let y1 = self.lut_chips[l].outputs[1];
-                let y2 = self.lut_chips[l].outputs[2];
-                let y3 = self.lut_chips[l].outputs[3];
-                if self.node_states[e as usize] != 0 {
-                    self.set_high(y0); self.set_high(y1); self.set_high(y2); self.set_high(y3);
-                } else {
-                    let sel = (if self.node_states[a1 as usize] != 0 { 2 } else { 0 })
-                            | (if self.node_states[a0 as usize] != 0 { 1 } else { 0 });
-                    self.set_high(y0); self.set_high(y1); self.set_high(y2); self.set_high(y3);
-                    match sel {
-                        0 => self.set_low(y0),
-                        1 => self.set_low(y1),
-                        2 => self.set_low(y2),
-                        _ => self.set_low(y3),
+                let outputs = [
+                    self.lut_chips[l].outputs[0],
+                    self.lut_chips[l].outputs[1],
+                    self.lut_chips[l].outputs[2],
+                    self.lut_chips[l].outputs[3],
+                ];
+                let disabled = self.node_states[e as usize] != 0;
+                let sel = ((self.node_states[a1 as usize] != 0) as usize) << 1
+                        | ((self.node_states[a0 as usize] != 0) as usize);
+                for i in 0..4 {
+                    if !disabled && i == sel {
+                        changed |= self.set_low_queued(outputs[i]);
+                    } else {
+                        changed |= self.set_high_queued(outputs[i]);
                     }
                 }
             }
@@ -1000,18 +1032,20 @@ impl WireCore {
                 if self.node_states[oe as usize] != 0 {
                     for i in 0..n {
                         let y = self.lut_chips[l].outputs[i];
-                        self.set_float(y);
+                        changed |= self.set_float_queued(y);
                     }
                 } else {
                     for i in 0..n {
                         let a = self.lut_chips[l].inputs[i];
                         let y = self.lut_chips[l].outputs[i];
-                        if self.node_states[a as usize] != 0 { self.set_low(y); } else { self.set_high(y); }
+                        if self.node_states[a as usize] != 0 { changed |= self.set_low_queued(y); }
+                        else                                  { changed |= self.set_high_queued(y); }
                     }
                 }
             }
             _ => {}
         }
+        if changed { self.process_queue(); }
     }
 
     fn run_mem_handler(&mut self, h: usize) {
@@ -1044,11 +1078,15 @@ impl WireCore {
             self.memories[mem_idx][(address as usize) & mask] = val as u8;
         } else {
             // memory → drive data_out
+            // Batch enqueue (one process_queue at end) instead of N settles per N pins.
             let v = self.memories[mem_idx][(address as usize) & mask];
+            let mut changed = false;
             for i in 0..dout_len {
                 let nn = self.handlers[h].data_out[i];
-                if (v & (1 << i)) != 0 { self.set_high(nn); } else { self.set_low(nn); }
+                if (v & (1 << i)) != 0 { changed |= self.set_high_queued(nn); }
+                else                    { changed |= self.set_low_queued(nn); }
             }
+            if changed { self.process_queue(); }
         }
     }
 

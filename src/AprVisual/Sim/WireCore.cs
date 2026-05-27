@@ -64,10 +64,20 @@ namespace AprVisual.Sim
         // nodeStates[nodeId] = 0/1 — read constantly during group BFS / recalc.
         public static byte* NodeStates;
 
-        // nodeInfos[nodeId] — flags + connection count + indices into TransistorList for the
-        // three pre-bucketed transistor sub-lists (channels-to-normal / channels-to-GND / channels-to-VCC)
-        // and the gates list. See WireCore.Group.cs / WireCore.Recalc.cs.
+        // nodeInfos[nodeId] — flags + 3× indices into TransistorList for the bucketed channel sub-lists
+        // (channels-to-normal / channels-to-GND / channels-to-VCC). 16 bytes each — 4 per cache line.
+        // The cold fields (Connections, TlistGates) were split out to NodeConnections / NodeTlistGates.
         public static NodeInfo* NodeInfos;
+
+        // Cold per-node arrays — used much less often than NodeInfos.
+        // NodeConnections[nn] = c1c2s.Count + gates.Count, the "capacitance" proxy for the floating-group
+        //   tie-break (only fires when a group has zero flags — rare). Touched twice in AddNodeToGroup
+        //   but the early-out branch is well-predicted-false in typical groups.
+        // NodeTlistGates[nn] = (c1,c2, c1,c2, ..., 0) sub-list — read ONLY by SetNodeState to enqueue
+        //   downstream nodes when a state flips. Called once per group member at writeback time, so 1
+        //   cache miss per group member vs the BFS hot loop's per-visit cost.
+        public static int* NodeConnections;
+        public static int* NodeTlistGates;
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -122,6 +132,8 @@ namespace AprVisual.Sim
 
             NodeStates     = AllocArray<byte>(NodeCount);
             NodeInfos      = AllocArray<NodeInfo>(NodeCount);
+            NodeConnections = AllocArray<int>(NodeCount);   // cold — only tie-break
+            NodeTlistGates  = AllocArray<int>(NodeCount);   // cold — only SetNodeState writeback
             RecalcList     = AllocArray<int>(NodeCount);
             RecalcListNext = AllocArray<int>(NodeCount);
             RecalcHash     = AllocArray<int>(NodeCount);
@@ -144,7 +156,7 @@ namespace AprVisual.Sim
                 Node? node = Nodes[nn];
                 if (node == null) continue;   // AllocArray zeroed: state 0, flags 0, tlist* 0
                 ref NodeInfo ns = ref NodeInfos[nn];
-                ns.Connections = node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
+                NodeConnections[nn] = node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
                 ns.Flags = NodeFlags.None;
                 if (node.Pullups > 0) { ns.Flags |= NodeFlags.PullUp; NodeStates[nn] = 1; }
                 if (node.Callback != null) ns.Flags |= NodeFlags.HasCallback;
@@ -173,7 +185,7 @@ namespace AprVisual.Sim
 
                 gates.Clear();
                 foreach (int tid in node.Gates) { var t = Transistors[tid]; gates.Add(t.C1); gates.Add(t.C2); }
-                ns.TlistGates = AddSubList(gates);
+                NodeTlistGates[nn] = AddSubList(gates);
 
                 c1c2.Clear(); c1gnd.Clear(); c1pwr.Clear();
                 foreach (int tid in node.C1c2s)
@@ -234,14 +246,13 @@ namespace AprVisual.Sim
         }
     }
 
-    // Per-node hot record. Kept as a 32-byte-ish struct so an array of these stays cache-dense.
+    // Per-node hot record. 16 bytes exactly (1 byte flag + 3 byte padding + 3× 4-byte int) = 4 per cache line.
+    // Cold fields (Connections, TlistGates) split out to WireCore.NodeConnections / NodeTlistGates so AddNodeToGroup's
+    // hot-loop struct read fetches only the bits it needs (BFS visits much more often than tie-break or writeback).
     internal struct NodeInfo
     {
         public WireCore.NodeFlags Flags;
-        public int Connections;     // c1c2s.Count + gates.Count — used as the "capacitance" proxy for the
-                                    // floating-group tie-break (largest node wins). See WireCore.Group.cs.
-        public int TlistGates;      // index into WireCore.TransistorList: (c1,c2, c1,c2, ..., 0)
-        public int TlistC1c2s;      // ...: (gate,other, gate,other, ..., 0) — channels to a normal node
+        public int TlistC1c2s;      // index into WireCore.TransistorList: (gate,other, gate,other, ..., 0) — channels to a normal node
         public int TlistC1gnd;      // ...: (gate, gate, ..., 0) — channels whose far end is GND
         public int TlistC1pwr;      // ...: (gate, gate, ..., 0) — channels whose far end is VCC
     }

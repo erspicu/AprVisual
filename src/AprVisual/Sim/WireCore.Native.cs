@@ -47,6 +47,8 @@ namespace AprVisual.Sim
 
             NodeStates = null;
             NodeInfos = null;
+            NodeConnections = null;
+            NodeTlistGates = null;
             FlagsToState = null;
             TransistorList = null;
             RecalcList = RecalcListNext = RecalcHash = RecalcHashNext = null;

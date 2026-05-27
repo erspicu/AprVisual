@@ -136,7 +136,7 @@ namespace AprVisual.Sim
         // gate's pull-down: folding it in would be a backwards drive direction (the stack node DRIVES
         // it). Excluding such nodes keeps them hybrid (correct) — this is the cheap drive-direction guard.
         private static bool IsInternalMid(int m) =>
-            (uint)m < (uint)NodeCount && (NodeInfos[m].Flags & NodeFlags.PullUp) == 0 && NodeInfos[m].TlistGates == 0;
+            (uint)m < (uint)NodeCount && (NodeInfos[m].Flags & NodeFlags.PullUp) == 0 && NodeTlistGates[m] == 0;
 
         private static bool AllPassInternal(int nn)
         {
@@ -211,7 +211,7 @@ namespace AprVisual.Sim
             {
                 if (m == busLine) continue;
                 if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) continue;
-                if (NodeInfos[m].TlistGates != 0) return false;
+                if (NodeTlistGates[m] != 0) return false;
             }
 
             // 2. For each pull-up driver, find its ONE direct pass channel to bus_line (the enable gate).
@@ -323,7 +323,7 @@ namespace AprVisual.Sim
                 foreach (int m in list)
                 {
                     if ((NodeInfos[m].Flags & NodeFlags.PullUp) != 0) { pulls++; outV = m; }
-                    else if (NodeInfos[m].TlistGates != 0) { clean = false; break; }   // a mid that drives logic => not a pure stack
+                    else if (NodeTlistGates[m] != 0) { clean = false; break; }   // a mid that drives logic => not a pure stack
                 }
                 if (pulls == 0) { nRejNoPull++; continue; }
                 if (pulls > 1)

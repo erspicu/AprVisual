@@ -58,12 +58,14 @@ namespace AprVisual.Test
                 for (int i = 0; i < WireCore.NodeCount; i++) bw.Write(WireCore.NodeStates[i]);
 
                 // ── NodeInfos: pack (Flags, Connections, TlistGates, TlistC1c2s, TlistC1gnd, TlistC1pwr) ──
+                // Connections + TlistGates now live in split arrays NodeConnections / NodeTlistGates;
+                // pull them in so the v4 wire format stays identical to the Rust loader's expectation.
                 for (int i = 0; i < WireCore.NodeCount; i++)
                 {
                     ref var ns = ref WireCore.NodeInfos[i];
                     bw.Write((int)ns.Flags);
-                    bw.Write(ns.Connections);
-                    bw.Write(ns.TlistGates);
+                    bw.Write(WireCore.NodeConnections[i]);
+                    bw.Write(WireCore.NodeTlistGates[i]);
                     bw.Write(ns.TlistC1c2s);
                     bw.Write(ns.TlistC1gnd);
                     bw.Write(ns.TlistC1pwr);

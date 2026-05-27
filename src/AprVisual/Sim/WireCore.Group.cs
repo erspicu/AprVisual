@@ -130,7 +130,8 @@ namespace AprVisual.Sim
             }
 
             // track the highest-connection ("largest capacitance") node's state for the all-floating case
-            if (ns.Connections > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = ns.Connections; }
+            int conn = NodeConnections[nn];
+            if (conn > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = conn; }
 
             // this node is now part of a group being resolved — it won't need separate re-processing this pass
             RecalcHash[nn] = 0;

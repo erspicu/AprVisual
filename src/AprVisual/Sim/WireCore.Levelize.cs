@@ -294,7 +294,7 @@ namespace AprVisual.Sim
                 {
                     combPass++;
                     bool anyDrivenNeighbour = false;
-                    int* p = TransistorList + ns.TlistC1c2s;
+                    ushort* p = TransistorList + ns.TlistC1c2s;
                     while (*p != 0)
                     {
                         p++;                       // skip gate

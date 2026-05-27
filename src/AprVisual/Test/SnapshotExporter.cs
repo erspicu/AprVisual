@@ -70,7 +70,8 @@ namespace AprVisual.Test
                 }
 
                 // ── TransistorList ──
-                for (int i = 0; i < WireCore.TransistorListLength; i++) bw.Write(WireCore.TransistorList[i]);
+                // Widen ushort → int to preserve v4 wire format (Rust port reads int per entry).
+                for (int i = 0; i < WireCore.TransistorListLength; i++) bw.Write((int)WireCore.TransistorList[i]);
 
                 // ── FlagsToState ──
                 for (int i = 0; i < 256; i++) bw.Write(WireCore.FlagsToState[i]);

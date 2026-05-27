@@ -140,7 +140,7 @@ namespace AprVisual.Sim
             // walk channels to normal nodes: (gate, other) pairs, 0-terminated
             if (ns.TlistC1c2s != 0)
             {
-                int* p = TransistorList + ns.TlistC1c2s;
+                ushort* p = TransistorList + ns.TlistC1c2s;
                 while (*p != 0)
                 {
                     int gate = *p++;
@@ -151,13 +151,13 @@ namespace AprVisual.Sim
             // any ON channel to GND ⇒ the whole group is pulled low
             if (ns.TlistC1gnd != 0)
             {
-                int* p = TransistorList + ns.TlistC1gnd;
+                ushort* p = TransistorList + ns.TlistC1gnd;
                 while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
             }
             // any ON channel to VCC ⇒ pulled high
             if (ns.TlistC1pwr != 0)
             {
-                int* p = TransistorList + ns.TlistC1pwr;
+                ushort* p = TransistorList + ns.TlistC1pwr;
                 while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
             }
         }

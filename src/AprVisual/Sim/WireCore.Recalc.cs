@@ -202,7 +202,7 @@ namespace AprVisual.Sim
             ref NodeInfo ns = ref NodeInfos[nn];
             if (ns.TlistGates != 0)
             {
-                int* p = TransistorList + ns.TlistGates;
+                ushort* p = TransistorList + ns.TlistGates;
                 if (EnablePruneMerge && newState != 0 && !EnableIrInterp)
                 {
                     // math-algos #1 (Gemini r3 fix): gate went HIGH → transistor turns ON → c1,c2 MERGE.

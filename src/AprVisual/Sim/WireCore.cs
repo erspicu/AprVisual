@@ -73,9 +73,11 @@ namespace AprVisual.Sim
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
         public static byte* FlagsToState;
 
-        // ── Flattened adjacency: one big int[] with null(0)-terminated sub-lists (cache-friendly) ──
+        // ── Flattened adjacency: one big ushort[] with null(0)-terminated sub-lists (cache-friendly) ──
         // Sub-lists referenced by NodeInfo.TlistGates / TlistC1c2s / TlistC1gnd / TlistC1pwr.
-        public static int* TransistorList;
+        // ushort* (was int*): node IDs < 65K, halves the working set (697KB → 350KB) — the
+        // hottest array in BFS by far, so L2 pressure reduction is the lever here.
+        public static ushort* TransistorList;
 
         // ── Double-buffered recalc queue (see WireCore.Recalc.cs) ──
         public static int* RecalcList;
@@ -187,8 +189,8 @@ namespace AprVisual.Sim
                 ns.TlistC1gnd = AddSubList(c1gnd);
                 ns.TlistC1pwr = AddSubList(c1pwr);
             }
-            TransistorList = AllocArray<int>(tl.Count);
-            for (int i = 0; i < tl.Count; i++) TransistorList[i] = tl[i];
+            TransistorList = AllocArray<ushort>(tl.Count);
+            for (int i = 0; i < tl.Count; i++) TransistorList[i] = (ushort)tl[i];
             _transistorListLength = tl.Count;
 
             // ── supply nodes (override whatever the loop set) ──

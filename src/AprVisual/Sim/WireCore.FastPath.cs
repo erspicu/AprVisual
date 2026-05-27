@@ -80,12 +80,12 @@ namespace AprVisual.Sim
 
             if (ns.TlistC1gnd != 0)
             {
-                int* p = TransistorList + ns.TlistC1gnd;
+                ushort* p = TransistorList + ns.TlistC1gnd;
                 while (*p != 0) { if (NodeStates[*p++] != 0) { f |= NodeFlags.Gnd; break; } }   // any ON path to GND ⇒ pulled low
             }
             if (ns.TlistC1pwr != 0)
             {
-                int* p = TransistorList + ns.TlistC1pwr;
+                ushort* p = TransistorList + ns.TlistC1pwr;
                 while (*p != 0) { if (NodeStates[*p++] != 0) { f |= NodeFlags.Pwr; break; } }   // any ON path to VCC ⇒ pulled high
             }
 

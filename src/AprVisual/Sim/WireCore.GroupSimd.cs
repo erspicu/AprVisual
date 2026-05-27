@@ -40,7 +40,7 @@ namespace AprVisual.Sim
             // ── unrolled walk over TlistC1c2s ──
             if (ns.TlistC1c2s != 0)
             {
-                int* p = TransistorList + ns.TlistC1c2s;
+                ushort* p = TransistorList + ns.TlistC1c2s;
                 // Unroll 4 (gate, other) pairs = 8 ints at a time. Each iteration:
                 //   1. Pre-check that 4 pairs are available (p[7] != 0 means 4 full pairs follow).
                 //   2. Issue all 4 NodeStates[gate_i] byte-loads BEFORE any branch — the CPU's
@@ -80,12 +80,12 @@ namespace AprVisual.Sim
             }
             if (ns.TlistC1gnd != 0)
             {
-                int* p = TransistorList + ns.TlistC1gnd;
+                ushort* p = TransistorList + ns.TlistC1gnd;
                 while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
             }
             if (ns.TlistC1pwr != 0)
             {
-                int* p = TransistorList + ns.TlistC1pwr;
+                ushort* p = TransistorList + ns.TlistC1pwr;
                 while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
             }
         }

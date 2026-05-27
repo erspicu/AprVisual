@@ -99,7 +99,7 @@ namespace AprVisual.Sim
                 int orRoot = -1;
                 if (ns.TlistC1gnd != 0)
                 {
-                    int* p = TransistorList + ns.TlistC1gnd;
+                    ushort* p = TransistorList + ns.TlistC1gnd;
                     while (*p != 0)
                     {
                         int g = *p++;
@@ -142,7 +142,7 @@ namespace AprVisual.Sim
         {
             ref NodeInfo ns = ref NodeInfos[nn];
             if (ns.TlistC1c2s == 0) return true;
-            int* p = TransistorList + ns.TlistC1c2s;
+            ushort* p = TransistorList + ns.TlistC1c2s;
             while (*p != 0) { p++; int other = *p++; if (!IsInternalMid(other)) return false; }
             return true;
         }
@@ -159,12 +159,12 @@ namespace AprVisual.Sim
 
             if (ns.TlistC1gnd != 0)   // direct channels to GND: transistor g conducting => path to GND
             {
-                int* p = TransistorList + ns.TlistC1gnd;
+                ushort* p = TransistorList + ns.TlistC1gnd;
                 while (*p != 0) { int g = *p++; orRoot = Or2(orRoot, AddIr(ExprOp.NodeRef, g)); }
             }
             if (ns.TlistC1c2s != 0)   // pass channels to internal nodes: g AND (mid reaches GND)
             {
-                int* p = TransistorList + ns.TlistC1c2s;
+                ushort* p = TransistorList + ns.TlistC1c2s;
                 while (*p != 0)
                 {
                     int g = *p++;
@@ -201,7 +201,7 @@ namespace AprVisual.Sim
                 int deg = 0;
                 if (NodeInfos[m].TlistC1c2s != 0)
                 {
-                    int* p = TransistorList + NodeInfos[m].TlistC1c2s;
+                    ushort* p = TransistorList + NodeInfos[m].TlistC1c2s;
                     while (*p != 0) { p++; int other = *p++; if ((uint)other < (uint)NodeCount && (NodeInfos[other].Flags & NodeFlags.PullUp) != 0) deg++; }
                 }
                 if (deg > maxDeg) { maxDeg = deg; busLine = m; }
@@ -224,7 +224,7 @@ namespace AprVisual.Sim
                 int enable = -1; int passCount = 0;
                 if (NodeInfos[d].TlistC1c2s != 0)
                 {
-                    int* p = TransistorList + NodeInfos[d].TlistC1c2s;
+                    ushort* p = TransistorList + NodeInfos[d].TlistC1c2s;
                     while (*p != 0) { int gate = *p++; int other = *p++; if (other == busLine) { enable = gate; passCount++; } }
                 }
                 if (passCount != 1 || enable < 0) return false;

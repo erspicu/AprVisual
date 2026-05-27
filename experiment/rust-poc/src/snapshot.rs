@@ -74,7 +74,7 @@ pub struct Snapshot {
     pub ppu_vblank_node: i32,
     pub node_states: Vec<u8>,
     pub node_infos: Vec<NodeInfo>,
-    pub transistor_list: Vec<i32>,
+    pub transistor_list: Vec<u16>,   // node IDs (<65K); halved memory (697KB → 350KB) matches C# layout
     pub flags_to_state: [u8; 256],
     pub memories: Vec<Memory>,
     pub handlers: Vec<MemHandlerSpec>,
@@ -136,8 +136,9 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         ni.tlist_c1pwr = r.i32()?;
     }
 
-    let mut transistor_list = vec![0i32; tlist_len];
-    for v in transistor_list.iter_mut() { *v = r.i32()?; }
+    // v4 wire format still writes i32 per entry; widen down to u16 in memory (node IDs <65K).
+    let mut transistor_list = vec![0u16; tlist_len];
+    for v in transistor_list.iter_mut() { *v = r.i32()? as u16; }
 
     let mut flags_to_state = [0u8; 256];
     for v in flags_to_state.iter_mut() { *v = r.u8()?; }

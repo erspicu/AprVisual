@@ -73,7 +73,7 @@ impl ChipScratch {
 pub struct SharedView {
     pub node_states: *mut u8,
     pub node_infos: *const NodeInfo,
-    pub transistor_list: *const i32,
+    pub transistor_list: *const u16,
     pub flags_to_state: *const u8,
     pub chip_id: *const u8,
     pub target_to_handler: *const i32,
@@ -113,9 +113,9 @@ unsafe fn add_node_to_group_chip_aware(view: SharedView, scratch: &mut ChipScrat
     if ni.tlist_c1c2s != 0 {
         let mut p = ni.tlist_c1c2s as usize;
         loop {
-            let gate = *view.transistor_list.add(p);
+            let gate = *view.transistor_list.add(p) as i32;
             if gate == 0 { break; }
-            let other = *view.transistor_list.add(p + 1);
+            let other = *view.transistor_list.add(p + 1) as i32;
             p += 2;
             if *view.node_states.add(gate as usize) != 0 {
                 add_node_to_group_chip_aware(view, scratch, other);
@@ -126,7 +126,7 @@ unsafe fn add_node_to_group_chip_aware(view: SharedView, scratch: &mut ChipScrat
     if ni.tlist_c1gnd != 0 {
         let mut p = ni.tlist_c1gnd as usize;
         loop {
-            let gate = *view.transistor_list.add(p);
+            let gate = *view.transistor_list.add(p) as i32;
             if gate == 0 { break; }
             p += 1;
             if *view.node_states.add(gate as usize) != 0 { scratch.group_flags |= FLAG_GND; break; }
@@ -135,7 +135,7 @@ unsafe fn add_node_to_group_chip_aware(view: SharedView, scratch: &mut ChipScrat
     if ni.tlist_c1pwr != 0 {
         let mut p = ni.tlist_c1pwr as usize;
         loop {
-            let gate = *view.transistor_list.add(p);
+            let gate = *view.transistor_list.add(p) as i32;
             if gate == 0 { break; }
             p += 1;
             if *view.node_states.add(gate as usize) != 0 { scratch.group_flags |= FLAG_PWR; break; }
@@ -154,9 +154,9 @@ unsafe fn set_node_state(view: SharedView, scratch: &mut ChipScratch, nn: i32, n
     if ni.tlist_gates == 0 { return; }
     let mut p = ni.tlist_gates as usize;
     loop {
-        let c1 = *view.transistor_list.add(p);
+        let c1 = *view.transistor_list.add(p) as i32;
         if c1 == 0 { break; }
-        let c2 = *view.transistor_list.add(p + 1);
+        let c2 = *view.transistor_list.add(p + 1) as i32;
         p += 2;
         if c1 != view.npwr && c1 != view.ngnd {
             push_to_chip_bucket(view, scratch, c1);

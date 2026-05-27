@@ -31,7 +31,7 @@ pub struct WireCore {
 
     pub node_states: Vec<u8>,
     pub node_infos: Vec<NodeInfo>,
-    pub transistor_list: Vec<i32>,
+    pub transistor_list: Vec<u16>,
     pub flags_to_state: [u8; 256],
 
     // settle scratch
@@ -400,9 +400,9 @@ impl WireCore {
         if ni.tlist_c1c2s != 0 {
             let mut p = ni.tlist_c1c2s as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;   // u16 → i32 widen (free on x64)
                 if gate == 0 { break; }
-                let other = self.transistor_list[p + 1];
+                let other = self.transistor_list[p + 1] as i32;
                 p += 2;
                 if self.node_states[gate as usize] != 0 {
                     self.add_node_to_group(other);
@@ -412,7 +412,7 @@ impl WireCore {
         if ni.tlist_c1gnd != 0 {
             let mut p = ni.tlist_c1gnd as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;
                 if gate == 0 { break; }
                 p += 1;
                 if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_GND; break; }
@@ -421,7 +421,7 @@ impl WireCore {
         if ni.tlist_c1pwr != 0 {
             let mut p = ni.tlist_c1pwr as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;
                 if gate == 0 { break; }
                 p += 1;
                 if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_PWR; break; }
@@ -456,9 +456,9 @@ impl WireCore {
             // share a GroupID (topologically merged — adding a parallel transistor is a true no-op).
             let prune = self.enable_prune_merge && new_state != 0;
             loop {
-                let c1 = self.transistor_list[p];
+                let c1 = self.transistor_list[p] as i32;
                 if c1 == 0 { break; }
-                let c2 = self.transistor_list[p + 1];
+                let c2 = self.transistor_list[p + 1] as i32;
                 p += 2;
                 if c1 != self.npwr && c1 != self.ngnd {
                     let should_enqueue = if prune {
@@ -569,9 +569,9 @@ impl WireCore {
         if ni.tlist_c1c2s != 0 {
             let mut p = ni.tlist_c1c2s as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;
                 if gate == 0 { break; }
-                let other = self.transistor_list[p + 1];
+                let other = self.transistor_list[p + 1] as i32;
                 p += 2;
                 if self.node_states[gate as usize] != 0 {
                     self.add_node_to_group_chip_aware(other);
@@ -582,7 +582,7 @@ impl WireCore {
         if ni.tlist_c1gnd != 0 {
             let mut p = ni.tlist_c1gnd as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;
                 if gate == 0 { break; }
                 p += 1;
                 if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_GND; break; }
@@ -591,7 +591,7 @@ impl WireCore {
         if ni.tlist_c1pwr != 0 {
             let mut p = ni.tlist_c1pwr as usize;
             loop {
-                let gate = self.transistor_list[p];
+                let gate = self.transistor_list[p] as i32;
                 if gate == 0 { break; }
                 p += 1;
                 if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_PWR; break; }

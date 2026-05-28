@@ -187,8 +187,17 @@
 - [x] **#R9 set_node_state 拆 newState loop** (P2) ── **跳過**
   - 等效 C# F3 已實測 noise (+0.03%)
 
-- [ ] **#R10 target-cpu=native + panic=abort** (P3)
-  - build flag,獨立測,放最後
+- [x] **#R10 panic=abort + strip 測試** (P3) ── **revert(意外負面)**
+  - 位置: Cargo.toml [profile.release]
+  - 改動: 加 `panic = "abort"` + `strip = "symbols"`
+  - **實測 (2026-05-29, 10-run + top-half)**:
+    - BEFORE top 5 avg: 63,697 hc/s
+    - AFTER panic=abort top 5 avg: 61,598 hc/s
+    - Δ: **-3.30%** ── 顯著負面
+    - Post-revert verify top 5: 63,524(回到正常水準)
+  - **分析**:沒預期到 panic=abort 會 hurt 3%。 推測 LTO 在 panic=abort vs panic=unwind 邊界產生不同 code layout / inlining 決策,或 unwind table 移除影響 branch prediction
+  - 狀態: **revert** ── 7 個 dead-end 之一
+  - 未測 target-cpu=native(已知會降可攜性,且 panic=abort 已負面;不再花時間)
 
 ### Follow-up (來源 C: Sim_hotpath_followup_suggestions_2026-05-29.md)
 

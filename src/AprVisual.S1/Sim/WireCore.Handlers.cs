@@ -41,8 +41,13 @@ namespace AprVisual.Sim
         }
 
         private static readonly List<CallbackInfo> _callbacks = new();
+        // Pending queue (suggest #05): replaces the old InvokeCallbacks two-pass scan over
+        // _callbacks. EnqueueCallback now pushes to _pendingCallbacks; InvokeCallbacks
+        // returns in O(1) when pending=0 (the common case after most settles).
+        private static List<CallbackInfo> _pendingCallbacks = new();
+        private static List<CallbackInfo> _processingCallbacks = new();
 
-        internal static void ResetHandlers() { _handlerChain = null; _callbacks.Clear(); }
+        internal static void ResetHandlers() { _handlerChain = null; _callbacks.Clear(); _pendingCallbacks.Clear(); _processingCallbacks.Clear(); }
 
         /// <summary>
         /// Fire <paramref name="cb"/> (once, after the next settle) whenever any of <paramref name="watchedNodes"/>
@@ -61,27 +66,30 @@ namespace AprVisual.Sim
             if (node != null) node.Callback = info;
         }
 
-        // Called by ProcessQueue() once the dust settles (see WireCore.Recalc.cs). Re-entrant-safe:
-        // a callback may itself drive nodes, which recurses into ProcessQueue → InvokeCallbacks; the
-        // Enqueued flag stops a callback from being double-queued. Snapshot the list since a callback
-        // could (in theory) add another.
+        // Called by ProcessQueue() once the dust settles (see WireCore.Recalc.cs). Common case is
+        // no pending — O(1) return. Re-entrant-safe via swap-and-drain: a callback may drive nodes
+        // → ProcessQueue → InvokeCallbacks recursively; the new pending list gets drained on the
+        // next outer-loop iteration. Enqueued flag still prevents double-queueing a single callback.
         internal static void InvokeCallbacks()
         {
-            // fast path: nothing pending
-            bool any = false;
-            foreach (var cb in _callbacks) if (cb.Enqueued) { any = true; break; }
-            if (!any) return;
-
-            for (int i = 0; i < _callbacks.Count; i++)
+            while (_pendingCallbacks.Count > 0)
             {
-                var cb = _callbacks[i];
-                if (!cb.Enqueued) continue;
-                cb.Enqueued = false;
-                cb.Callback();
+                // swap pending ↔ processing (zero-alloc snapshot)
+                (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
+                for (int i = 0; i < _processingCallbacks.Count; i++)
+                {
+                    var cb = _processingCallbacks[i];
+                    cb.Enqueued = false;
+                    cb.Callback();
+                }
+                _processingCallbacks.Clear();
             }
         }
 
-        internal static void EnqueueCallback(CallbackInfo cb) { cb.Enqueued = true; }
+        internal static void EnqueueCallback(CallbackInfo cb)
+        {
+            if (!cb.Enqueued) { cb.Enqueued = true; _pendingCallbacks.Add(cb); }
+        }
 
         // Find a previously-AddCallback'd callback by its name (the auto-generated "callback:<watched-node-names>"
         // string) and return its fake target node id. Used by SnapshotExporter to pair memory-handler bindings

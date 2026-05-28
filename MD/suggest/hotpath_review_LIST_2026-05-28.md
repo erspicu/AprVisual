@@ -64,14 +64,18 @@
 
 ### P1 ── 中等熱路徑或常用路徑
 
-- [ ] **#05 Callback 換成真正的 pending queue** (來源 B P1)
-  - 位置: `Handlers.cs` `InvokeCallbacks` (line 68-82)
+- [x] **#05 Callback 換成真正的 pending queue** (來源 B P1) ── **採用**
+  - 位置: `Handlers.cs` `InvokeCallbacks` (line 68-82) + `EnqueueCallback`
   - 改動: 目前 InvokeCallbacks 先 foreach 整個 `_callbacks` 確認是否有 pending,再 for-loop 執行 ── **兩次掃描**。 改成 `EnqueueCallback` 時 push 到 pending queue,InvokeCallbacks 0 時 O(1) return
-  - 對比: Rust S1 的 `pending_handlers` Vec 已是這個模式;C# 端仍在用舊式 scan
-  - 注意: callback 可能 re-entrant(callback 內 WriteBits → ProcessQueue → InvokeCallbacks),需小測試鎖住
-  - 預估收益: 中(每 settle 後固定成本,common case = 0 pending)
-  - 風險: 中(re-entrant 行為)
-  - 狀態: 待實驗
+  - 對比: Rust S1 的 `pending_handlers` Vec 已是這個模式;C# 端原為舊式 scan
+  - 處理 re-entrant: swap-and-drain 模式 ── `_pendingCallbacks` ↔ `_processingCallbacks` swap (zero-alloc snapshot),迭代 processing 時新進的 pending 落到新的 list,外層 while 下輪再處理
+  - 預估收益: 中
+  - **實測 (2026-05-29, 10-run)**:
+    - BEFORE 5-run median: 62,584 hc/s
+    - AFTER 10-run median: **63,102 hc/s**
+    - Δ: **+0.83% median, +0.61% avg**
+    - 雜訊範圍也較小(spread 1100 vs 2100)── fast-path O(1) return 降低 settle 後波動
+    - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
 
 - [ ] **#06 `ReadBits` / `WriteBits` 加 `int[]` / `ReadOnlySpan<int>` overload** (來源 B P1)
   - 位置: `Handlers.cs` (line 110-131, 181-188, 229-240)

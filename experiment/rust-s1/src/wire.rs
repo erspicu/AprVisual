@@ -205,27 +205,32 @@ impl WireCore {
     #[inline(always)]
     fn read_bits(&self, nodes: &[i32]) -> u32 {
         let mut v: u32 = 0;
-        for (i, &nn) in nodes.iter().enumerate() {
-            if self.node_states[nn as usize] != 0 { v |= 1 << i; }
+        unsafe {
+            for (i, &nn) in nodes.iter().enumerate() {
+                if *self.node_states.get_unchecked(nn as usize) != 0 { v |= 1 << i; }
+            }
         }
         v
     }
 
     fn video_pixel_write_if_rising_edge(&mut self) {
         if self.pclk1_node < 0 { return; }
-        let now = self.node_states[self.pclk1_node as usize];
-        let rose = self.prev_pclk1 == 0 && now != 0;
-        self.prev_pclk1 = now;
-        if !rose { return; }
-        let x = self.read_bits(&self.hpos_nodes);
-        let y = self.read_bits(&self.vpos_nodes);
-        if (x as usize) >= SCREEN_W || (y as usize) >= SCREEN_H { return; }
-        let slot = (self.read_bits(&self.pal_ptr_nodes) & 31) as usize;
-        let pal_bits = &self.pal_ram_nodes[slot];
-        if pal_bits.len() != 6 { return; }
-        let colour6 = self.read_bits(pal_bits);
-        let argb = NES_PALETTE[(colour6 & 0x3F) as usize];
-        self.framebuffer[(y as usize) * SCREEN_W + (x as usize)] = argb;
+        // pclk1_node validated at load; framebuffer fixed size; pal_ram_nodes sized 32.
+        unsafe {
+            let now = *self.node_states.get_unchecked(self.pclk1_node as usize);
+            let rose = self.prev_pclk1 == 0 && now != 0;
+            self.prev_pclk1 = now;
+            if !rose { return; }
+            let x = self.read_bits(&self.hpos_nodes);
+            let y = self.read_bits(&self.vpos_nodes);
+            if (x as usize) >= SCREEN_W || (y as usize) >= SCREEN_H { return; }
+            let slot = (self.read_bits(&self.pal_ptr_nodes) & 31) as usize;
+            let pal_bits = self.pal_ram_nodes.get_unchecked(slot);
+            if pal_bits.len() != 6 { return; }
+            let colour6 = self.read_bits(pal_bits);
+            let argb = *NES_PALETTE.get_unchecked((colour6 & 0x3F) as usize);
+            *self.framebuffer.get_unchecked_mut((y as usize) * SCREEN_W + (x as usize)) = argb;
+        }
     }
 
     #[inline(always)]
@@ -245,10 +250,12 @@ impl WireCore {
     #[inline(always)]
     fn set_high_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
-        let f = self.node_hot[u].flags;
-        let new_f = (f & !FLAG_SETLOW) | FLAG_SETHIGH;
-        if new_f == f { return false; }
-        self.node_hot[u].flags = new_f;
+        unsafe {
+            let f = self.node_hot.get_unchecked(u).flags;
+            let new_f = (f & !FLAG_SETLOW) | FLAG_SETHIGH;
+            if new_f == f { return false; }
+            self.node_hot.get_unchecked_mut(u).flags = new_f;
+        }
         self.enqueue(nn);
         true
     }
@@ -256,10 +263,12 @@ impl WireCore {
     #[inline(always)]
     fn set_low_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
-        let f = self.node_hot[u].flags;
-        let new_f = (f & !FLAG_SETHIGH) | FLAG_SETLOW;
-        if new_f == f { return false; }
-        self.node_hot[u].flags = new_f;
+        unsafe {
+            let f = self.node_hot.get_unchecked(u).flags;
+            let new_f = (f & !FLAG_SETHIGH) | FLAG_SETLOW;
+            if new_f == f { return false; }
+            self.node_hot.get_unchecked_mut(u).flags = new_f;
+        }
         self.enqueue(nn);
         true
     }
@@ -319,27 +328,31 @@ impl WireCore {
 
     #[inline(always)]
     fn compute_node_group(&mut self, nn: i32) -> u8 {
-        for i in 0..self.group_count {
-            self.in_group[self.group_buf[i] as usize] = 0;
-        }
-        self.group_flags = 0;
-        self.group_count = 0;
-        self.add_node_to_group(nn);
-        // Sync #01: ForceCompute|Gnd|Pwr mask is pre-computed into the flags_to_state LUT
-        // (snapshot exporter ran FlagsToStateOf on all 256 indices), no need to mask here.
-        let f = self.group_flags;
-        if f != 0 { return self.flags_to_state[f as usize]; }
+        unsafe {
+            for i in 0..self.group_count {
+                let id = *self.group_buf.get_unchecked(i) as usize;
+                *self.in_group.get_unchecked_mut(id) = 0;
+            }
+            self.group_flags = 0;
+            self.group_count = 0;
+            self.add_node_to_group(nn);
+            // Sync #01: ForceCompute|Gnd|Pwr mask is pre-computed into the flags_to_state LUT.
+            let f = self.group_flags;
+            if f != 0 { return *self.flags_to_state.get_unchecked(f as usize); }
 
-        // Sync #02: purely floating group — find max-connection node by linear scan.
-        // Deferred from BFS; only <1% of walks hit this.
-        let mut max_conn = -1i32;
-        let mut max_state = 0u8;
-        for i in 0..self.group_count {
-            let nn = self.group_buf[i];
-            let conn = self.node_connections[nn as usize];
-            if conn > max_conn { max_state = self.node_states[nn as usize]; max_conn = conn; }
+            // Sync #02: purely floating group — find max-connection node by linear scan.
+            let mut max_conn = -1i32;
+            let mut max_state = 0u8;
+            for i in 0..self.group_count {
+                let nn = *self.group_buf.get_unchecked(i) as usize;
+                let conn = *self.node_connections.get_unchecked(nn);
+                if conn > max_conn {
+                    max_state = *self.node_states.get_unchecked(nn);
+                    max_conn = conn;
+                }
+            }
+            max_state
         }
-        max_state
     }
 
     #[inline(always)]
@@ -386,27 +399,30 @@ impl WireCore {
     fn recalc_node(&mut self, nn: i32) {
         if nn == self.npwr || nn == self.ngnd { return; }
         // Fast-path: pure-logic-gnd nodes resolve in O(1). Always on in S1 fork.
-        if self.is_pure_logic[nn as usize] != 0 {
-            self.recalc_node_fast(nn);
-            return;
+        unsafe {
+            if *self.is_pure_logic.get_unchecked(nn as usize) != 0 {
+                self.recalc_node_fast(nn);
+                return;
+            }
         }
         let new_state = self.compute_node_group(nn);
         let gc = self.group_count;
-        for i in 0..gc {
-            let id = self.group_buf[i];
-            self.set_node_state(id, new_state);
-        }
-        if (self.group_flags & FLAG_HAS_CALLBACK) != 0 {
+        unsafe {
             for i in 0..gc {
-                let id = self.group_buf[i];
-                let u = id as usize;
-                if (self.node_hot[u].flags & FLAG_HAS_CALLBACK) != 0 {
-                    let hi = self.target_to_handler[u];
-                    if hi >= 0 {
-                        let h = hi as usize;
-                        if self.handler_enqueued[h] == 0 {
-                            self.handler_enqueued[h] = 1;
-                            self.pending_handlers.push(hi);
+                let id = *self.group_buf.get_unchecked(i);
+                self.set_node_state(id, new_state);
+            }
+            if (self.group_flags & FLAG_HAS_CALLBACK) != 0 {
+                for i in 0..gc {
+                    let u = *self.group_buf.get_unchecked(i) as usize;
+                    if (self.node_hot.get_unchecked(u).flags & FLAG_HAS_CALLBACK) != 0 {
+                        let hi = *self.target_to_handler.get_unchecked(u);
+                        if hi >= 0 {
+                            let h = hi as usize;
+                            if *self.handler_enqueued.get_unchecked(h) == 0 {
+                                *self.handler_enqueued.get_unchecked_mut(h) = 1;
+                                self.pending_handlers.push(hi);
+                            }
                         }
                     }
                 }
@@ -419,9 +435,11 @@ impl WireCore {
         while self.list_next_count != 0 {
             iters += 1;
             if iters > MAX_SETTLE_PASSES {
-                for i in 0..self.list_next_count {
-                    let nn = self.recalc_list_next[i] as usize;
-                    self.recalc_hash_next[nn] = 0;
+                unsafe {
+                    for i in 0..self.list_next_count {
+                        let nn = *self.recalc_list_next.get_unchecked(i) as usize;
+                        *self.recalc_hash_next.get_unchecked_mut(nn) = 0;
+                    }
                 }
                 self.list_next_count = 0;
                 break;
@@ -430,12 +448,14 @@ impl WireCore {
             std::mem::swap(&mut self.recalc_hash, &mut self.recalc_hash_next);
             self.list_count = self.list_next_count;
             self.list_next_count = 0;
-            for i in 0..self.list_count {
-                let nn = self.recalc_list[i];
-                let u = nn as usize;
-                if self.recalc_hash[u] != 0 {
-                    self.recalc_node(nn);
-                    self.recalc_hash[u] = 0;
+            unsafe {
+                for i in 0..self.list_count {
+                    let nn = *self.recalc_list.get_unchecked(i);
+                    let u = nn as usize;
+                    if *self.recalc_hash.get_unchecked(u) != 0 {
+                        self.recalc_node(nn);
+                        *self.recalc_hash.get_unchecked_mut(u) = 0;
+                    }
                 }
             }
             self.list_count = 0;
@@ -450,52 +470,61 @@ impl WireCore {
             let pending: Vec<i32> = std::mem::take(&mut self.pending_handlers);
             for hi in pending {
                 let h = hi as usize;
-                self.handler_enqueued[h] = 0;
+                unsafe { *self.handler_enqueued.get_unchecked_mut(h) = 0; }
                 self.run_mem_handler(h);
             }
         }
     }
 
     fn run_mem_handler(&mut self, h: usize) {
-        let cs = self.handlers[h].cs;
-        if self.node_states[cs as usize] != 0 { return; }
+        // Handler index validated by caller (target_to_handler array).
+        unsafe {
+            let handler = self.handlers.get_unchecked(h);
+            let cs = handler.cs;
+            if *self.node_states.get_unchecked(cs as usize) != 0 { return; }
 
-        let addr_len = self.handlers[h].addr.len();
-        let mut address: u32 = 0;
-        for i in 0..addr_len {
-            let nn = self.handlers[h].addr[i];
-            if self.node_states[nn as usize] != 0 { address |= 1 << i; }
-        }
-        let we = self.handlers[h].we;
-        let is_rom = self.handlers[h].is_rom;
-        let writing = !is_rom && we >= 0 && self.node_states[we as usize] == 0;
-
-        let mem_idx = self.handlers[h].memory_index;
-        let mask = self.memories[mem_idx].len() - 1;
-        let dout_len = self.handlers[h].data_out.len();
-
-        if writing {
-            let mut val: u32 = 0;
-            for i in 0..dout_len {
-                let nn = self.handlers[h].data_out[i];
-                if self.node_states[nn as usize] != 0 { val |= 1 << i; }
+            let addr_slice: &[i32] = &handler.addr;
+            let mut address: u32 = 0;
+            for i in 0..addr_slice.len() {
+                let nn = *addr_slice.get_unchecked(i);
+                if *self.node_states.get_unchecked(nn as usize) != 0 { address |= 1 << i; }
             }
-            self.memories[mem_idx][(address as usize) & mask] = val as u8;
-        } else {
-            // memory → drive data_out (batch enqueue then one settle)
-            let v = self.memories[mem_idx][(address as usize) & mask];
-            let mut changed = false;
-            for i in 0..dout_len {
-                let nn = self.handlers[h].data_out[i];
-                if (v & (1 << i)) != 0 { changed |= self.set_high_queued(nn); }
-                else                    { changed |= self.set_low_queued(nn); }
+            let we = handler.we;
+            let is_rom = handler.is_rom;
+            let writing = !is_rom && we >= 0 && *self.node_states.get_unchecked(we as usize) == 0;
+
+            let mem_idx = handler.memory_index;
+            let mem = self.memories.get_unchecked(mem_idx);
+            let mask = mem.len() - 1;
+            let dout_len = handler.data_out.len();
+            let addr_masked = (address as usize) & mask;
+
+            if writing {
+                let dout_slice: &[i32] = &handler.data_out;
+                let mut val: u32 = 0;
+                for i in 0..dout_len {
+                    let nn = *dout_slice.get_unchecked(i);
+                    if *self.node_states.get_unchecked(nn as usize) != 0 { val |= 1 << i; }
+                }
+                *self.memories.get_unchecked_mut(mem_idx).get_unchecked_mut(addr_masked) = val as u8;
+            } else {
+                let v = *mem.get_unchecked(addr_masked);
+                // need to release the &handler borrow before set_*_queued mutates self
+                let dout_ptr = handler.data_out.as_ptr();
+                let mut changed = false;
+                for i in 0..dout_len {
+                    let nn = *dout_ptr.add(i);
+                    if (v & (1 << i)) != 0 { changed |= self.set_high_queued(nn); }
+                    else                    { changed |= self.set_low_queued(nn); }
+                }
+                if changed { self.process_queue(); }
             }
-            if changed { self.process_queue(); }
         }
     }
 
     pub fn step_cycle(&mut self, clock_node: i32) {
-        if self.node_states[clock_node as usize] != 0 {
+        let state = unsafe { *self.node_states.get_unchecked(clock_node as usize) };
+        if state != 0 {
             self.set_low(clock_node);
         } else {
             self.set_high(clock_node);
@@ -510,13 +539,14 @@ impl WireCore {
 
     pub fn run_frame(&mut self, clock_node: i32, vblank_node: i32, max_hc: i64) -> i64 {
         if vblank_node < 0 { self.step(max_hc.min(714_736), clock_node); return max_hc.min(714_736); }
-        let mut prev = self.node_states[vblank_node as usize];
+        let vb = vblank_node as usize;
+        let mut prev = unsafe { *self.node_states.get_unchecked(vb) };
         let start = self.time;
         let mut count = 0i64;
         while count < max_hc {
             self.step_cycle(clock_node);
             count += 1;
-            let now = self.node_states[vblank_node as usize];
+            let now = unsafe { *self.node_states.get_unchecked(vb) };
             if prev == 0 && now != 0 { break; }
             prev = now;
         }

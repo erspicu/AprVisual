@@ -217,6 +217,15 @@ namespace AprVisual.Sim
             //    Pure-logic-gnd nodes (pull-up + only GND channels + no normal channel + no callback)
             //    resolve in O(1) via RecalcNodeFast, bypassing the group DFS. See WireCore.FastPath.cs.
             ClassifyPureLogicNodes();
+
+            // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
+            //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).
+            _callbackByNode = new CallbackInfo?[NodeCount];
+            for (int i = 0; i < NodeCount; i++)
+            {
+                var node = Nodes[i];
+                if (node != null) _callbackByNode[i] = node.Callback;
+            }
         }
 
         // length of TransistorList (for diagnostics)

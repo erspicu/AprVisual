@@ -116,11 +116,15 @@ namespace AprVisual.Sim
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
+            {
+                // F4: direct node-id array lookup, bypass Nodes[] managed Node object graph
+                var cbByNode = _callbackByNode;
                 for (int i = 0; i < _groupCount; i++)
                 {
-                    var node = Nodes[_groupBuf[i]];
-                    if (node?.Callback != null) EnqueueCallback(node.Callback);
+                    var cb = cbByNode![_groupBuf[i]];
+                    if (cb != null) EnqueueCallback(cb);
                 }
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

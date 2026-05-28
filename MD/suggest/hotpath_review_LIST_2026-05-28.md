@@ -152,12 +152,17 @@
   - **分析**:JIT 可能已經自動 hoist invariant 出 loop;拆 loop 反而增加 code size,風險可能影響 inline cascade。 reviewer 警告應驗
   - 狀態: **revert** ── 不確定信號就保持原樣
 
-- [ ] **#F4 callback target 改 node-id 直查表** (來源 C P2)
-  - 位置: `Recalc.cs` `RecalcNode` callback branch + Reset 建表
-  - 改動: Reset 建 `CallbackInfo?[] _callbackByNode`,RecalcNode 從 unmanaged 直接 array lookup,避開 `Nodes[]` managed `Node` object graph
+- [x] **#F4 callback target 改 node-id 直查表** (來源 C P2) ── **採用**
+  - 位置: `Recalc.cs` `RecalcNode` callback branch + Reset 建表 (WireCore.cs) + ResetHandlers 清除
+  - 改動: Reset 建 `CallbackInfo?[] _callbackByNode`,RecalcNode 從直接 array lookup,避開 `Nodes[].Callback` managed Node object graph
   - 預估收益: 小
-  - 風險: 低到中 ── 注意 ResetHandlers/FreeUnmanagedMemory 生命週期
-  - 狀態: 待測
+  - **實測 (2026-05-29, 20-run + top-half)**:
+    - BEFORE 10-run top 5 avg: 60,492 hc/s (thermal degraded 狀態)
+    - AFTER 20-run top 10 avg: **60,676 hc/s**
+    - Δ: **+0.30% top-half, +0.36% median**
+    - 在當前 thermal state 是真正小正面(BEFORE/AFTER 在同 state 量測)
+    - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
+  - 額外: 順便補回 `ResetHandlers()` (之前死碼清理時被誤刪)
 
 - [x] **#F5 tuple swap → manual temp** (來源 C P3) ── **跳過**
   - reviewer 自承「預期收益很小」,屬於 micro-opt 範圍

@@ -47,8 +47,19 @@ namespace AprVisual.Sim
         // returns in O(1) when pending=0 (the common case after most settles).
         private static List<CallbackInfo> _pendingCallbacks = new();
         private static List<CallbackInfo> _processingCallbacks = new();
+        // Node-id direct lookup (suggest #F4): _callbackByNode[nn] = the CallbackInfo registered
+        // on node nn (or null). Built in Reset; lets the hot RecalcNode callback-enqueue path
+        // do a direct array load instead of jumping into the managed Nodes[] Node object graph.
+        internal static CallbackInfo?[]? _callbackByNode;
 
-        internal static void ResetHandlers() { _handlerChain = null; _callbacks.Clear(); _pendingCallbacks.Clear(); _processingCallbacks.Clear(); }
+        internal static void ResetHandlers()
+        {
+            _handlerChain = null;
+            _callbacks.Clear();
+            _pendingCallbacks.Clear();
+            _processingCallbacks.Clear();
+            _callbackByNode = null;
+        }
 
         /// <summary>
         /// Fire <paramref name="cb"/> (once, after the next settle) whenever any of <paramref name="watchedNodes"/>

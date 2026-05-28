@@ -10,14 +10,18 @@
 
 ### P0 ── 在最熱路徑、收益高
 
-- [x] **#01 移除 `GetNodeValue` 內 `ForceCompute` 冗餘 bitwise mask** (來源 A2)
+- [x] **#01 移除 `GetNodeValue` 內 `ForceCompute` 冗餘 bitwise mask** (來源 A2) ── **採用**
   - 位置: `Group.cs` `GetNodeValue` (line 142-147)
   - 改動: 刪除 `if (ForceCompute && Gnd && Pwr) flags &= ~Gnd; flags &= ~Pwr;` 區塊
   - 理由: `BuildFlagsToStateTable` 啟動時對 256 個 flag 跑過 `FlagsToStateOf`,該函式逐字做了同樣的 mask。 LUT 已預先處理,這段是 dead code
   - 安全性: `_groupFlags` 之後只被 `& HasCallback` 讀,不被 Gnd/Pwr mask 影響
   - 預估收益: 0.3-0.7% (低,但 0 風險)
   - 風險: 0
-  - 狀態: 確認可做
+  - **實測 (2026-05-28, 5-run median)**:
+    - BEFORE: 55,147 hc/s
+    - AFTER:  55,863 hc/s
+    - Δ:      **+1.30%** (median),+1.04% (avg) ── 略高於預估
+    - checksum 5/5 `0x9B103E5E206E4C37`,selftest ALL PASS
 
 - [ ] **#02 延遲讀取 `NodeConnections`** (來源 A1 + B P0)
   - 位置: `Group.cs` `AddNodeOrApplyDriver` (line 133-134)

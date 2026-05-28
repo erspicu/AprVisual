@@ -139,12 +139,8 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte GetNodeValue()
         {
-            if ((_groupFlags & NodeFlags.ForceCompute) != 0 &&
-                (_groupFlags & NodeFlags.Gnd) != 0 && (_groupFlags & NodeFlags.Pwr) != 0)
-            {
-                _groupFlags &= ~NodeFlags.Gnd;
-                _groupFlags &= ~NodeFlags.Pwr;
-            }
+            // ForceCompute|Gnd|Pwr mask is pre-computed into the 256-entry FlagsToState LUT
+            // (see BuildFlagsToStateTable/FlagsToStateOf above) — no need to mask at runtime.
             if (_groupFlags == NodeFlags.None) return _maxState;   // purely floating: largest-cap node wins
             return FlagsToState[(int)_groupFlags];
         }

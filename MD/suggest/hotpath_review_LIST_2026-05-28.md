@@ -163,11 +163,16 @@
   - **分析**:R3 已大量消除 bounds check 後 BFS 變得 register-bound,group_buf footprint 早已落在 L2;進一步壓縮到 29KB 不改變 cache hit 狀況
   - 狀態: **revert**
 
-- [ ] **#R5 memory handler specialize ROM/RAM + precompute mask** (P1)
-  - 位置: MemHandlerSpec + run_mem_handler
-  - 改動: 預存 kind (RomRead/RamRw/RamReadOnly) + mem_mask;run_mem_handler 按 kind dispatch
-  - 等效 C# F2(已實測 +1.29%)
-  - 狀態: 待測
+- [x] **#R5 memory handler specialize ROM/RAM + precompute mask** (P1) ── **revert(負面)**
+  - 位置: WireCore struct + from_snapshot + run_mem_handler
+  - 改動: 加 `handler_kind` (0/1/2) + `handler_mask` 兩個 cold array,run_mem_handler 按 kind dispatch
+  - 等效 C# F2(C# 端 +1.29%)
+  - **實測 (2026-05-29, 20-run + top-half)**:
+    - BEFORE 10-run top 5 avg: 63,482 hc/s
+    - AFTER 20-run top 10 avg: 62,768 hc/s
+    - Δ: **-1.13%** ── 持續負面
+  - **分析**:Rust 結構與 C# 不同 ── C# 透過 closure capture 的 const 已內嵌,Rust 用 `MemHandlerSpec` struct 已是 plain field access (LLVM 容易 optimize)。 額外的 `handler_kind[h]` / `handler_mask[h]` 兩個 cold array lookup 反而成本變高
+  - 狀態: **revert** ── Rust 與 C# 結構差異使 F2 模式無效
 
 - [x] **#R6 snapshot 端移除 ROM data-bus trigger** (P1) ── **跳過**
   - 等效 C# F1 已實測 -0.18% (雜訊)

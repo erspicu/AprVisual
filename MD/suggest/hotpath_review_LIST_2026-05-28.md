@@ -88,16 +88,21 @@
     - 注意:第一輪 5-run 有 cold-start 拉低,extended 10 較穩。 改動本身對的
     - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
 
-- [ ] **#07 Clock handler 走直接 fast path** (來源 B P1)
-  - 位置: `Handlers.cs` `AttachClockHandler` (line 145-150) + `Recalc.cs` `StepCycle` (line 193-196)
-  - 改動: clock 不走 `_handlerChain` (multicast delegate),在 `AttachClockHandler` 把 clk node id 記到 `_clockNode`;`StepCycle` 直接:
-    ```csharp
-    if (NodeStates[clk] != 0) SetLow(clk); else SetHigh(clk);
-    ```
-  - 理由: 每 half-cycle 都會 toggle clock,multicast delegate invocation 是固定成本
+- [x] **#07 Clock handler 走直接 fast path** (來源 B P1) ── **revert(負效益)**
+  - 位置: `Handlers.cs` `AttachClockHandler` + `Recalc.cs` `StepCycle`
+  - 改動: clock 不走 `_handlerChain` (multicast delegate),改 `_clockNode` + `StepCycle` 內直接 toggle
   - 預估收益: 中
-  - 風險: 低(注意 reset/LoadSystem 生命週期)
-  - 狀態: 待實驗
+  - **實測 (2026-05-29, 20-run)**:
+    - BEFORE 5-run median: 63,086 hc/s
+    - AFTER 20-run median: 62,299 hc/s
+    - 前 5 of AFTER median: 61,635 hc/s = -2.30%
+    - 全 20 合計 median: -1.25%, avg -1.76%
+    - 持續負效益
+  - **分析**:推測 .NET 對單一 target 的 multicast delegate 已經優化成直接 indirect call(只一個分支),改動後反而:
+    1. 多 `if (_clockNode != EmptyNode)` 檢查
+    2. 失去原 lambda 的可能 JIT inline
+    3. 仍要呼叫 RunHandlerChain (現在永遠 null check 通過)
+  - 狀態: **revert** ── 第 7 個 dead-end 候選
 
 - [ ] **#08 `RunFrame()` 不要在 loop 內呼叫 `Step(1)`** (來源 B P1)
   - 位置: `System.cs` `RunFrame` (line 186-189)

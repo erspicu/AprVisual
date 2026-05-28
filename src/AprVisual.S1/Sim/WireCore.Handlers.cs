@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace AprVisual.Sim
 {
@@ -115,6 +116,30 @@ namespace AprVisual.Sim
         internal static IReadOnlyCollection<string> MemoryNames => _memories.Keys;
 
         // ── bit-vector helpers (a "register" = an ordered list of nodes; bit i = nodes[i]) ──
+        // int[] fast-path overload (suggest #06): handlers cache their node lists as int[]
+        // so this path bypasses IReadOnlyList interface dispatch (vtable Count + indexer).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadBits(int[] nodes)
+        {
+            int v = 0;
+            for (int i = 0; i < nodes.Length; i++) if (NodeStates[nodes[i]] != 0) v |= 1 << i;
+            return v;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteBits(int[] nodes, int value)
+        {
+            bool changed = false;
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
+                else                          changed |= SetLowQueued(nodes[i]);
+            }
+            if (changed) ProcessQueue();
+        }
+
+        // Generic IReadOnlyList overloads (List<int> / arrays-as-IReadOnlyList) — used by cold
+        // paths (Trace, TestRunner debug dumps, callsites that own a List<int>).
         public static int ReadBits(IReadOnlyList<int> nodes)
         {
             int v = 0;
@@ -122,11 +147,6 @@ namespace AprVisual.Sim
             return v;
         }
 
-        // Drive each bit high/low. Note: like MetalNES, this is a *persistent* drive (sets SetHigh/SetLow
-        // flags); the data bus is released implicitly when the chip's select line deasserts (its internal
-        // pass transistors disconnect the bus).
-        // Batch enqueue (one ProcessQueue at end) instead of N settles per N pins — RAM read on the 8-bit
-        // data bus used to fire 8 settles per byte; now fires 1.
         public static void WriteBits(IReadOnlyList<int> nodes, int value)
         {
             bool changed = false;
@@ -175,16 +195,21 @@ namespace AprVisual.Sim
 
             int cs = LookupNode(Full("cs"));
             int we = LookupNode(Full("/we"));                                    // ROM: usually absent
-            var addr = new List<int>(); ResolveNodes(Full("a[]"), addr);
-            var dataOut = new List<int>(); ResolveNodes(Full("_d[7:0]"), dataOut);   // internal data bus the handler drives
-            var dataBus = new List<int>(); ResolveNodes(Full("d[]"), dataBus);       // external data pins (for the trigger)
-            if (cs == EmptyNode || addr.Count == 0 || dataOut.Count == 0)
+            var addrL = new List<int>(); ResolveNodes(Full("a[]"), addrL);
+            var dataOutL = new List<int>(); ResolveNodes(Full("_d[7:0]"), dataOutL);
+            var dataBusL = new List<int>(); ResolveNodes(Full("d[]"), dataBusL);
+            if (cs == EmptyNode || addrL.Count == 0 || dataOutL.Count == 0)
             { Console.Error.WriteLine($"memory handler '{prefix}': missing cs/a[]/_d[7:0]"); return; }
+
+            // Cache as int[] (suggest #06) — the lambda closure captures arrays not List<int>,
+            // so ReadBits/WriteBits resolves to the int[] overload (no interface dispatch).
+            int[] addr = addrL.ToArray();
+            int[] dataOut = dataOutL.ToArray();
 
             var trigger = new List<int> { cs };
             if (we != EmptyNode) trigger.Add(we);
-            trigger.AddRange(addr);
-            trigger.AddRange(dataBus);
+            trigger.AddRange(addrL);
+            trigger.AddRange(dataBusL);
 
             AddCallback(trigger, () =>
             {

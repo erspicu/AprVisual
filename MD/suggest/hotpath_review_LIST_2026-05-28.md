@@ -77,13 +77,16 @@
     - 雜訊範圍也較小(spread 1100 vs 2100)── fast-path O(1) return 降低 settle 後波動
     - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
 
-- [ ] **#06 `ReadBits` / `WriteBits` 加 `int[]` / `ReadOnlySpan<int>` overload** (來源 B P1)
-  - 位置: `Handlers.cs` (line 110-131, 181-188, 229-240)
-  - 改動: 目前 `IReadOnlyList<int>` 介面呼叫成本(Count + indexer 走 vtable);改成接受 `int[]` 或 `ReadOnlySpan<int>`。 handler attach 時把 bus nodes 固定成 array
-  - 影響: memory / video callback 每次都走這條
-  - 預估收益: 中
-  - 風險: 低
-  - 狀態: 待實驗
+- [x] **#06 `ReadBits` / `WriteBits` 加 `int[]` overload** (來源 B P1) ── **採用**
+  - 位置: `Handlers.cs` (ReadBits/WriteBits + AttachRamLikeHandler)
+  - 改動: 加 `int[]` overload + `[AggressiveInlining]`;`AttachRamLikeHandler` 內 `addr`/`dataOut` 從 `List<int>` 轉成 `int[]` 再 capture 到 lambda 內
+  - 影響: memory(每次 RAM/ROM access) + video(每 pclk1)。 Video handler 已是 int[],call site 自動轉用新 overload
+  - **實測 (2026-05-29, 15-run)**:
+    - BEFORE 5-run median: 62,261 hc/s
+    - AFTER 15-run median (含 JIT 預熱): **62,880 hc/s**
+    - Δ: **+0.99% median, +1.10% avg**
+    - 注意:第一輪 5-run 有 cold-start 拉低,extended 10 較穩。 改動本身對的
+    - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
 
 - [ ] **#07 Clock handler 走直接 fast path** (來源 B P1)
   - 位置: `Handlers.cs` `AttachClockHandler` (line 145-150) + `Recalc.cs` `StepCycle` (line 193-196)

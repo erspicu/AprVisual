@@ -1,0 +1,38 @@
+[package]
+name = "wire_s1"
+version = "0.1.0"
+edition = "2021"
+
+# AprVisual.S1 Rust fork - clean baseline of the wire_realbench port.
+#
+# Distilled from experiment/rust-poc/ after the L3-layout + inline-cascade series
+# (2026-05-26 .. 2026-05-28). Includes ONLY the changes that empirically gave a
+# positive or bit-identical-zero-cost result; drops post-S1 experimental branches.
+#
+# Kept (hardcoded on):
+#   - L3 layout (ushort transistor_list, hot NodeInfo SoA, byte recalc_hash)
+#   - SetHigh/Low/Float no-op skip + WriteBits/run_mem_handler batch settle
+#   - Fast-path (recalc_node_fast for pure-logic-gnd nodes) ALWAYS on
+#   - Recursive add_node_to_group (LLVM inlines; per memory the C# iterative-BFS
+#     change was -1.3% on Rust, so we keep recursive here)
+#
+# Removed:
+#   - --prune-merge        (negative ~5 pct post-inline-cascade)
+#   - --parallel           (per-chip parallel: 15x SLOWER; see dead-end memory)
+#   - LUT-TTL dispatch     (negative on C#; Rust never gained either)
+#   - All chip-aware walk infrastructure (cpu/ppu scratch, buckets, serial_queue)
+#
+# Kept diag flag: --settle-stats (ProcessQueue iter histogram).
+
+[dependencies]
+png = "0.17"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+debug = false
+
+[[bin]]
+name = "wire_s1"
+path = "src/main.rs"

@@ -114,7 +114,48 @@
   - 原因:此項只在 `--benchmark --frames N` 路徑生效,`--bench-hc` 走 `Step(N)` 不經過。 用戶反映「影響到測試,以後再看看」
   - 狀態: **暫緩** ── 待 frame-based bench 流程穩定後再評估
 
-### P2 / P3 ── **不採納**
+### Follow-up (來源 C: Sim_hotpath_followup_suggestions_2026-05-29.md)
+
+- [x] **#F1 ROM memory handler 不監看 data bus** (來源 C P1) ── **revert(雜訊內)**
+  - 位置: `Handlers.cs` `AttachRamLikeHandler` trigger 建構
+  - 改動: `isRom == true` 時 `trigger` 不加 `dataBusL`
+  - **實測 (2026-05-29, 20-run with top-half)**:
+    - BEFORE 10-run top 5 avg: 63,502 hc/s
+    - AFTER 20-run top 10 avg: 63,387 hc/s
+    - Δ: **-0.18%** ── 雜訊內,無明顯收益
+    - checksum 全 `0x9B103E5E206E4C37`,行為正確
+  - **分析**:推測 ROM callback 雖頻繁觸發,但 `if (NodeStates[cs] != 0) return` 早期 filter 成本本來就低。 移除 fake transistor 對 BFS group size 也沒明顯影響
+  - 狀態: **revert**
+
+- [x] **#F2 memory callback body 依 ROM/RAM 拆開 + capture byte[] / mask** (來源 C P1) ── **採用**
+  - 位置: `Handlers.cs` `AttachRamLikeHandler` closure body
+  - 改動: attach-time capture `byte[] data = mem.Data`、`int mask = data.Length - 1`;`readOnly = isRom || we == EmptyNode` 判定後拆成兩個 lambda:read-only path 直接 `WriteBits(dataOut, data[address & mask])`;read/write path 只判斷 `NodeStates[we] == 0`
+  - 預估收益: 小到中
+  - **實測 (2026-05-29, 20-run + top-half)**:
+    - BEFORE 10-run top 5 avg: 63,175 hc/s
+    - AFTER 20-run top 10 avg: **63,582 hc/s**
+    - Δ: **+1.29% top-half avg, +0.58% median**
+    - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
+
+- [ ] **#F3 `SetNodeState` 依 `newState` 拆 high/low 兩個 loop** (來源 C P2)
+  - 位置: `Recalc.cs` `SetNodeState` fanout loop (#04 已 inline 後)
+  - 改動: 把 `if (newState == 0 && ...)` 從 inner loop 提出,拆成兩個分支 loop
+  - 預估收益: 小到中
+  - 風險: 中 ── reviewer 自承「複製 hot loop 改動曾因 JIT code shape 變差而負效益」
+  - 狀態: 待測(單獨)
+
+- [ ] **#F4 callback target 改 node-id 直查表** (來源 C P2)
+  - 位置: `Recalc.cs` `RecalcNode` callback branch + Reset 建表
+  - 改動: Reset 建 `CallbackInfo?[] _callbackByNode`,RecalcNode 從 unmanaged 直接 array lookup,避開 `Nodes[]` managed `Node` object graph
+  - 預估收益: 小
+  - 風險: 低到中 ── 注意 ResetHandlers/FreeUnmanagedMemory 生命週期
+  - 狀態: 待測
+
+- [x] **#F5 tuple swap → manual temp** (來源 C P3) ── **跳過**
+  - reviewer 自承「預期收益很小」,屬於 micro-opt 範圍
+  - 狀態: 不採納
+
+### P2 / P3 (原 reviewer A/B) ── **不採納**
 
 - [x] **#3' RecalcNodeFast 微調** (來源 A3)
   - `!= 0` vs `== 1`: C# JIT 對 byte* 編譯到相同 `test+jne`,無差別

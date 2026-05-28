@@ -211,14 +211,32 @@ namespace AprVisual.Sim
             trigger.AddRange(addrL);
             trigger.AddRange(dataBusL);
 
-            AddCallback(trigger, () =>
+            // Specialize callback body by ROM/RAM at attach time (suggest #F2): hoist mem.Data
+            // and mask out of the hot path, and split read-only vs read/write into separate
+            // closures so the closure body has no attach-time-known branches.
+            byte[] data = mem.Data;
+            int mask = data.Length - 1;
+            bool readOnly = isRom || we == EmptyNode;
+
+            if (readOnly)
             {
-                if (NodeStates[cs] != 0) return;                                  // chip not selected (cs active-low)
-                int address = ReadBits(addr);
-                bool writing = !isRom && we != EmptyNode && NodeStates[we] == 0;  // /we low ⇒ write
-                if (writing) mem.Write(address, (byte)ReadBits(dataOut));
-                else         WriteBits(dataOut, mem.Read(address));
-            });
+                AddCallback(trigger, () =>
+                {
+                    if (NodeStates[cs] != 0) return;
+                    int address = ReadBits(addr);
+                    WriteBits(dataOut, data[address & mask]);
+                });
+            }
+            else
+            {
+                AddCallback(trigger, () =>
+                {
+                    if (NodeStates[cs] != 0) return;
+                    int address = ReadBits(addr);
+                    if (NodeStates[we] == 0) data[address & mask] = (byte)ReadBits(dataOut);
+                    else                      WriteBits(dataOut, data[address & mask]);
+                });
+            }
         }
 
         /// <summary>

@@ -114,6 +114,64 @@
   - 原因:此項只在 `--benchmark --frames N` 路徑生效,`--bench-hc` 走 `Step(N)` 不經過。 用戶反映「影響到測試,以後再看看」
   - 狀態: **暫緩** ── 待 frame-based bench 流程穩定後再評估
 
+### Rust S1 specific (來源 R: RustS1_hotpath_suggestions_2026-05-29.md)
+
+- [ ] **#R1 NodeInfo 拆 hot/cold 欄位** (P0)
+  - 位置: `src/snapshot.rs` NodeInfo + `src/wire.rs` add_node_to_group
+  - 改動: from_snapshot 把 24-byte NodeInfo 拆成 16-byte NodeHot (flags + tlist_c1c2s/c1gnd/c1pwr) + 獨立 cold arrays (node_connections, node_tlist_gates)
+  - 理由: BFS 熱路徑只需 hot 欄位;每訪問 copy 整個 24B 是浪費
+  - C# 等效:已實作為 NodeInfos SoA split + NodeConnections / NodeTlistGates
+  - 預估收益: 高
+  - 狀態: 待測
+
+- [x] **#R2 invoke_callbacks swap 取代 mem::take** (P0) ── **revert (雜訊內)**
+  - 位置: `src/wire.rs` invoke_callbacks
+  - 改動: 加 `processing_handlers: Vec<i32>` 第二 list,swap-and-drain
+  - **實作障礙發現**:Rust 的 `for i in 0..N` range 是固定的,而 callback 是 re-entrant ── 內層 swap 會把外層 processing clear 掉導致 panic。 改用 `while i < len()` 重新評估
+  - **實測 (2026-05-29, 20-run)**:
+    - BEFORE top 5 avg: 58,053 hc/s
+    - AFTER top 10 of 20 avg: 57,891 hc/s
+    - Δ: -0.28% top-half ── 持續微負/雜訊
+  - **分析**:`mem::take` 換 `Vec::new()` 不真的 alloc(空 Vec 無配置);swap 與 take 兩種模式都只是 metadata 操作,實際 hot-loop 工作量差異微小。 額外 while-loop len 重評可能吃掉理論收益
+  - 狀態: **revert** ── Rust 對 mem::take 已優化,無需 swap
+
+- [ ] **#R3 get_unchecked 用於最熱 array** (P1)
+  - 位置: add_node_to_group / set_node_state / recalc_node_fast / run_mem_handler
+  - 改動: `self.node_states[gate as usize]` 等替換為 `*self.node_states.get_unchecked(gate as usize)`
+  - 理由: LLVM 可能無法消除所有 bounds check;snapshot 已保證範圍合法
+  - 預估收益: 中到高
+  - 風險: UB if snapshot 壞;需 debug validation
+  - 狀態: 待測
+
+- [ ] **#R4 group_buf 改 Vec<u16>** (P1)
+  - 位置: WireCore struct + group_buf 使用點
+  - 改動: `Vec<i32>` → `Vec<u16>`,半 footprint
+  - C# 等效:`ushort* _groupBuf` 已實作
+  - 預估收益: 中
+  - 狀態: 待測
+
+- [ ] **#R5 memory handler specialize ROM/RAM + precompute mask** (P1)
+  - 位置: MemHandlerSpec + run_mem_handler
+  - 改動: 預存 kind (RomRead/RamRw/RamReadOnly) + mem_mask;run_mem_handler 按 kind dispatch
+  - 等效 C# F2(已實測 +1.29%)
+  - 狀態: 待測
+
+- [x] **#R6 snapshot 端移除 ROM data-bus trigger** (P1) ── **跳過**
+  - 等效 C# F1 已實測 -0.18% (雜訊)
+  - 不需要 regenerate snapshot 浪費工夫
+
+- [ ] **#R7 handler bus 改 fixed-size struct** (P2)
+  - 等待 R5 結果再評估
+
+- [ ] **#R8 video bus 改 fixed arrays** (P2)
+  - 低優先
+
+- [x] **#R9 set_node_state 拆 newState loop** (P2) ── **跳過**
+  - 等效 C# F3 已實測 noise (+0.03%)
+
+- [ ] **#R10 target-cpu=native + panic=abort** (P3)
+  - build flag,獨立測,放最後
+
 ### Follow-up (來源 C: Sim_hotpath_followup_suggestions_2026-05-29.md)
 
 - [x] **#F1 ROM memory handler 不監看 data bus** (來源 C P1) ── **revert(雜訊內)**

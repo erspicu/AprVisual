@@ -176,27 +176,30 @@ impl WireCore {
     #[inline(always)]
     fn recalc_node_fast(&mut self, nn: i32) {
         let u = nn as usize;
-        let ni = self.node_hot[u];
-        let mut f = ni.flags;
-        if ni.tlist_c1gnd != 0 {
-            let mut p = ni.tlist_c1gnd as usize;
-            loop {
-                let gate = self.transistor_list[p];
-                if gate == 0 { break; }
-                p += 1;
-                if self.node_states[gate as usize] != 0 { f |= FLAG_GND; break; }
+        // R3: hot path — snapshot guarantees node ids and tlist indices are in range.
+        unsafe {
+            let ni = *self.node_hot.get_unchecked(u);
+            let mut f = ni.flags;
+            if ni.tlist_c1gnd != 0 {
+                let mut p = ni.tlist_c1gnd as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p);
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_GND; break; }
+                }
             }
-        }
-        if ni.tlist_c1pwr != 0 {
-            let mut p = ni.tlist_c1pwr as usize;
-            loop {
-                let gate = self.transistor_list[p];
-                if gate == 0 { break; }
-                p += 1;
-                if self.node_states[gate as usize] != 0 { f |= FLAG_PWR; break; }
+            if ni.tlist_c1pwr != 0 {
+                let mut p = ni.tlist_c1pwr as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p);
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_PWR; break; }
+                }
             }
+            self.set_node_state(nn, *self.flags_to_state.get_unchecked(f as usize));
         }
-        self.set_node_state(nn, self.flags_to_state[f as usize]);
     }
 
     #[inline(always)]
@@ -270,47 +273,46 @@ impl WireCore {
 
     fn add_node_to_group(&mut self, nn: i32) {
         let u = nn as usize;
+        // R3: snapshot guarantees node ids and tlist indices are in range.
         unsafe {
             if *self.in_group.get_unchecked(u) != 0 { return; }
             *self.in_group.get_unchecked_mut(u) = 1;
-        }
-        let ni = self.node_hot[u];
-        let gc = self.group_count;
-        self.group_buf[gc] = nn;
-        self.group_count = gc + 1;
-        self.recalc_hash[u] = 0;
-        self.group_flags |= ni.flags;
-        // NodeConnections deferred to compute_node_group's floating branch (sync #02):
-        // only needed when _group_flags ends up None, which is <1% of walks.
+            let ni = *self.node_hot.get_unchecked(u);
+            let gc = self.group_count;
+            *self.group_buf.get_unchecked_mut(gc) = nn;
+            self.group_count = gc + 1;
+            *self.recalc_hash.get_unchecked_mut(u) = 0;
+            self.group_flags |= ni.flags;
 
-        if ni.tlist_c1c2s != 0 {
-            let mut p = ni.tlist_c1c2s as usize;
-            loop {
-                let gate = self.transistor_list[p] as i32;
-                if gate == 0 { break; }
-                let other = self.transistor_list[p + 1] as i32;
-                p += 2;
-                if self.node_states[gate as usize] != 0 {
-                    self.add_node_to_group(other);
+            if ni.tlist_c1c2s != 0 {
+                let mut p = ni.tlist_c1c2s as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p) as i32;
+                    if gate == 0 { break; }
+                    let other = *self.transistor_list.get_unchecked(p + 1) as i32;
+                    p += 2;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 {
+                        self.add_node_to_group(other);
+                    }
                 }
             }
-        }
-        if ni.tlist_c1gnd != 0 {
-            let mut p = ni.tlist_c1gnd as usize;
-            loop {
-                let gate = self.transistor_list[p] as i32;
-                if gate == 0 { break; }
-                p += 1;
-                if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_GND; break; }
+            if ni.tlist_c1gnd != 0 {
+                let mut p = ni.tlist_c1gnd as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p) as i32;
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { self.group_flags |= FLAG_GND; break; }
+                }
             }
-        }
-        if ni.tlist_c1pwr != 0 {
-            let mut p = ni.tlist_c1pwr as usize;
-            loop {
-                let gate = self.transistor_list[p] as i32;
-                if gate == 0 { break; }
-                p += 1;
-                if self.node_states[gate as usize] != 0 { self.group_flags |= FLAG_PWR; break; }
+            if ni.tlist_c1pwr != 0 {
+                let mut p = ni.tlist_c1pwr as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p) as i32;
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { self.group_flags |= FLAG_PWR; break; }
+                }
             }
         }
     }
@@ -343,33 +345,31 @@ impl WireCore {
     #[inline(always)]
     fn set_node_state(&mut self, nn: i32, new_state: u8) {
         let u = nn as usize;
-        if self.node_states[u] == new_state { return; }
-        self.node_states[u] = new_state;
-        let tlist_gates = self.node_tlist_gates[u];   // R1: cold array
-        if tlist_gates != 0 {
-            // Sync #04: c1 is non-supply by construction (AddTransistor on C# side normalises
-            // any supply onto c2), so skip the npwr/ngnd check for c1. c2 *can* be supply.
-            let npwr = self.npwr;
-            let ngnd = self.ngnd;
-            let mut p = tlist_gates as usize;
-            loop {
-                let c1 = self.transistor_list[p] as i32;
-                if c1 == 0 { break; }
-                let c2 = self.transistor_list[p + 1] as i32;
-                p += 2;
-                // c1: non-supply by construction → direct inline enqueue
-                let cu = c1 as usize;
-                unsafe {
+        // R3: hot path — snapshot guarantees node ids and tlist indices are in range.
+        unsafe {
+            if *self.node_states.get_unchecked(u) == new_state { return; }
+            *self.node_states.get_unchecked_mut(u) = new_state;
+            let tlist_gates = *self.node_tlist_gates.get_unchecked(u);
+            if tlist_gates != 0 {
+                // Sync #04: c1 is non-supply by construction (AddTransistor on C# side
+                // normalises supply onto c2), so skip npwr/ngnd check for c1. c2 can be supply.
+                let npwr = self.npwr;
+                let ngnd = self.ngnd;
+                let mut p = tlist_gates as usize;
+                loop {
+                    let c1 = *self.transistor_list.get_unchecked(p) as i32;
+                    if c1 == 0 { break; }
+                    let c2 = *self.transistor_list.get_unchecked(p + 1) as i32;
+                    p += 2;
+                    let cu = c1 as usize;
                     if *self.recalc_hash_next.get_unchecked(cu) == 0 {
                         let i = self.list_next_count;
                         *self.recalc_list_next.get_unchecked_mut(i) = c1;
                         self.list_next_count = i + 1;
                         *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
                     }
-                }
-                if new_state == 0 && c2 != npwr && c2 != ngnd {
-                    let cu = c2 as usize;
-                    unsafe {
+                    if new_state == 0 && c2 != npwr && c2 != ngnd {
+                        let cu = c2 as usize;
                         if *self.recalc_hash_next.get_unchecked(cu) == 0 {
                             let i = self.list_next_count;
                             *self.recalc_list_next.get_unchecked_mut(i) = c2;

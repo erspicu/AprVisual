@@ -139,13 +139,18 @@
   - **分析**:`mem::take` 換 `Vec::new()` 不真的 alloc(空 Vec 無配置);swap 與 take 兩種模式都只是 metadata 操作,實際 hot-loop 工作量差異微小。 額外 while-loop len 重評可能吃掉理論收益
   - 狀態: **revert** ── Rust 對 mem::take 已優化,無需 swap
 
-- [ ] **#R3 get_unchecked 用於最熱 array** (P1)
-  - 位置: add_node_to_group / set_node_state / recalc_node_fast / run_mem_handler
-  - 改動: `self.node_states[gate as usize]` 等替換為 `*self.node_states.get_unchecked(gate as usize)`
-  - 理由: LLVM 可能無法消除所有 bounds check;snapshot 已保證範圍合法
+- [x] **#R3 get_unchecked 用於最熱 array** (P1) ── **採用,大進步**
+  - 位置: `recalc_node_fast` + `add_node_to_group` + `set_node_state`
+  - 改動: `node_states`/`transistor_list`/`node_hot`/`node_tlist_gates`/`recalc_hash_next`/`recalc_list_next`/`flags_to_state`/`in_group`/`recalc_hash`/`group_buf` 全部 hot 訪問替換為 `*x.get_unchecked(i)` 在 `unsafe` block 內
+  - 理由: LLVM 在 hot loop 內難以證明所有 bounds 安全;snapshot 已保證範圍合法
   - 預估收益: 中到高
-  - 風險: UB if snapshot 壞;需 debug validation
-  - 狀態: 待測
+  - **實測 (2026-05-29, 20-run + top-half)**:
+    - BEFORE 10-run top 5 avg: 56,709 hc/s
+    - AFTER 20-run top 10 avg: **63,552 hc/s**
+    - Δ: **+12.06%** ── 大躍進
+    - checksum 全 `0x9B103E5E206E4C37`,shot PNG md5 `e2fd72a3...` bit-identical
+  - 風險: UB if snapshot 壞 ── 此項假設 snapshot loader 已驗證所有 node id < node_count、tlist offset < tlist_len
+  - **驚奇**:預期中到高但拿到 +12%,推測 LLVM 即使對 const-bounded indexing 也會保留 panic-on-OOB 分支
 
 - [ ] **#R4 group_buf 改 Vec<u16>** (P1)
   - 位置: WireCore struct + group_buf 使用點

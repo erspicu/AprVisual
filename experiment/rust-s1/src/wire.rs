@@ -50,8 +50,6 @@ pub struct WireCore {
     pub in_group: Vec<u8>,
     pub group_count: usize,
     pub group_flags: u8,
-    pub max_state: u8,
-    pub max_connections: i32,
 
     pub time: i64,
 
@@ -124,8 +122,6 @@ impl WireCore {
             in_group: vec![0u8; nc],
             group_count: 0,
             group_flags: 0,
-            max_state: 0,
-            max_connections: 0,
             time: 0,
             handlers: snap.handlers,
             target_to_handler,
@@ -249,12 +245,10 @@ impl WireCore {
         let gc = self.group_count;
         self.group_buf[gc] = nn;
         self.group_count = gc + 1;
-        if ni.connections > self.max_connections {
-            self.max_state = self.node_states[u];
-            self.max_connections = ni.connections;
-        }
         self.recalc_hash[u] = 0;
         self.group_flags |= ni.flags;
+        // NodeConnections deferred to compute_node_group's floating branch (sync #02):
+        // only needed when _group_flags ends up None, which is <1% of walks.
 
         if ni.tlist_c1c2s != 0 {
             let mut p = ni.tlist_c1c2s as usize;
@@ -295,14 +289,22 @@ impl WireCore {
         }
         self.group_flags = 0;
         self.group_count = 0;
-        self.max_state = 0;
-        self.max_connections = 0;
         self.add_node_to_group(nn);
-        let mut f = self.group_flags;
-        if (f & FLAG_FORCE_COMPUTE) != 0 && (f & FLAG_GND) != 0 && (f & FLAG_PWR) != 0 {
-            f &= !(FLAG_GND | FLAG_PWR);
+        // Sync #01: ForceCompute|Gnd|Pwr mask is pre-computed into the flags_to_state LUT
+        // (snapshot exporter ran FlagsToStateOf on all 256 indices), no need to mask here.
+        let f = self.group_flags;
+        if f != 0 { return self.flags_to_state[f as usize]; }
+
+        // Sync #02: purely floating group — find max-connection node by linear scan.
+        // Deferred from BFS; only <1% of walks hit this.
+        let mut max_conn = -1i32;
+        let mut max_state = 0u8;
+        for i in 0..self.group_count {
+            let nn = self.group_buf[i];
+            let conn = self.node_infos[nn as usize].connections;
+            if conn > max_conn { max_state = self.node_states[nn as usize]; max_conn = conn; }
         }
-        if f == 0 { self.max_state } else { self.flags_to_state[f as usize] }
+        max_state
     }
 
     #[inline(always)]
@@ -312,24 +314,27 @@ impl WireCore {
         self.node_states[u] = new_state;
         let ni = self.node_infos[u];
         if ni.tlist_gates != 0 {
+            // Sync #04: c1 is non-supply by construction (AddTransistor on C# side normalises
+            // any supply onto c2), so skip the npwr/ngnd check for c1. c2 *can* be supply.
+            let npwr = self.npwr;
+            let ngnd = self.ngnd;
             let mut p = ni.tlist_gates as usize;
             loop {
                 let c1 = self.transistor_list[p] as i32;
                 if c1 == 0 { break; }
                 let c2 = self.transistor_list[p + 1] as i32;
                 p += 2;
-                if c1 != self.npwr && c1 != self.ngnd {
-                    let cu = c1 as usize;
-                    unsafe {
-                        if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                            let i = self.list_next_count;
-                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
-                            self.list_next_count = i + 1;
-                            *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
-                        }
+                // c1: non-supply by construction → direct inline enqueue
+                let cu = c1 as usize;
+                unsafe {
+                    if *self.recalc_hash_next.get_unchecked(cu) == 0 {
+                        let i = self.list_next_count;
+                        *self.recalc_list_next.get_unchecked_mut(i) = c1;
+                        self.list_next_count = i + 1;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
                     }
                 }
-                if new_state == 0 && c2 != self.npwr && c2 != self.ngnd {
+                if new_state == 0 && c2 != npwr && c2 != ngnd {
                     let cu = c2 as usize;
                     unsafe {
                         if *self.recalc_hash_next.get_unchecked(cu) == 0 {

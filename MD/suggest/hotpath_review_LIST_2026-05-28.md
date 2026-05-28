@@ -50,14 +50,17 @@
   - **分析**:預估「對大型 bus group 較明顯」,實際多數 group 只接觸一個 GND/PWR source,skip 鮮少觸發;但每訪問都多付 1 個 bit-test。 cost ≈ benefit
   - 狀態: **revert** ── 改動雖然語意正確但實證無收益,移除避免無謂複雜度
 
-- [ ] **#04 `SetNodeState` inline enqueue,跳過 c1 supply check** (來源 B P0)
+- [x] **#04 `SetNodeState` inline enqueue,跳過 c1 supply check** (來源 B P0) ── **採用**
   - 位置: `Recalc.cs` `SetNodeState` (line 127-143) + `EnqueueNode` (line 45-54)
   - 改動: 在 `SetNodeState` 開頭把 `RecalcListNext`/`RecalcHashNext`/`RecalcListNextCount` 複製到 local,然後對 `c1` 直接 inline 三行 enqueue,跳過 `EnqueueNode` 內的 supply check;對 `c2` 只在 `newState == 0` 且非 supply 時 inline
   - 理由: `AddTransistor` (Module.cs:125) `if (IsPwrGnd(c1)) (c1, c2) = (c2, c1);` 已把 supply 正規化到 c2。 c1 永遠不是 Npwr/Ngnd,EnqueueNode 內的 supply check 對 c1 是 dead branch
-  - `EnqueueNode` 已 `[AggressiveInlining]`,但實際 inline 後的 supply check 是否被 constant-fold 不確定 ── 顯式跳過更穩
-  - 預估收益: 高(這是每節點翻轉的 fanout 擴散點)
-  - 風險: 低到中 ── 要確認 c1 invariant,可加 Debug.Assert
-  - 狀態: 待實驗
+  - 預估收益: 高
+  - **實測 (2026-05-28, 10-run)**:
+    - BEFORE 5-run median: 61,441 hc/s
+    - AFTER 10-run median: **62,624 hc/s**
+    - Δ: **+1.93% median, +3.07% avg**
+    - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
+  - 額外: hoisting `RecalcListNext`/`RecalcHashNext`/`RecalcListNextCount` 到 local,讓 JIT 更明確優化
 
 ### P1 ── 中等熱路徑或常用路徑
 

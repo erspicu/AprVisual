@@ -11,8 +11,21 @@
 // Removed: --prune-merge, --parallel, chip-aware walk, LUT-TTL dispatch.
 // (Snapshots created with --lut-ttl will have lut_chips populated; we ignore them.)
 
-use crate::snapshot::{NodeInfo, MemHandlerSpec, FLAG_GND, FLAG_PWR, FLAG_PULLUP, FLAG_SETHIGH,
+use crate::snapshot::{MemHandlerSpec, FLAG_GND, FLAG_PWR, FLAG_PULLUP, FLAG_SETHIGH,
                       FLAG_SETLOW, FLAG_FORCE_COMPUTE, FLAG_HAS_CALLBACK};
+
+// R1: Hot NodeInfo (16 bytes) — only fields read every BFS visit / set_node_state walk.
+// Cold fields (connections, tlist_gates) moved to separate arrays.
+// 1 (flags) + 3 (pad) + 4*3 (tlists) = 16 bytes, exactly one quarter of an L1 cache line.
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+pub struct NodeHot {
+    pub flags: u8,
+    _pad: [u8; 3],
+    pub tlist_c1c2s: i32,
+    pub tlist_c1gnd: i32,
+    pub tlist_c1pwr: i32,
+}
 
 pub const SCREEN_W: usize = 256;
 pub const SCREEN_H: usize = 240;
@@ -33,7 +46,9 @@ pub struct WireCore {
     pub ngnd: i32,
 
     pub node_states: Vec<u8>,
-    pub node_infos: Vec<NodeInfo>,
+    pub node_hot: Vec<NodeHot>,
+    pub node_connections: Vec<i32>,   // cold: only floating tie-break (compute_node_group)
+    pub node_tlist_gates: Vec<i32>,   // cold: only fanout writeback (set_node_state)
     pub transistor_list: Vec<u16>,
     pub flags_to_state: [u8; 256],
 
@@ -105,11 +120,29 @@ impl WireCore {
             fast_path_count += 1;
         }
 
+        // R1: split snapshot NodeInfo into hot NodeHot[] + cold parallel arrays. Hot path
+        // (add_node_to_group / recalc_node_fast / *_queued) only touches NodeHot;
+        // node_connections is only read in compute_node_group's floating tie-break;
+        // node_tlist_gates is only read in set_node_state's fanout writeback.
+        let mut node_hot = vec![NodeHot::default(); nc];
+        let mut node_connections = vec![0i32; nc];
+        let mut node_tlist_gates = vec![0i32; nc];
+        for (i, ni) in snap.node_infos.iter().enumerate() {
+            node_hot[i].flags = ni.flags;
+            node_hot[i].tlist_c1c2s = ni.tlist_c1c2s;
+            node_hot[i].tlist_c1gnd = ni.tlist_c1gnd;
+            node_hot[i].tlist_c1pwr = ni.tlist_c1pwr;
+            node_connections[i] = ni.connections;
+            node_tlist_gates[i] = ni.tlist_gates;
+        }
+
         WireCore {
             npwr: snap.npwr,
             ngnd: snap.ngnd,
             node_states: snap.node_states,
-            node_infos: snap.node_infos,
+            node_hot,
+            node_connections,
+            node_tlist_gates,
             transistor_list: snap.transistor_list,
             flags_to_state: snap.flags_to_state,
             recalc_list: vec![0i32; nc],
@@ -143,7 +176,7 @@ impl WireCore {
     #[inline(always)]
     fn recalc_node_fast(&mut self, nn: i32) {
         let u = nn as usize;
-        let ni = self.node_infos[u];
+        let ni = self.node_hot[u];
         let mut f = ni.flags;
         if ni.tlist_c1gnd != 0 {
             let mut p = ni.tlist_c1gnd as usize;
@@ -209,10 +242,10 @@ impl WireCore {
     #[inline(always)]
     fn set_high_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
-        let f = self.node_infos[u].flags;
+        let f = self.node_hot[u].flags;
         let new_f = (f & !FLAG_SETLOW) | FLAG_SETHIGH;
         if new_f == f { return false; }
-        self.node_infos[u].flags = new_f;
+        self.node_hot[u].flags = new_f;
         self.enqueue(nn);
         true
     }
@@ -220,10 +253,10 @@ impl WireCore {
     #[inline(always)]
     fn set_low_queued(&mut self, nn: i32) -> bool {
         let u = nn as usize;
-        let f = self.node_infos[u].flags;
+        let f = self.node_hot[u].flags;
         let new_f = (f & !FLAG_SETHIGH) | FLAG_SETLOW;
         if new_f == f { return false; }
-        self.node_infos[u].flags = new_f;
+        self.node_hot[u].flags = new_f;
         self.enqueue(nn);
         true
     }
@@ -241,7 +274,7 @@ impl WireCore {
             if *self.in_group.get_unchecked(u) != 0 { return; }
             *self.in_group.get_unchecked_mut(u) = 1;
         }
-        let ni = self.node_infos[u];
+        let ni = self.node_hot[u];
         let gc = self.group_count;
         self.group_buf[gc] = nn;
         self.group_count = gc + 1;
@@ -301,7 +334,7 @@ impl WireCore {
         let mut max_state = 0u8;
         for i in 0..self.group_count {
             let nn = self.group_buf[i];
-            let conn = self.node_infos[nn as usize].connections;
+            let conn = self.node_connections[nn as usize];
             if conn > max_conn { max_state = self.node_states[nn as usize]; max_conn = conn; }
         }
         max_state
@@ -312,13 +345,13 @@ impl WireCore {
         let u = nn as usize;
         if self.node_states[u] == new_state { return; }
         self.node_states[u] = new_state;
-        let ni = self.node_infos[u];
-        if ni.tlist_gates != 0 {
+        let tlist_gates = self.node_tlist_gates[u];   // R1: cold array
+        if tlist_gates != 0 {
             // Sync #04: c1 is non-supply by construction (AddTransistor on C# side normalises
             // any supply onto c2), so skip the npwr/ngnd check for c1. c2 *can* be supply.
             let npwr = self.npwr;
             let ngnd = self.ngnd;
-            let mut p = ni.tlist_gates as usize;
+            let mut p = tlist_gates as usize;
             loop {
                 let c1 = self.transistor_list[p] as i32;
                 if c1 == 0 { break; }
@@ -367,7 +400,7 @@ impl WireCore {
             for i in 0..gc {
                 let id = self.group_buf[i];
                 let u = id as usize;
-                if (self.node_infos[u].flags & FLAG_HAS_CALLBACK) != 0 {
+                if (self.node_hot[u].flags & FLAG_HAS_CALLBACK) != 0 {
                     let hi = self.target_to_handler[u];
                     if hi >= 0 {
                         let h = hi as usize;

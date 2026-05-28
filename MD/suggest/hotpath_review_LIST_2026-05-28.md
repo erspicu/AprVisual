@@ -116,13 +116,17 @@
 
 ### Rust S1 specific (來源 R: RustS1_hotpath_suggestions_2026-05-29.md)
 
-- [ ] **#R1 NodeInfo 拆 hot/cold 欄位** (P0)
-  - 位置: `src/snapshot.rs` NodeInfo + `src/wire.rs` add_node_to_group
-  - 改動: from_snapshot 把 24-byte NodeInfo 拆成 16-byte NodeHot (flags + tlist_c1c2s/c1gnd/c1pwr) + 獨立 cold arrays (node_connections, node_tlist_gates)
-  - 理由: BFS 熱路徑只需 hot 欄位;每訪問 copy 整個 24B 是浪費
-  - C# 等效:已實作為 NodeInfos SoA split + NodeConnections / NodeTlistGates
+- [x] **#R1 NodeInfo 拆 hot/cold 欄位** (P0) ── **採用**
+  - 位置: `src/wire.rs` 加 `NodeHot` (16-byte) + cold `node_connections` / `node_tlist_gates`
+  - 改動: from_snapshot 把 24-byte NodeInfo 拆成 16-byte NodeHot (flags + tlist_c1c2s/c1gnd/c1pwr) + 兩個獨立 cold Vec<i32>;snapshot.rs NodeInfo 保留作 load-time middleman
+  - C# 等效:NodeInfos SoA split + NodeConnections + NodeTlistGates
   - 預估收益: 高
-  - 狀態: 待測
+  - **實測 (2026-05-29, 20-run + top-half + shot)**:
+    - BEFORE 10-run top 5 avg: 57,952 hc/s
+    - AFTER 20-run top 10 avg: **58,886 hc/s**
+    - Δ: **+1.61% top-half, +1.56% median**
+    - checksum 全 `0x9B103E5E206E4C37` (bench-hc),`0x4ABCF1ABDCE72389` (5-frame shot)
+    - PNG md5 `e2fd72a3...` 對到原版,bit-identical 渲染
 
 - [x] **#R2 invoke_callbacks swap 取代 mem::take** (P0) ── **revert (雜訊內)**
   - 位置: `src/wire.rs` invoke_callbacks

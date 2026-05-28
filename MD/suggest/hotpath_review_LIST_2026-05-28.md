@@ -152,12 +152,16 @@
   - 風險: UB if snapshot 壞 ── 此項假設 snapshot loader 已驗證所有 node id < node_count、tlist offset < tlist_len
   - **驚奇**:預期中到高但拿到 +12%,推測 LLVM 即使對 const-bounded indexing 也會保留 panic-on-OOB 分支
 
-- [ ] **#R4 group_buf 改 Vec<u16>** (P1)
+- [x] **#R4 group_buf 改 Vec<u16>** (P1) ── **revert (R3 已吃掉空間)**
   - 位置: WireCore struct + group_buf 使用點
-  - 改動: `Vec<i32>` → `Vec<u16>`,半 footprint
-  - C# 等效:`ushort* _groupBuf` 已實作
+  - 改動: `Vec<i32>` → `Vec<u16>`,58KB → 29KB
   - 預估收益: 中
-  - 狀態: 待測
+  - **實測 (2026-05-29, 20-run + top-half)**:
+    - BEFORE 10-run top 5 avg: 63,396 hc/s
+    - AFTER 20-run top 10 avg: 63,373 hc/s
+    - Δ: **-0.04%** ── 完全沒幫助
+  - **分析**:R3 已大量消除 bounds check 後 BFS 變得 register-bound,group_buf footprint 早已落在 L2;進一步壓縮到 29KB 不改變 cache hit 狀況
+  - 狀態: **revert**
 
 - [ ] **#R5 memory handler specialize ROM/RAM + precompute mask** (P1)
   - 位置: MemHandlerSpec + run_mem_handler

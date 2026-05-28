@@ -1,8 +1,8 @@
 // wire_s1 — AprVisual.S1 Rust fork bench-hc / shot runner.
 //
 // Usage:
-//   wire_s1 bench <snapshot.aprsnap> <hc_count> [--settle-stats]
-//   wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png> [--settle-stats]
+//   wire_s1 bench <snapshot.aprsnap> <hc_count>
+//   wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png>
 
 mod snapshot;
 mod wire;
@@ -22,14 +22,10 @@ fn main() {
 }
 
 fn usage() {
-    eprintln!("usage: wire_s1 bench <snapshot.aprsnap> <hc_count> [--settle-stats]");
-    eprintln!("       wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png>  [--settle-stats]");
+    eprintln!("usage: wire_s1 bench <snapshot.aprsnap> <hc_count>");
+    eprintln!("       wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png>");
     eprintln!();
     eprintln!("Fast-path is always on in the S1 fork (no flag).");
-}
-
-fn flag_set(args: &[String], flag: &str) -> bool {
-    args.iter().any(|a| a == flag)
 }
 
 fn bench(args: &[String]) {
@@ -42,7 +38,6 @@ fn bench(args: &[String]) {
     let clock_node = snap.clock_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
-    if flag_set(args, "--settle-stats") { wc.enable_settle_stats(); eprintln!("# --settle-stats: ProcessQueue iter histogram"); }
 
     let t = Instant::now();
     wc.step(n, clock_node);
@@ -56,7 +51,6 @@ fn bench(args: &[String]) {
     println!("# rate: {hcps:.0} hc/s ({us_per_hc:.2} µs/hc)");
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
-    if wc.enable_settle_stats { println!("# {}", wc.settle_stats_report()); }
 }
 
 fn shot(args: &[String]) {
@@ -71,7 +65,6 @@ fn shot(args: &[String]) {
     let vblank_node = snap.ppu_vblank_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
-    if flag_set(args, "--settle-stats") { wc.enable_settle_stats(); }
 
     let t = Instant::now();
     let mut total_hc = 0i64;
@@ -104,7 +97,4 @@ fn shot(args: &[String]) {
 
     let checksum = wc.node_states_checksum();
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}", wc.time);
-    if wc.enable_settle_stats {
-        println!("# {}", wc.settle_stats_report());
-    }
 }

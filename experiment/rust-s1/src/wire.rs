@@ -74,13 +74,6 @@ pub struct WireCore {
     // fast-path: pre-classified pure-logic-gnd nodes that resolve in O(1)
     pub is_pure_logic: Vec<u8>,
     pub fast_path_count: usize,
-
-    // settle-stats — per-ProcessQueue iter histogram
-    pub enable_settle_stats: bool,
-    pub settle_histogram: [u64; 12],
-    pub settle_call_count: u64,
-    pub settle_iter_total: u64,
-    pub settle_max_iter: u32,
 }
 
 // 2026-05-25: 128 = ~2.8x safety margin over observed max (full_palette 45 iter, SMB 41 iter).
@@ -148,53 +141,7 @@ impl WireCore {
             framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
             is_pure_logic,
             fast_path_count,
-            enable_settle_stats: false,
-            settle_histogram: [0; 12],
-            settle_call_count: 0,
-            settle_iter_total: 0,
-            settle_max_iter: 0,
         }
-    }
-
-    pub fn enable_settle_stats(&mut self) { self.enable_settle_stats = true; }
-
-    #[inline]
-    fn record_settle(&mut self, iter: u32) {
-        self.settle_call_count += 1;
-        self.settle_iter_total += iter as u64;
-        if iter > self.settle_max_iter { self.settle_max_iter = iter; }
-        let b: usize = if iter <= 4 { (iter - 1) as usize }
-                       else if iter <=   8 { 4 }
-                       else if iter <=  16 { 5 }
-                       else if iter <=  32 { 6 }
-                       else if iter <=  64 { 7 }
-                       else if iter <= 128 { 8 }
-                       else if iter <= 256 { 9 }
-                       else if iter <= 512 { 10 }
-                       else                { 11 };
-        self.settle_histogram[b] += 1;
-    }
-
-    pub fn settle_stats_report(&self) -> String {
-        if self.settle_call_count == 0 { return "(settle-stats: 0 calls)".to_string(); }
-        let avg = self.settle_iter_total as f64 / self.settle_call_count as f64;
-        let target = (self.settle_call_count as f64 * 0.99).ceil() as u64;
-        let labels = ["1", "2", "3", "4", "5-8", "9-16", "17-32", "33-64", "65-128", "129-256", "257-512", "513+"];
-        let mut cum: u64 = 0;
-        let mut p99 = labels.len() - 1;
-        for i in 0..labels.len() {
-            cum += self.settle_histogram[i];
-            if cum >= target { p99 = i; break; }
-        }
-        let mut s = format!("settle-stats: {} ProcessQueue calls, avg {:.2} iter/call, max {} iter, p99 in [{}]",
-            self.settle_call_count, avg, self.settle_max_iter, labels[p99]);
-        s.push_str("\n# settle-stats histogram:");
-        for i in 0..labels.len() {
-            if self.settle_histogram[i] == 0 { continue; }
-            let pct = 100.0 * self.settle_histogram[i] as f64 / self.settle_call_count as f64;
-            s.push_str(&format!("\n#   {:>8}: {:>9} ({:>5.1}%)", labels[i], self.settle_histogram[i], pct));
-        }
-        s
     }
 
     #[inline(always)]
@@ -455,7 +402,6 @@ impl WireCore {
             }
             self.list_count = 0;
         }
-        if self.enable_settle_stats { self.record_settle(iters); }
         if !self.pending_handlers.is_empty() {
             self.invoke_callbacks();
         }

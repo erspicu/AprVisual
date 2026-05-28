@@ -22,7 +22,8 @@ edition = "2021"
 #   - LUT-TTL dispatch     (negative on C#; Rust never gained either)
 #   - All chip-aware walk infrastructure (cpu/ppu scratch, buckets, serial_queue)
 #
-# Kept diag flag: --settle-stats (ProcessQueue iter histogram).
+# No diag flags retained — keep bench/shot lean. The MaxSettlePasses cap still
+# emits a stderr warning if a settle pass cannot converge (passive monitoring).
 
 [dependencies]
 png = "0.17"

@@ -103,7 +103,6 @@ namespace AprVisual.Sim
                 }
                 RecalcListCount = 0;
             }
-            if (EnableSettleStats) RecordSettle(iteration);
             InvokeCallbacks();   // WireCore.Handlers.cs
         }
 

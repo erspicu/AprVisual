@@ -10,7 +10,7 @@ namespace AprVisual.Test
     // ── AprVisual.S1 fork CLI. Pruned of all post-S1 branches (IR / Codegen / PruneMerge / Levelize
     //    / Oblivious / RCM / SimdQueue / LutTtl / DeadEndSkip / AOT). Optimizations that proved out
     //    are now hardcoded on (fast-path, no-op skip, iterative BFS, batch settle, JIT inline cascade).
-    //    Diagnostic flags retained: --settle-stats.
+    //    Diagnostic flags: --no-lower (lowering A/B compare). --fast-path accepted as no-op.
     internal static class TestRunner
     {
         public static int Run(string[] args)
@@ -48,7 +48,6 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
-                    case "--settle-stats":    WireCore.EnableSettleStats = true; break;
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -415,7 +414,6 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
-                if (WireCore.EnableSettleStats) { WireCore.BuildSettleStatsString(); Console.WriteLine($"# {WireCore.LastSettleStats}"); }
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
@@ -707,7 +705,6 @@ namespace AprVisual.Test
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
-                    [--settle-stats]                       ProcessQueue iteration histogram
                     [--fast-path]                          no-op (fast-path is always on in S1)
 
                   (no args)                                open an empty window

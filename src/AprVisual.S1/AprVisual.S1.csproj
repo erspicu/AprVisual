@@ -15,7 +15,7 @@
       Iterative AddNodeToGroup,
       SetHigh/Low/Float no-op skip + WriteBits batch settle,
       Fast-path (RecalcNodeFast for pure-logic-gnd) ALWAYS on,
-      Diag CLI flags retained: chip-diag / settle-stats / dead-end-diag / count-events.
+      Diag CLI flags retained: no-lower only (fast-path accepted no-op for compat).
 
     Removed (per session-end measurements):
       prune-merge        (negative 5 pct in both C# and Rust post-inline-cascade),

@@ -194,7 +194,6 @@ namespace AprVisual.Sim
         private static void StepCycle()
         {
             RunHandlerChain();          // WireCore.Handlers.cs (clock handler toggles "clk", nes-system handler, …)
-            if (TraceLevel != 0) CaptureTraceLine();   // WireCore.Trace.cs
             Time++;
         }
     }

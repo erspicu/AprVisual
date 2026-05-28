@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -6,47 +5,9 @@ namespace AprVisual.Sim
 {
     internal static unsafe partial class WireCore
     {
-        // ── Trace logging + the blargg $6000 test-ROM result probe — port of ref/metalnes-main
-        //    handler_log.h / logger.cpp + handler_nes_system::check_unit_test().
-        //    See MD/note/04_驗證與測試策略.md and MD/struct/01 附錄 B (cpu_eval_trace.json).
-        //    (ReadBits / WriteBits live in WireCore.Handlers.cs.)
-
-        // ── trace columns (a "logic analyser": pick node/register expressions, dump one line per trace point) ──
-        private static readonly List<(string Label, int[] Nodes)> _traceColumns = new();
-        private static readonly List<string> _traceLog = new();
-        public static IReadOnlyList<string> TraceLog => _traceLog;
-        public static void ClearTrace() { _traceLog.Clear(); }
-
-        /// <summary>Configure trace columns from a comma-separated expression list, e.g. "cpu.clk0,cpu.ab[15:0],cpu.db[7:0],cpu.rw".</summary>
-        public static void SetTraceColumns(string exprCsv)
-        {
-            _traceColumns.Clear();
-            foreach (var raw in exprCsv.Split(','))
-            {
-                string e = raw.Trim();
-                if (e.Length == 0) { _traceColumns.Add(("", Array.Empty<int>())); continue; }   // blank column = separator
-                var ids = new List<int>();
-                ResolveNodes(e, ids, quiet: true);
-                _traceColumns.Add((e, ids.ToArray()));
-            }
-            if (_traceColumns.Count > 0) TraceLevel = 1;
-        }
-
-        /// <summary>Append one trace line: the current value of each configured column.</summary>
-        public static void CaptureTraceLine()
-        {
-            if (_traceColumns.Count == 0) return;
-            var sb = new StringBuilder();
-            sb.Append(Time.ToString().PadLeft(9)).Append("  ");
-            foreach (var (label, nodes) in _traceColumns)
-            {
-                if (nodes.Length == 0) { sb.Append(" | "); continue; }
-                int v = ReadBits(nodes);
-                int hexDigits = (nodes.Length + 3) / 4;
-                sb.Append(label).Append('=').Append(v.ToString("X").PadLeft(hexDigits, '0')).Append("  ");
-            }
-            _traceLog.Add(sb.ToString());
-        }
+        // ── CPU state probe + blargg $6000 test-ROM result detection — used by --trace and --test.
+        //    (The original logic-analyser trace subsystem — SetTraceColumns / CaptureTraceLine /
+        //    _traceLog — was dead in the S1 fork and has been removed.)
 
         /// <summary>Read a value spread across an ordered list of nodes (bit i = nodes[i]). Returns -1 if the list is empty.</summary>
         public static int ReadReg(IReadOnlyList<int> nodes) => nodes.Count == 0 ? -1 : ReadBits(nodes);

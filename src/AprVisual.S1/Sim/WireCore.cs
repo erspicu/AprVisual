@@ -113,9 +113,6 @@ namespace AprVisual.Sim
         public const int ScreenH = 240;
         public static uint* FrameBuffer;
 
-        // ── Tracing toggle ──
-        public static int TraceLevel;
-
         // ───────────────────────────────────────────────────────────────────────
         //  Lifecycle
         // ───────────────────────────────────────────────────────────────────────

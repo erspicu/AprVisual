@@ -137,12 +137,20 @@
     - Δ: **+1.29% top-half avg, +0.58% median**
     - checksum 全 `0x9B103E5E206E4C37`,selftest ALL PASS
 
-- [ ] **#F3 `SetNodeState` 依 `newState` 拆 high/low 兩個 loop** (來源 C P2)
+- [x] **#F3 `SetNodeState` 依 `newState` 拆 high/low 兩個 loop** (來源 C P2) ── **revert(噪聲級)**
   - 位置: `Recalc.cs` `SetNodeState` fanout loop (#04 已 inline 後)
-  - 改動: 把 `if (newState == 0 && ...)` 從 inner loop 提出,拆成兩個分支 loop
+  - 改動: 拆成 `newState != 0`(只 enqueue c1)與 `newState == 0`(enqueue c1 + c2 非 supply)兩段 loop
   - 預估收益: 小到中
-  - 風險: 中 ── reviewer 自承「複製 hot loop 改動曾因 JIT code shape 變差而負效益」
-  - 狀態: 待測(單獨)
+  - **實測 (2026-05-29, 30-run thermal-controlled)**:
+    - 第一批 AFTER 10 top 5: 64,021 hc/s (冷)
+    - 第一批 BEFORE 10 top 5: 63,869 hc/s (冷)
+    - 表面 +0.24%
+    - 但 thermal-degraded 狀態下:
+      - AFTER F3 second 10 top 5: 61,151 hc/s
+      - Post-revert top 5 in same state: 61,169 hc/s
+      - Δ: +0.03% ── 純噪聲
+  - **分析**:JIT 可能已經自動 hoist invariant 出 loop;拆 loop 反而增加 code size,風險可能影響 inline cascade。 reviewer 警告應驗
+  - 狀態: **revert** ── 不確定信號就保持原樣
 
 - [ ] **#F4 callback target 改 node-id 直查表** (來源 C P2)
   - 位置: `Recalc.cs` `RecalcNode` callback branch + Reset 建表

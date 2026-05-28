@@ -1,29 +1,15 @@
-// Snapshot loader — reads the binary blob produced by the C# SnapshotExporter
-// (src/AprVisual/Test/SnapshotExporter.cs) and returns the in-memory state ready
-// for Rust to drive bench-hc.
+// Snapshot loader — reads the v4 binary blob produced by the C# SnapshotExporter
+// (src/AprVisual/Test/SnapshotExporter.cs in the original AprVisual project) and
+// returns the in-memory state ready for Rust S1 to drive bench-hc.
+//
+// S1 fork: chip_id and lut_chips sections are skipped (not stored) — they were
+// inputs to --chip-diag / --lut-ttl which are not part of the S1 fork.
 
 use std::fs::File;
 use std::io::{BufReader, Read, Result as IoResult};
 
 const MAGIC: &[u8; 8] = b"APRSNAP\0";
-const VERSION: u32 = 4;   // v4: chip_id + LUT chip specs (for --lut-ttl exports)
-
-pub const CHIP_CPU: u8 = 0;
-pub const CHIP_PPU: u8 = 1;
-pub const CHIP_OTHER: u8 = 2;
-
-// LUT chip types — matches C# WireCore.LutChips.LutChipType
-pub const LUT_INVERTER: u8 = 0;          // 74HC04   — 1 input, 1 output, Y = ~A
-pub const LUT_DECODER_2_TO_4: u8 = 1;    // 74LS139  — 3 inputs (E, A0, A1), 4 outputs
-pub const LUT_TRISTATE_BUFFER: u8 = 2;   // 74LS368  — N inputs (A), N outputs (Y), 1 OE (extra)
-
-pub struct LutChipSpec {
-    pub chip_type: u8,
-    pub target_node: i32,
-    pub oe_node: i32,           // -1 if not applicable
-    pub inputs: Vec<i32>,
-    pub outputs: Vec<i32>,
-}
+const VERSION: u32 = 4;
 
 // NodeFlags bit values — MUST match C# WireCore.NodeFlags exactly (FlagsToState LUT is exported
 // pre-indexed against these bit positions).
@@ -74,20 +60,15 @@ pub struct Snapshot {
     pub ppu_vblank_node: i32,
     pub node_states: Vec<u8>,
     pub node_infos: Vec<NodeInfo>,
-    pub transistor_list: Vec<u16>,   // node IDs (<65K); halved memory (697KB → 350KB) matches C# layout
+    pub transistor_list: Vec<u16>,
     pub flags_to_state: [u8; 256],
     pub memories: Vec<Memory>,
     pub handlers: Vec<MemHandlerSpec>,
-    // v2: video output
     pub pclk1_node: i32,
     pub hpos_nodes: Vec<i32>,
     pub vpos_nodes: Vec<i32>,
     pub pal_ptr_nodes: Vec<i32>,
-    pub pal_ram_nodes: Vec<Vec<i32>>,  // 32 entries, each up to 6 bit-nodes
-    // v3: per-node chip_id
-    pub chip_id: Vec<u8>,
-    // v4: LUT chip specs (empty when --lut-ttl was not active at export time)
-    pub lut_chips: Vec<LutChipSpec>,
+    pub pal_ram_nodes: Vec<Vec<i32>>,
 }
 
 struct R<'a> { rd: BufReader<&'a mut File> }
@@ -136,14 +117,12 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         ni.tlist_c1pwr = r.i32()?;
     }
 
-    // v4 wire format still writes i32 per entry; widen down to u16 in memory (node IDs <65K).
     let mut transistor_list = vec![0u16; tlist_len];
     for v in transistor_list.iter_mut() { *v = r.i32()? as u16; }
 
     let mut flags_to_state = [0u8; 256];
     for v in flags_to_state.iter_mut() { *v = r.u8()?; }
 
-    // memories
     let num_mem = r.i32()? as usize;
     let mut memories = Vec::with_capacity(num_mem);
     for _ in 0..num_mem {
@@ -156,7 +135,6 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         memories.push(Memory { name, data });
     }
 
-    // handlers
     let num_h = r.i32()? as usize;
     let mut handlers = Vec::with_capacity(num_h);
     for _ in 0..num_h {
@@ -194,30 +172,24 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
         pal_ram_nodes.push(bits);
     }
 
-    // v3: per-node chip_id
-    let chip_id = r.bytes(node_count)?;
+    // v3: per-node chip_id — S1 fork skips (was input to --chip-diag, dead path).
+    r.skip(node_count)?;
 
-    // v4: LUT chip specs
+    // v4: LUT chip specs — S1 fork skips (was input to --lut-ttl, dead path).
     let n_lut = r.i32()? as usize;
-    let mut lut_chips = Vec::with_capacity(n_lut);
     for _ in 0..n_lut {
-        let chip_type = r.u8()?;
-        let target_node = r.i32()?;
-        let oe_node = r.i32()?;
+        let _chip_type = r.u8()?;
+        let _target_node = r.i32()?;
+        let _oe_node = r.i32()?;
         let ni = r.i32()? as usize;
-        let mut inputs = Vec::with_capacity(ni);
-        for _ in 0..ni { inputs.push(r.i32()?); }
+        for _ in 0..ni { let _ = r.i32()?; }
         let no = r.i32()? as usize;
-        let mut outputs = Vec::with_capacity(no);
-        for _ in 0..no { outputs.push(r.i32()?); }
-        lut_chips.push(LutChipSpec { chip_type, target_node, oe_node, inputs, outputs });
+        for _ in 0..no { let _ = r.i32()?; }
     }
 
     Ok(Snapshot {
         node_count, tlist_len, npwr, ngnd, clock_node, reset_node, ppu_vblank_node,
         node_states, node_infos, transistor_list, flags_to_state, memories, handlers,
         pclk1_node, hpos_nodes, vpos_nodes, pal_ptr_nodes, pal_ram_nodes,
-        chip_id,
-        lut_chips,
     })
 }

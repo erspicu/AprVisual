@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.0.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AprVisual", "src\AprVisual\AprVisual.csproj", "{6F9B1A2C-3D4E-4A5B-8C7D-0E1F2A3B4C5D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AprVisual.S1", "src\AprVisual.S1\AprVisual.S1.csproj", "{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -15,6 +17,10 @@ Global
 		{6F9B1A2C-3D4E-4A5B-8C7D-0E1F2A3B4C5D}.Debug|x64.Build.0 = Debug|x64
 		{6F9B1A2C-3D4E-4A5B-8C7D-0E1F2A3B4C5D}.Release|x64.ActiveCfg = Release|x64
 		{6F9B1A2C-3D4E-4A5B-8C7D-0E1F2A3B4C5D}.Release|x64.Build.0 = Release|x64
+		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Debug|x64.ActiveCfg = Debug|x64
+		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Debug|x64.Build.0 = Debug|x64
+		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Release|x64.ActiveCfg = Release|x64
+		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

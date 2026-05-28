@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    AprVisual.S1 - clean S1 production fork.
+
+    Distilled from src/AprVisual/ after the L3-layout + inline cascade + P0 fixes series
+    (2026-05-26 .. 2026-05-28). Includes ONLY the changes that empirically gave a positive
+    or bit-identical-zero-cost result. Drops all post-S1 branches (IR, Codegen, PruneMerge,
+    Levelize, Oblivious, RCM, SIMD-queue, LUT-TTL) and experiment-graveyard knobs.
+
+    Included:
+      L3 layout (byte _inGroup, ushort _groupBuf, ushort TransistorList, byte RecalcHash),
+      NodeInfo SoA split (hot struct + NodeConnections + NodeTlistGates),
+      [AggressiveInlining] cascade on hot methods,
+      Iterative AddNodeToGroup,
+      SetHigh/Low/Float no-op skip + WriteBits batch settle,
+      Fast-path (RecalcNodeFast for pure-logic-gnd) ALWAYS on,
+      Diag CLI flags retained: chip-diag / settle-stats / dead-end-diag / count-events.
+
+    Removed (per session-end measurements):
+      prune-merge        (negative 5 pct in both C# and Rust post-inline-cascade),
+      lut-ttl variants   (negative 2 pct in C# post-inline-cascade),
+      simd-queue, levelize, oblivious, rcm (marginal or experimental),
+      All IR / Codegen / Dispatcher / Partition machinery,
+      dead-end-skip (broke CPU bus state).
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AprVisual</RootNamespace>
+    <AssemblyName>AprVisual.S1</AssemblyName>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Optimize>true</Optimize>
+
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
+  </PropertyGroup>
+
+</Project>

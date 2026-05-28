@@ -56,9 +56,7 @@ namespace AprVisual.Sim
             _groupBuf = null;
             _inGroup = null;
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
-            NodeChip = null;      // chip-diag (re-built when --chip-diag)
             FrameBuffer = null;
-            NodeVisitCount = null;
         }
     }
 }

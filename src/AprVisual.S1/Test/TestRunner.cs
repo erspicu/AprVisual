@@ -10,7 +10,7 @@ namespace AprVisual.Test
     // ── AprVisual.S1 fork CLI. Pruned of all post-S1 branches (IR / Codegen / PruneMerge / Levelize
     //    / Oblivious / RCM / SimdQueue / LutTtl / DeadEndSkip / AOT). Optimizations that proved out
     //    are now hardcoded on (fast-path, no-op skip, iterative BFS, batch settle, JIT inline cascade).
-    //    Diagnostic flags retained: --chip-diag --settle-stats --dead-end-diag --count-events.
+    //    Diagnostic flags retained: --settle-stats --count-events.
     internal static class TestRunner
     {
         public static int Run(string[] args)
@@ -48,9 +48,7 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
-                    case "--chip-diag":       WireCore.EnableChipDiag = true; break;
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;
-                    case "--dead-end-diag":   WireCore.EnableDeadEndDiag = true; break;
                     case "--count-events":    WireCore.CountEvents = true; break;
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
@@ -420,9 +418,7 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
-                if (WireCore.EnableChipDiag) { WireCore.ChipDiagAfterReport(); Console.WriteLine($"# {WireCore.LastChipDiagStats}"); }
                 if (WireCore.EnableSettleStats) { WireCore.BuildSettleStatsString(); Console.WriteLine($"# {WireCore.LastSettleStats}"); }
-                if (WireCore.EnableDeadEndDiag) WireCore.ReportDeadEndDiag();
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
@@ -720,9 +716,7 @@ namespace AprVisual.Test
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
-                    [--chip-diag]                          per-chip BFS-walk diagnostic
                     [--settle-stats]                       ProcessQueue iteration histogram
-                    [--dead-end-diag]                      per-node BFS visit count; reports wasted-work candidates
                     [--count-events]                       count EnqueueNode + RecalcNode hits (measures D)
                     [--fast-path]                          no-op (fast-path is always on in S1)
 

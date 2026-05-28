@@ -73,14 +73,7 @@ namespace AprVisual.Sim
             _groupCount = 0;
             _maxState = 0;
             _maxConnections = 0;
-            if (EnableChipDiag) { _chipDiagCurrent = NodeChip[nn]; _chipDiagMultiSeen = false; }
             AddNodeToGroup(nn);
-            if (EnableChipDiag)
-            {
-                ChipDiagTotalWalks++;
-                if (_chipDiagMultiSeen) ChipDiagCrossChipWalks++;
-                else ChipDiagWalksByChip[_chipDiagCurrent]++;
-            }
             return GetNodeValue();
         }
 
@@ -137,13 +130,6 @@ namespace AprVisual.Sim
             _inGroup[nn] = 1;
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = (ushort)nn;
-            if (EnableDeadEndDiag && NodeVisitCount != null) NodeVisitCount[nn]++;
-            if (EnableChipDiag)
-            {
-                byte c = NodeChip[nn];
-                ChipDiagNodesByChip[c]++;
-                if (c != _chipDiagCurrent) _chipDiagMultiSeen = true;
-            }
             int conn = NodeConnections[nn];
             if (conn > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = conn; }
             RecalcHash[nn] = 0;

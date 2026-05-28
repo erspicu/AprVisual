@@ -37,17 +37,18 @@
     - checksum 5/5 `0x9B103E5E206E4C37`,selftest ALL PASS
   - 額外: `_maxState` / `_maxConnections` static field 移除,改為 GetNodeValue 內 local 變數
 
-- [ ] **#03 BFS 內 GND/PWR scan 已找到後跳過同類** (來源 B P0)
+- [x] **#03 BFS 內 GND/PWR scan 已找到後跳過同類** (來源 B P0) ── **revert(無效益)**
   - 位置: `Group.cs` `AddNodeToGroup` (line 111-120)
-  - 改動: 在掃描 `TlistC1gnd` / `TlistC1pwr` 前先檢查 `_groupFlags` 是否已有對應 bit:
-    ```csharp
-    if ((_groupFlags & NodeFlags.Gnd) == 0 && ns.TlistC1gnd != 0) { ... }
-    if ((_groupFlags & NodeFlags.Pwr) == 0 && ns.TlistC1pwr != 0) { ... }
-    ```
-  - 理由: 一個 group 內第一次找到 GND 即可,再找到第二個 GND 不會改變 `_groupFlags`(OR 是 idempotent)。 `ForceCompute` 只關心 group 是否同時有 GND/PWR,不關心數量
-  - 預估收益: 中(對大型 bus / supply-heavy group 較明顯)
-  - 風險: 低
-  - 狀態: 待實驗
+  - 改動: 在掃描 `TlistC1gnd` / `TlistC1pwr` 前先檢查 `_groupFlags` 是否已有對應 bit
+  - 理由: 一個 group 內第一次找到 GND 即可,再找到第二個 GND 不會改變 `_groupFlags`(OR 是 idempotent)
+  - 預估收益: 中
+  - **實測 (2026-05-28, 10-run)**:
+    - BEFORE 5-run median: 57,655 hc/s
+    - AFTER 10-run median: 58,009 hc/s
+    - Δ: +0.61% median, **-0.13% avg** ── 在雜訊內,無明確收益
+    - checksum 全 `0x9B103E5E206E4C37`,行為正確
+  - **分析**:預估「對大型 bus group 較明顯」,實際多數 group 只接觸一個 GND/PWR source,skip 鮮少觸發;但每訪問都多付 1 個 bit-test。 cost ≈ benefit
+  - 狀態: **revert** ── 改動雖然語意正確但實證無收益,移除避免無謂複雜度
 
 - [ ] **#04 `SetNodeState` inline enqueue,跳過 c1 supply check** (來源 B P0)
   - 位置: `Recalc.cs` `SetNodeState` (line 127-143) + `EnqueueNode` (line 45-54)

@@ -10,7 +10,7 @@ namespace AprVisual.Test
     // ── AprVisual.S1 fork CLI. Pruned of all post-S1 branches (IR / Codegen / PruneMerge / Levelize
     //    / Oblivious / RCM / SimdQueue / LutTtl / DeadEndSkip / AOT). Optimizations that proved out
     //    are now hardcoded on (fast-path, no-op skip, iterative BFS, batch settle, JIT inline cascade).
-    //    Diagnostic flags retained: --settle-stats --count-events.
+    //    Diagnostic flags retained: --settle-stats.
     internal static class TestRunner
     {
         public static int Run(string[] args)
@@ -49,7 +49,6 @@ namespace AprVisual.Test
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--settle-stats":    WireCore.EnableSettleStats = true; break;
-                    case "--count-events":    WireCore.CountEvents = true; break;
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -406,8 +405,6 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
-                WireCore.EnqueueCount = 0; WireCore.RecalcNodeCount = 0;
-                if (WireCore.CountEvents) WireCore.InitGlitchDiag();
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);
@@ -423,12 +420,6 @@ namespace AprVisual.Test
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
-                if (WireCore.CountEvents)
-                {
-                    Console.WriteLine($"# events: {WireCore.EnqueueCount:N0} EnqueueNode, {WireCore.RecalcNodeCount:N0} RecalcNode over {halfCycles:N0} hc  ({(double)WireCore.RecalcNodeCount / halfCycles:F1} RecalcNode/hc = D)");
-                    double glitch = WireCore.DistinctRecalcCount > 0 ? (double)WireCore.RecalcNodeCount / WireCore.DistinctRecalcCount : 0;
-                    Console.WriteLine($"# glitch factor: {WireCore.RecalcNodeCount:N0} RecalcNode / {WireCore.DistinctRecalcCount:N0} distinct (node,hc) = {glitch:F3} recalcs/node/hc  (>1.1 ⇒ glitches worth chasing; ~1.0 ⇒ none)");
-                }
             }
             finally { WireCore.Shutdown(); }
             return 0;
@@ -717,7 +708,6 @@ namespace AprVisual.Test
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
                     [--settle-stats]                       ProcessQueue iteration histogram
-                    [--count-events]                       count EnqueueNode + RecalcNode hits (measures D)
                     [--fast-path]                          no-op (fast-path is always on in S1)
 
                   (no args)                                open an empty window

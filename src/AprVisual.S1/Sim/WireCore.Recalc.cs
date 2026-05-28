@@ -13,11 +13,6 @@ namespace AprVisual.Sim
         // not by StepCycle directly — see the note there. Kept here only for reference / diagnostics.
         public static int ClockNode = EmptyNode;
 
-        // Diagnostics (opt-in via --count-events; gated so the timing path stays uncontaminated):
-        // total EnqueueNode hits and RecalcNode calls over a run — to measure how much #1 shrinks D.
-        public static bool CountEvents = false;
-        public static long EnqueueCount, RecalcNodeCount;
-
         /// <summary>FNV-1a 64-bit hash over the whole NodeStates array — a cheap fingerprint of the
         /// chip's complete state, for rigorous A/B equivalence checking (two runs that match here at
         /// the same Time are bit-identical per node). NOTE: hashed by node id, so only comparable
@@ -51,8 +46,6 @@ namespace AprVisual.Sim
         private static void EnqueueNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
-            if (CountEvents) EnqueueCount++;   // diagnostic only; well-predicted false on the timing path
-            // (--levelize uses the same FIFO double-buffer; it only reorders each wave by level in ProcessQueueLevelized)
             if (RecalcHashNext[nn] == 0)
             {
                 RecalcListNext[RecalcListNextCount++] = nn;
@@ -118,11 +111,6 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
-            if (CountEvents)
-            {
-                RecalcNodeCount++;
-                if (_lastRecalcHc != null && _lastRecalcHc[nn] != Time) { _lastRecalcHc[nn] = Time; DistinctRecalcCount++; }
-            }
             // Fast-path: pure-logic-gnd nodes resolve in O(1). IsPureLogic populated at Reset.
             if (IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
             byte newState = ComputeNodeGroup(nn);

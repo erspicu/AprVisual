@@ -88,25 +88,5 @@ namespace AprVisual.Sim
 
             SetNodeState(nn, FlagsToState[(int)f]);
         }
-
-        // ── math-algos 策略三 (glitch diagnostic, NOT an optimization): how many times is the *same*
-        //    node re-evaluated within one half-cycle? In an event-driven async settle a node can flip
-        //    0→1→0 inside one half-cycle (race / glitch), spending D on transient passes that the
-        //    steady state discards. We measure it instead of the (latch-breaking) delay-line the
-        //    suggestion warned about: DistinctRecalcCount counts the *first* RecalcNode of each node
-        //    in each half-cycle, so RecalcNodeCount / DistinctRecalcCount = avg recalcs per node per
-        //    half-cycle. ~1.0 ⇒ no glitching, 策略三 is dead; >1.1 ⇒ glitches are eating D.
-        //    Diagnostic only; allocated by a counted benchmark, gated behind CountEvents in RecalcNode.
-
-        internal static long[]? _lastRecalcHc;   // per node, the Time of its last counted RecalcNode (-1 = never)
-        internal static long DistinctRecalcCount;
-
-        /// <summary>Arm the glitch diagnostic for the upcoming counted run (call after LoadSystem, before timing).</summary>
-        internal static void InitGlitchDiag()
-        {
-            _lastRecalcHc = new long[NodeCount];
-            Array.Fill(_lastRecalcHc, -1L);
-            DistinctRecalcCount = 0;
-        }
     }
 }

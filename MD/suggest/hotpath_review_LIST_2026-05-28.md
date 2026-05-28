@@ -37,18 +37,21 @@
     - checksum 5/5 `0x9B103E5E206E4C37`,selftest ALL PASS
   - 額外: `_maxState` / `_maxConnections` static field 移除,改為 GetNodeValue 內 local 變數
 
-- [x] **#03 BFS 內 GND/PWR scan 已找到後跳過同類** (來源 B P0) ── **revert(無效益)**
+- [x] **#03 BFS 內 GND/PWR scan 已找到後跳過同類** (來源 B P0) ── **revert × 2 次測試都負面**
   - 位置: `Group.cs` `AddNodeToGroup` (line 111-120)
   - 改動: 在掃描 `TlistC1gnd` / `TlistC1pwr` 前先檢查 `_groupFlags` 是否已有對應 bit
   - 理由: 一個 group 內第一次找到 GND 即可,再找到第二個 GND 不會改變 `_groupFlags`(OR 是 idempotent)
   - 預估收益: 中
-  - **實測 (2026-05-28, 10-run)**:
-    - BEFORE 5-run median: 57,655 hc/s
-    - AFTER 10-run median: 58,009 hc/s
-    - Δ: +0.61% median, **-0.13% avg** ── 在雜訊內,無明確收益
-    - checksum 全 `0x9B103E5E206E4C37`,行為正確
-  - **分析**:預估「對大型 bus group 較明顯」,實際多數 group 只接觸一個 GND/PWR source,skip 鮮少觸發;但每訪問都多付 1 個 bit-test。 cost ≈ benefit
-  - 狀態: **revert** ── 改動雖然語意正確但實證無收益,移除避免無謂複雜度
+  - **第一次實測 (2026-05-28, 10-run)**:
+    - +0.61% median, -0.13% avg ── 雜訊範圍,revert
+  - **第二次實測 (2026-05-29, 30-run + top-half 方法)**:
+    - BEFORE 10-run top 5 avg: 63,451 (pre-AFTER)
+    - BEFORE 10-run top 5 avg: 63,089 (post-revert,當前 thermal state)
+    - AFTER 20-run top 10 avg: 62,576
+    - Δ: **-0.81%** ── 仍負面
+    - 即使用 top-half 排除 outlier,改動仍未帶來正效益
+  - **分析**:每訪問都付 1 個 bit-test 的成本,但實際多數 group 只接觸一個 GND/PWR source,skip 鮮少觸發 ── cost > benefit。 兩次獨立測試結論一致
+  - 狀態: **revert(永久)** ── 7 個 dead-end 之一
 
 - [x] **#04 `SetNodeState` inline enqueue,跳過 c1 supply check** (來源 B P0) ── **採用**
   - 位置: `Recalc.cs` `SetNodeState` (line 127-143) + `EnqueueNode` (line 45-54)
@@ -104,12 +107,12 @@
     3. 仍要呼叫 RunHandlerChain (現在永遠 null check 通過)
   - 狀態: **revert** ── 第 7 個 dead-end 候選
 
-- [ ] **#08 `RunFrame()` 不要在 loop 內呼叫 `Step(1)`** (來源 B P1)
+- [ ] **#08 `RunFrame()` 不要在 loop 內呼叫 `Step(1)`** (來源 B P1) ── **暫緩**
   - 位置: `System.cs` `RunFrame` (line 186-189)
   - 改動: 直接呼叫 `StepCycle()` 而不是 `Step(1)`,省一層 for-loop
-  - 預估收益: 小到中(test/RunFrame 常用)
-  - 風險: 低
-  - 狀態: 待實驗
+  - 預估收益: 小到中(每 RunFrame 內 ~715K hc,但 bench-hc 不經過 RunFrame)
+  - 原因:此項只在 `--benchmark --frames N` 路徑生效,`--bench-hc` 走 `Step(N)` 不經過。 用戶反映「影響到測試,以後再看看」
+  - 狀態: **暫緩** ── 待 frame-based bench 流程穩定後再評估
 
 ### P2 / P3 ── **不採納**
 

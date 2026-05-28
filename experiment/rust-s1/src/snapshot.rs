@@ -12,9 +12,8 @@ const MAGIC: &[u8; 8] = b"APRSNAP\0";
 const VERSION: u32 = 4;
 
 // NodeFlags bit values — MUST match C# WireCore.NodeFlags exactly (FlagsToState LUT is exported
-// pre-indexed against these bit positions).
-pub const FLAG_NONE: u8 = 0;
-pub const FLAG_STATE: u8 = 1 << 0;
+// pre-indexed against these bit positions). FLAG_NONE (0) / FLAG_STATE (bit 0) are encoded into
+// the exported FlagsToState LUT, so the wire core doesn't need named constants for them.
 pub const FLAG_PULLUP: u8 = 1 << 1;
 pub const FLAG_SETHIGH: u8 = 1 << 2;
 pub const FLAG_SETLOW: u8 = 1 << 3;
@@ -46,17 +45,14 @@ pub struct MemHandlerSpec {
 }
 
 pub struct Memory {
-    pub name: String,
     pub data: Vec<u8>,
 }
 
 pub struct Snapshot {
     pub node_count: usize,
-    pub tlist_len: usize,
     pub npwr: i32,
     pub ngnd: i32,
     pub clock_node: i32,
-    pub reset_node: i32,
     pub ppu_vblank_node: i32,
     pub node_states: Vec<u8>,
     pub node_infos: Vec<NodeInfo>,
@@ -101,7 +97,7 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
     let npwr = r.i32()?;
     let ngnd = r.i32()?;
     let clock_node = r.i32()?;
-    let reset_node = r.i32()?;
+    let _reset_node = r.i32()?;   // S1 doesn't drive reset (snapshot is post-power-on)
     let ppu_vblank_node = r.i32()?;
 
     let node_states = r.bytes(node_count)?;
@@ -126,13 +122,12 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
     let num_mem = r.i32()? as usize;
     let mut memories = Vec::with_capacity(num_mem);
     for _ in 0..num_mem {
+        // Memory name (UTF-8) — S1 fork doesn't read it, just skip past.
         let nlen = r.i32()? as usize;
-        let nbytes = r.bytes(nlen)?;
-        let name = String::from_utf8(nbytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        r.skip(nlen)?;
         let dlen = r.i32()? as usize;
         let data = r.bytes(dlen)?;
-        memories.push(Memory { name, data });
+        memories.push(Memory { data });
     }
 
     let num_h = r.i32()? as usize;
@@ -188,7 +183,7 @@ pub fn load(path: &str) -> IoResult<Snapshot> {
     }
 
     Ok(Snapshot {
-        node_count, tlist_len, npwr, ngnd, clock_node, reset_node, ppu_vblank_node,
+        node_count, npwr, ngnd, clock_node, ppu_vblank_node,
         node_states, node_infos, transistor_list, flags_to_state, memories, handlers,
         pclk1_node, hpos_nodes, vpos_nodes, pal_ptr_nodes, pal_ram_nodes,
     })

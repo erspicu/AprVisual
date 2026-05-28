@@ -29,7 +29,6 @@ pub const NES_PALETTE: [u32; 64] = [
 ];
 
 pub struct WireCore {
-    pub node_count: usize,
     pub npwr: i32,
     pub ngnd: i32,
 
@@ -116,7 +115,6 @@ impl WireCore {
         }
 
         WireCore {
-            node_count: nc,
             npwr: snap.npwr,
             ngnd: snap.ngnd,
             node_states: snap.node_states,

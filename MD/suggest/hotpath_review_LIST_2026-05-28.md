@@ -23,14 +23,19 @@
     - Δ:      **+1.30%** (median),+1.04% (avg) ── 略高於預估
     - checksum 5/5 `0x9B103E5E206E4C37`,selftest ALL PASS
 
-- [ ] **#02 延遲讀取 `NodeConnections`** (來源 A1 + B P0)
+- [x] **#02 延遲讀取 `NodeConnections`** (來源 A1 + B P0) ── **採用,大進步**
   - 位置: `Group.cs` `AddNodeOrApplyDriver` (line 133-134)
   - 改動: 不在每節點訪問都讀 `NodeConnections[nn]`,改為僅在 `GetNodeValue()` 偵測到 `_groupFlags == None`(浮接)時對 `_groupBuf` 做一次線性掃描求最大電容
   - 理由: `NodeConnections` 只在浮接 tie-break 用,程式碼註解 `// cold — only tie-break` 但每訪問都讀。 浮接 group <1%
   - 兩個 reviewer 獨立給出同一建議
   - 預估收益: 1-3% (中等信心)
-  - 風險: JIT inline cascade 可能擾動,需 A/B
-  - 狀態: 待實驗
+  - **實測 (2026-05-28)**:
+    - BEFORE 5-run median: 54,816 hc/s
+    - AFTER 10-run median: **61,560 hc/s**
+    - Δ: **+12.30%** ── 遠超預估
+    - 原因解析:NodeConnections 是 58KB 獨立陣列,被砍掉後整個 cache line 系列可以保持冷,而不是被 BFS 每 30-60M 次訪問拉熱
+    - checksum 5/5 `0x9B103E5E206E4C37`,selftest ALL PASS
+  - 額外: `_maxState` / `_maxConnections` static field 移除,改為 GetNodeValue 內 local 變數
 
 - [ ] **#03 BFS 內 GND/PWR scan 已找到後跳過同類** (來源 B P0)
   - 位置: `Group.cs` `AddNodeToGroup` (line 111-120)

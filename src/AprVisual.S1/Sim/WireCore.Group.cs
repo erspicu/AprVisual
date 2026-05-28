@@ -29,8 +29,6 @@ namespace AprVisual.Sim
         private static int _groupCount;       // number of nodes currently in _groupBuf
         private static ushort* _groupBuf;     // node ids in the current group (alloc'd in Reset, sized NodeCount). ushort* (was int*) — node count <65K so 16 bit suffices, 29KB vs 58KB
         private static byte* _inGroup;        // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup. byte* (was int*) — 0/1 only, 14KB vs 58KB fits L1d alongside NodeStates
-        private static byte _maxState;        // state of the highest-connection node seen
-        private static int _maxConnections;
 
         /// <summary>Build the 256-entry FlagsToState lookup table from FlagsToStateOf().</summary>
         public static void BuildFlagsToStateTable()
@@ -71,8 +69,6 @@ namespace AprVisual.Sim
 
             _groupFlags = NodeFlags.None;
             _groupCount = 0;
-            _maxState = 0;
-            _maxConnections = 0;
             AddNodeToGroup(nn);
             return GetNodeValue();
         }
@@ -130,10 +126,10 @@ namespace AprVisual.Sim
             _inGroup[nn] = 1;
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = (ushort)nn;
-            int conn = NodeConnections[nn];
-            if (conn > _maxConnections) { _maxState = NodeStates[nn]; _maxConnections = conn; }
             RecalcHash[nn] = 0;
             _groupFlags |= ns.Flags;
+            // NodeConnections deferred to GetNodeValue's floating branch (suggest #02):
+            // only needed when _groupFlags ends up None, which is <1% of walks.
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -141,8 +137,18 @@ namespace AprVisual.Sim
         {
             // ForceCompute|Gnd|Pwr mask is pre-computed into the 256-entry FlagsToState LUT
             // (see BuildFlagsToStateTable/FlagsToStateOf above) — no need to mask at runtime.
-            if (_groupFlags == NodeFlags.None) return _maxState;   // purely floating: largest-cap node wins
-            return FlagsToState[(int)_groupFlags];
+            if (_groupFlags != NodeFlags.None) return FlagsToState[(int)_groupFlags];
+
+            // purely floating: largest-cap node wins. Deferred from BFS — only <1% of walks hit this.
+            int maxConn = -1;
+            byte maxState = 0;
+            for (int i = 0; i < _groupCount; i++)
+            {
+                int nn = _groupBuf[i];
+                int conn = NodeConnections[nn];
+                if (conn > maxConn) { maxState = NodeStates[nn]; maxConn = conn; }
+            }
+            return maxState;
         }
     }
 }

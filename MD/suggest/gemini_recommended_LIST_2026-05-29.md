@@ -154,6 +154,40 @@ NES clock 每 12 master cycle toggle 一次。 toggle 後**第一波**(只依 cl
 
 ---
 
+---
+
+## Direction C: Iso-state culling 安全變體(round 2 試) ── **退回 checksum 破壞**
+
+### 設計
+在 `AddNodeToGroup` BFS walk 加 safeguard:
+```csharp
+if (NodeStates[gate] != 0) {
+    ref NodeInfo otherNs = ref NodeInfos[other];
+    if (NodeStates[other] == nnState
+        && otherNs.Flags == NodeFlags.None
+        && otherNs.TlistC1gnd == 0
+        && otherNs.TlistC1pwr == 0) continue;
+    AddNodeOrApplyDriver(other);
+}
+```
+
+### 結果 (2026-05-29)
+- baseline checksum: `0x9B103E5E206E4C37`
+- Direction C checksum: **`0x475163D804CF3824`** ── **模擬發散**!
+- 速度 +4-5%(66-68K vs 64.9K),但**結果不正確**
+
+### Root cause
+即使 `other` 自己沒有 GND/PWR 通道且 Flags=None,**`other` 的 TlistC1c2s 走訪可能拉入更下游的 GND/PWR**。 跳過 `other` 等同跳過整個 transitive sub-walk,group resolve 用了錯誤的 group_flags。
+
+要安全的話需要證明 `other` 的整個下游 sub-tree 都不貢獻 GND/PWR/Flags ── 需要昂貴的 transitive closure 預計算 + runtime 檢查。
+
+### 教訓
+**Gemini Direction C「iso-state culling」如其所述是不安全的**。 即使加 leaf-like safeguard(Flags=None + 無 GND/PWR 直接通道),仍因 transitive walk 而破壞 BFS 結果。 加入 dead-end 紀錄:**「在 BFS 走訪中 skip 任一節點都必須證明其整個下游 sub-tree 不影響 group_flags」── 此條件運行時檢查成本高於 skip 收益**。
+
+7 個 dead-end 中第 7 個:**culling-style skip 共通失敗模式**(類似 `dead-end-skip-dead-end` memory)。
+
+---
+
 ## A/B 驗證 checklist(每項)
 
 ```

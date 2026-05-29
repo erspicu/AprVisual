@@ -366,26 +366,45 @@ impl WireCore {
             if tlist_gates != 0 {
                 // Sync #04: c1 is non-supply by construction (AddTransistor on C# side
                 // normalises supply onto c2), so skip npwr/ngnd check for c1. c2 can be supply.
-                let npwr = self.npwr;
-                let ngnd = self.ngnd;
+                // #G2 loop unswitch (sync from C#): new_state is loop-invariant 0/1 → specialize
+                // the two cases so the gate-high path has no c2 enqueue at all.
                 let mut p = tlist_gates as usize;
-                loop {
-                    let c1 = *self.transistor_list.get_unchecked(p) as i32;
-                    if c1 == 0 { break; }
-                    let c2 = *self.transistor_list.get_unchecked(p + 1) as i32;
-                    p += 2;
-                    let cu = c1 as usize;
-                    if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                        let i = self.list_next_count;
-                        *self.recalc_list_next.get_unchecked_mut(i) = c1;
-                        self.list_next_count = i + 1;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
-                    }
-                    if new_state == 0 && c2 != npwr && c2 != ngnd {
-                        let cu = c2 as usize;
+                if new_state == 0 {
+                    let npwr = self.npwr;
+                    let ngnd = self.ngnd;
+                    loop {
+                        let c1 = *self.transistor_list.get_unchecked(p) as i32;
+                        if c1 == 0 { break; }
+                        let c2 = *self.transistor_list.get_unchecked(p + 1) as i32;
+                        p += 2;
+                        let cu = c1 as usize;
                         if *self.recalc_hash_next.get_unchecked(cu) == 0 {
                             let i = self.list_next_count;
-                            *self.recalc_list_next.get_unchecked_mut(i) = c2;
+                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
+                            self.list_next_count = i + 1;
+                            *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
+                        }
+                        // gate going low can *disconnect* the channel, so c2 needs re-eval too
+                        if c2 != npwr && c2 != ngnd {
+                            let cu = c2 as usize;
+                            if *self.recalc_hash_next.get_unchecked(cu) == 0 {
+                                let i = self.list_next_count;
+                                *self.recalc_list_next.get_unchecked_mut(i) = c2;
+                                self.list_next_count = i + 1;
+                                *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
+                            }
+                        }
+                    }
+                } else {
+                    // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
+                    loop {
+                        let c1 = *self.transistor_list.get_unchecked(p) as i32;
+                        if c1 == 0 { break; }
+                        p += 2;  // skip c2
+                        let cu = c1 as usize;
+                        if *self.recalc_hash_next.get_unchecked(cu) == 0 {
+                            let i = self.list_next_count;
+                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
                             self.list_next_count = i + 1;
                             *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
                         }

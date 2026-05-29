@@ -29,12 +29,18 @@
 - **預估**:0.3-0.8%(memory handler 很熱,pixel write 較冷)
 - **風險**:**極低**。 是純粹的「removing well-predicted branch with predictable replacement」── 已驗證的常用 idiom
 - **memory 引用**:不撞任何 dead-end ── 移除的是 predictable branch + 同樣 memory access pattern
-- **狀態**:☑ **採用** (2026-05-29)
+- **狀態**:☑ **C# 採用** / ☒ **Rust 退回** (2026-05-29)
   - C# baseline top-3 mean: 63,305 hc/s
   - C# #G1 top-3 mean:    63,489 hc/s
-  - Δ: **+0.29%** (落在預估 0.3-0.8% 下緣,符合預期)
-  - checksum 5/5 `0x9B103E5E206E4C37`
-  - Rust 端待後續批次處理
+  - C# Δ: **+0.29%** (落在預估 0.3-0.8% 下緣)
+  - C# checksum 5/5 `0x9B103E5E206E4C37`
+  - **Rust 端 sync 後**:
+    - Rust baseline top-3 mean: 67,926 hc/s
+    - Rust #G1 top-3 mean:    66,909 hc/s
+    - Rust Δ: **-1.50% (REGRESSION)**
+    - Rust checksum 5/5 `0x9B103E5E206E4C37`(correctness ok)
+  - **Root cause(Rust)**:LLVM 對原 `if state != 0` 已產生近最佳碼;branchless 形式的 `state as u32` cast + shift 序列反而較差
+  - 加入 dead-end 教訓:**#G1 是 C#-only 收益,不可 blind sync 到 Rust**(撞 `jit-vs-llvm-recursive-inline` memory pattern)
 
 ### `#G2` SetNodeState loop unswitch
 - **位置**:C# `WireCore.Recalc.cs:SetNodeState`;Rust `wire.rs:set_node_state`
@@ -43,12 +49,16 @@
 - **預估**:1-2%
 - **風險**:低,但比 `#G1` 高(代碼複雜度增加)。 注意 LLVM/JIT 可能本來就部分 hoist 了 ── 需先看 hot path 反組譯
 - **memory 引用**:**注意** ── `counter-fastpath-dead-end` 顯示「在 SetNodeState 內每 transistor 加 1-2 cmp 可能整體變慢」。 但 loop unswitch 是「減少」每 iter 工作量,方向相反 ── 預期符合
-- **狀態**:☑ **採用** (2026-05-29)
+- **狀態**:☑ **C# 採用** / ☑ **Rust 採用** (2026-05-29)
   - C# #G1 (prior) top-3 mean: 63,489 hc/s
   - C# #G2 top-3 mean:         64,169 hc/s
-  - Δ: **+1.07%** (落在預估 1-2% 內,符合預期)
-  - checksum 5/5 `0x9B103E5E206E4C37`
-  - Rust 端待後續批次處理
+  - C# Δ: **+1.07%** (落在預估 1-2% 內)
+  - C# checksum 5/5 `0x9B103E5E206E4C37`
+  - **Rust 端 sync 後**:
+    - Rust baseline (post-G1-revert) top-3 mean: 67,926 hc/s
+    - Rust #G2 top-3 mean:                       68,389 hc/s
+    - Rust Δ: **+0.68%**(低於 C# +1.07%,可能因 LLVM 已部分 unswitch 原 code)
+    - Rust checksum 5/5 `0x9B103E5E206E4C37`
 
 ### `#G3` RecalcNodeFast: GND/PWR OR-all
 - **位置**:C# `WireCore.FastPath.cs:RecalcNodeFast`;Rust `wire.rs:recalc_node_fast`

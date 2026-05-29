@@ -77,7 +77,14 @@
 - **預估**:0.5-1%
 - **風險**:低 ── 純資料流順序調整,語意等價
 - **memory 引用**:不撞 dead-end
-- **狀態**:☐ 待測(C# 端先,Rust 視結果決定)
+- **狀態**:☒ **退回** (2026-05-29)
+  - C# #G2 (prior) top-3 mean: 64,169 hc/s
+  - C# #G4 top-3 mean:         62,678 hc/s
+  - Δ: **-2.32% (REGRESSION)**
+  - checksum 5/5 `0x9B103E5E206E4C37`(correctness ok)
+  - **root cause 推測**:原本 enqueue + pop 兩次讀 NodeInfos 形成「無意間的 prefetch」效果 ── enqueue 時 warm cache,pop 時命中。 移除後 pop 變成 cold miss
+  - 加入 dead-end 教訓:**「省一次讀」不一定等於提速 ── 重複讀有時是 prefetch 效益**。 同一 cache line 重複 access 在 modern CPU 上幾乎免費,而拉開 enqueue/pop 的時間差讓 cache 被其他 BFS visit 沖走
+  - Rust 端 **暫不嘗試**(C# 結果為負)
 
 ### `#G5` SetNodeState 重排:c1 supply check
 - **位置**:C# 已在 `#04 af619f4` 做過(在 hot path 內);Rust 等價優化

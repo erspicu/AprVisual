@@ -58,15 +58,18 @@ fn bench(args: &[String]) {
 // i.e. 60.0988 frames/s * 714,732 hc/frame. Show how far the sim rate is from real-time.
 const NES_REALTIME_HC_PER_SEC: f64 = 42_954_552.0;
 const NES_REALTIME_FPS: f64 = 60.0988;
+const NES_HC_PER_FRAME: f64 = 714_732.0;   // 357,366 master clocks * 2 half-cycles
 fn print_realtime_gap(hcps: f64) {
     let pct = hcps / NES_REALTIME_HC_PER_SEC * 100.0;
     let gap = NES_REALTIME_HC_PER_SEC / hcps;
-    let fps = hcps / (NES_REALTIME_HC_PER_SEC / NES_REALTIME_FPS);
+    let fps = hcps / NES_HC_PER_FRAME;
+    let sec_per_fr = NES_HC_PER_FRAME / hcps;
     println!("# =============================================");
     println!("#  PERFORMANCE: {:.1}K hc/s  ({hcps:.0} hc/s)", hcps / 1000.0);
     println!("#  vs NES NTSC real-time ({:.0}K hc/s):", NES_REALTIME_HC_PER_SEC / 1000.0);
     println!("#    {pct:.3}% of real-time   ->   {gap:.1}x too slow");
     println!("#    {fps:.3} simulated NES frames / real second  (real NES = {NES_REALTIME_FPS:.1} fps)");
+    println!("#    {sec_per_fr:.2} s to render 1 frame  (real NES = {:.4} s/frame)", 1.0 / NES_REALTIME_FPS);
     println!("# =============================================");
 }
 

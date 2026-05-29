@@ -428,16 +428,19 @@ namespace AprVisual.Test
         // i.e. 60.0988 frames/s * 714,732 hc/frame. Print how far our sim rate is from that.
         private const double NesRealtimeHcPerSec = 42_954_552.0;
         private const double NesRealtimeFps      = 60.0988;
+        private const double NesHcPerFrame       = 714_732.0;   // 357,366 master clocks * 2 half-cycles
         private static void PrintRealtimeGap(double stepsHz)
         {
-            double pct  = stepsHz / NesRealtimeHcPerSec * 100.0;
-            double gap  = NesRealtimeHcPerSec / stepsHz;
-            double fps  = stepsHz / (NesRealtimeHcPerSec / NesRealtimeFps);   // simulated NES frames / real second
+            double pct      = stepsHz / NesRealtimeHcPerSec * 100.0;
+            double gap      = NesRealtimeHcPerSec / stepsHz;
+            double fps      = stepsHz / NesHcPerFrame;            // simulated NES frames / real second
+            double secPerFr = NesHcPerFrame / stepsHz;            // real seconds to render 1 NES frame
             Console.WriteLine($"# =============================================");
             Console.WriteLine($"#  PERFORMANCE: {stepsHz / 1000.0:F1}K hc/s  ({stepsHz:N0} hc/s)");
             Console.WriteLine($"#  vs NES NTSC real-time ({NesRealtimeHcPerSec / 1000.0:N0}K hc/s):");
             Console.WriteLine($"#    {pct:F3}% of real-time   ->   {gap:F1}x too slow");
             Console.WriteLine($"#    {fps:F3} simulated NES frames / real second  (real NES = {NesRealtimeFps:F1} fps)");
+            Console.WriteLine($"#    {secPerFr:F2} s to render 1 frame  (real NES = {1.0 / NesRealtimeFps:F4} s/frame)");
             Console.WriteLine($"# =============================================");
         }
 

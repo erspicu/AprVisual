@@ -244,6 +244,44 @@
 
 ---
 
+## P0-2 batch: Rust 全套無分支改造嘗試(2026-05-29 晚)
+
+外部建議分 3 步走:Step 1 VCC/GND hash shield + Step 2 branchless enqueue/set_node_state + Step 3 branchless recalc_node_fast + iterative branchless add_node_to_group。 我分 Phase A/B/C 增量測試。
+
+### Phase A:Step 1 + Step 2 ── **採用 +1.63%**
+- baseline (post-G2) top-3 mean: 68,389 hc/s
+- Phase A top-3 mean:            69,504 hc/s
+- Δ: **+1.63%**,checksum 5/5 `0x9B103E5E206E4C37`
+- Commit `da8dca4`
+- **重要**:這跟 C# #H1 不實作的決策**相反方向**。 C# 端 instrumentation 顯示 96.5% clean rate,branch predictor 飽和,理論增益 0.4%。 但 Rust 上:
+  - LLVM 對 conditional store 的 codegen 路徑與 .NET JIT 不同
+  - shield 一次拔掉每 c2 enqueue 的 2 個額外 cmp(`c2 != npwr && c2 != ngnd`)
+  - 綜合下來 +1.63% 真實
+- 教訓:**Rust LLVM ≠ C# JIT,branchless 收益不可機械套用 C# 結論**
+
+### Phase B:Step 3a recalc_node_fast OR-all ── **退回 -1.86%**
+- Phase A baseline top-3 mean: 69,504 hc/s
+- Phase B top-3 mean:          68,214 hc/s
+- Δ: **-1.86%**,checksum 5/5 OK
+- 跟 C# #G3 同樣失敗(-3.07%)── 證實 **LLVM 和 .NET JIT 都對 early-break + 短 list 最佳化得好**
+
+### Phase C:Step 3b iterative branchless add_node_to_group ── **大退回 -19.18%**
+- Phase A baseline top-3 mean: 69,504 hc/s
+- Phase C top-3 mean:          56,171 hc/s
+- Δ: **-19.18% (DISASTER)**,checksum 5/5 OK
+- 失敗主因(複合):
+  1. 改 iterative 本身在 Rust 是 **-1.3%**(memory `jit-vs-llvm-recursive-inline`)
+  2. branchless `should_add` 無條件讀 `node_hot[other_u].flags`,即使 `should_add = 0` 也付出 NodeHot read 成本 ── **cache + dependency 雙重壓力**
+  3. 無條件寫 `group_buf[count]` / `in_group[other_u]` / `recalc_hash[other_u]` ── store buffer 飽和
+  4. `wrapping_neg` cast + mask 序列在熱路徑增加指令依賴鏈
+- 教訓:**「在 BFS hot path 用 branchless mask 取代 if」在這架構是 dead-end**。 早期 visit / dedup 比例高,unconditional work 成本 > 預測 branch 成本。 撞 `counter-fastpath-dead-end` 同樣模式:**無條件 maintenance overhead 必須 < 預測 branch 節省的工作量**
+
+### 累積結果
+
+Rust 從 Phase A 帶 +1.63%,Phase B/C 全退回。 commit da8dca4 為最終狀態。
+
+---
+
 ## 引用的 memory(若改動方向相關,務必先看)
 
 - `counter-fastpath-dead-end` ── well-predicted branch removal 的失敗範例

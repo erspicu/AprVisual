@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual S1 — Benchmark Package</title>
+<style>
+  :root { --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+         background:var(--bg); color:var(--fg); line-height:1.6; }
+  nav { position:sticky; top:0; display:flex; align-items:center; gap:16px;
+        padding:12px 24px; background:#11141a; border-bottom:1px solid var(--bd); }
+  nav .brand { font-weight:700; color:var(--acc); letter-spacing:.3px; }
+  nav .spacer { flex:1; }
+  nav button { background:var(--card); color:var(--fg); border:1px solid var(--bd);
+               border-radius:6px; padding:6px 14px; cursor:pointer; font-size:14px; }
+  nav button.active { background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600; }
+  main { max-width:880px; margin:0 auto; padding:28px 24px 80px; }
+  h1 { font-size:26px; margin:.2em 0 .1em; }
+  h2 { font-size:19px; margin:1.7em 0 .5em; padding-bottom:6px; border-bottom:1px solid var(--bd); color:#cfe4ff; }
+  p,li { color:var(--fg); }
+  .mut { color:var(--mut); }
+  code { background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px;
+         font-family:"SF Mono",Consolas,monospace; }
+  pre { background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px;
+        overflow:auto; font-size:13px; font-family:"SF Mono",Consolas,monospace; }
+  table { border-collapse:collapse; width:100%; margin:.5em 0; font-size:14px; }
+  th,td { border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--card); color:#cfe4ff; }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 20px 16px; margin:14px 0; }
+  .pill { display:inline-block; background:#1f2a38; color:var(--acc); border:1px solid #2c3a4d;
+          border-radius:20px; padding:2px 12px; font-size:12px; margin-right:6px; }
+  /* language switching: show only the active language */
+  .en, .zh { display:none; }
+  body.lang-en .en { display:revert; }
+  body.lang-zh .zh { display:revert; }
+  /* keep block-level elements as block when shown */
+  body.lang-en p.en, body.lang-zh p.zh,
+  body.lang-en li.en, body.lang-zh li.zh,
+  body.lang-en h1.en, body.lang-zh h1.zh,
+  body.lang-en h2.en, body.lang-zh h2.zh,
+  body.lang-en td.en, body.lang-zh td.zh,
+  body.lang-en th.en, body.lang-zh th.zh,
+  body.lang-en div.en, body.lang-zh div.zh { display:revert; }
+</style>
+</head>
+<body class="lang-en">
+<nav>
+  <span class="brand">AprVisual&nbsp;S1</span>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+<main>
+
+  <h1 class="en">AprVisual S1 — Benchmark Package</h1>
+  <h1 class="zh">AprVisual S1 — 效能測試套件</h1>
+
+  <p class="en">A portable, cross-platform package for benchmarking the <b>AprVisual S1</b>
+     switch-level NES simulator and rendering test frames. Two engine implementations
+     are included: a <b>C#</b> (.NET) build and a <b>Rust</b> build, so you can compare
+     them on the same workload.</p>
+  <p class="zh">這是一個可攜、跨平台的套件,用來測試 <b>AprVisual S1</b> 開關級 (switch-level)
+     NES 模擬器的效能,並輸出測試畫面。 內含兩種引擎實作:<b>C#</b>(.NET)版與 <b>Rust</b> 版,
+     可在相同工作負載下互相比較。</p>
+
+  <div class="card">
+    <p class="en"><span class="pill">What is "switch-level"?</span> The simulator models the
+       NES CPU (2A03) at the level of individual transistors and wires — not opcodes — and settles
+       the whole netlist every half clock cycle. It is bit-accurate but far slower than real time;
+       this package measures exactly how far.</p>
+    <p class="zh"><span class="pill">什麼是「開關級」?</span> 這個模擬器把 NES CPU (2A03) 模擬到
+       單顆電晶體與接線的層級 ── 不是用 opcode ── 每半個時脈週期都把整張網表 (netlist) 重新求解到穩定。
+       它是位元精準的,但遠比實機慢;這個套件就是用來量「到底慢幾倍」。</p>
+  </div>
+
+  <h2 class="en">Folder layout</h2>
+  <h2 class="zh">目錄結構</h2>
+  <table>
+    <tr><th class="en">Path</th><th class="en">Contents</th><th class="zh">路徑</th><th class="zh">內容</th></tr>
+    <tr><td><code>win/</code></td>
+        <td class="en">C# <code>AprVisual.S1.exe</code> + Rust <code>wire_s1.exe</code> (Windows x64)</td>
+        <td class="zh">C# <code>AprVisual.S1.exe</code> + Rust <code>wire_s1.exe</code>(Windows x64)</td></tr>
+    <tr><td><code>mac/</code></td>
+        <td class="en">C# <code>AprVisual.S1</code> (macOS arm64); Rust <code>wire_s1</code> is built here on first run</td>
+        <td class="zh">C# <code>AprVisual.S1</code>(macOS arm64);Rust <code>wire_s1</code> 首次執行時在此自動編譯</td></tr>
+    <tr><td><code>rust-src/</code></td>
+        <td class="en">Rust engine source (portable; Mac builds from here)</td>
+        <td class="zh">Rust 引擎原始碼(可攜;Mac 由此編譯)</td></tr>
+    <tr><td><code>data/ snapshot/ roms/</code></td>
+        <td class="en">Engine inputs: netlist modules, Rust snapshots, the test ROM</td>
+        <td class="zh">引擎輸入:netlist 模組、Rust 快照、測試 ROM</td></tr>
+    <tr><td><code>screenshots/</code></td>
+        <td class="en">Frame-dump PNG output lands here</td>
+        <td class="zh">逐張畫面 (frame-dump) 的 PNG 輸出位置</td></tr>
+  </table>
+
+  <h2 class="en">How to run — Windows</h2>
+  <h2 class="zh">如何執行 — Windows</h2>
+  <p class="en">Double-click, or run from <code>cmd</code>. Optional argument shown in brackets.</p>
+  <p class="zh">直接雙擊,或在 <code>cmd</code> 內執行。 中括號為選填參數。</p>
+<pre>run_csharp.bat  [hc]       <span class="en">C# benchmark      (default 200000 half-cycles)</span><span class="zh">C# 效能測試        (預設 200000 half-cycle)</span>
+run_rust.bat    [hc]       <span class="en">Rust benchmark</span><span class="zh">Rust 效能測試</span>
+shot_csharp.bat [frames]   <span class="en">C# frame-dump     (default 50 frames)</span><span class="zh">C# 逐張畫面輸出    (預設 50 張)</span>
+shot_rust.bat   [frames]   <span class="en">Rust frame-dump</span><span class="zh">Rust 逐張畫面輸出</span></pre>
+
+  <h2 class="en">How to run — macOS (Apple Silicon)</h2>
+  <h2 class="zh">如何執行 — macOS(Apple Silicon)</h2>
+  <p class="en">In Terminal, make the scripts executable once, then run them.</p>
+  <p class="zh">在終端機 (Terminal) 先給執行權限一次,之後即可執行。</p>
+<pre>chmod +x *.sh
+./run_csharp.sh  [hc]
+./run_rust.sh    [hc]
+./shot_csharp.sh [frames]
+./shot_rust.sh   [frames]</pre>
+
+  <h2 class="en">Reading the output</h2>
+  <h2 class="zh">如何看輸出</h2>
+  <p class="en">Each benchmark ends with a PERFORMANCE block. NES NTSC real-time needs
+     <b>42,954,552 half-cycles/second</b> (1.789773 MHz CPU × 24). The block reports the
+     achieved rate, the percentage of real-time, the slowdown factor, and the wall-clock
+     time to simulate one 256×240 frame.</p>
+  <p class="zh">每次測試結尾都有一段 PERFORMANCE 區塊。 NES NTSC 實機需要
+     <b>每秒 42,954,552 個 half-cycle</b>(1.789773 MHz CPU × 24)。 該區塊會列出實際速率、
+     占實機的百分比、慢幾倍,以及模擬一張 256×240 畫面所需的實際時間。</p>
+<pre># =============================================
+#  PERFORMANCE: 65.8K hc/s  (65,803 hc/s)
+#  vs NES NTSC real-time (42,955K hc/s):
+#    0.153% of real-time   -&gt;   652.8x too slow
+#    0.092 simulated NES frames / real second  (real NES = 60.1 fps)
+#    10.88 s to render 1 frame  (real NES = 0.0166 s/frame)
+# =============================================</pre>
+
+  <h2 class="en">Notes</h2>
+  <h2 class="zh">注意事項</h2>
+  <ul>
+    <li class="en">The C# binaries are <b>self-contained</b> — they bundle the .NET 10 runtime,
+        so no .NET installation is required on either platform.</li>
+    <li class="zh">C# 執行檔是 <b>self-contained</b> ── 已內嵌 .NET 10 runtime,兩個平台都
+        <b>不需要</b>另外安裝 .NET。</li>
+    <li class="en">Rust on Windows is prebuilt. Rust on macOS ships as source (it can't be
+        cross-compiled from the Windows build host) and is compiled on first run, which needs
+        <a href="https://rustup.rs" style="color:var(--acc)">Rust / cargo</a> installed.</li>
+    <li class="zh">Rust 的 Windows 版已預先編譯。 Rust 的 macOS 版以原始碼提供(無法從 Windows 主機
+        跨平台編譯),首次執行時才編譯,需先安裝
+        <a href="https://rustup.rs" style="color:var(--acc)">Rust / cargo</a>。</li>
+    <li class="en">On macOS the unsigned C# binary may be blocked by Gatekeeper; the scripts
+        auto-clear the quarantine attribute, or run
+        <code>xattr -dr com.apple.quarantine mac/AprVisual.S1</code> manually.</li>
+    <li class="zh">macOS 上未簽章的 C# 執行檔可能被 Gatekeeper 擋下;腳本會自動清除 quarantine 屬性,
+        或手動執行 <code>xattr -dr com.apple.quarantine mac/AprVisual.S1</code>。</li>
+    <li class="en">C# and Rust produce <b>bit-identical</b> simulation output (same checksum,
+        pixel-identical frames); they differ only in speed.</li>
+    <li class="zh">C# 與 Rust 的模擬輸出 <b>位元完全相同</b>(checksum 一致、畫面像素一致),只差在速度。</li>
+  </ul>
+
+  <p class="mut en" style="margin-top:36px;font-size:13px">AprVisual — a Visual6502-style switch-level NES simulator. This is the S1 (engine) fork.</p>
+  <p class="mut zh" style="margin-top:36px;font-size:13px">AprVisual — Visual6502 風格的開關級 NES 模擬器,本套件為 S1(引擎)分支。</p>
+
+</main>
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try { localStorage.setItem('aprvisual-lang', l); } catch(e){}
+  }
+  // default English, but remember the user's last choice
+  (function(){
+    var saved = null;
+    try { saved = localStorage.getItem('aprvisual-lang'); } catch(e){}
+    setLang(saved === 'zh' ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

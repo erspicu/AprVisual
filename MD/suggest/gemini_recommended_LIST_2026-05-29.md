@@ -201,6 +201,71 @@ if (NodeStates[gate] != 0) {
 
 ---
 
+---
+
+## L8 ── Lowering 階段 stub 移除嘗試(2026-05-29 post-batch) ── **失敗:CPU 翻車**
+
+### 設計
+在 `LowerNetlist` **之後 + handler attach 之後 + ResolveCachedNodes 之前** 插入新 pass:
+- 找符合條件 stub:`C1c2s.Count == 1` AND `Gates.Count == 0` AND `Callback == null` AND `Pullups == 0` AND 該 transistor 對端非 Vcc/Vss
+- Cascade fixpoint:移除一輪後 reset alive count,再掃,直到無變化
+- Rebuild node table + transistor list + name maps + forceCompute + LastLowerRemap
+
+### 量測結果
+
+**第一次嘗試(L8 in LowerNetlist,handler attach 之前)── 直接失敗**:
+- 57 nodes 被移除,但其中包含 `ppu.cs`、`cart.chr.cs` 等 handler 將會 lookup 的 node
+- handler attach 報錯:`memory handler 'u4.': missing cs/a[]/_d[7:0]`
+- 修正:把 L8 移到 handler attach 之後跑(這時 watched node 因為 AddCallback 的 fake transistor 有 Gates fanout,L8 會跳過它們)
+
+**第二次嘗試(L8 in LoadSystem,handler attach 之後)── 跑得通但破壞行為**:
+- 49 stub nodes 移除,2 個 cascade pass 收斂
+- handler attach 成功(沒報錯)
+- **selftest 5 個單元電路 ALL PASS**(誤導性 ── 單元電路不會觸發 floating tie-break)
+- 跑 10 frame screenshot 後 CPU state:
+
+| | L8 ON | L8 OFF (baseline) |
+|---|---|---|
+| frame 10 PC | 3638 | **8052** |
+| S(stack ptr) | 3E | **FF** |
+| IR | 92(illegal) | **AD** (LDA absolute) |
+| AB | FFFF(未初始化) | **8052** (有效 PRG) |
+| PNG md5 | `9f33...` | `5c1d...` |
+
+CPU 跑進完全錯誤的指令流(IR=92 是非法 opcode,PC=3638 不是 reset vector ~ PRG 區)── 7M half-cycle 累積發散到 CPU bus state 翻車。
+
+### Root cause
+`GetNodeValue` 內 floating tie-break(`_groupFlags == None` 時):
+```csharp
+for (int i = 0; i < _groupCount; i++) {
+    int conn = NodeConnections[nn];
+    if (conn > maxConn) { maxState = NodeStates[nn]; maxConn = conn; }
+}
+```
+- 走 group 內所有 node,挑 `NodeConnections` 最高的拿 state
+- 移除 stub 改變了 group 成員集合 → tie-break 結果在「兩個 node 都是 conn=1」的競爭中改變
+- 雖然 floating 是 <1% cold path,但 NES 內 CPU bus state 對這類細微差異敏感
+- 200K hc 內累積發散到 CPU 完全翻車
+
+### 教訓 ── 加入第 8 個 dead-end pattern
+
+**「stub 看似 unobservable 但實際參與 floating tie-break,移除會在 cold path 製造 silent divergence」**:
+- group_flags=None 時 GetNodeValue 走 floating tie-break(`<1%` 頻率但 NES CPU bus 對此敏感)
+- 任何改變 group 成員 NodeConnections 集合的 lowering 都會破壞 tie-break
+- **跟 memory `dead-end-skip-dead-end` 同類失敗模式**(skip 後 BFS 結果改變,累積放大成 bug)
+
+### 修復條件(若日後想再試)
+- L8 必須額外保證:對任何包含 stub 的 group walk,floating tie-break 結果不變
+- 等價:stub 在其潛在 group 內 NodeConnections **絕不會是最大值**
+- 證明此條件需要 transitive 分析 group 可能組合,實作工序 > 收益
+
+### 狀態
+- ☒ **C# 完全失敗 + 刪除 dead code** (2026-05-29)
+- ☐ Rust 不嘗試(C# 已證明設計失敗)
+- 確認測試參數 `EnableL8Stubs` + `--no-l8` CLI 已從 source 刪除(沒留下 hot path 開關)
+
+---
+
 ## A/B 驗證 checklist(每項)
 
 ```

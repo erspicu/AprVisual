@@ -144,5 +144,6 @@ namespace AprVisual.Sim
                 $"lowering: nodes {oldNonNull} -> {newNonNull} (merged {oldNonNull - newNonNull}); " +
                 $"transistors {tOld} -> {newTrans.Count} (dropped {tOld - newTrans.Count}: connections + dead gate==vss + dups)";
         }
+
     }
 }

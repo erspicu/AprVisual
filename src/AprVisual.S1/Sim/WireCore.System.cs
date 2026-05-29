@@ -69,11 +69,18 @@ namespace AprVisual.Sim
         /// behavioral handlers (clock / RAM / ROM / video), copy the ROM bytes into the memory regions,
         /// resolve the cached probe nodes, then do a power-on reset. Port of system_state::Create.
         /// </summary>
+        // When true, always compose cart-extraram ($6000 work RAM) regardless of the ROM path
+        // heuristic below. Lets a benchmark deterministically match the Rust snapshot (which was
+        // exported with extraram present) even when the ROM isn't under a "nes-test-roms" path.
+        // Set by the --extra-ram CLI flag.
+        public static bool ForceExtraRam = false;
+
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
             bool chrIsRam = rom.ChrRom.Length == 0;
-            bool isTestRom = rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
+            bool isTestRom = ForceExtraRam
+                          || rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
                           || rom.Path.Contains("nes_test", StringComparison.OrdinalIgnoreCase);
 
             ComposeSystem(chrIsRam, isTestRom);   // WireCore.System.cs (ResetBuild + load defs + AddInstance)

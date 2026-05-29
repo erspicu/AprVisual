@@ -151,8 +151,12 @@ shot_rust.bat   [frames]   <span class="en">Rust frame-dump</span><span class="z
     <li class="zh">macOS 上未簽章的 C# 執行檔可能被 Gatekeeper 擋下;腳本會自動清除 quarantine 屬性,
         或手動執行 <code>xattr -dr com.apple.quarantine mac/AprVisual.S1</code>。</li>
     <li class="en">C# and Rust produce <b>bit-identical</b> simulation output (same checksum,
-        pixel-identical frames); they differ only in speed.</li>
-    <li class="zh">C# 與 Rust 的模擬輸出 <b>位元完全相同</b>(checksum 一致、畫面像素一致),只差在速度。</li>
+        pixel-identical frames); they differ only in speed. The reported <code>t=</code> differs
+        by 192 (C# counts its power-on reset; the Rust snapshot starts from the post-reset state) —
+        the checksum <i>value</i> is the same.</li>
+    <li class="zh">C# 與 Rust 的模擬輸出 <b>位元完全相同</b>(checksum 一致、畫面像素一致),只差在速度。
+        顯示的 <code>t=</code> 會差 192(C# 把開機 reset 算進去,Rust 快照從 reset 後狀態起算)──
+        checksum <i>數值</i>是一樣的。</li>
   </ul>
 
   <p class="mut en" style="margin-top:36px;font-size:13px">AprVisual — a Visual6502-style switch-level NES simulator. This is the S1 (engine) fork.</p>

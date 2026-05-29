@@ -52,13 +52,23 @@
 
 ### `#G3` RecalcNodeFast: GND/PWR OR-all
 - **位置**:C# `WireCore.FastPath.cs:RecalcNodeFast`;Rust `wire.rs:recalc_node_fast`
-- **改動**:`while (*p) { if (state[*p++]) { f |= Gnd; break; } }` → `while (*p) { f |= -(int)state[*p++] & Gnd; }`(或 OR-all)
+- **改動**:`while (*p) { if (state[*p++]) { f |= Gnd; break; } }` → OR-all + `f |= (NodeFlags)(anyGnd << 5)`
 - **前置條件**:list 平均長度 ≤ 3-5 才有利(已知 pure-logic-gnd 多為短 list)
 - **頻率**:每次 fast-path RecalcNode(C# fast-path 覆蓋 23% live nodes)── ~3-10M times
 - **預估**:0.5-1.5%
 - **風險**:低,但只對 fast-path 套用。 **不要套到 `AddNodeToGroup` 內的 GND/PWR 掃描** ── BFS 路徑的 list 較長,早 break 仍有價值
 - **memory 引用**:不撞 dead-end(範圍限於 fast-path 短 list)
-- **狀態**:☐ 待測
+- **狀態**:☒ **退回** (2026-05-29)
+  - C# #G2 (prior) top-3 mean: 64,169 hc/s
+  - C# #G3 top-3 mean:         62,197 hc/s
+  - Δ: **-3.07% (REGRESSION)**
+  - checksum 5/5 `0x9B103E5E206E4C37`(correctness ok)
+  - **root cause 推測**:JIT 對原 early-break loop 已最佳化好(可能展開或預測分支),強制 OR-all 反而:
+    1. 移除了 early-break 對「first ON gate」的提早終止
+    2. fast-path lists 不如假設那麼短,完整掃描成本不可忽略
+    3. 或 JIT 對 byte-shift + cast 序列生成的代碼比原版差
+  - 加入 dead-end 教訓:**「OR-all 比 early-break 快」這個 textbook 假設,在已被 JIT 最佳化的短 list 上不成立**
+  - Rust 端 **暫不嘗試**(C# 結果為負,需先 instrumentation 量 list 長度分布再決定)
 
 ### `#G4` group_flags OR 移到 pop 時做
 - **位置**:C# `WireCore.Group.cs:AddNodeOrApplyDriver`

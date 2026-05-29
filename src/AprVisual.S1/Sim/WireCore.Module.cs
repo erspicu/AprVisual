@@ -58,6 +58,33 @@ namespace AprVisual.Sim
         public static string GetNodeName(int id) => _nameByNode.TryGetValue(id, out string? n) ? n : (id == Npwr ? "vcc" : id == Ngnd ? "vss" : id.ToString());
         public static bool IsPwrGnd(int nn) => nn == Npwr || nn == Ngnd;
 
+        /// <summary>Drop build-time data that the simulation hot path doesn't read. Called from
+        /// LoadSystem() after Reset() has populated the unmanaged arrays. Keeps the _nodeByName
+        /// / _nameByNode maps and the Node[] shell (for LookupNode / probe-style diags), but
+        /// frees the large per-node Gates / C1c2s lists, the full transistor list, the build
+        /// dedup hash, and the parsed JSON ModuleDefs.</summary>
+        public static void ClearPostLoadBuildState()
+        {
+            // Cleared because: already flattened into TransistorList + NodeInfos + NodeTlistGates.
+            for (int i = 0; i < _nodes.Count; i++)
+            {
+                var n = _nodes[i];
+                if (n == null) continue;
+                n.Gates.Clear(); n.Gates.TrimExcess();
+                n.C1c2s.Clear(); n.C1c2s.TrimExcess();
+            }
+            _transistors.Clear(); _transistors.TrimExcess();
+            _transistorSet.Clear(); _transistorSet.TrimExcess();
+            _forceComputeList.Clear(); _forceComputeList.TrimExcess();
+            // Parsed JSON module defs (biggest single allocator, ~20-50 MB).
+            ClearLoadedDefs();
+            // chip-diag remap (chip-diag itself was removed from the S1 fork).
+            LastLowerRemap = null;
+            // Hint a Gen2 collection so the cleared memory actually returns to the OS;
+            // happens once at LoadSystem, has no bench-time cost.
+            System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        }
+
         /// <summary>Allocate <paramref name="count"/> fresh node ids, aligned to <paramref name="alignment"/>. Port of node_resolver::allocNodes.</summary>
         public static int AllocNodes(int alignment, int count)
         {

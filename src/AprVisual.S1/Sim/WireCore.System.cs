@@ -88,6 +88,11 @@ namespace AprVisual.Sim
             ResolveCachedNodes();
 
             ResetNes(full: true);     // clear RAMs + Reset() + alloc FrameBuffer + assert/run/deassert res
+
+            // The hot path reads only the unmanaged arrays from this point. Drop the build-time
+            // managed data (Node.Gates / Node.C1c2s lists, _transistors list, _transistorSet,
+            // _forceComputeList, LoadedDefs JSON parse) — typically ~25-50 MB freed.
+            ClearPostLoadBuildState();
         }
 
         private static void CopyRomBytes(NesRom rom)

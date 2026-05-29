@@ -108,7 +108,19 @@
   - 撞 `counter-fastpath-dead-end` memory 的失敗模式:移除 well-predicted branch、增加 unconditional memory write,常輸給 predictor
   - 但這裡不像 counter-fastpath 有 maintenance overhead ── 只是換 branch 為 conditional move + add
 - **memory 引用**:**`counter-fastpath-dead-end`** ── 必須先 microbenchmark hash dirty hit rate(若 >90% hit, branchless 應贏;<50%, branchless 大概率輸)
-- **狀態**:☐ 先 instrumentation 量 hit rate,再決定是否實作
+- **狀態**:☒ **不實作** (2026-05-29,based on instrumentation 結果)
+  - **Hash hit-rate 量測** (200k hc, full_palette, 套到 EnqueueNode + SetNodeState 內 enqueue):
+    - 總 enqueue attempts: **129,799,078**
+    - Clean (hash=0 → write):  **125,291,978 (96.5%)**
+    - Dirty (hash=1 → skip):     **4,507,100 (3.5%)**
+  - **分析**:96.5% 一邊倒 → branch predictor 飽和,預測準確率 ~99%
+  - **理論 cycle 模型**(以 body ~3.5 cycle + branch ~0.5 cycle 估算):
+    - Branchful avg: 0.965 × 4.0 + 0.035 × 0.5 = **3.88 cycle/iter**
+    - Branchless avg: ~3.5 cycle/iter
+    - 差值 ~0.38 cycle/iter,折 200k hc 約 **+0.4% bench**(極微)
+  - **決定**:不實作 ── 微弱預期收益 + 撞 `counter-fastpath-dead-end` 的「高 predicted branch 不要動」教訓 + 需動 NodeCount+1 capacity 與 supply shield 兩處基礎設施
+  - 若日後 D 變化或 ROM 不同(例如 SMB 大量 IO)hit rate 大幅變動,可重測再評估
+  - **校準 LIST 內 hit-rate 規則**:原文寫「>90% hit, branchless 應贏」用詞不準。 正確應為「>90% branch UN-predictable → branchless 贏;>90% PREDICTABLE(無論方向)→ branchless 輸或打平」
 
 ### `#H2` byte→u16 generation counter for `_inGroup`
 - **位置**:C# `WireCore.Group.cs`;Rust `wire.rs:add_node_to_group`

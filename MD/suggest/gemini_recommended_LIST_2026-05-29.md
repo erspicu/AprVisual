@@ -92,8 +92,22 @@ fn compute_node_group_floating_cold(&self) -> u8 { /* linear scan */ }
 3. `RecalcNodeFast` 的 `TlistC1gnd` / `TlistC1pwr` scan ── 較冷
 
 ### 狀態
-- ☐ C# 待測
-- ☐ Rust 待測
+- ☒ **C# 退回 -1.68%** (2026-05-29)
+  - baseline top-3 mean: 64,706 hc/s
+  - Q6 round 1 top-3 mean: 63,310 hc/s
+  - Q6 round 2 top-3 mean: 63,931 hc/s
+  - 兩輪平均: 63,621 → **Δ -1.68%**
+  - checksum 5/5 `0x9B103E5E206E4C37`
+  - 實作:
+    1. 離線:對 `c1c2Pairs` 依 `gate` 排序後再 flatten
+    2. Runtime:`AddNodeToGroup` BFS walk 內加 `lastGate` / `lastState` scalar cache
+  - **root cause**:NMOS 網絡上**同一 gate 控制多 transistor 連到同一 node 的情況罕見**
+    - `TlistC1c2s` 每 entry 是 (gate, other),gate 是其他節點
+    - 為了 hit cache,需要同 gate 在同 nn 的 c1c2 list 中重複出現多次
+    - 但 NMOS 通常 1 transistor / 1 (gate, other) 對,重複率低
+    - lastGate cmp 變成純 overhead,不能 amortize
+  - 教訓:**Gemini 的「同 gate 重複」假設**對 NES 2A03/2C02 NMOS 拓樸**不成立**。 需先量化 gate 重複分佈再評估
+- ☐ Rust 待測(預期同樣失敗,但 LLVM codegen 可能不同 ── 視時間決定)
 
 ---
 

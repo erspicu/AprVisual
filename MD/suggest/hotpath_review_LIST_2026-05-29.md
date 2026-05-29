@@ -120,7 +120,18 @@
 - **預估**:0.5-2%(視 group 大小)
 - **風險**:中。 generation rollover 還是要正確處理(`if (gen == MAX) { 全清 _inGroup; gen = 1; }`)
 - **memory 引用**:不撞 dead-end
-- **狀態**:☐ 待測
+- **狀態**:☒ **退回** (2026-05-29)
+  - C# baseline (post-#G2) top-3 mean: 64,169 hc/s
+  - C# #H2 top-3 mean:                 61,645 hc/s
+  - Δ: **-3.93% (REGRESSION)**
+  - checksum 5/5 `0x9B103E5E206E4C37`(correctness ok)
+  - **root cause**:**L1d cache budget 撞牆**
+    - `_inGroup` byte→ushort 從 14KB 翻到 29KB
+    - 加 NodeStates 14KB → 43KB,超過 32KB L1d 限制
+    - BFS dedup 變 L1 miss-bound,clear loop 省的工作量遠少於 cache miss 拖累
+  - 加入 dead-end 教訓:**L1 cache footprint 是硬限制 ── 任何「擴大熱資料 size」的提案都要先算 L1d 預算**
+  - 不嘗試 u32(更糟,4×=58KB)
+  - **可能的補救方案**(暫不做,需新提案):保留 byte _inGroup + 加一個 byte generation 域,gen 用 byte 滾動 + 對 group 跑完後標記用過的 entries,只清那些 → 但這比現有方案複雜且收益不明
 
 ### `#H3` Rust raw pointer iteration
 - **位置**:Rust `wire.rs` 多處 `get_unchecked(i++)` loop

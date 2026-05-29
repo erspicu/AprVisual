@@ -106,6 +106,7 @@ echo [4/4] Writing run_csharp.bat / run_rust.bat ...
     echo set "HC=%%~1"
     echo if "%%HC%%"=="" set "HC=200000"
     echo "%%~dp0csharp\AprVisual.S1.exe" --benchmark "%%~dp0roms\full_palette.nes" --bench-hc %%HC%% --system-def-dir "%%~dp0data\system-def"
+    echo pause
 )
 
 > "%OUT%\run_rust.bat" (
@@ -115,6 +116,7 @@ echo [4/4] Writing run_csharp.bat / run_rust.bat ...
     echo set "HC=%%~1"
     echo if "%%HC%%"=="" set "HC=200000"
     echo "%%~dp0rust\wire_s1.exe" bench "%%~dp0snapshot\full_palette.aprsnap" %%HC%%
+    echo pause
 )
 
 echo.

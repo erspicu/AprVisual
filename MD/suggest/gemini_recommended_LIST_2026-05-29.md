@@ -62,8 +62,15 @@ fn compute_node_group_floating_cold(&self) -> u8 { /* linear scan */ }
 ```
 
 ### 狀態
-- ☐ C# 待測
-- ☐ Rust 待測
+- ☒ **C# 退回 -1.53%** (2026-05-29)
+  - baseline top-3 mean: 64,706 hc/s
+  - Q5 round 1 top-3 mean: 63,482 hc/s
+  - Q5 round 2 top-3 mean: 63,950 hc/s
+  - 兩輪平均: 63,716 → **Δ -1.53%(超出 noise band)**
+  - checksum 5/5 `0x9B103E5E206E4C37`
+  - **root cause**:.NET JIT 對 `if (_groupFlags != None)` 條件下的 cold 路徑已自動 dead-code-eliminate(當分支不取時整段內聯代碼被優化掉),強制 `NoInlining` 反而引入真實 function call overhead(args setup、stack frame、ret)。 Gemini 的「inline budget 釋放」理論在這架構上不成立,因為 cold 代碼本來就不會被生成到 hot path
+  - **教訓**:**.NET JIT 已會根據 branch hint 把 cold 分支推到尾端**;Gemini 預估 +2-6% 在已最佳化的 hot path 上不適用
+- ☐ Rust 待測(視 C# 結果,可能跳過或測試 LLVM 是否表現不同)
 
 ---
 

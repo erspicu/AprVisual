@@ -55,3 +55,6 @@ temp/
 
 # --- Claude Code 本機狀態 ---
 .claude/
+
+# benchmark staging output (build_benchmark.bat)
+AprVisualBenchMark/

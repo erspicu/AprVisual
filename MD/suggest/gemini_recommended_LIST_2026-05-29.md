@@ -70,7 +70,13 @@ fn compute_node_group_floating_cold(&self) -> u8 { /* linear scan */ }
   - checksum 5/5 `0x9B103E5E206E4C37`
   - **root cause**:.NET JIT 對 `if (_groupFlags != None)` 條件下的 cold 路徑已自動 dead-code-eliminate(當分支不取時整段內聯代碼被優化掉),強制 `NoInlining` 反而引入真實 function call overhead(args setup、stack frame、ret)。 Gemini 的「inline budget 釋放」理論在這架構上不成立,因為 cold 代碼本來就不會被生成到 hot path
   - **教訓**:**.NET JIT 已會根據 branch hint 把 cold 分支推到尾端**;Gemini 預估 +2-6% 在已最佳化的 hot path 上不適用
-- ☐ Rust 待測(視 C# 結果,可能跳過或測試 LLVM 是否表現不同)
+- ☒ **Rust 退回 -1.70%** (2026-05-29)
+  - baseline top-3 mean: 69,647 hc/s
+  - Rust Q5 top-3 mean: 68,466 hc/s
+  - **Δ -1.70%**,checksum 5/5
+  - `#[cold] #[inline(never)]` 加在 `compute_node_group_floating_cold` 上
+  - LLVM 跟 .NET JIT 同樣已自動處理 cold path 佈局,強制標記反而引入真實 function call
+  - **跨平台一致**:Q5「Hot/Cold split」在兩個現代編譯器上都是 -1.5~1.7% 退步
 
 ---
 
@@ -107,7 +113,13 @@ fn compute_node_group_floating_cold(&self) -> u8 { /* linear scan */ }
     - 但 NMOS 通常 1 transistor / 1 (gate, other) 對,重複率低
     - lastGate cmp 變成純 overhead,不能 amortize
   - 教訓:**Gemini 的「同 gate 重複」假設**對 NES 2A03/2C02 NMOS 拓樸**不成立**。 需先量化 gate 重複分佈再評估
-- ☐ Rust 待測(預期同樣失敗,但 LLVM codegen 可能不同 ── 視時間決定)
+- ☒ **Rust 退回 -5.36%(更大幅退步)** (2026-05-29)
+  - baseline top-3 mean: 69,647 hc/s
+  - Rust Q6 top-3 mean: 65,917 hc/s
+  - **Δ -5.36%**,checksum 5/5
+  - 同 C# 實作:from_snapshot 時對每個 TlistC1c2s segment 依 gate id 排序 + BFS walk 加 lastGate cache
+  - Rust 退步比 C# 更大可能因 `if gate == last_gate` 的 conditional 在 LLVM 上產生更差的 codegen(branch + select 都需 setup)
+  - **跨平台確認**:Q6 lastGate cache 在兩個編譯器上都失敗,主因 NMOS 同 gate 重複罕見
 
 ---
 

@@ -51,6 +51,23 @@ fn bench(args: &[String]) {
     println!("# rate: {hcps:.0} hc/s ({us_per_hc:.2} µs/hc)");
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
+    print_realtime_gap(hcps);
+}
+
+// NES NTSC: 1.789773 MHz CPU * 24 master-half-cycles/CPU-cycle = 42,954,552 hc/s,
+// i.e. 60.0988 frames/s * 714,732 hc/frame. Show how far the sim rate is from real-time.
+const NES_REALTIME_HC_PER_SEC: f64 = 42_954_552.0;
+const NES_REALTIME_FPS: f64 = 60.0988;
+fn print_realtime_gap(hcps: f64) {
+    let pct = hcps / NES_REALTIME_HC_PER_SEC * 100.0;
+    let gap = NES_REALTIME_HC_PER_SEC / hcps;
+    let fps = hcps / (NES_REALTIME_HC_PER_SEC / NES_REALTIME_FPS);
+    println!("# =============================================");
+    println!("#  PERFORMANCE: {hcps:.0} hc/s");
+    println!("#  vs NES NTSC real-time ({NES_REALTIME_HC_PER_SEC:.0} hc/s):");
+    println!("#    {pct:.3}% of real-time   ->   {gap:.1}x too slow");
+    println!("#    {fps:.3} simulated NES frames / real second  (real NES = {NES_REALTIME_FPS:.1} fps)");
+    println!("# =============================================");
 }
 
 fn shot(args: &[String]) {

@@ -418,9 +418,27 @@ namespace AprVisual.Test
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
+                PrintRealtimeGap(stepsHz);
             }
             finally { WireCore.Shutdown(); }
             return 0;
+        }
+
+        // NES NTSC runs at 1.789773 MHz CPU * 24 master-half-cycles/CPU-cycle = 42,954,552 hc/s,
+        // i.e. 60.0988 frames/s * 714,732 hc/frame. Print how far our sim rate is from that.
+        private const double NesRealtimeHcPerSec = 42_954_552.0;
+        private const double NesRealtimeFps      = 60.0988;
+        private static void PrintRealtimeGap(double stepsHz)
+        {
+            double pct  = stepsHz / NesRealtimeHcPerSec * 100.0;
+            double gap  = NesRealtimeHcPerSec / stepsHz;
+            double fps  = stepsHz / (NesRealtimeHcPerSec / NesRealtimeFps);   // simulated NES frames / real second
+            Console.WriteLine($"# =============================================");
+            Console.WriteLine($"#  PERFORMANCE: {stepsHz:N0} hc/s");
+            Console.WriteLine($"#  vs NES NTSC real-time ({NesRealtimeHcPerSec:N0} hc/s):");
+            Console.WriteLine($"#    {pct:F3}% of real-time   ->   {gap:F1}x too slow");
+            Console.WriteLine($"#    {fps:F3} simulated NES frames / real second  (real NES = {NesRealtimeFps:F1} fps)");
+            Console.WriteLine($"# =============================================");
         }
 
         // ── --ppu-dump: after N frames, dump palette RAM + VRAM nametable 0 + rendering state + pclk1 samples ──

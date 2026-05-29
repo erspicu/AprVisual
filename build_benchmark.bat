@@ -4,12 +4,12 @@ REM  build_benchmark.bat
 REM  Build both the C# (AprVisual.S1) and Rust (wire_s1) S1 forks in Release,
 REM  then stage the binaries + runtime data into AprVisualBenchMark\.
 REM
-REM  C# is published SELF-CONTAINED single-file (bundles the .NET 10 runtime),
-REM  so AprVisualBenchMark runs on machines WITHOUT any .NET runtime installed.
-REM  Rust is a native exe (no runtime needed).
+REM  C# is published SELF-CONTAINED + TRIMMED single-file (bundles the .NET 10
+REM  runtime), so AprVisualBenchMark runs on machines WITHOUT any .NET runtime
+REM  installed. Rust is a native exe (no runtime needed).
 REM
 REM  Output layout (C:\ai_project\AprVisual\AprVisualBenchMark):
-REM    csharp\          AprVisual.S1.exe (self-contained, ~73 MB) + pdb
+REM    csharp\          AprVisual.S1.exe (self-contained + trimmed, ~13 MB) + pdb
 REM    rust\            Rust wire_s1.exe (native)
 REM    data\system-def\ .js module defs (C# --system-def-dir)
 REM    snapshot\        .aprsnap snapshots (Rust bench input)
@@ -34,8 +34,8 @@ REM 1. Publish C# (AprVisual.S1) Release - SELF-CONTAINED single file.
 REM    Bundles the .NET 10 runtime into the exe so it runs WITHOUT any
 REM    installed .NET runtime on the target machine.
 REM ---------------------------------------------------------------------------
-echo [1/4] Publishing C# AprVisual.S1 (Release, self-contained win-x64) ...
-dotnet publish "%ROOT%\src\AprVisual.S1\AprVisual.S1.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --nologo
+echo [1/4] Publishing C# AprVisual.S1 (Release, self-contained + trimmed win-x64) ...
+dotnet publish "%ROOT%\src\AprVisual.S1\AprVisual.S1.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:IncludeNativeLibrariesForSelfExtract=true --nologo
 if errorlevel 1 (
     echo ERROR: C# publish failed.
     exit /b 1

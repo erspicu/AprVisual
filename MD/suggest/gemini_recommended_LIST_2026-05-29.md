@@ -266,6 +266,82 @@ for (int i = 0; i < _groupCount; i++) {
 
 ---
 
+---
+
+## 後 PMC 階段:Lower / NodeInfo 優化嘗試(2026-05-29 深夜)
+
+### Phase A:清 unused post-load build state ── **採用(RAM 省 25-50 MB)**
+
+**動機**:使用者問「JSON 解析後是否可清空 unused data?」 雖然 PMC 確認過 L1d miss 來自被 access 的 hot data,**清 unused 不影響 L1**,但可省 RAM。
+
+**實作**:`WireCore.ClearPostLoadBuildState()`,LoadSystem 末段呼叫:
+- 清 `Node.Gates` / `Node.C1c2s` per-node Lists(已 flatten 進 TransistorList)
+- 清 `_transistors` List(已 flatten)
+- 清 `_transistorSet` 建構期 dedup hash
+- 清 `_forceComputeList`(已 apply 到 NodeInfos.Flags)
+- 清 `LoadedDefs`(JSON parse,最大宗 20-50 MB)
+- 清 `LastLowerRemap`(chip-diag 已移除)
+- `GC.Collect(2, Aggressive)` 觸發 OS 真實回收
+
+**保留**:`_nodes[]` shell(空 Lists)+ `_nodeByName/_nameByNode`(diag 路徑用)
+
+**Bench**:
+- Baseline 5-run top-3 mean: 65,150 hc/s
+- Phase A 5-run top-3 mean: 65,082 hc/s
+- Phase A 10-run top-5 mean: 65,233 hc/s
+- **Δ: -0.1% ~ +0.05%(雜訊內)**
+
+**verdict**:採用 ── 速度 wash 但 RAM 真省 + variance 較小(GC 壓力小)
+**Commit**:`889c0ba`
+
+---
+
+### Phase B:NodeHot 16→8 byte u16 壓縮 ── **不可行**
+
+**動機**:NodeInfo 16 byte × 14,723 = 230 KB hot data。 若壓 u16 → 8 byte = 115 KB,density 從 4→8 nodes per 64-byte cache line。 可能降低 L2/L1 miss。
+
+**前提**:`TlistC1c2s / TlistC1gnd / TlistC1pwr` 三個 offset 都要塞進 u16(< 65,536)
+
+**量測**(離線診斷):
+
+| Field | u16 fit % | Max offset |
+|---|---|---|
+| TlistC1c2s | **32.7%** | 178,872 |
+| TlistC1gnd | 29.8% | 179,117 |
+| TlistC1pwr | 97.3%(因 ~97% nodes 此 field = 0) | 177,985 |
+| **ALL THREE fit u16** | **僅 11.6%** | - |
+| TransistorList total | **179,119** | 3× u16 限制 |
+
+**結論**:`TransistorList` 太大(179K),u16 全壓不可行。
+
+**退而求其次 u24 packing(16→12 byte)分析**:
+- 省 59 KB(L2 230→177 KB,L2 一直夠用,邊際)
+- Density 4→5.33 nodes/cache line(+33%)
+- 每 access 加 1 cycle shift+OR
+- 預估 ROI: **-0.5% ~ +0.5%**(雜訊,跟 memory `R4 group_buf u16` 同模式)
+
+**實測 8-byte bit-packed 版本(NodeInfo 16→8 byte)**:
+- 設計: byte Flags + byte HiBits(2-bit-per-field 高位)+ 3 × ushort lo = 8 bytes
+- Max offset: 2 << 16 | 16 = **18 bits = 262K**(我們 179K 在範圍內)
+- NodeInfos 230 KB → **115 KB**(L2 半滿)
+- 每 access 加 ~3-4 cycle bit unpacking(shift + AND + shift + OR)
+
+| | 10-run top-5 mean | Δ |
+|---|---|---|
+| Phase A baseline | 65,233 | - |
+| **Phase B (8-byte packed)** | **63,211** | **-3.10%** |
+
+- Checksum 10/10 OK
+- **退回** ── unpack cost > L2 bandwidth saving
+- 印證 anti-pattern #1 反向:**用 compute 省 memory 在現代 CPU 上輸給 cache** ── L2 反正夠用,壓縮收益抓不到
+
+**根因**:`TransistorList` 結構限制 + L2 不在邊緣
+- 每個 transistor 雙端各佔一 entry → TransistorList 必然 ~ 2× 總 transistor 數 + N 個 0 terminator = ~179K
+- L2 512 KB / core 對 230 KB NodeInfos 一直舒適,壓到 115 KB 沒帶來邊際 access cost 改善
+- bottleneck 是 L1d(byte arrays 71 KB > 32 KB),不是 L2 對 NodeInfos
+
+---
+
 ## A/B 驗證 checklist(每項)
 
 ```

@@ -1,0 +1,41 @@
+Top 40 Functions (Exclusive)                                                  Inclusive           Exclusive           
+1.  WireCore.AddNodeToGroup(int32)                                            0.32%               0.32%               
+2.  JsLexer.Peek()                                                            0.93%               0.29%               
+3.  JsLexer.Lex()                                                             0.65%               0.23%               
+4.  JsLexer.LexNumber()                                                       0.24%               0.22%               
+5.  WireCore.LowerNetlist()                                                   0.21%               0.2%                
+6.  WireCore.InvokeCallbacks()                                                1.04%               0.18%               
+7.  JsReader.EndArray()                                                       0.82%               0.15%               
+8.  JsLexer.SkipTrivia()                                                      0.15%               0.15%               
+9.  il!Interop+Kernel32.ReadFile(class System.Runtime.InteropServices.Safe    0.12%               0.12%               
+10. WireCore.Step(int32)                                                      97.26%              0.12%               
+11. WireCore.SetNodeState(int32,unsigned int8)                                0.1%                0.1%                
+12. Buffer.MemmoveInternal(unsigned int8&,unsigned int8&,unsigned int)        0.1%                0.1%                
+13. UTF8Encoding.GetByteCount(class System.String)                            0.09%               0.09%               
+14. WireCore.AddInstance(class ModuleDef,class System.String)                 0.29%               0.09%               
+15. WireCore.RecalcNode(int32)                                                0.6%                0.08%               
+16. WireCore.ReadSegDef(class AprVisual.Sim.JsReader)                         0.94%               0.06%               
+17. WireCore+<>c__DisplayClass69_0.<AttachVideoHandler>b__0()                 0.06%               0.06%               
+18. CultureData.GetLocaleInfoCore(value class LocaleNumberData)               0.06%               0.06%               
+19. WireCore.RecalcNodeFast(int32)                                            0.09%               0.05%               
+20. WireCore.ReadNodeRef(class AprVisual.Sim.JsReader)                        0.17%               0.05%               
+21. Buffer.BulkMoveWithWriteBarrierBatch(unsigned int8&,unsigned int8&,uns    0.06%               0.05%               
+22. WireCore.ComputeNodeGroup(int32)                                          0.36%               0.05%               
+23. il!Interop+Kernel32.CreateFilePrivate(class System.String,int32,value     0.04%               0.04%               
+24. WireCore.ClassifyPureLogicNodes()                                         0.05%               0.04%               
+25. WireCore.Reset()                                                          0.1%                0.04%               
+26. JsReader.ReadArray(class System.Action`1<class AprVisual.Sim.JsReader>    1.45%               0.03%               
+27. JsReader.SkipValue()                                                      0.22%               0.02%               
+28. JsReader.PeekKind()                                                       0.13%               0.02%               
+29. JsLexer.LexString(wchar)                                                  0.02%               0.02%               
+30. WireCore+<>c__DisplayClass131_0.<LoadModuleDef>b__18(class AprVisual.S    1%                  0.02%               
+31. Int32]].AddIfNotPresent(!0,int32&)                                        0.1%                0.02%               
+32. SpanHelpers.Memmove(unsigned int8&,unsigned int8&,unsigned int)           0.02%               0.02%               
+33. WireCore.MaxNodeIdOf(class ModuleDef)                                     0.02%               0.02%               
+34. JsReader+<>c.<SkipValue>b__17_1(class AprVisual.Sim.JsReader)             0.02%               0.02%               
+35. WireCore.ReadTransDef(class AprVisual.Sim.JsReader)                       0.39%               0.02%               
+36. WireCore.ComposeSystem(bool,bool)                                         2.27%               0.01%               
+37. WireCore.NodeStatesChecksum()                                             0.01%               0.01%               
+38. JsReader.TryReadBool(bool&)                                               0.04%               0.01%               
+39. BufferedFileStreamStrategy.ReadSpan(value class System.Span`1<unsigned    0.13%               0.01%               
+40. WireCore.LoadExternalArray(class System.String,class System.Action`1<c    1.65%               0.01%               

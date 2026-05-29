@@ -1,0 +1,39 @@
+# bench-hc: full_palette.nes  (PRG 32 KB, mapper 0) ¡X 1,000 master half-cycles
+; Assembly listing for method AprVisual.Sim.WireCore:StepCycle() (FullOpts)
+; Emitting BLENDED_CODE for generic X64 + VEX on Windows
+; FullOpts code
+; optimized code
+; rsp based frame
+; partially interruptible
+; No PGO data
+; 0 inlinees with PGO data; 0 single block inlinees; 1 inlinees without PGO data
+
+G_M000_IG01:                ;; offset=0x0000
+       sub      rsp, 40
+ 
+G_M000_IG02:                ;; offset=0x0004
+       mov      rcx, 0x25FD68001E8
+       mov      rax, gword ptr [rcx]
+       test     rax, rax
+       je       SHORT G_M000_IG04
+ 
+G_M000_IG03:                ;; offset=0x0016
+       mov      rcx, gword ptr [rax+0x08]
+       call     [rax+0x18]System.Action:Invoke():this
+ 
+G_M000_IG04:                ;; offset=0x001D
+       mov      rax, 0x7FFB093DB0B0
+       inc      qword ptr [rax]
+ 
+G_M000_IG05:                ;; offset=0x002A
+       add      rsp, 40
+       ret      
+ 
+; Total bytes of code 47
+
+# lowering: nodes 15164 -> 14723 (merged 441); transistors 27305 -> 26775 (dropped 530: connections + dead gate==vss + dups)
+# fast-path: 3,408 pure-logic-gnd nodes classified (23.1% of 14,729 live nodes) take the O(1) RecalcNode
+# load (compose netlist + power-on settle): 0.25 s
+# simulated: 1,000 master half-cycles in 0.018 s
+# rate: 54,726 hc/s (18.27 £gs/hc)
+# NodeStates checksum @ t=1192: 0x02D297FF97DECB8C  (A/B equivalence: must match the baseline run)

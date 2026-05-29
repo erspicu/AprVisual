@@ -1,6 +1,3 @@
-tools/profile_results/*.etl
-tools/profile_results/*.etlx
-tools/profile_results/*.NGENPDB
-tools/profile_results/*.nettrace
-tools/profile_results/jit_all.txt
-tools/profile_results/*.csv
+# All profiling intermediates — keep local only. Final analysis lives in MD/perf/.
+*
+!.gitignore

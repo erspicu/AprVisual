@@ -4,9 +4,13 @@ REM  build_benchmark.bat
 REM  Build both the C# (AprVisual.S1) and Rust (wire_s1) S1 forks in Release,
 REM  then stage the binaries + runtime data into AprVisualBenchMark\.
 REM
+REM  C# is published SELF-CONTAINED single-file (bundles the .NET 10 runtime),
+REM  so AprVisualBenchMark runs on machines WITHOUT any .NET runtime installed.
+REM  Rust is a native exe (no runtime needed).
+REM
 REM  Output layout (C:\ai_project\AprVisual\AprVisualBenchMark):
-REM    csharp\          C# exe + dll + runtimeconfig + deps
-REM    rust\            Rust wire_s1.exe
+REM    csharp\          AprVisual.S1.exe (self-contained, ~73 MB) + pdb
+REM    rust\            Rust wire_s1.exe (native)
 REM    data\system-def\ .js module defs (C# --system-def-dir)
 REM    snapshot\        .aprsnap snapshots (Rust bench input)
 REM    roms\            test ROM(s) (C# --benchmark input)
@@ -26,23 +30,24 @@ echo OUT  = %OUT%
 echo.
 
 REM ---------------------------------------------------------------------------
-REM 1. Build C# (AprVisual.S1) Release
+REM 1. Publish C# (AprVisual.S1) Release - SELF-CONTAINED single file.
+REM    Bundles the .NET 10 runtime into the exe so it runs WITHOUT any
+REM    installed .NET runtime on the target machine.
 REM ---------------------------------------------------------------------------
-echo [1/4] Building C# AprVisual.S1 (Release) ...
-dotnet build "%ROOT%\src\AprVisual.S1\AprVisual.S1.csproj" -c Release --nologo
+echo [1/4] Publishing C# AprVisual.S1 (Release, self-contained win-x64) ...
+dotnet publish "%ROOT%\src\AprVisual.S1\AprVisual.S1.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true --nologo
 if errorlevel 1 (
-    echo ERROR: C# build failed.
+    echo ERROR: C# publish failed.
     exit /b 1
 )
 
-set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0"
-if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\x64\Release\net10.0"
-if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0-windows"
+set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0\win-x64\publish"
+if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\x64\Release\net10.0\win-x64\publish"
 if not exist "%CS_BIN%\AprVisual.S1.exe" (
-    echo ERROR: could not locate AprVisual.S1.exe after build.
+    echo ERROR: could not locate published AprVisual.S1.exe.
     exit /b 1
 )
-echo     C# bin: %CS_BIN%
+echo     C# publish: %CS_BIN%
 
 REM ---------------------------------------------------------------------------
 REM 2. Build Rust (wire_s1) Release
@@ -70,8 +75,11 @@ REM ---------------------------------------------------------------------------
 echo [3/4] Staging into %OUT% ...
 
 if not exist "%OUT%"               mkdir "%OUT%"
-if not exist "%OUT%\csharp"        mkdir "%OUT%\csharp"
-if not exist "%OUT%\rust"          mkdir "%OUT%\rust"
+REM wipe stale binaries (e.g. old framework-dependent dll/json) before staging
+if exist "%OUT%\csharp"            rmdir /S /Q "%OUT%\csharp"
+if exist "%OUT%\rust"              rmdir /S /Q "%OUT%\rust"
+mkdir "%OUT%\csharp"
+mkdir "%OUT%\rust"
 if not exist "%OUT%\data"          mkdir "%OUT%\data"
 if not exist "%OUT%\snapshot"      mkdir "%OUT%\snapshot"
 if not exist "%OUT%\roms"          mkdir "%OUT%\roms"
@@ -79,12 +87,9 @@ if not exist "%OUT%\screenshots"        mkdir "%OUT%\screenshots"
 if not exist "%OUT%\screenshots\csharp" mkdir "%OUT%\screenshots\csharp"
 if not exist "%OUT%\screenshots\rust"   mkdir "%OUT%\screenshots\rust"
 
-REM C# binaries (exe + dll + json + pdb)
-copy /Y "%CS_BIN%\AprVisual.S1.exe"               "%OUT%\csharp\" >nul
-copy /Y "%CS_BIN%\AprVisual.S1.dll"               "%OUT%\csharp\" >nul
-copy /Y "%CS_BIN%\AprVisual.S1.runtimeconfig.json" "%OUT%\csharp\" >nul
-copy /Y "%CS_BIN%\AprVisual.S1.deps.json"         "%OUT%\csharp\" >nul
-if exist "%CS_BIN%\AprVisual.S1.pdb" copy /Y "%CS_BIN%\AprVisual.S1.pdb" "%OUT%\csharp\" >nul
+REM C# self-contained publish output (single-file exe bundles the runtime;
+REM copy the whole publish dir in case any side files exist).
+xcopy /Y /I /E /Q "%CS_BIN%" "%OUT%\csharp" >nul
 
 REM Rust binary
 copy /Y "%RUST_BIN%\wire_s1.exe"                  "%OUT%\rust\" >nul

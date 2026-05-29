@@ -147,8 +147,21 @@ impl WireCore {
             flags_to_state: snap.flags_to_state,
             recalc_list: vec![0i32; nc],
             recalc_list_next: vec![0i32; nc],
-            recalc_hash: vec![0u8; nc],
-            recalc_hash_next: vec![0u8; nc],
+            recalc_hash: {
+                let mut h = vec![0u8; nc];
+                // Step 1 shield: VCC/GND hash permanently 1 — they always look "already enqueued",
+                // so branchless enqueue's `is_new = hash ^ 1` evaluates to 0 for them (no advance,
+                // no supply cmp needed in set_node_state's c2 path).
+                h[snap.npwr as usize] = 1;
+                h[snap.ngnd as usize] = 1;
+                h
+            },
+            recalc_hash_next: {
+                let mut h = vec![0u8; nc];
+                h[snap.npwr as usize] = 1;
+                h[snap.ngnd as usize] = 1;
+                h
+            },
             list_count: 0,
             list_next_count: 0,
             group_buf: vec![0i32; nc],
@@ -235,15 +248,14 @@ impl WireCore {
 
     #[inline(always)]
     pub fn enqueue(&mut self, nn: i32) {
-        if nn == self.npwr || nn == self.ngnd { return; }
+        // Step 1+2 branchless: VCC/GND have hash=1 perma-shield, so is_new=0 for them
+        // (no advance, no supply cmp). For non-supply: is_new = hash^1 = 1 first time, 0 if dup.
         let u = nn as usize;
         unsafe {
-            if *self.recalc_hash_next.get_unchecked(u) == 0 {
-                let i = self.list_next_count;
-                *self.recalc_list_next.get_unchecked_mut(i) = nn;
-                self.list_next_count = i + 1;
-                *self.recalc_hash_next.get_unchecked_mut(u) = 1;
-            }
+            let is_new = *self.recalc_hash_next.get_unchecked(u) ^ 1;
+            *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = nn;
+            *self.recalc_hash_next.get_unchecked_mut(u) = 1;
+            self.list_next_count += is_new as usize;
         }
     }
 
@@ -359,41 +371,32 @@ impl WireCore {
     fn set_node_state(&mut self, nn: i32, new_state: u8) {
         let u = nn as usize;
         // R3: hot path — snapshot guarantees node ids and tlist indices are in range.
+        // Step 1+2 branchless: shield removes the c2 != npwr/ngnd check entirely; XOR-shielded
+        // enqueue replaces the if-branch on hash. #G2 loop unswitch retained.
         unsafe {
             if *self.node_states.get_unchecked(u) == new_state { return; }
             *self.node_states.get_unchecked_mut(u) = new_state;
             let tlist_gates = *self.node_tlist_gates.get_unchecked(u);
             if tlist_gates != 0 {
-                // Sync #04: c1 is non-supply by construction (AddTransistor on C# side
-                // normalises supply onto c2), so skip npwr/ngnd check for c1. c2 can be supply.
-                // #G2 loop unswitch (sync from C#): new_state is loop-invariant 0/1 → specialize
-                // the two cases so the gate-high path has no c2 enqueue at all.
                 let mut p = tlist_gates as usize;
                 if new_state == 0 {
-                    let npwr = self.npwr;
-                    let ngnd = self.ngnd;
                     loop {
                         let c1 = *self.transistor_list.get_unchecked(p) as i32;
                         if c1 == 0 { break; }
                         let c2 = *self.transistor_list.get_unchecked(p + 1) as i32;
                         p += 2;
-                        let cu = c1 as usize;
-                        if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                            let i = self.list_next_count;
-                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
-                            self.list_next_count = i + 1;
-                            *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
-                        }
-                        // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if c2 != npwr && c2 != ngnd {
-                            let cu = c2 as usize;
-                            if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                                let i = self.list_next_count;
-                                *self.recalc_list_next.get_unchecked_mut(i) = c2;
-                                self.list_next_count = i + 1;
-                                *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
-                            }
-                        }
+                        // c1: branchless enqueue (non-supply by construction)
+                        let cu1 = c1 as usize;
+                        let is_new1 = *self.recalc_hash_next.get_unchecked(cu1) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1;
+                        *self.recalc_hash_next.get_unchecked_mut(cu1) = 1;
+                        self.list_next_count += is_new1 as usize;
+                        // c2: branchless enqueue (shield handles supply: hash[npwr/ngnd] = 1 → is_new=0)
+                        let cu2 = c2 as usize;
+                        let is_new2 = *self.recalc_hash_next.get_unchecked(cu2) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2;
+                        *self.recalc_hash_next.get_unchecked_mut(cu2) = 1;
+                        self.list_next_count += is_new2 as usize;
                     }
                 } else {
                     // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
@@ -401,13 +404,11 @@ impl WireCore {
                         let c1 = *self.transistor_list.get_unchecked(p) as i32;
                         if c1 == 0 { break; }
                         p += 2;  // skip c2
-                        let cu = c1 as usize;
-                        if *self.recalc_hash_next.get_unchecked(cu) == 0 {
-                            let i = self.list_next_count;
-                            *self.recalc_list_next.get_unchecked_mut(i) = c1;
-                            self.list_next_count = i + 1;
-                            *self.recalc_hash_next.get_unchecked_mut(cu) = 1;
-                        }
+                        let cu1 = c1 as usize;
+                        let is_new1 = *self.recalc_hash_next.get_unchecked(cu1) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1;
+                        *self.recalc_hash_next.get_unchecked_mut(cu1) = 1;
+                        self.list_next_count += is_new1 as usize;
                     }
                 }
             }

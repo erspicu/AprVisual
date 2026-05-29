@@ -132,8 +132,10 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int ReadBits(int[] nodes)
         {
+            // #G1 branchless gather: NodeStates ∈ {0,1} (FlagsToState guarantees), so
+            // `v |= state << i` matches `if (state != 0) v |= 1 << i` exactly.
             int v = 0;
-            for (int i = 0; i < nodes.Length; i++) if (NodeStates[nodes[i]] != 0) v |= 1 << i;
+            for (int i = 0; i < nodes.Length; i++) v |= NodeStates[nodes[i]] << i;
             return v;
         }
 
@@ -153,8 +155,9 @@ namespace AprVisual.Sim
         // paths (Trace, TestRunner debug dumps, callsites that own a List<int>).
         public static int ReadBits(IReadOnlyList<int> nodes)
         {
+            // #G1 branchless gather (matches int[] overload).
             int v = 0;
-            for (int i = 0; i < nodes.Count; i++) if (NodeStates[nodes[i]] != 0) v |= 1 << i;
+            for (int i = 0; i < nodes.Count; i++) v |= NodeStates[nodes[i]] << i;
             return v;
         }
 

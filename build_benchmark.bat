@@ -114,7 +114,7 @@ echo [5/6] Writing Windows run_*.bat / shot_*.bat ...
     echo @echo off
     echo setlocal
     echo set "HC=%%~1"
-    echo if "%%HC%%"=="" set "HC=200000"
+    echo if "%%HC%%"=="" set "HC=300000"
     echo "%%~dp0win\AprVisual.S1.exe" --benchmark "%%~dp0roms\full_palette.nes" --bench-hc %%HC%% --system-def-dir "%%~dp0data\system-def"
     echo pause
 )
@@ -122,7 +122,7 @@ echo [5/6] Writing Windows run_*.bat / shot_*.bat ...
     echo @echo off
     echo setlocal
     echo set "HC=%%~1"
-    echo if "%%HC%%"=="" set "HC=200000"
+    echo if "%%HC%%"=="" set "HC=300000"
     echo "%%~dp0win\wire_s1.exe" bench "%%~dp0snapshot\full_palette.aprsnap" %%HC%%
     echo pause
 )

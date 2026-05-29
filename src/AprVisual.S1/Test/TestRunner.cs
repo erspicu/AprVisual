@@ -434,8 +434,8 @@ namespace AprVisual.Test
             double gap  = NesRealtimeHcPerSec / stepsHz;
             double fps  = stepsHz / (NesRealtimeHcPerSec / NesRealtimeFps);   // simulated NES frames / real second
             Console.WriteLine($"# =============================================");
-            Console.WriteLine($"#  PERFORMANCE: {stepsHz:N0} hc/s");
-            Console.WriteLine($"#  vs NES NTSC real-time ({NesRealtimeHcPerSec:N0} hc/s):");
+            Console.WriteLine($"#  PERFORMANCE: {stepsHz / 1000.0:F1}K hc/s  ({stepsHz:N0} hc/s)");
+            Console.WriteLine($"#  vs NES NTSC real-time ({NesRealtimeHcPerSec / 1000.0:N0}K hc/s):");
             Console.WriteLine($"#    {pct:F3}% of real-time   ->   {gap:F1}x too slow");
             Console.WriteLine($"#    {fps:F3} simulated NES frames / real second  (real NES = {NesRealtimeFps:F1} fps)");
             Console.WriteLine($"# =============================================");

@@ -63,8 +63,8 @@ fn print_realtime_gap(hcps: f64) {
     let gap = NES_REALTIME_HC_PER_SEC / hcps;
     let fps = hcps / (NES_REALTIME_HC_PER_SEC / NES_REALTIME_FPS);
     println!("# =============================================");
-    println!("#  PERFORMANCE: {hcps:.0} hc/s");
-    println!("#  vs NES NTSC real-time ({NES_REALTIME_HC_PER_SEC:.0} hc/s):");
+    println!("#  PERFORMANCE: {:.1}K hc/s  ({hcps:.0} hc/s)", hcps / 1000.0);
+    println!("#  vs NES NTSC real-time ({:.0}K hc/s):", NES_REALTIME_HC_PER_SEC / 1000.0);
     println!("#    {pct:.3}% of real-time   ->   {gap:.1}x too slow");
     println!("#    {fps:.3} simulated NES frames / real second  (real NES = {NES_REALTIME_FPS:.1} fps)");
     println!("# =============================================");

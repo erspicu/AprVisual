@@ -138,23 +138,35 @@ namespace AprVisual.Sim
                 // Inline enqueue (suggest #04): hoist queue state to locals; c1 is guaranteed
                 // non-supply by AddTransistor (Module.cs:125 normalises supply onto c2), so we
                 // can skip EnqueueNode's `nn == Npwr || nn == Ngnd` check for c1.
+                // #G2 loop unswitch: newState is loop-invariant 0/1 — specialise the two cases
+                // so the gate-low branch (which has 3 extra checks per transistor) compiles to
+                // a tighter hot loop in the newState==1 case (no c2 enqueue at all).
                 int* nextList = RecalcListNext;
                 byte* nextHash = RecalcHashNext;
                 int nextCount = RecalcListNextCount;
-                int npwr = Npwr, ngnd = Ngnd;
-
                 ushort* p = TransistorList + tlistGates;
-                while (*p != 0)
+                if (newState == 0)
                 {
-                    int c1 = *p++;
-                    int c2 = *p++;
-                    // c1: non-supply by construction → direct inline enqueue
-                    if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
-                    // c2: when a gate goes low some channels may *disconnect*, so the far end
-                    // needs re-evaluation too. c2 *can* be supply (normalised) → must check.
-                    if (newState == 0 && c2 != npwr && c2 != ngnd
-                        && nextHash[c2] == 0)
-                    { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                    int npwr = Npwr, ngnd = Ngnd;
+                    while (*p != 0)
+                    {
+                        int c1 = *p++;
+                        int c2 = *p++;
+                        if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                        // gate going low can *disconnect* the channel, so c2 needs re-eval too
+                        if (c2 != npwr && c2 != ngnd && nextHash[c2] == 0)
+                        { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                    }
+                }
+                else
+                {
+                    // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
+                    while (*p != 0)
+                    {
+                        int c1 = *p++;
+                        p++;  // skip c2
+                        if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                    }
                 }
                 RecalcListNextCount = nextCount;
             }

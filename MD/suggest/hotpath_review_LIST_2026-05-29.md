@@ -43,7 +43,12 @@
 - **預估**:1-2%
 - **風險**:低,但比 `#G1` 高(代碼複雜度增加)。 注意 LLVM/JIT 可能本來就部分 hoist 了 ── 需先看 hot path 反組譯
 - **memory 引用**:**注意** ── `counter-fastpath-dead-end` 顯示「在 SetNodeState 內每 transistor 加 1-2 cmp 可能整體變慢」。 但 loop unswitch 是「減少」每 iter 工作量,方向相反 ── 預期符合
-- **狀態**:☐ 待測
+- **狀態**:☑ **採用** (2026-05-29)
+  - C# #G1 (prior) top-3 mean: 63,489 hc/s
+  - C# #G2 top-3 mean:         64,169 hc/s
+  - Δ: **+1.07%** (落在預估 1-2% 內,符合預期)
+  - checksum 5/5 `0x9B103E5E206E4C37`
+  - Rust 端待後續批次處理
 
 ### `#G3` RecalcNodeFast: GND/PWR OR-all
 - **位置**:C# `WireCore.FastPath.cs:RecalcNodeFast`;Rust `wire.rs:recalc_node_fast`

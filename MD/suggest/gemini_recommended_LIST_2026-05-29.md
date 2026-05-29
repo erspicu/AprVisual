@@ -149,8 +149,21 @@ NES clock 每 12 master cycle toggle 一次。 toggle 後**第一波**(只依 cl
 - 對比有 / 無 memoize 的 checksum 必須完全相同
 
 ### 狀態
-- ☐ C# 待測(複雜,留最後)
-- ☐ Rust 待測
+- ☒ **C# 不實作** (2026-05-29 ── 用 instrumentation 量出 ROI 上限 < 1%)
+  - 加 `ClkInProgress` 標記 + RecalcNode 分類計數 + 第一波 size 計數,跑 200k hc bench
+  - 結果(full_palette.nes, 200k hc):
+    - clk toggles: **200,192**(每 hc 一次)
+    - clk-induced RecalcNode: **121,042,834**
+    - 總 RecalcNode: 121,077,589
+    - **Clock 工作量佔比: 100.0%**(non-clk 只有 5 calls 來自 memory handler)
+    - avg first-wave size: **1.1 nodes**(只是 clk 本身)
+    - avg settle passes per clk toggle: **12.2**
+    - avg nodes per clk-induced ProcessQueue: ~605
+  - **ROI 上限計算**:Wave 0 memoize 只能省 1/605 ≈ **0.17% per toggle**,即 <1% bench
+  - **Gemini 預估 +15-30% 完全不可能**(off by 2 orders of magnitude)
+  - 要達到 +15-30% 需 memoize 整個 settle 12 個 pass,但這需要證明「clock 推動的完整結算 data-independent」,跟 Direction C 同樣失敗模式(latch/bus/register 狀態會影響)
+  - 教訓:**「第一波 / Wave 0」在這個 settle 結構下是 outermost 1-2 node,不是 Gemini 想像的「大量 clock 樹節點」**。 NES 的 clock 樹很淺(剛 toggle 完 clk node 還沒擴散開),BFS 主要工作在後面 11 個 pass
+- ☐ Rust 不實作(C# 已證明 Wave 0 work share <1%)
 
 ---
 

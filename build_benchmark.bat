@@ -35,8 +35,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0-windows"
-if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\x64\Release\net10.0-windows"
+set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0"
+if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\x64\Release\net10.0"
+if not exist "%CS_BIN%\AprVisual.S1.exe" set "CS_BIN=%ROOT%\src\AprVisual.S1\bin\Release\net10.0-windows"
 if not exist "%CS_BIN%\AprVisual.S1.exe" (
     echo ERROR: could not locate AprVisual.S1.exe after build.
     exit /b 1

@@ -25,10 +25,14 @@
       dead-end-skip (broke CPU bus state).
   -->
 
+  <!-- 2026-05-30: converted from WinExe/WinForms to a pure console app. The live
+       256x240 window (MainForm + Render/NativeGDI) was removed; the S1 fork is
+       headless-only (benchmark / test / frame-dump). PNG output now goes through
+       Render/PngWriter.cs (ZLibStream, BCL-only) instead of System.Drawing, so the
+       target drops from net10.0-windows to portable net10.0 with no desktop deps. -->
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -40,6 +44,7 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Optimize>true</Optimize>
+    <InvariantGlobalization>true</InvariantGlobalization>
 
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>

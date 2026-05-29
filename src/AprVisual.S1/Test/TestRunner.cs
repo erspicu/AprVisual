@@ -88,9 +88,10 @@ namespace AprVisual.Test
 
             if (romPath != null)
             {
-                ApplicationConfiguration.Initialize();
-                System.Windows.Forms.Application.Run(new MainForm(romPath));
-                return 0;
+                // S1 is headless-only (the live WinForms window was removed). Treat a bare ROM
+                // path as "give me a quick screenshot" so it still does something useful.
+                Console.Error.WriteLine($"# (headless build) no GUI — rendering 3 frames of {Path.GetFileName(romPath)} to screenshot.png");
+                return Screenshot(romPath, 3, "screenshot.png");
             }
 
             if (testDir != null)
@@ -345,10 +346,7 @@ namespace AprVisual.Test
                 unsafe
                 {
                     if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
-                    using var bmp = new System.Drawing.Bitmap(
-                        WireCore.ScreenW, WireCore.ScreenH, WireCore.ScreenW * 4,
-                        System.Drawing.Imaging.PixelFormat.Format32bppRgb, (IntPtr)WireCore.FrameBuffer);
-                    bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                    AprVisual.Render.PngWriter.Write(outPath, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
                 }
                 Console.WriteLine($"# wrote {outPath}  ({WireCore.ScreenW}x{WireCore.ScreenH}, {WireCore.Time} half-cycles total)");
                 return 0;
@@ -386,10 +384,7 @@ namespace AprVisual.Test
                     unsafe
                     {
                         if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
-                        using var bmp = new System.Drawing.Bitmap(
-                            WireCore.ScreenW, WireCore.ScreenH, WireCore.ScreenW * 4,
-                            System.Drawing.Imaging.PixelFormat.Format32bppRgb, (IntPtr)WireCore.FrameBuffer);
-                        bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                        AprVisual.Render.PngWriter.Write(outPath, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
                     }
                     Console.WriteLine($"# frame {f,4}/{frameCount}  done in {secs,6:F2} s  ->  frame_{f:D4}.png");
                     Console.Out.Flush();

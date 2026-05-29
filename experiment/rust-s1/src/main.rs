@@ -1,8 +1,9 @@
-// wire_s1 — AprVisual.S1 Rust fork bench-hc / shot runner.
+// wire_s1 — AprVisual.S1 Rust fork bench-hc / shot / frame-dump runner.
 //
 // Usage:
-//   wire_s1 bench <snapshot.aprsnap> <hc_count>
-//   wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png>
+//   wire_s1 bench     <snapshot.aprsnap> <hc_count>
+//   wire_s1 shot      <snapshot.aprsnap> <frames>   <out.png>
+//   wire_s1 framedump <snapshot.aprsnap> <frames>   <out_dir>
 
 mod snapshot;
 mod wire;
@@ -10,22 +11,78 @@ mod wire;
 use std::time::Instant;
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 { usage(); std::process::exit(2); }
     match args[1].as_str() {
-        "bench" => bench(&args),
-        "shot"  => shot(&args),
-        _       => { usage(); std::process::exit(2); }
+        "bench"     => bench(&args),
+        "shot"      => shot(&args),
+        "framedump" => framedump(&args),
+        _           => { usage(); std::process::exit(2); }
     }
 }
 
 fn usage() {
-    eprintln!("usage: wire_s1 bench <snapshot.aprsnap> <hc_count>");
-    eprintln!("       wire_s1 shot  <snapshot.aprsnap> <frames>   <out.png>");
+    eprintln!("usage: wire_s1 bench     <snapshot.aprsnap> <hc_count>");
+    eprintln!("       wire_s1 shot      <snapshot.aprsnap> <frames>   <out.png>");
+    eprintln!("       wire_s1 framedump <snapshot.aprsnap> <frames>   <out_dir>");
     eprintln!();
     eprintln!("Fast-path is always on in the S1 fork (no flag).");
+}
+
+// Write the current framebuffer to <path> as an RGBA PNG.
+fn write_framebuffer_png(framebuffer: &[u32], path: &Path) {
+    let file = File::create(path).expect("create PNG");
+    let w = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(w, wire::SCREEN_W as u32, wire::SCREEN_H as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("PNG header");
+    let mut rgba = Vec::with_capacity(wire::SCREEN_W * wire::SCREEN_H * 4);
+    for &argb in framebuffer {
+        let r = ((argb >> 16) & 0xFF) as u8;
+        let g = ((argb >>  8) & 0xFF) as u8;
+        let b = ( argb        & 0xFF) as u8;
+        rgba.extend_from_slice(&[r, g, b, 0xFF]);
+    }
+    writer.write_image_data(&rgba).expect("PNG body");
+}
+
+// framedump: render <frames> frames, save EACH to <out_dir>/frame_NNNN.png,
+// printing per-frame progress + wall-clock time.
+fn framedump(args: &[String]) {
+    if args.len() < 5 { usage(); std::process::exit(2); }
+    let path = &args[2];
+    let frames: i64 = args[3].parse().expect("frames must be int");
+    let out_dir = &args[4];
+
+    std::fs::create_dir_all(out_dir).expect("create out_dir");
+    eprintln!("# wire_s1 (Rust S1 framedump): loading {path} ...");
+    let snap = snapshot::load(path).expect("snapshot load failed");
+    let clock_node = snap.clock_node;
+    let vblank_node = snap.ppu_vblank_node;
+    let mut wc = wire::WireCore::from_snapshot(snap);
+    eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
+    println!("# rendering {frames} frame(s) -> {out_dir}");
+
+    let mut total = 0.0f64;
+    for f in 1..=frames {
+        let t = Instant::now();
+        wc.run_frame(clock_node, vblank_node, 1_200_000);
+        let secs = t.elapsed().as_secs_f64();
+        total += secs;
+
+        let fname = format!("frame_{f:04}.png");
+        write_framebuffer_png(&wc.framebuffer, &Path::new(out_dir).join(&fname));
+        println!("# frame {f:4}/{frames}  done in {secs:6.2} s  ->  {fname}");
+    }
+    println!("# =============================================");
+    println!("#  {frames} frames in {total:.1} s  (avg {:.2} s/frame, {:.3} fps)",
+             total / frames as f64, frames as f64 / total);
+    println!("#  output dir: {out_dir}");
+    println!("# =============================================");
 }
 
 fn bench(args: &[String]) {
@@ -99,20 +156,7 @@ fn shot(args: &[String]) {
     eprintln!("# rendered {frames} frames in {secs:.3} s, {total_hc} master half-cycles total ({:.0} hc/s effective)",
               (total_hc as f64) / secs);
 
-    let file = File::create(out).expect("create PNG");
-    let w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, wire::SCREEN_W as u32, wire::SCREEN_H as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().expect("PNG header");
-    let mut rgba = Vec::with_capacity(wire::SCREEN_W * wire::SCREEN_H * 4);
-    for &argb in &wc.framebuffer {
-        let r = ((argb >> 16) & 0xFF) as u8;
-        let g = ((argb >>  8) & 0xFF) as u8;
-        let b = ( argb        & 0xFF) as u8;
-        rgba.extend_from_slice(&[r, g, b, 0xFF]);
-    }
-    writer.write_image_data(&rgba).expect("PNG body");
+    write_framebuffer_png(&wc.framebuffer, Path::new(out));
     println!("# wrote {out}  ({}x{}, {} half-cycles total)", wire::SCREEN_W, wire::SCREEN_H, total_hc);
 
     let checksum = wc.node_states_checksum();

@@ -18,11 +18,14 @@ namespace AprVisual.Test
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
+            string? frameDumpPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
+            string frameOutDir = "frames";
             int maxWait = 15;
             int traceCycles = 64;
             int shotFrames = 3;
+            int frameDumpCount = 50;
             int benchHcCount = 0;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
@@ -37,6 +40,9 @@ namespace AprVisual.Test
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
                     case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
+                    case "--frame-dump":      if (i + 1 < args.Length) frameDumpPath = args[++i]; break;   // per-frame PNG dump w/ progress + timing
+                    case "--frame-count":     if (i + 1 < args.Length) int.TryParse(args[++i], out frameDumpCount); break;
+                    case "--out-dir":         if (i + 1 < args.Length) frameOutDir  = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
@@ -72,6 +78,7 @@ namespace AprVisual.Test
             if (dumpSystem)            return DumpSystem();
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
+            if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
@@ -344,6 +351,53 @@ namespace AprVisual.Test
                     bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
                 }
                 Console.WriteLine($"# wrote {outPath}  ({WireCore.ScreenW}x{WireCore.ScreenH}, {WireCore.Time} half-cycles total)");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --frame-dump: render N frames, save EACH frame as frame_NNN.png into outDir,
+        //    printing per-frame progress + wall-clock time. (--frame-count N, --out-dir DIR) ──
+        private static int FrameDump(string romPath, int frameCount, string outDir)
+        {
+            if (frameCount < 1) frameCount = 50;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Directory.CreateDirectory(outDir);
+            Console.WriteLine($"# frame-dump: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper})");
+            Console.WriteLine($"# rendering {frameCount} frame(s) -> {Path.GetFullPath(outDir)}");
+            try
+            {
+                var swLoad = System.Diagnostics.Stopwatch.StartNew();
+                WireCore.LoadSystem(rom);
+                swLoad.Stop();
+                Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
+
+                double totalSecs = 0;
+                for (int f = 1; f <= frameCount; f++)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    WireCore.RunFrame();
+                    sw.Stop();
+                    double secs = sw.Elapsed.TotalSeconds;
+                    totalSecs += secs;
+
+                    string outPath = Path.Combine(outDir, $"frame_{f:D4}.png");
+                    unsafe
+                    {
+                        if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
+                        using var bmp = new System.Drawing.Bitmap(
+                            WireCore.ScreenW, WireCore.ScreenH, WireCore.ScreenW * 4,
+                            System.Drawing.Imaging.PixelFormat.Format32bppRgb, (IntPtr)WireCore.FrameBuffer);
+                        bmp.Save(outPath, System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                    Console.WriteLine($"# frame {f,4}/{frameCount}  done in {secs,6:F2} s  ->  frame_{f:D4}.png");
+                    Console.Out.Flush();
+                }
+                Console.WriteLine($"# =============================================");
+                Console.WriteLine($"#  {frameCount} frames in {totalSecs:F1} s  (avg {totalSecs / frameCount:F2} s/frame, {frameCount / totalSecs:F3} fps)");
+                Console.WriteLine($"#  output dir: {Path.GetFullPath(outDir)}");
+                Console.WriteLine($"# =============================================");
                 return 0;
             }
             finally { WireCore.Shutdown(); }

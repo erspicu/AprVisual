@@ -74,6 +74,9 @@ if not exist "%OUT%\rust"          mkdir "%OUT%\rust"
 if not exist "%OUT%\data"          mkdir "%OUT%\data"
 if not exist "%OUT%\snapshot"      mkdir "%OUT%\snapshot"
 if not exist "%OUT%\roms"          mkdir "%OUT%\roms"
+if not exist "%OUT%\screenshots"        mkdir "%OUT%\screenshots"
+if not exist "%OUT%\screenshots\csharp" mkdir "%OUT%\screenshots\csharp"
+if not exist "%OUT%\screenshots\rust"   mkdir "%OUT%\screenshots\rust"
 
 REM C# binaries (exe + dll + json + pdb)
 copy /Y "%CS_BIN%\AprVisual.S1.exe"               "%OUT%\csharp\" >nul
@@ -97,7 +100,7 @@ copy /Y "%ROOT%\nes-test-roms-master\choose\full_palette.nes" "%OUT%\roms\" >nul
 REM ---------------------------------------------------------------------------
 REM 4. Write convenience runner scripts
 REM ---------------------------------------------------------------------------
-echo [4/4] Writing run_csharp.bat / run_rust.bat ...
+echo [4/4] Writing run_*.bat / shot_*.bat ...
 
 > "%OUT%\run_csharp.bat" (
     echo @echo off
@@ -119,13 +122,37 @@ echo [4/4] Writing run_csharp.bat / run_rust.bat ...
     echo pause
 )
 
+REM C# frame-dump: per-frame PNG with progress + timing. Arg 1 = frame count (default 50).
+> "%OUT%\shot_csharp.bat" (
+    echo @echo off
+    echo REM C# S1 frame-dump ^(full_palette^). Arg 1 = frame count ^(default 50^).
+    echo setlocal
+    echo set "N=%%~1"
+    echo if "%%N%%"=="" set "N=50"
+    echo "%%~dp0csharp\AprVisual.S1.exe" --frame-dump "%%~dp0roms\full_palette.nes" --frame-count %%N%% --out-dir "%%~dp0screenshots\csharp" --system-def-dir "%%~dp0data\system-def"
+    echo pause
+)
+
+REM Rust frame-dump: per-frame PNG with progress + timing. Arg 1 = frame count (default 50).
+> "%OUT%\shot_rust.bat" (
+    echo @echo off
+    echo REM Rust S1 frame-dump ^(full_palette^). Arg 1 = frame count ^(default 50^).
+    echo setlocal
+    echo set "N=%%~1"
+    echo if "%%N%%"=="" set "N=50"
+    echo "%%~dp0rust\wire_s1.exe" framedump "%%~dp0snapshot\full_palette.aprsnap" %%N%% "%%~dp0screenshots\rust"
+    echo pause
+)
+
 echo.
 echo === DONE ===
 echo Staged to: %OUT%
 echo   C#   : %OUT%\csharp\AprVisual.S1.exe
 echo   Rust : %OUT%\rust\wire_s1.exe
-echo Run a bench:  AprVisualBenchMark\run_csharp.bat 200000
+echo Benchmarks:   AprVisualBenchMark\run_csharp.bat 200000
 echo               AprVisualBenchMark\run_rust.bat   200000
+echo Frame dumps:  AprVisualBenchMark\shot_csharp.bat 50   ^(-^> screenshots\csharp^)
+echo               AprVisualBenchMark\shot_rust.bat   50   ^(-^> screenshots\rust^)
 echo.
 
 endlocal

@@ -323,6 +323,45 @@ C# 端外部建議的 3 種 branchless 改造**全部退回**。 與 Rust 結果
 
 C# JIT vs Rust LLVM 對 if-form 最佳化程度差很大。 **C# 端 hot path 已逼近 JIT 飽和點,可動範圍極窄**。
 
+## Bitwise 加速候選掃描(2026-05-29 晚)
+
+掃描整個 hot path,評估還有哪些 bitwise 加速機會。
+
+### 已試 / 已確認 dead-end 的 bitwise pattern(不再試)
+
+| Pattern | 結果 |
+|---|---|
+| OR-all on early-break GND/PWR loops | #G3 -3.07% / Phase B -1.86% / Phase D -2.60% |
+| shouldAdd mask in BFS channel walk | Phase C -19.18% / Phase E -37.34% |
+| Branchless XOR enqueue (C#) | #H1 instrumentation 0.4% theo / Phase F -2.15% |
+| NodeStates → bitset mirror | memory `bitset-bfs-dead-end` 156× slower |
+| `_inGroup` u16 generation counter | #H2 -3.93% L1d 撞牆 |
+
+### 結構上無法 bitwise 化
+- `if (NodeStates[gate]) AddNodeOrApplyDriver(other)` — 不能用 bitmask 條件呼叫 function
+- `if (NodeStates[cs] != 0) return` 等 cs guard — 單 cmp+je 已最佳
+- WriteBits 內 `(value & (1 << i)) != 0` — 已 bitwise,cold path
+
+### `#C1` c2 supply check fold ── **退回 noise-level** (2026-05-29)
+- 位置:`WireCore.Recalc.cs:157`(SetNodeState newState==0 hot loop)
+- 改動:`c2 != Npwr && c2 != Ngnd` → `(uint)(c2 - Npwr) >= 2`
+- 理由:Npwr=1、Ngnd=2 連續常數,sub+cmp 取代雙 cmp
+- 預估:+0.3-0.8%
+- **實測 (2 rounds × 5 runs each)**:
+  - baseline top-3 mean: 64,416 hc/s
+  - C1 round 1 top-3 mean: 64,205 hc/s
+  - C1 round 2 top-3 mean: 64,450 hc/s
+  - 兩輪 C1 平均: 64,328 hc/s → **Δ -0.14%(純雜訊)**
+  - checksum 5/5 `0x9B103E5E206E4C37`
+- **退回原因**:JIT 已自動 fold 兩個連續常數的 `c2 != 1 && c2 != 2`,顯式 fold 沒有實質增益。 改動只是把 JIT 已做的事情寫到原始碼 ── 0 cycle 差異
+- 教訓:**「連續常數摺成範圍檢查」是教科書 idiom,但 modern JIT 已自動套用**。 之前以為「值得試」是誤判 ── 應該先反編譯確認 JIT 沒做才動手
+
+### 結論
+
+當前所有合理 bitwise 機會**全部已驗證為 dead-end 或 noise-level**。 短期內 hot path 改動空間極窄,需要走算法層(改 BFS 走訪策略、改 settle 順序)或新建 macro-block 才有可能突破。
+
+---
+
 ### 待測:Phase G 進階 cache 控制(2026-05-29 晚,排入待測)
 - Prefetch hints(`Sse.Prefetch0/1` C#;`_mm_prefetch` Rust)── 暗示 CPU 提前載入 TransistorList 下個 segment
 - Non-temporal store(`Sse2.StoreNonTemporal` C#;`_mm_stream_si32` Rust)── framebuffer 寫 bypass cache

@@ -57,12 +57,13 @@
 - **為何可能有效**:省掉常見情況的一次 L2 間接讀(`TransistorList`)。用「本來就浪費的空間」,不擴大 `NodeInfo`。
 - **風險**:中。需多一個子分類 + `RecalcNodeFast` 多一條分支(踩鐵律邊緣)。需量。**預期**:+0~2%,投機。
 
-### N6 — 明確 PGO / ReadyToRun 調校〔LOW,大概已被涵蓋〕
+### N6 — 明確 PGO / ReadyToRun / tiering 調校〔❌ 已試 2026-05-31:config 無 headroom〕
+- **❌ 實測**:測了 `TieredCompilation=false`(強制 full-opt、無 tiering 暖機、但也無 dynamic PGO)—— 這是最能反映「預設 tiered+PGO 是否最佳」的 config 槓桿。結果 **median −0.42% / trimmed −1.11% / 配對 7/24 → 略負**。代表**預設的 tiered + dynamic PGO 已是最佳,config 沒有 headroom**(dynamic PGO 確實在幫忙,關掉它反而慢)。Visual NES 的 +15% 是 C++ static PGO;C# 的 JIT+dynamic PGO 已吃掉那塊。
 - **現況**:csproj 無 `<TieredPGO>`/`<PublishReadyToRun>`/GC 設定;但 .NET 8+ **Dynamic PGO 預設開**,profile 也確認「21 inlinees with PGO data」→ steady-state benchmark 下 dynamic PGO 已生效。
 - **可試**:① 明確 `<TieredPGO>true` + 確保量測前有足夠 warmup;② static instrumented PGO(較費工);③ `<PublishReadyToRun>` 看冷啟動。Visual NES 的 +15% PGO 是 **C++ static PGO**(無 JIT),C# 的 JIT+dynamic PGO 多半已吃掉那塊 → **headroom 預期小**。低優先,但量一次成本低。
 
-### N7 — `[MethodImpl(AggressiveOptimization)]` 於 `ProcessQueueInterp`/`RecalcNode`〔LOW〕
-- 強制直上 tier-1,省 tier-0 暖機。對長時間 steady-state benchmark 幾乎無感(穩態本就 tier-1)。順手可加,別期待。
+### N7 — `[MethodImpl(AggressiveOptimization)]` 於 `ProcessQueueInterp`/`RecalcNode`〔➖ 已被 N6 涵蓋,不單獨追〕
+- 強制直上 tier-1,省 tier-0 暖機。**但 AggressiveOptimization 會跳過 tier-0 instrumentation → 丟掉 dynamic PGO** —— 這正是 N6(`TieredCompilation=false`)測到的「關 tiering/PGO 略負」的 per-method 版。N6 已證實該方向略負,N7 同理 → **不單獨實作**。
 
 ---
 

@@ -45,7 +45,8 @@
 - **風險(正中鐵律)**:每次讀 tlist 索引要 shift+mask(1~2 cycle),加在**最熱迴圈**。這正是「C# + / Rust −」那類 tradeoff 的高危區。**必須逐引擎量**,很可能 C# 賺 Rust 賠。
 - **正確性**:bit-exact(純佈局)。**預期**:不確定,可能 ±2%。列為投機,排在 N1/N2 之後。
 
-### N4 — L1d cache-conflict-aware 配置(page coloring)〔MEDIUM / 投機〕
+### N4 — L1d cache-conflict-aware 配置(page coloring)〔➖ 前提實測不成立(2026-05-31),不追〕
+- **❌ 前提檢查結果**:量了六個熱陣列的 base `mod 4096`(=L1d 8-way 的 way size):NodeStates=1152 / RecalcHash=3520 / RecalcHashNext=1216 / _inGroup=3776 / NodeInfos=2048 / NodeTlistGates=3648 —— **全部不同**,沒有任何兩個 base 同餘 4KB → 存取同一 index 落在不同 L1d set,**沒有系統性 conflict miss**。原因:`AllocAligned` 用 64-byte(非 page)對齊 + 各陣列大小不同 → base 自然錯開。**前提不存在 → 無標的 → 不實作。**
 - **想法**:5.09% D-cache miss 未必全是 capacity miss,可能含 **conflict miss**:L1d 32KB / 8-way / 64B = 64 sets;若 `NodeStates`、`RecalcHash`、`RecalcHashNext`、`_inGroup` 的 unmanaged 配置位址恰好映射到重疊的 set,會互踢。刻意給各陣列加 set-spreading 的對齊 offset(`AllocAligned` 時加 padding),量 miss 率變化。
 - **為何可能有效**:純佈局、零熱路徑改動、不加分支、不加陣列 —— 完全不踩鐵律;直接針對 D-cache。
 - **風險**:低(改不對就是 0 效益);難在於要實際量 PMC 才知道有沒有 conflict miss。**預期**:不確定,+0~2%。

@@ -80,7 +80,21 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 - 風險:中(classify 邏輯變複雜;checksum 驗證)。
 </details>
 
-### R4 — `RecalcNodeFast` gnd/pwr 掃描 branchless(OR-all)  〔fast-path 微優化〕  ⏳ 待測
+### R4 — `RecalcNodeFast` gnd/pwr 掃描 branchless(OR-all)  〔fast-path 微優化〕  ✅ 採用,小幅 win (2026-05-31)
+**實測(interleaved-paired,3 批 × 20 輪 = 60,200k hc / full_palette,bit-exact `0x02D4EDBE5A8224EA`)**:
+
+| 批次 | median 差 | 配對勝場 |
+|---|---|---|
+| 1 | +0.13% | 11/20 |
+| 2 | +0.37% | 14/20 |
+| 3 | +1.47%(該批 base 偏低) | 14/20 |
+| **合併 60 輪** | mean **+0.79%** | **39/60 = 65%** |
+
+配對勝場 39/60 ≈ **2.3σ(單尾 p≈0.01)→ 統計顯著**;三批同號、bit-exact。
+最佳估計 **~+0.4%(median)~ +0.8%(mean)** —— 小但真實。這是 N1–N7 + R1–R3 全敗後**第一個確認的 win**。
+**為何這條會贏(而 N1–N7 全敗)**:它是兩輪以來唯一**移除**熱路徑工作的改動(拿掉 per-gate data-dependent branch),不是加成本。pure-logic gnd/pwr list 短(多為 1–2),早退幾乎不觸發,所以 OR-all 幾乎不多讀,卻省下分支誤判 → 在寬 OoO 核心上小贏。方向與 N-lessons 完全一致(加成本=輸,減成本=贏)。
+**Rust 版**:review 文件也列了 `recalc_node_fast` OR-all,但依 `jit-vs-llvm-recursive-inline` 教訓「C# 熱路徑改動別盲目同步 Rust」,本輪 C# 為主,Rust 留待各自 A/B(未做)。
+**已採用**:`WireCore.FastPath.cs` RecalcNodeFast 的 gnd/pwr 掃描改 OR-all。
 (原「length-1 特化」需區分 length-1/N → 又是加分類分支,N-lessons 已證會輸;改成更廣、不需分類的 OR-all。)
 把 gnd/pwr 掃描的 `while(*p){ if(state) {f|=...; break;} }` 早退分支,換成無分支 OR-all:`byte any=0; while(*p) any|=NodeStates[*p++]; f|=any<<5;`。
 - **動機**:pure-logic gnd-list 多為長度 1–2(反相器/小 NOR),早退幾乎不觸發;OR-all 每次省一個 data-dependent branch,且不需任何額外 per-node 資料。
@@ -92,5 +106,19 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 ## 執行協定(同上一輪)
 每條:① 量 baseline → ② 實作 → ③ interleaved-paired A/B(24 輪 / 200k hc / full_palette,median + trimmed-mean(20%) + 配對勝場)→ ④ checksum 正確性 → ⑤ **只有「效能有幫助 + 正確無誤」才採用、更新本檔狀態、commit+push** → ⑥ 下一條。失敗則 revert + 記錄 + 續下一條。
 
-## 一句話(本輪假設,待 §實測 推翻或確認)
-最有把握「值得測」的是 **R1(直接回答 .NET 建構問題)**;最有把握「可能真的減少計算量」的是 **R2(supply-short 常數摺疊)**,且它會連帶餵養 R3(擴大 fast-path)。但三者都受同一個天花板壓制 —— 殘餘可摺結構若 < 1%,reduction 會被噪音吃掉。**量測是最終裁判。**
+## 一句話(本輪假設,已被 §實測 部分確認)
+原本最看好「可能真的減少計算量」的 R2/R3 —— 實測殘餘 < 1% 且冷,如預期被天花板壓死。
+反而是被我預判「邊際/≤0」的 **R4(OR-all branchless)** 成了本輪唯一的 win(~+0.4%)。教訓再次成立:**減成本會贏、加成本會輸**,而 R4 是唯一減成本的那條。
+
+## 結果總結(2026-05-31,全部試畢)
+
+| 候選 | 類別 | 結果 | 數字 |
+|---|---|---|---|
+| R1 NativeAOT | build | ❌ 不採用 | −5.39% median / −5.58% trim / 0-of-20;bit-exact。**已在 net10,AOT 丟 PGO 更慢** |
+| R2 supply-short 常數摺疊 | lowering | ➖ measured-moot | 殘餘 84/56/84 = <0.4% 且冷 → 不實作 |
+| R3 dead-gate fast-path 擴大 | fast-path×lowering | ➖ moot | 依賴 R2 的微小集合 → yield≈0 → 不實作 |
+| **R4 OR-all branchless** | fast-path | ✅ **採用** | **+0.79% mean / 39-of-60 配對(p≈0.01)**;bit-exact |
+
+**淨結果**:fast-path 拿到一個小但確認的 win(R4,~+0.4%);lowering **沒有**剩餘的安全壓縮空間(R2/R3 殘餘 <1% 且冷);**.NET 建構已最佳(net10 + JIT + DynamicPGO),NativeAOT 反而慢 5.5%**。
+回答使用者三問:fast-path 還有一點(R4 已收)、lowering 基本到頂、改 .NET10 建構模式(AOT)不會更快。後續若要再榨,得換架構(IR/AOT 已證更慢)或更快單核。
+**待辦**:R4 是 C# 專屬實測;Rust `recalc_node_fast` 的同款 OR-all 尚未各自 A/B(本輪 C# 為主)。採用 R4 後 `AprVisualBenchMark/` 內打包的 binary 已過時,如需對外比較再重打包。

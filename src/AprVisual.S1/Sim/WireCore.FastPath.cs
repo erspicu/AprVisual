@@ -81,15 +81,23 @@ namespace AprVisual.Sim
             ref NodeInfo ns = ref NodeInfos[nn];
             NodeFlags f = ns.Flags;   // PullUp and/or runtime SetHigh/SetLow, or None (floating); Pwr/Gnd excluded at classify time
 
+            // OR-all (branchless): NodeStates is strictly 0/1, so `any` ∈ {0,1}; `any<<5`==Gnd, `any<<4`==Pwr.
+            // Identical result to the early-break form (flag set iff any gate ON), minus the per-gate
+            // data-dependent branch. Lists are short (pure-logic), so dropping early-break costs at most
+            // one extra sentinel load when a gate is ON. A/B candidate R4.
             if (ns.TlistC1gnd != 0)
             {
                 ushort* p = TransistorList + ns.TlistC1gnd;
-                while (*p != 0) { if (NodeStates[*p++] != 0) { f |= NodeFlags.Gnd; break; } }   // any ON path to GND ⇒ pulled low
+                byte any = 0;
+                while (*p != 0) any |= NodeStates[*p++];                  // any ON path to GND ⇒ pulled low
+                f |= (NodeFlags)((uint)any << 5);
             }
             if (ns.TlistC1pwr != 0)
             {
                 ushort* p = TransistorList + ns.TlistC1pwr;
-                while (*p != 0) { if (NodeStates[*p++] != 0) { f |= NodeFlags.Pwr; break; } }   // any ON path to VCC ⇒ pulled high
+                byte any = 0;
+                while (*p != 0) any |= NodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
+                f |= (NodeFlags)((uint)any << 4);
             }
 
             // f == None ⇒ singleton group with nothing driving it ⇒ floating: hold previous state

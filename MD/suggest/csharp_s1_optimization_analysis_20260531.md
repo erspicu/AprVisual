@@ -28,13 +28,16 @@
   - **為何假設錯了(根因)**:① `IsPureLogic`(15KB)本來就穩在 L1d —— dirty-set 反覆訪同一批熱節點,該陣列一直是 warm,移除它沒鬆到真正的壓力(L1d-contention 假設不成立);② 內聯檢查給 ~82% 的 BFS-path 呼叫**多載入 16B 的 `NodeInfo`(常駐 L2)+ 複合分支(`TlistC1c2s==0 && (Flags&mask)==0`)**,比 baseline 的「1-byte L1 讀 + 單一比較」貴;JIT 未把 RecalcNode 的早載入與 AddNodeToGroup 的後載入完全 coalesce。
   - **教訓(歸入 dead-end)**:移除一個「雖熱但已穩在 L1d」的小 byte 陣列、換成對「更大的 L2 record」做複合檢查 = 淨負。又一次「cache-pressure 直覺不可信、最熱的不是最該動的」(同 counter-fastpath 類)。**不要再提這條。**
 
-### ⭐ N2 — software prefetch 下游 dirty 節點的 `NodeInfo`(`Sse.Prefetch0`)〔HIGH〕
+### N2 — software prefetch 下游 dirty 節點的 `NodeInfo`(`Sse.Prefetch0`)〔❌ 已試 2026-05-31:bit-exact 但 C# −1.5%,退回〕
 - **想法**:`ProcessQueueInterp` 內層 `for i in 0..count: nn=RecalcList[i]; …RecalcNode(nn)` —— **下幾個要處理的節點 id 是已知的**(`RecalcList[i+PD]`)。在每次迭代開頭加 `Sse.Prefetch0((byte*)(NodeInfos + RecalcList[i+PD]))`(PD=prefetch distance,試 4/8),把那個節點的 16B 熱記錄提前從 L2 拉進 L1,隱藏 L2 延遲(~12 cycle)。可選同時 prefetch 其 `NodeTlistGates`/`TransistorList` 頭。
 - **為何可能有效**:`NodeInfos`(240KB)是 L2-resident,dirty-set 以散亂 index 讀它 = 典型「pointer-chasing into a big array」。software prefetch 是這類存取的教科書解,**硬體 prefetcher 對散亂 index 無能為力**(這點 2026-05-29 Gemini 也指出),但 software prefetch 對**已知的下一個 index** 正好能補。
 - **與「已被提過的 prefetch」的差異(關鍵)**:2026-05-29 `netlist_non_ir_optimization_review` 提的是 prefetch 長 `TlistC1c2s` 裡的 `NodeStates[futureGate]` —— **打錯目標**:`NodeStates` 只有 15KB、是 L1d-resident,prefetch 它沒用。本案 prefetch 的是 **L2-resident 的 `NodeInfos`**(完全不同的陣列),且從未實作量測。
 - **正確性**:零影響(prefetch 是 hint,不改語意);無新分支、無新陣列。
 - **風險**:中。dirty-set 常很小(幾百個),若該批節點已在 L1,prefetch 純屬浪費指令;PD 太短無效、太長污染。必須掃 PD ∈ {0(off),4,8,16} 量測。可能只在大 settle 波有效 → 也可只在 `count > 閾值` 時開(但那是加分支,謹慎)。
 - **預期幅度**:不確定,+0~3%。是「直攻 memory-latency wall」最對症的工具,值得一試。
+- **❌ 實測結果(2026-05-31,C#,PD=8,interleaved-paired 24 輪,200k hc)**:checksum bit-identical ✅,但效能 **median −1.37% / trimmed −1.51% / exp 只贏 1/24 / 中位差 −975 hc/s** → **淨負,已退回**。
+  - **根因**:`NodeInfos` 對 dirty-set 而言**沒有「值得隱藏的 miss」** —— dirty set 反覆訪同一批熱節點,其 NodeInfo 已 warm(L2/L1)。prefetch 指令 + 邊界分支(`pf<count`)+ 索引讀的**每迭代開銷**,加在 ~121M 次熱迴圈上,純虧。**從第三個角度再次印證 math-algos「cache capacity 已滿足、不是瓶頸」**(RCM 1.04× / prefetch −1.5%,殊途同歸)。
+  - **教訓**:在已達天花板的熱迴圈加**任何** per-iteration 工作(即使是 prefetch hint + 一個 well-predicted 邊界分支)都淨負。**不要再提這條。**
 
 ### N3 — `NodeInfo` 位元壓縮到 8 bytes(halve 240KB→120KB)〔MEDIUM / 投機〕
 - **想法**:`NodeInfo` 現為 16B(`Flags` 1B + 3× `int` tlist 索引)。`TransistorList` 長 178,529 → 索引需 18 bits。把 `flags(8) + 3×18bit = 62 bits` 打包進一個 `ulong`(8B),`NodeInfos` 砍半。

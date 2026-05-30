@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What MetalNES added over Visual6502 — AprVisual</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 20px; max-width:940px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:940px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:24px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:21px; margin:.4em 0 .1em; color:#cfe4ff;}
+  h2 .em{font-size:13px; color:var(--mut); font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  code{background:var(--code); padding:1px 5px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  td.t{white-space:nowrap; font-weight:600; color:#e7eef7;}
+  th{background:var(--card); color:#cfe4ff;}
+  .chain{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:14px 0; font-size:14px;}
+  .chain .b{background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:8px 14px;}
+  .chain .b b{color:#cfe4ff;} .chain .b.here{border-color:var(--acc);}
+  .chain .ar{color:var(--mut);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:940px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">What MetalNES added over Visual6502</span><span class="zh">MetalNES 相對 Visual6502 加了什麼</span></h1>
+  <p class="sub en">A supplement: AprVisual S1 is built on MetalNES, which is itself built on Visual6502's <code>chipsim.js</code>. Here's the middle link — the approaches and accelerations MetalNES added on top of the original JS simulator. Line numbers: MetalNES <code>wire_module.cpp</code>; the JS side is <code>chipsim.js</code> (Brian &amp; Barry Silverman, MIT).</p>
+  <p class="sub zh">補充資料:AprVisual S1 建立在 MetalNES 上,而 MetalNES 又建立在 Visual6502 的 <code>chipsim.js</code> 上。這頁講中間那一段 —— MetalNES 在原始 JS 模擬器之上加的做法與加速。行號:MetalNES <code>wire_module.cpp</code>;JS 端是 <code>chipsim.js</code>(Brian &amp; Barry Silverman,MIT)。</p>
+  <div class="chain">
+    <span class="b"><b>Visual6502</b><br><span class="en">JS, single 6502, chip viewer</span><span class="zh">JS,單顆 6502,晶片檢視器</span></span>
+    <span class="ar">→</span>
+    <span class="b here"><b>MetalNES</b><br><span class="en">C++, full NES board sim</span><span class="zh">C++,整台 NES 模擬</span></span>
+    <span class="ar">→</span>
+    <span class="b"><b>AprVisual S1</b><br><span class="en">C# + Rust, optimized</span><span class="zh">C# + Rust,最佳化</span></span>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The Visual6502 base, in one paragraph</span><span class="zh">先一段講 Visual6502 的基底</span></h2>
+  <p class="en">Visual6502's <code>chipsim.js</code> is a beautifully compact switch-level core (~200 lines): <code>recalcNode</code> → <code>getNodeGroup</code> (recursive <code>addNodeToGroup</code> over conducting channels) → <code>getNodeValue</code> → write states and toggle transistors. It models one 6502 as JavaScript <b>objects</b> (each node has <code>.c1c2s</code>, <code>.gates</code>, <code>.pullup</code>, <code>.pulldown</code>, <code>.state</code>; each transistor carries an <code>.on</code> boolean). It's a research/visualization tool — clarity first, speed second. MetalNES keeps the exact same algorithm shape but re-engineers almost every mechanism underneath for a full NES board in compiled C++.</p>
+  <p class="zh">Visual6502 的 <code>chipsim.js</code> 是一個極精簡的開關級核心(約 200 行):<code>recalcNode</code> → <code>getNodeGroup</code>(遞迴 <code>addNodeToGroup</code> 走導通通道)→ <code>getNodeValue</code> → 寫入狀態並切換電晶體。它把一顆 6502 模成 JavaScript <b>物件</b>(每個節點有 <code>.c1c2s</code>、<code>.gates</code>、<code>.pullup</code>、<code>.pulldown</code>、<code>.state</code>;每顆電晶體帶一個 <code>.on</code> 布林)。它是研究/視覺化工具 —— 清晰優先、速度其次。MetalNES 保留完全相同的演算法骨架,但把底下幾乎每個機制都為「整台 NES + 編譯式 C++」重新工程化。</p>
+</section>
+
+<section>
+  <h2><span class="en">A. Engine &amp; acceleration changes</span><span class="zh">A. 引擎與加速上的改動</span></h2>
+  <table>
+    <tr><th><span class="en">MetalNES change</span><span class="zh">MetalNES 的改動</span></th><th>Visual6502 <code>chipsim.js</code></th><th>MetalNES</th></tr>
+    <tr><td class="t"><span class="en">Stateless transistors</span><span class="zh">無狀態電晶體</span></td>
+        <td><span class="en">Each transistor stores <code>t.on</code>, explicitly toggled by <code>turnTransistorOn/Off</code> whenever a gate node changes.</span><span class="zh">每顆電晶體存 <code>t.on</code>,gate 節點變動時由 <code>turnTransistorOn/Off</code> 顯式切換。</span></td>
+        <td><span class="en">No per-transistor state at all — conduction is read inline as <code>_node_states[gate]</code> during the walk (L1969). The whole transistor-state array + turn-on/off bookkeeping is gone.</span><span class="zh">完全沒有電晶體狀態 —— 走訪時直接讀 <code>_node_states[gate]</code>(L1969)判斷導通。整個電晶體狀態陣列 + 開關記帳都拿掉了。</span></td></tr>
+    <tr><td class="t"><span class="en">Bucketed channels</span><span class="zh">通道分桶</span></td>
+        <td><span class="en">One <code>c1c2s</code> list per node; GND/VCC are walked as group members and detected later via <code>arrayContains(group, ngnd/npwr)</code>.</span><span class="zh">每節點一個 <code>c1c2s</code> 列表;GND/VCC 當成 group 成員走訪,之後用 <code>arrayContains(group, ngnd/npwr)</code> 偵測。</span></td>
+        <td><span class="en">Channels are pre-split into <code>_tlist_c1c2s</code> / <code>_tlist_c1gnd</code> / <code>_tlist_c1pwr</code>; supply channels just set a flag with early-break (L1975–1999) and are never walked as members.</span><span class="zh">通道預先拆成 <code>_tlist_c1c2s</code> / <code>_tlist_c1gnd</code> / <code>_tlist_c1pwr</code>;supply 通道只設旗標 + early-break(L1975–1999),不當成員走訪。</span></td></tr>
+    <tr><td class="t"><span class="en">Flags + 256-LUT</span><span class="zh">旗標 + 256 查表</span></td>
+        <td><span class="en"><code>getNodeValue</code> loops the group checking <code>pullup → true</code>, <code>pulldown → false</code>, <code>state → true</code>, else false. No flag set.</span><span class="zh"><code>getNodeValue</code> 迴圈逐節點查 <code>pullup → true</code>、<code>pulldown → false</code>、<code>state → true</code>,否則 false。沒有旗標集合。</span></td>
+        <td><span class="en">OR-accumulates each node's flags during the walk, then a precomputed 256-entry <code>_flags_to_state</code> LUT resolves it (L2024) — plus extra flag types: <code>forcecompute</code>, <code>set_high</code>, <code>set_low</code>.</span><span class="zh">走訪時 OR 累加每節點旗標,再用預算的 256 項 <code>_flags_to_state</code> 查表解析(L2024)—— 還多了 <code>forcecompute</code>、<code>set_high</code>、<code>set_low</code> 旗標。</span></td></tr>
+    <tr><td class="t"><span class="en">Capacitance tie-break</span><span class="zh">電容 tie-break</span></td>
+        <td><span class="en">A floating group returns the first node it finds with <code>state==true</code>, else <code>false</code> — order-dependent, no capacitance concept.</span><span class="zh">floating group 回傳第一個 <code>state==true</code> 的節點,否則 <code>false</code> —— 順序相關、無電容概念。</span></td>
+        <td><span class="en">Tracks <code>_max_connections</code> / <code>_max_state</code>: a floating group holds the state of its <b>largest-capacitance</b> member (L1944–1947, L2019) — a parasitic-capacitance model.</span><span class="zh">追蹤 <code>_max_connections</code> / <code>_max_state</code>:floating group 保留<b>最大電容</b>成員的狀態(L1944–1947、L2019)—— 寄生電容模型。</span></td></tr>
+    <tr><td class="t"><span class="en">Flat SoA layout</span><span class="zh">扁平 SoA 佈局</span></td>
+        <td><span class="en">Nodes and transistors are JS objects with array fields; heavy pointer/property indirection.</span><span class="zh">節點與電晶體是帶陣列欄位的 JS 物件;大量指標/屬性間接。</span></td>
+        <td><span class="en">Flat arrays: <code>_transistor_list</code> (null-terminated int sub-lists), <code>_node_infos</code> struct array, <code>_node_states</code> bytes — cache-friendly, compiled-friendly.</span><span class="zh">扁平陣列:<code>_transistor_list</code>(null 結尾的 int 子列表)、<code>_node_infos</code> struct 陣列、<code>_node_states</code> bytes —— 對 cache 與編譯友善。</span></td></tr>
+    <tr><td class="t"><span class="en">Persistent settle queue</span><span class="zh">常駐收斂佇列</span></td>
+        <td><span class="en"><code>recalcNodeList</code> does <code>recalclist = new Array(); recalcHash = new Array();</code> <i>every</i> settle iteration — constant re-allocation.</span><span class="zh"><code>recalcNodeList</code> <i>每一輪</i>收斂都 <code>recalclist = new Array(); recalcHash = new Array();</code> —— 不斷重新配置。</span></td>
+        <td><span class="en">Swaps two persistent buffers (<code>_recalc_list</code> ↔ <code>_recalc_list_next</code>) and reuses the hash (L1552–1553) — zero per-iteration allocation.</span><span class="zh">交換兩個常駐 buffer(<code>_recalc_list</code> ↔ <code>_recalc_list_next</code>)並重用 hash(L1552–1553)—— 每輪零配置。</span></td></tr>
+    <tr><td class="t"><span class="en">Compiled C++</span><span class="zh">編譯式 C++</span></td>
+        <td><span class="en">Interpreted JavaScript in a browser.</span><span class="zh">瀏覽器裡的直譯 JavaScript。</span></td>
+        <td><span class="en">Native C++ — the raw language speedup is large, but it's a substrate change, not an algorithm change.</span><span class="zh">原生 C++ —— 純語言加速很大,但那是底層換掉,不是演算法改動。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">B. The big capability extension — a whole NES, not one chip</span><span class="zh">B. 最大的能力延伸 —— 整台 NES,不是一顆晶片</span></h2>
+  <p class="en">Visual6502's <code>chipsim.js</code> simulates <b>one</b> 6502 die, loaded from a single <code>segdefs</code>/<code>transdefs</code>/<code>nodenames</code> set. MetalNES adds a <b>module / composition system</b>: it wires the Visual 2A03 and Visual 2C02 dies plus the board's TTL glue (74LS373 / 74LS139 / 74LS368 / 74HC04), the controllers, and the cartridge into a single flat netlist (a "connection" becomes a permanently-on transistor). On top of that it adds <b>behavioral handlers</b> the pure switch-level core has no concept of — RAM/ROM arrays (simulated as byte arrays hung off control-pin nodes), the master clock, and composite video / audio output. That turns a single-chip viewer into a full NES-001 board simulator. (AprVisual S1 keeps this module system and the behavioral handlers, and adds the batch-settle optimization to them.)</p>
+  <p class="zh">Visual6502 的 <code>chipsim.js</code> 模擬<b>一顆</b> 6502 晶粒,由單一組 <code>segdefs</code>/<code>transdefs</code>/<code>nodenames</code> 載入。MetalNES 加了<b>模組 / 組裝系統</b>:把 Visual 2A03 與 Visual 2C02 晶粒,加上主機板 TTL glue(74LS373 / 74LS139 / 74LS368 / 74HC04)、手把、卡帶,接成一張扁平 netlist(「connection」變成一顆永遠導通的電晶體)。在這之上再加純開關級核心沒有的<b>行為 handler</b> —— RAM/ROM 陣列(掛在控制腳節點上、用 byte 陣列模擬)、主時鐘、composite 影像 / 音訊輸出。這把單晶片檢視器變成完整的 NES-001 主機板模擬器。(AprVisual S1 保留了這套模組系統與行為 handler,並對它們加了 batch-settle 最佳化。)</p>
+</section>
+
+<section>
+  <h2><span class="en">What both keep the same</span><span class="zh">兩者保留相同的部分</span></h2>
+  <p class="en">The core algorithm is unchanged from Visual6502: settle by re-evaluating connected node groups until quiescent, with a ~100-pass loop limiter; resolve a group by priority (GND &gt; VCC &gt; pull). MetalNES didn't reinvent the simulation — it kept Visual6502's elegant idea and made it fast and whole-system. AprVisual S1 then took MetalNES's version and pushed the wire core further still.</p>
+  <p class="zh">核心演算法跟 Visual6502 一樣:反覆重算連通節點 group 到穩定,帶約 100 次的迴圈上限;以優先序解析 group(GND &gt; VCC &gt; pull)。MetalNES 沒有重新發明模擬 —— 它保留了 Visual6502 優雅的點子,把它變快、變成整機。AprVisual S1 再拿 MetalNES 的版本,把 wire 核心又往前推一步。</p>
+  <div class="card" style="text-align:center">
+    <p><a class="home" href="design.html" style="font-size:15px"><span class="en">→ Next link in the chain: what AprVisual S1 added over MetalNES</span><span class="zh">→ 鏈條的下一段:AprVisual S1 相對 MetalNES 加了什麼</span></a></p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Home</span><span class="zh">首頁</span></a> &nbsp;·&nbsp; <a href="design.html"><span class="en">S1 vs MetalNES</span><span class="zh">S1 對 MetalNES</span></a> &nbsp;·&nbsp; <a href="comparison.html"><span class="en">Performance comparison</span><span class="zh">效能比較</span></a></p>
+  <p class="mut"><span class="en">Verified against ref/visual6502-master/chipsim.js (MIT) and ref/metalnes-main wire_module.cpp.</span><span class="zh">對照 ref/visual6502-master/chipsim.js(MIT)與 ref/metalnes-main wire_module.cpp 確認。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

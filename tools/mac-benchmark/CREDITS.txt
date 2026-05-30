@@ -1,0 +1,37 @@
+AprVisual S1 — credits & data licensing
+========================================
+
+The AprVisual S1 engine is an independent C#/Rust reimplementation of a
+switch-level (transistor-level) NES simulator. It reproduces the wire /
+group-resolution algorithm of:
+
+  * MetalNES  — transistor-level NES-001 simulator by Andrew Addis (iaddis)
+                https://github.com/iaddis/metalnes
+                (the S1 engine is a from-scratch C# rewrite of its wire_compute
+                 core; no MetalNES source is bundled here.)
+
+  * Visual6502 / chipsim — the original switch-level simulation algorithm
+                https://github.com/trebonian/visual6502   (simulator code: MIT)
+
+NETLIST DATA (data/system-def/*.js and the derived snapshot/*.aprsnap):
+These describe the 2A03 (NES CPU) and 2C02 (NES PPU) at the transistor level
+and are derived from the Visual 2A03 / Visual 2C02 projects by Quietust, which
+are part of the Visual6502 effort.
+
+  * The transistor/segment/node netlist DATA is licensed
+    Creative Commons Attribution-NonCommercial-ShareAlike (CC-BY-NC-SA).
+    https://creativecommons.org/licenses/by-nc-sa/3.0/
+
+  * Visual 2C02:  https://www.nesdev.org/wiki/Visual_2C02
+  * Visual6502:   https://github.com/trebonian/visual6502
+
+This benchmark package is a NON-COMMERCIAL research / educational tool and is
+distributed with attribution under the spirit of CC-BY-NC-SA. The bundled
+netlist data remains under its original CC-BY-NC-SA terms; if you redistribute
+it, keep this attribution and the same license.
+
+The test ROM (roms/full_palette.nes) is a freely-distributable NES test ROM.
+
+AprVisual S1 engine code (the C# / Rust reimplementation) is by the AprVisual
+author. See the project repository for its terms:
+  https://github.com/erspicu/AprVisual

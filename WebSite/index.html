@@ -3,107 +3,324 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AprVisual — switch-level NES simulator</title>
+<title>AprVisual — switch-level NES simulator &amp; optimization notes</title>
 <style>
-  :root {
-    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff;
-    --card:#171a21; --bd:#262b34;
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
   }
-  * { box-sizing:border-box; }
-  html, body { height:100%; }
-  body {
-    margin:0; min-height:100%;
-    font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
-    background:radial-gradient(1200px 700px at 50% -10%, #18202c 0%, var(--bg) 60%);
-    color:var(--fg); line-height:1.65;
-    display:flex; flex-direction:column;
-  }
-  nav {
-    display:flex; align-items:center; gap:14px;
-    padding:14px 24px; border-bottom:1px solid var(--bd);
-  }
-  nav .brand { font-weight:700; color:var(--acc); letter-spacing:.4px; }
-  nav .spacer { flex:1; }
-  nav button {
-    background:var(--card); color:var(--fg); border:1px solid var(--bd);
-    border-radius:6px; padding:6px 14px; cursor:pointer; font-size:14px;
-  }
-  nav button.active { background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
 
-  main {
-    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; padding:48px 24px 64px; max-width:760px; margin:0 auto;
-  }
-  .badge {
-    display:inline-flex; align-items:center; gap:8px;
-    background:#1f2a38; color:var(--acc); border:1px solid #2c3a4d;
-    border-radius:20px; padding:6px 16px; font-size:13px; margin-bottom:28px;
-  }
-  .dot {
-    width:9px; height:9px; border-radius:50%; background:var(--acc);
-    box-shadow:0 0 0 0 rgba(78,161,255,.6); animation:pulse 1.8s infinite;
-  }
-  @keyframes pulse {
-    0%   { box-shadow:0 0 0 0 rgba(78,161,255,.55); }
-    70%  { box-shadow:0 0 0 12px rgba(78,161,255,0); }
-    100% { box-shadow:0 0 0 0 rgba(78,161,255,0); }
-  }
-  h1 { font-size:clamp(40px,9vw,72px); margin:0 0 4px; letter-spacing:-1px;
-       background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text;
-       background-clip:text; color:transparent; }
-  .tagline { font-size:clamp(16px,3.4vw,20px); color:#cfe4ff; margin:0 0 26px; font-weight:500; }
-  p.lead { font-size:16px; color:var(--fg); margin:0 0 14px; }
-  p.sub  { font-size:14px; color:var(--mut); margin:0 0 34px; }
-  .cta a {
-    display:inline-block; text-decoration:none;
-    background:var(--card); color:var(--fg); border:1px solid var(--bd);
-    border-radius:8px; padding:10px 20px; font-size:14px; transition:border-color .15s, color .15s;
-  }
-  .cta a:hover { border-color:var(--acc); color:var(--acc); }
-  footer { padding:18px 24px 28px; text-align:center; color:var(--mut); font-size:12px; }
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
 
-  /* language switching */
-  .en, .zh { display:none; }
-  body.lang-en .en, body.lang-zh .zh { display:revert; }
+  header.hero{padding:72px 24px 56px; text-align:center;
+    background:radial-gradient(1100px 520px at 50% -20%, #18202c 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(42px,9vw,76px); margin:0 0 6px; letter-spacing:-1px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.hero .tag{font-size:clamp(16px,3.4vw,21px); color:#cfe4ff; margin:0 auto 10px; max-width:680px; font-weight:500;}
+  header.hero .sub{color:var(--mut); max-width:640px; margin:0 auto 26px; font-size:15px;}
+  .hbtns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .btn{display:inline-block; border-radius:8px; padding:11px 20px; font-size:14px; font-weight:600; border:1px solid var(--bd);}
+  .btn.primary{background:var(--acc); color:#06121f; border-color:var(--acc);}
+  .btn.primary:hover{text-decoration:none; filter:brightness(1.08);}
+  .btn.ghost{background:var(--card); color:var(--fg);}
+  .btn.ghost:hover{text-decoration:none; border-color:var(--acc); color:var(--acc);}
+
+  main{max-width:920px; margin:0 auto; padding:8px 24px 90px;}
+  section{padding:34px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:24px; margin:.3em 0 .2em; color:#cfe4ff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700; margin-bottom:2px;}
+  h3{font-size:17px; margin:1.4em 0 .3em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr;}}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0; border:1px solid #2c3a4d; background:#1f2a38; color:var(--acc);}
+
+  .stat{display:flex; flex-wrap:wrap; gap:14px; margin:14px 0;}
+  .stat .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:14px 16px;}
+  .stat .box .n{font-size:26px; font-weight:700; color:var(--acc2);}
+  .stat .box .l{font-size:13px; color:var(--mut);}
+
+  .cases{list-style:none; padding:0; margin:10px 0;}
+  .cases li{padding:9px 12px; border:1px solid var(--bd); border-radius:8px; margin:7px 0; background:#14171d; font-size:14px;}
+  .cases li b{color:#e7eef7;}
+  .tagN{color:var(--bad); font-weight:700;} .tagY{color:var(--good); font-weight:700;}
+
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  tr.me td{background:#16222e;}
+
+  figure{margin:18px 0; text-align:center;}
+  figure img{max-width:100%; border:1px solid var(--bd); border-radius:10px;}
+  figure figcaption{color:var(--mut); font-size:13px; margin-top:8px;}
+
+  .note{border-left:3px solid var(--warn); background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
 </style>
 </head>
 <body class="lang-en">
+
 <nav>
   <span class="brand">AprVisual</span>
+  <a class="sec" href="#about"><span class="en">Project</span><span class="zh">專案定位</span></a>
+  <a class="sec" href="#netlist"><span class="en">Netlist</span><span class="zh">網表規模</span></a>
+  <a class="sec" href="#notes"><span class="en">Notes</span><span class="zh">過程心得</span></a>
+  <a class="sec" href="#results"><span class="en">Results</span><span class="zh">成果</span></a>
+  <a class="sec" href="#compare"><span class="en">Comparison</span><span class="zh">比較</span></a>
   <span class="spacer"></span>
   <button id="btn-en" class="active" onclick="setLang('en')">English</button>
   <button id="btn-zh" onclick="setLang('zh')">中文</button>
 </nav>
 
-<main>
-  <div class="badge"><span class="dot"></span>
-    <span class="en">Site under construction</span>
-    <span class="zh">網站建置中</span>
-  </div>
-
+<header class="hero">
   <h1>AprVisual</h1>
-
-  <p class="tagline en">A Visual6502-style switch-level NES simulator &amp; translation pipeline</p>
-  <p class="tagline zh">Visual6502 風格的開關級 NES 模擬器與轉換管線</p>
-
-  <p class="lead en">AprVisual turns transistor-level netlists of the NES CPU (2A03) into
-     analyzable, verifiable, executable logic models — from raw silicon connectivity,
-     through a logic/sequencing graph, to fast verifiable simulation backends.</p>
-  <p class="lead zh">AprVisual 把 NES CPU(2A03)的電晶體級網表 (netlist),轉成可分析、可驗證、
-     可執行的邏輯模型 —— 從原始的矽連線,經過邏輯與時序圖,到快速且可驗證的模擬後端。</p>
-
-  <p class="sub en">The full project site is on its way. Check back soon.</p>
-  <p class="sub zh">完整的專案網站即將上線,敬請期待。</p>
-
-  <div class="cta">
-    <a class="en" href="https://github.com/erspicu/AprVisual" target="_blank" rel="noopener">View on GitHub →</a>
-    <a class="zh" href="https://github.com/erspicu/AprVisual" target="_blank" rel="noopener">前往 GitHub →</a>
+  <p class="tag en">A Visual6502-style switch-level NES simulator — and an honest log of what made it faster, and what didn't.</p>
+  <p class="tag zh">Visual6502 風格的開關級 NES 模擬器 —— 以及一份「什麼有效、什麼沒效」的誠實優化筆記。</p>
+  <p class="sub en">Transistor-accurate NES (2A03 + 2C02) simulation in software. This site is an experience-sharing / research log; contributions and faster hardware results are very welcome.</p>
+  <p class="sub zh">在軟體裡做電晶體精準的 NES(2A03 + 2C02)模擬。這個網站是經驗分享 / 研究筆記,歡迎一起集思廣益,也歡迎在更快的電腦上跑出你的結果。</p>
+  <div class="hbtns">
+    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.30/AprVisualBenchMark.zip">
+      <span class="en">⬇ Download benchmark</span><span class="zh">⬇ 下載 benchmark 工具</span></a>
+    <a class="btn ghost" href="https://github.com/erspicu/AprVisual/tree/aot-codegen">
+      <span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
   </div>
+</header>
+
+<main>
+
+<!-- ============ 1. PROJECT ============ -->
+<section id="about">
+  <h2><span class="kick">01</span><span class="en">What AprVisual is — and the wall we hit</span><span class="zh">專案定位 —— 以及我們撞上的牆</span></h2>
+
+  <p class="en">AprVisual started from one goal: take Visual6502-style transistor netlists of the NES CPU (2A03) and PPU (2C02) and simulate them <b>exactly</b> at the switch level, while pushing that simulation as close to real time as software possibly can. Pure netlist simulation is a fundamentally heavy thing — the gap to real silicon speed is on the order of <b>hundreds of times</b>, and that gap is essentially algorithmic, not a coding detail.</p>
+  <p class="zh">AprVisual 從一個目標出發:把 NES CPU(2A03)與 PPU(2C02)的 Visual6502 風格電晶體網表,在開關級(switch-level)<b>精確</b>模擬,並把這個模擬盡量推到接近實機速度。純 netlist 模擬本質上非常吃資源 —— 離真實矽晶速度的鴻溝是<b>數百倍</b>等級,而且這個鴻溝是演算法層面的,不是寫法細節。</p>
+
+  <p class="en">So the original blueprint was an automated pipeline (fully programmatic, no hand-tuning per chip) that lifts the netlist into higher-level abstractions for speed. Four stages:</p>
+  <p class="zh">所以原本的藍圖是一條自動化流程(全程程式化、不靠逐晶片人工調整),把 netlist 往上抽象化以換取效率。共四個階段:</p>
+  <div class="card">
+    <p><span class="pill">S1</span><span class="en"> Switch-level engine — a from-scratch C# rewrite of MetalNES's wire / group-resolution core. The foundation.</span><span class="zh"> 開關級引擎 —— 從頭以 C# 重寫 MetalNES 的 wire / group-resolution 核心。整個專案的地基。</span></p>
+    <p><span class="pill">S2</span><span class="en"> Netlist → IR — loop/SCC detection, extract boolean logic into an Expr IR, build an IR interpreter.</span><span class="zh"> Netlist → IR —— loop/SCC 偵測,把布林邏輯抽取成 Expr IR,做一個 IR 直譯器。</span></p>
+    <p><span class="pill">S3</span><span class="en"> CPU proof — the IR must be per-node equivalent to S1, and measurably faster than the raw switch-level interpreter.</span><span class="zh"> CPU 驗證 —— IR 必須與 S1 逐節點等價,且明顯快於原始開關級直譯器。</span></p>
+    <p><span class="pill">S4</span><span class="en"> Codegen + GPU — emit C++/Verilog + a bit-sliced CUDA/GPU kernel, with per-node equivalence to the CPU IR.</span><span class="zh"> Codegen + GPU —— 產生 C++/Verilog + 位元切片的 CUDA/GPU kernel,與 CPU IR 逐節點等價。</span></p>
+  </div>
+
+  <h3><span class="en">The counter-intuitive part</span><span class="zh">反直覺的地方</span></h3>
+  <p class="en">When you ask an AI — or most software engineers — how to speed this up, the answer is almost always the same: <b>build an IR, do codegen, or throw it on a GPU</b>. We actually built and verified those paths. And we found problems nobody mentioned up front:</p>
+  <p class="zh">當你問 AI —— 或多數軟體工程師 —— 怎麼加速,答案幾乎一致:<b>做 IR、做 codegen、丟 GPU</b>。我們真的把這些路徑實作並驗證了,結果發現一堆當初沒人提到的問題:</p>
+  <ul>
+    <li class="en">After IR + codegen, the generated code <b>bloats massively</b>. We <i>can</i> automatically extract the netlist into logic gates — it works, in theory and in practice — but the codebase explodes and it runs <b>worse</b>, sometimes slower than just simulating the netlist directly.</li>
+    <li class="zh">產生 IR + codegen 之後,程式碼<b>嚴重膨脹</b>。我們確實能自動把 netlist 抽取成邏輯閘 —— 理論與實作都成立 —— 但 codebase 爆炸,而且執行得<b>更糟</b>,有時甚至比直接算 netlist 還慢。</li>
+    <li class="en">Information loss, especially around <b>timing and correctness verification</b>, makes the abstracted model hard to trust against the golden switch-level model.</li>
+    <li class="zh">抽象化會有<b>資訊喪失</b>問題,尤其是 <b>timing 與正確性驗證</b>,讓抽象後的模型難以對齊開關級 golden model。</li>
+    <li class="en">We even auto-generated hardware description languages (Verilog/HLSL) — but the whole point is to solve this <b>in software</b>, not to hand the performance problem to hardware.</li>
+    <li class="zh">我們甚至自動產生了硬體描述語言(Verilog/HLSL)—— 但本專案的重點是<b>用軟體</b>解決,不是把效能問題丟給硬體。</li>
+    <li class="en">Going further (abstracting gates into components or a behavioral layer) inevitably needs <b>manual intervention</b> and contradicts the project's whole intent: a real, solid hardware simulation. Keep abstracting and you've lost the point.</li>
+    <li class="zh">再往上抽象(把邏輯閘變成元件或行為層)勢必要<b>人工介入</b>,而且和專案初衷衝突:我們要的是真實紮實的硬體模擬。一直抽象下去就失去意義了。</li>
+  </ul>
+  <p class="note"><span class="en"><b>Current direction:</b> push S1 — the pure switch-level engine — to its absolute limit. The IR/codegen path is parked, not deleted; it's a verified dead-end <i>for the performance goal</i>, not for correctness.</span><span class="zh"><b>目前方向:</b>把 S1 —— 純開關級引擎 —— 推到極致。IR/codegen 路徑是擱置、不是刪除;它對<i>效能目標</i>是已驗證的死路,但對正確性不是。</span></p>
+</section>
+
+<!-- ============ 1b. NETLIST SCOPE ============ -->
+<section id="netlist">
+  <h2><span class="kick">01·5</span><span class="en">What actually runs as transistors</span><span class="zh">實際吃網表的部分 &amp; 總規模</span></h2>
+
+  <p class="en">Staying honest about fidelity matters, so here's exactly what is simulated as a real transistor netlist versus a software behavioral model. <b>Every NES internal logic chip runs 100% transistor netlist</b> — the CPU, the PPU, all four board TTL chips, and both controllers. Only memory <i>cell arrays</i>, the master oscillator, and the video output are behavioral.</p>
+  <p class="zh">對「模擬到多真」保持誠實很重要,所以這裡明確列出哪些是真電晶體網表、哪些是軟體行為模型。<b>所有 NES 內部邏輯晶片 100% 跑電晶體網表</b> —— CPU、PPU、四顆主機板 TTL、兩個手把。只有記憶體的<i>儲存陣列</i>、主振盪器、影像輸出是行為模型。</p>
+
+  <table>
+    <tr><th><span class="en">Component</span><span class="zh">元件</span></th><th><span class="en">Simulation</span><span class="zh">模擬方式</span></th><th><span class="en">Transistors</span><span class="zh">電晶體數</span></th></tr>
+    <tr><td>2C02 <span class="mut">(PPU)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>16,794</td></tr>
+    <tr><td>2A03 <span class="mut">(CPU, modified 6502 + APU)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>10,946</td></tr>
+    <tr><td>2&times; controllers <span class="mut">(nes-pad → 4021 → 8&times; pslatch)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>352</td></tr>
+    <tr><td>74LS373 <span class="mut">(address latch)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>82</td></tr>
+    <tr><td>74LS139 <span class="mut">(address decode)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>38</td></tr>
+    <tr><td>2&times; 74LS368 <span class="mut">(controller tri-state buffers)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>28</td></tr>
+    <tr><td>74HC04 <span class="mut">(PPU A13 inverter)</span></td><td><span class="en">✅ transistor netlist</span><span class="zh">✅ 電晶體網表</span></td><td>6</td></tr>
+    <tr><td>RAM / VRAM / PRG / CHR ROM</td><td><span class="en">🔧 hybrid: control pins netlist + cell array behavioral</span><span class="zh">🔧 hybrid:控制腳網表 + 陣列行為</span></td><td><span class="en">~68 (pins only)</span><span class="zh">~68(僅控制腳)</span></td></tr>
+    <tr><td>CIC <span class="mut">(nes-cic1)</span></td><td><span class="en">⚠️ stub — reset inverter only, not a real lockout chip</span><span class="zh">⚠️ stub —— 只是 reset 反相器,非真鎖區晶片</span></td><td>1</td></tr>
+    <tr><td><span class="en">clock / video output</span><span class="zh">主時鐘 / 影像輸出</span></td><td><span class="en">🔧 pure software handler</span><span class="zh">🔧 純軟體 handler</span></td><td class="mut">—</td></tr>
+  </table>
+
+  <div class="stat">
+    <div class="box"><div class="n">27,305</div><div class="l"><span class="en">transistors (assembled)</span><span class="zh">電晶體(組裝後)</span></div></div>
+    <div class="box"><div class="n">15,164</div><div class="l"><span class="en">nodes (assembled)</span><span class="zh">節點(組裝後)</span></div></div>
+    <div class="box"><div class="n">26,775</div><div class="l"><span class="en">transistors after lowering</span><span class="zh">lowering 後電晶體</span></div></div>
+    <div class="box"><div class="n">14,723</div><div class="l"><span class="en">nodes after lowering</span><span class="zh">lowering 後節點</span></div></div>
+  </div>
+
+  <ul>
+    <li class="en"><b>The PPU and CPU alone are ~98%</b> of all transistors; every TTL chip, controller, CIC and memory control-pin together is under 2%.</li>
+    <li class="zh"><b>光是 PPU + CPU 就佔 ~98%</b>;所有 TTL、手把、CIC、記憶體控制腳加起來不到 2%。</li>
+    <li class="en">Memory <i>cell arrays</i> (2 KB ×2 RAM/VRAM, 32 KB PRG, 8 KB CHR, optional 8 KB work RAM) are <b>not</b> counted — they're behavioral byte arrays. Simulating them as real 6T cells would add <b>hundreds of thousands</b> of transistors.</li>
+    <li class="zh">記憶體的<i>儲存陣列</i>(2 KB×2 RAM/VRAM、32 KB PRG、8 KB CHR、選用的 8 KB 工作 RAM)<b>不</b>計入 —— 它們是行為 byte 陣列。若真用 6T cell 模擬會多出<b>數十萬顆</b>電晶體。</li>
+    <li class="en">CIC is a 1-transistor reset-inverter stub, not a real region-lockout chip — NROM doesn't need lockout, so its 4-bit MCU was never modelled.</li>
+    <li class="zh">CIC 只是 1 顆電晶體的 reset 反相殘樁,不是真的鎖區晶片 —— NROM 不需要鎖區,所以它的 4-bit MCU 從沒被模擬。</li>
+    <li class="en">After S1.5 lowering (merge always-on shorts, drop dead transistors, dedup), the engine actually simulates <b>26,775 transistors over 14,723 nodes</b> — that's the real per-half-cycle workload.</li>
+    <li class="zh">經 S1.5 lowering(合併永遠導通短路、去死電晶體、dedup)後,引擎實際模擬的是 <b>26,775 顆電晶體、14,723 個節點</b> —— 這才是每半週期真正的工作量。</li>
+  </ul>
+</section>
+
+<!-- ============ 2. NOTES ============ -->
+<section id="notes">
+  <h2><span class="kick">02</span><span class="en">What worked, what didn't — the interesting part</span><span class="zh">過程心得 —— 有趣的部分</span></h2>
+
+  <p class="en">S1's base is an equivalent reimplementation of large parts of <a href="https://github.com/iaddis/metalnes">MetalNES</a> — specifically its <code>wire_compute</code> group-resolution core, which is itself an optimized port of Visual6502's <code>chipsim</code>. On top of that foundation we ran a long campaign of optimization strategies. They split into two layers, and both are full of results that contradict intuition.</p>
+  <p class="zh">S1 的基礎是大量等價重寫 <a href="https://github.com/iaddis/metalnes">MetalNES</a> —— 特別是它的 <code>wire_compute</code> group-resolution 核心(而那本身又是 Visual6502 <code>chipsim</code> 的最佳化移植)。在這個基礎上,我們跑了一長串優化策略,分成兩個層面,而兩邊都充滿反直覺的結果。</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:.6em"><span class="en">Layer A — algorithmic (graph / topology / matrix)</span><span class="zh">A 層 —— 演算法(圖學 / 拓樸 / 矩陣)</span></h3>
+      <p class="en">Honestly, no original algorithmic breakthrough here. The role was to drive an AI to propose, implement, and benchmark dozens of mathematically-elegant strategies, then keep only the ones that survive engineering reality. The contribution is the <b>negative catalogue</b>: cases that <i>should</i> win on paper but lose on real hardware, and exactly why.</p>
+      <p class="zh">老實說,演算法上沒有原創突破。角色是驅使 AI 去提出、實作、benchmark 數十種數學上很漂亮的策略,再只留下能撐過工程現實的。真正的貢獻是這份<b>負面案例清單</b>:那些紙上<i>應該</i>贏、但在真實硬體上輸的策略,以及確切的原因。</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:.6em"><span class="en">Layer B — programming / compiler</span><span class="zh">B 層 —— 程式設計 / 編譯器</span></h3>
+      <p class="en">This is the more familiar territory: hot-loop shape, memory layout, branch behaviour, what the JIT/LLVM will and won't do. Many proposals here, AI did the coding and verification. Plenty of "this is obviously better" ideas that turned out worse — and a few real, repeatable wins.</p>
+      <p class="zh">這是比較熟悉的領域:熱迴圈形狀、記憶體佈局、分支行為、JIT/LLVM 會做與不會做的事。這層提了很多構想,由 AI 實作與驗證。一堆「這明明更好」卻變更糟的點子 —— 也有幾個真實、可重現的勝利。</p>
+    </div>
+  </div>
+
+  <h3><span class="en">Negative cases (and why they fail)</span><span class="zh">負面案例(以及為何失敗)</span></h3>
+  <ul class="cases">
+    <li><span class="tagN">✗</span> <b><span class="en">Multi-threading / per-chip parallelism</span><span class="zh">多執行緒 / 逐晶片平行</span></b> —
+      <span class="en">~15× <b>slower</b>. The simulation settles in tiny waves (the average connected group is ~1.4 nodes); per-wave work is far too small to amortize thread sync, and a barrier every half-cycle dominates. Visual NES's author reported the same lock-contention wall in 2017.</span>
+      <span class="zh">約 <b>慢 15 倍</b>。模擬是以極小的 wave 收斂(平均連通 group 只有 ~1.4 個節點),每個 wave 的工作量遠不足以攤平 thread 同步成本,而每半週期一個 barrier 就主導了一切。Visual NES 作者 2017 年也回報了同樣的 lock contention 牆。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Bit-parallel / dense-scan BFS</span><span class="zh">位元平行 / dense-scan BFS</span></b> —
+      <span class="en">bit-identical results but ~156× slower. Bit-parallel overhead is built for huge frontiers; it crushes the 99% of walks that touch one or two nodes.</span>
+      <span class="zh">結果位元完全相同,但慢約 156 倍。位元平行的成本是為龐大 frontier 設計的,卻被那 99% 只走一兩個節點的小 walk 壓垮。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Cache-locality renumbering (RCM / Cuthill-McKee)</span><span class="zh">cache 區域性重編號(RCM)</span></b> —
+      <span class="en">predicted 1.2–1.5×, delivered ~1.04× (boot) / ~0.98× (steady), and −3–4% on Rust. The hot working set already fits in L1d; reordering helps cache <i>capacity</i> problems we don't have, and the access pattern is jumpy/sparse, not a sequential scan.</span>
+      <span class="zh">預期 1.2–1.5×,實際 ~1.04×(開機期)/ ~0.98%(穩態),Rust 還 −3~4%。熱資料的 working set 已經塞進 L1d;重排解決的是我們沒有的 cache <i>容量</i>問題,而存取模式是跳躍/稀疏的,不是順序掃描。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">"Dead-end" / unobserved-node skip</span><span class="zh">「死路」/ 未被觀察節點跳過</span></b> —
+      <span class="en">broke correctness. A node with no fan-out gates still flows its state into any group it's pulled into — "no observer" was an illusion.</span>
+      <span class="zh">弄壞正確性。一個沒有 fan-out 的節點,只要被拉進某個 group,它的狀態仍會流進去 ——「沒有觀察者」是錯覺。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Fancy data structures (hashset, presence arrays, counters)</span><span class="zh">花俏資料結構(hashset、presence array、計數器)</span></b> —
+      <span class="en">net-negative, matching Visual NES's findings. Maintaining a per-node supply-counter cost −6% because the write path runs ~10× more often than the read it was meant to speed up.</span>
+      <span class="zh">淨負效益,與 Visual NES 的發現一致。維護每節點的 supply 計數器代價 −6%,因為寫入路徑比它想加速的讀取路徑多跑約 10 倍。</span></li>
+  </ul>
+
+  <h3><span class="en">Wins (what actually moved the needle)</span><span class="zh">真正有效的</span></h3>
+  <ul class="cases">
+    <li><span class="tagY">✓</span> <b><span class="en">Memory shrink</span><span class="zh">記憶體縮減</span></b> —
+      <span class="en">the biggest, most reliable lever. <code>int → ushort/byte</code>, hot/cold struct splitting (SoA), packing the hot per-node record to a quarter cache line. Keeping the working set in L1d matters more than any clever loop.</span>
+      <span class="zh">最大、最可靠的槓桿。<code>int → ushort/byte</code>、hot/cold 結構拆分(SoA)、把每節點的熱記錄壓到 1/4 cache line。把 working set 留在 L1d 比任何聰明的迴圈都重要。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Unlocking the JIT inline cascade</span><span class="zh">解鎖 JIT inline cascade</span></b> —
+      <span class="en">rewriting the recursive group walk as an iterative loop let the .NET JIT inline the whole chain (+~3% on C#). The exact opposite of helpful on Rust — LLVM already inlines the recursive form.</span>
+      <span class="zh">把遞迴的 group walk 改成 iterative loop,讓 .NET JIT 能 inline 整條鏈(C# +約 3%)。在 Rust 上卻完全相反 —— LLVM 本來就把遞迴形式 inline 得很好。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Removing work from the hot loop</span><span class="zh">把工作移出熱迴圈</span></b> —
+      <span class="en">deferring a rarely-needed field read out of the per-visit path was +12% on C#; bounds-check elision was +12% on Rust.</span>
+      <span class="zh">把一個很少用到的欄位讀取延後、移出每次拜訪的路徑,C# +12%;Rust 移除 bounds check +12%。</span></li>
+  </ul>
+
+  <div class="card">
+    <h3 style="margin-top:.6em"><span class="en">The meta-lesson: the same change can be +C# and −Rust</span><span class="zh">後設教訓:同一改動可能 +C# 卻 −Rust</span></h3>
+    <p class="en">A recurring, important finding: an identical source-level change is often a <b>win on one compiler and a loss on the other</b>. Example — widening a fast-path classifier (which adds one branch to the hottest inlined function) measured +0.4–1.3% on C#/.NET-JIT but −1.9–2.5% on Rust/LLVM, because under LLVM's already-tight codegen that one extra branch costs more than the work it saves. <b>Never sync a hot-path change across engines blindly — measure each.</b> And for sub-2% effects, batched A/B is untrustworthy; we use <i>interleaved paired</i> measurement (alternate builds each round) to beat time-drift.</p>
+    <p class="zh">一個反覆出現的重要發現:完全相同的 source-level 改動,常常<b>在一個編譯器是賺、另一個是賠</b>。例如 —— 放寬 fast-path 分類(等於在最熱的 inline 函式多加一個分支),在 C#/.NET-JIT 量到 +0.4~1.3%,在 Rust/LLVM 卻 −1.9~2.5%,因為在 LLVM 已經很緊的 codegen 下,那一個分支的成本超過它省下的工作。<b>絕不要把熱路徑改動盲目同步到兩個引擎 —— 各自實測。</b>而且當效果小於 2% 時,batched A/B 不可信;我們用<i>交錯配對</i>量測(每輪輪流換 build)來打敗時間漂移。</p>
+  </div>
+</section>
+
+<!-- ============ 3. RESULTS ============ -->
+<section id="results">
+  <h2><span class="kick">03</span><span class="en">Where it stands — and a call to help</span><span class="zh">最終成果 —— 以及邀請</span></h2>
+
+  <p class="en">Real time was known to be out of reach from day one. But once the engine got fast enough, it crossed into being a genuinely useful, verifiable tool. The numbers below are our actual run on the dev machine (the screenshot at the bottom of this section), benchmarking 300,000 master half-cycles of <code>full_palette</code>:</p>
+  <p class="zh">從第一天就知道 realtime 達不到。但引擎快到一個程度後,它就跨進「真正可用、可驗證的工具」這個門檻了。以下是我們在開發機上的實際跑分(本節下方的截圖),測試 <code>full_palette</code> 的 300,000 個 master half-cycle:</p>
+
+  <div class="stat">
+    <div class="box"><div class="n">71.9K</div><div class="l"><span class="en">Rust — hc/s &middot; 9.94 s/frame</span><span class="zh">Rust — hc/s &middot; 9.94 秒/frame</span></div></div>
+    <div class="box"><div class="n">67.3K</div><div class="l"><span class="en">C# — hc/s &middot; 10.62 s/frame</span><span class="zh">C# — hc/s &middot; 10.62 秒/frame</span></div></div>
+    <div class="box"><div class="n">598&times;</div><div class="l"><span class="en">Rust gap to real-time (0.167%)</span><span class="zh">Rust 離實機(占 0.167%)</span></div></div>
+    <div class="box"><div class="n">638&times;</div><div class="l"><span class="en">C# gap to real-time (0.157%)</span><span class="zh">C# 離實機(占 0.157%)</span></div></div>
+  </div>
+  <p class="en">On this machine Rust renders a frame in <b>9.94 s</b> and C# in <b>10.62 s</b> (both engines produce a bit-identical result — same checksum <code>0x794A43A8DF169ADA</code>). NES NTSC real-time needs 42,954,552 hc/s, so we're still ~600&times; short — the near-term goal is to <b>stably hold one frame under 10 seconds</b>. That gap is exactly why outside ideas and faster machines are valuable.</p>
+  <p class="zh">在這台機器上,Rust 算一張 frame 要 <b>9.94 秒</b>、C# 要 <b>10.62 秒</b>(兩個引擎輸出位元完全相同 —— checksum 同為 <code>0x794A43A8DF169ADA</code>)。NES NTSC 實機需要每秒 42,954,552 個 hc,所以我們還差約 <b>600 倍</b> —— 近期目標是<b>穩定把單 frame 壓進 10 秒內</b>。這個差距正是外部點子與更快機器有價值的原因。</p>
+
+  <div class="card">
+    <h3 style="margin-top:.6em"><span class="en">The machine these numbers came from</span><span class="zh">這些數字來自的機器</span></h3>
+    <table style="margin-bottom:4px">
+      <tr><th><span class="en">CPU</span><span class="zh">處理器</span></th><td>AMD Ryzen 7 3700X — <span class="en">8 cores / 16 threads, Zen 2, 3.6 GHz base (~4.4 GHz boost)</span><span class="zh">8 核 / 16 緒,Zen 2,3.6 GHz 基頻(~4.4 GHz boost)</span></td></tr>
+      <tr><th><span class="en">Cache</span><span class="zh">快取</span></th><td><span class="en">L1d 32 KB &amp; L1i 32 KB per core, L2 512 KB per core, L3 32 MB</span><span class="zh">每核 L1d 32 KB、L1i 32 KB,每核 L2 512 KB,L3 32 MB</span></td></tr>
+      <tr><th><span class="en">Memory</span><span class="zh">記憶體</span></th><td>32 GB DDR4-2133 (4 &times; 8 GB)</td></tr>
+      <tr><th>OS</th><td>Windows 11 Home (build 26200)</td></tr>
+    </table>
+    <p class="mut" style="font-size:13px"><span class="en">Note: the engine is single-threaded and memory-latency bound — its speed tracks per-core IPC and L1/L2 latency far more than core count. A faster single core will beat more cores here.</span><span class="zh">註:引擎是單執行緒、且受記憶體延遲限制 —— 速度主要看單核 IPC 與 L1/L2 延遲,而不是核心數。更快的單核會比更多核心有用。</span></p>
+  </div>
+
+  <div class="card" style="text-align:center;">
+    <p class="en" style="margin-top:14px"><b>Have a faster CPU? Run the benchmark and share your numbers.</b> The package is portable, self-contained (no .NET install), and ships both the C# and Rust engines for Windows + macOS (Apple Silicon).</p>
+    <p class="zh" style="margin-top:14px"><b>有更快的 CPU 嗎?跑跑看 benchmark,分享你的數字。</b>套件是可攜、自包含的(不用裝 .NET),同時附上 C# 與 Rust 引擎,支援 Windows + macOS(Apple Silicon)。</p>
+    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.30/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
+       &nbsp; <a class="btn ghost" href="https://github.com/erspicu/AprVisual/releases"><span class="en">All releases</span><span class="zh">所有版本</span></a></p>
+  </div>
+
+  <figure>
+    <img src="pic/2026053001.png" alt="AprVisual benchmark result on the dev machine">
+    <figcaption><span class="en">Benchmark output on the dev machine — the PERFORMANCE block reports hc/s, the real-time gap, and seconds per frame.</span><span class="zh">開發機上的 benchmark 輸出 —— PERFORMANCE 區塊列出 hc/s、離實機的差距、每 frame 秒數。</span></figcaption>
+  </figure>
+</section>
+
+<!-- ============ 4. COMPARISON ============ -->
+<section id="compare">
+  <h2><span class="kick">04</span><span class="en">How it compares to other netlist NES / 6502 simulators</span><span class="zh">與其他 netlist NES / 6502 模擬器的比較</span></h2>
+
+  <p class="en">Speed claims across these projects use different units (6502 clocks, chip steps, trace lines, master half-cycles), so this is not a clean apples-to-apples table — hardware era, tracing, feature completeness and frame definitions all differ. With that caveat, here's the public picture:</p>
+  <p class="zh">這些專案的速度說法單位不同(6502 clock、chip step、trace line、master half-cycle),所以這不是乾淨的同基準比較 —— 硬體年代、tracing、功能完整度、frame 定義都不一樣。帶著這個但書,以下是公開資料的全貌:</p>
+
+  <table>
+    <tr><th><span class="en">Project</span><span class="zh">專案</span></th><th><span class="en">Scope</span><span class="zh">範圍</span></th><th><span class="en">Public speed</span><span class="zh">公開速度</span></th><th><span class="en">~ per frame</span><span class="zh">約每 frame</span></th></tr>
+    <tr><td>Visual6502 (JS)</td><td><span class="en">6502 transistor-level</span><span class="zh">6502 電晶體級</span></td><td><span class="en">~1 clock/s (animated) – 250Hz+ (expert)</span><span class="zh">~1 clock/s(動畫)– 250Hz+(expert)</span></td><td><span class="mut">n/a (CPU only)</span></td></tr>
+    <tr><td>perfect6502</td><td><span class="en">6502 NMOS netlist (C)</span><span class="zh">6502 NMOS netlist(C)</span></td><td><span class="en">~1/30 of 1MHz 6502 on a 2025 CPU</span><span class="zh">2025 CPU 上約 1MHz 6502 的 1/30</span></td><td><span class="mut">n/a (CPU only)</span></td></tr>
+    <tr><td>Visual NES</td><td><span class="en">Visual 2A03 + 2C02 (C++/C#)</span><span class="zh">Visual 2A03 + 2C02(C++/C#)</span></td><td><span class="en">~5000Hz (dual-chip), ~7500Hz after data shrink + PGO (2017, old i5)</span><span class="zh">~5000Hz(雙晶片),縮資料 + PGO 後 ~7500Hz(2017,舊 i5)</span></td><td>~30–60 s</td></tr>
+    <tr><td>MetalNES</td><td><span class="en">full NES-001 board, transistor-level</span><span class="zh">完整 NES-001 主機板,電晶體級</span></td><td><span class="en">user/press reports (not a benchmark)</span><span class="zh">使用者/媒體轉述(非 benchmark)</span></td><td>~1–2 min</td></tr>
+    <tr class="me"><td><b>AprVisual S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>67.3K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>10.62 s</td></tr>
+    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>71.9K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>9.94 s</td></tr>
+  </table>
+
+  <h3><span class="en">Takeaways</span><span class="zh">幾個結論</span></h3>
+  <ul>
+    <li class="en">Full NES transistor-level <i>software</i> simulation publicly lands in the <b>tens-of-seconds to minutes per frame</b> range — never the FPS range of an ordinary emulator.</li>
+    <li class="zh">完整 NES 電晶體級<i>軟體</i>模擬,公開資料都落在<b>每 frame 數十秒到數分鐘</b>的等級 —— 從來不是一般模擬器的 FPS 等級。</li>
+    <li class="en">AprVisual's current numbers sit clearly above the public early figures for Visual NES and MetalNES — but note those are from a 2017 i5 (often with tracing) and 2022-era user reports, so it is not a fair head-to-head.</li>
+    <li class="zh">AprVisual 目前的數字明顯高於 Visual NES 與 MetalNES 的公開早期數字 —— 但那些來自 2017 年的 i5(常帶 tracing)與 2022 年的使用者回報,所以不是公平的正面對決。</li>
+    <li class="en">Our experience matches Visual NES's exactly: the hot spot is the recursive group / connected-component search, and <b>data shrink + cache + PGO beat fancier data structures</b>. Independent projects converging on the same conclusion is a strong signal.</li>
+    <li class="zh">我們的經驗和 Visual NES 完全吻合:熱點都在遞迴的 group / connected-component 搜尋,而且<b>縮資料 + cache + PGO 勝過更花俏的資料結構</b>。兩個獨立專案得到同樣結論,是很強的訊號。</li>
+    <li class="en">perfect6502 shows even a single 6502 netlist, in highly-optimized C on a 2025 CPU, only hits ~1/30 real time — transistor-level exactness is just expensive.</li>
+    <li class="zh">perfect6502 顯示:即使是單顆 6502 netlist、高度最佳化的 C、2025 CPU,也只有約 1/30 realtime —— 電晶體級的精確就是這麼貴。</li>
+  </ul>
+  <p class="mut" style="font-size:13px"><span class="en">Sources: Visual6502 &amp; NESdev wiki, perfect6502 README, Visual NES README + author's 2017 nesdev threads, MetalNES README + press/HN reports. AprVisual figures are local 2026-05-30 measurements (full_palette, 200k hc, interleaved-paired).</span><span class="zh">來源:Visual6502 與 NESdev wiki、perfect6502 README、Visual NES README + 作者 2017 nesdev 討論串、MetalNES README + 媒體/HN 報導。AprVisual 數字為本地 2026-05-30 量測(full_palette、200k hc、交錯配對)。</span></p>
+</section>
+
 </main>
 
 <footer>
-  <span class="en">© AprVisual — switch-level silicon, made analyzable.</span>
-  <span class="zh">© AprVisual — 讓開關級矽電路變得可分析。</span>
+  <p><span class="en">Latest source is currently on the <a href="https://github.com/erspicu/AprVisual/tree/aot-codegen"><code>aot-codegen</code></a> branch (for historical reasons) — that's the canonical version for now.</span>
+     <span class="zh">最新原始碼目前在 <a href="https://github.com/erspicu/AprVisual/tree/aot-codegen"><code>aot-codegen</code></a> 分支(歷史因素)—— 那是目前的正式版本。</span></p>
+  <p><span class="en">AprVisual S1 is an independent C#/Rust reimplementation of the MetalNES wire algorithm. The bundled 2A03/2C02 netlist data derives from the Visual 2A03 / Visual 2C02 / Visual6502 projects and is licensed CC-BY-NC-SA.</span>
+     <span class="zh">AprVisual S1 是 MetalNES wire 演算法的獨立 C#/Rust 重寫。套件內附的 2A03/2C02 netlist 資料衍生自 Visual 2A03 / Visual 2C02 / Visual6502 專案,採 CC-BY-NC-SA 授權。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable.</span><span class="zh">讓開關級矽電路變得可分析。</span></p>
 </footer>
 
 <script>
@@ -112,11 +329,10 @@
     document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
     document.getElementById('btn-en').classList.toggle('active', l === 'en');
     document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
-    try { localStorage.setItem('aprvisual-lang', l); } catch(e){}
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
   }
   (function(){
-    var saved = null;
-    try { saved = localStorage.getItem('aprvisual-lang'); } catch(e){}
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
     setLang(saved === 'zh' ? 'zh' : 'en');
   })();
 </script>

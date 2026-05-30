@@ -104,6 +104,7 @@ copy /Y "%TPL%\shot_csharp.sh" "%OUT%\" >nul
 copy /Y "%TPL%\shot_rust.sh"   "%OUT%\" >nul
 copy /Y "%TPL%\README.txt"     "%OUT%\" >nul
 copy /Y "%TPL%\readme.html"    "%OUT%\" >nul
+copy /Y "%TPL%\CREDITS.txt"    "%OUT%\" >nul
 
 REM ---------------------------------------------------------------------------
 REM 5. Generate Windows runner .bat files (point at win\)

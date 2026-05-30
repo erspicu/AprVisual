@@ -15,7 +15,7 @@ Layout
   screenshots/              frame-dump PNG output lands here
 
 Windows (double-click or run in cmd)
-  run_csharp.bat  [hc]      C# benchmark   (default 200000 hc)
+  run_csharp.bat  [hc]      C# benchmark   (default 300000 hc)
   run_rust.bat    [hc]      Rust benchmark
   shot_csharp.bat [frames]  C# frame-dump  (default 50 frames -> screenshots\csharp)
   shot_rust.bat   [frames]  Rust frame-dump

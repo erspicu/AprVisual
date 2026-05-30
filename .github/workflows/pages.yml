@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Stamp the "last updated" date (UTC build time = last content change)
         run: |
-          D=$(date -u +%Y-%m-%d)
+          D=$(date -u '+%Y-%m-%d %H:%M')
           sed -i -E "s#(<span class=\"lastupd\">)[^<]*#\1$D#" WebSite/index.html
           echo "stamped last-updated = $D"
           grep -o 'lastupd">[^<]*' WebSite/index.html || true

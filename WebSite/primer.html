@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch-level simulation — a primer (AprVisual)</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.8;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 18px; max-width:860px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:860px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
+  h2 .step{display:inline-block; background:var(--acc); color:#06121f; border-radius:6px; font-size:13px; font-weight:700; padding:1px 9px; margin-right:8px; vertical-align:middle;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.6em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.5em 0 .9em; padding-left:24px;} li{margin:.35em 0;}
+  code{background:var(--code); padding:1px 6px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow:auto; font-size:13px; line-height:1.5; font-family:Consolas,monospace; color:#cfe4ff;}
+  b.term{color:var(--acc2);}
+  .chain{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0; font-size:13.5px;}
+  .chain .b{background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:7px 12px;}
+  .chain .b b{color:#cfe4ff;} .chain .b.here{border-color:var(--acc);}
+  .chain .ar{color:var(--mut);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 18px 14px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:860px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Switch-level simulation — a primer</span><span class="zh">開關級模擬 —— 入門科普</span></h1>
+  <p class="sub en">What does it mean to "simulate a chip from its netlist"? This is the foundation that everything else on this site is built on — starting from the academic idea, explained for anyone curious about how computers can run other computers at the transistor level.</p>
+  <p class="sub zh">「從 netlist 模擬一顆晶片」到底在做什麼?這是本站其他一切的地基 —— 從學術概念講起,寫給任何好奇「電腦怎麼在電晶體層級跑另一台電腦」的人。</p>
+  <div class="chain">
+    <span class="b here"><b><span class="en">Switch-level model</span><span class="zh">開關級模型</span></b><br><span class="mut"><span class="en">Bryant, 1980s — the theory</span><span class="zh">Bryant,1980s — 理論</span></span></span>
+    <span class="ar">→</span>
+    <span class="b"><b>Visual6502</b><br><span class="mut">chipsim.js</span></span>
+    <span class="ar">→</span>
+    <span class="b"><b>MetalNES</b></span>
+    <span class="ar">→</span>
+    <span class="b"><b>AprVisual&nbsp;S1</b></span>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">Where this sits: the levels of circuit simulation</span><span class="zh">先定位:電路模擬的幾個層級</span></h2>
+  <p class="en">A chip can be simulated at many levels of abstraction, trading accuracy for speed:</p>
+  <p class="zh">一顆晶片可以在不同抽象層級上模擬,在「準確」與「快」之間取捨:</p>
+  <table>
+    <tr><th><span class="en">Level</span><span class="zh">層級</span></th><th><span class="en">Models…</span><span class="zh">模擬的是…</span></th><th><span class="en">Accuracy / speed</span><span class="zh">準確 / 速度</span></th></tr>
+    <tr><td><span class="en">Analog (SPICE)</span><span class="zh">類比(SPICE)</span></td><td><span class="en">voltages &amp; currents, differential equations</span><span class="zh">電壓電流、微分方程</span></td><td><span class="en">most accurate, slowest</span><span class="zh">最準、最慢</span></td></tr>
+    <tr style="background:#16222e"><td><b><span class="en">Switch-level</span><span class="zh">開關級</span></b></td><td><b><span class="en">transistors as on/off switches, nodes as 0/1</span><span class="zh">電晶體當開/關開關、節點當 0/1</span></b></td><td><b><span class="en">transistor-exact logic, slow</span><span class="zh">電晶體精準邏輯、慢</span></b></td></tr>
+    <tr><td><span class="en">Gate-level</span><span class="zh">閘級</span></td><td><span class="en">AND/OR/NOT gates</span><span class="zh">AND/OR/NOT 邏輯閘</span></td><td><span class="en">abstract, fast</span><span class="zh">抽象、快</span></td></tr>
+    <tr><td><span class="en">RTL / behavioral</span><span class="zh">RTL / 行為</span></td><td><span class="en">registers, opcodes (a normal emulator)</span><span class="zh">暫存器、opcode(一般模擬器)</span></td><td><span class="en">most abstract, fastest</span><span class="zh">最抽象、最快</span></td></tr>
+  </table>
+  <p class="en">A normal NES emulator works at the top (it executes opcodes). <b>Switch-level</b> is near the bottom: it doesn't know what an "instruction" is — it only knows transistors and wires, and lets the CPU's behavior <i>emerge</i> from the physics. That's why it's bit-for-bit faithful to the real silicon, and also why it's hundreds of times slower than real time.</p>
+  <p class="zh">一般 NES 模擬器在最上層(執行 opcode)。<b>開關級</b>在接近最底層:它根本不知道什麼是「指令」—— 它只知道電晶體與接線,讓 CPU 的行為從物理<i>自然湧現</i>。這就是為什麼它對真實矽晶逐位元忠實,也是為什麼它比實機慢數百倍。</p>
+</section>
+
+<section>
+  <h2><span class="en">The academic root</span><span class="zh">學術源頭</span></h2>
+  <p class="en">The idea of treating a MOS circuit as a network of <b class="term">switches</b> instead of solving its analog equations was formalized by <b>Randal E. Bryant</b> in the early 1980s — the <b>switch-level model</b> (MOSSIM, 1981; "A Switch-Level Model and Simulator for MOS Digital Systems", <i>IEEE Transactions on Computers</i>, 1984). The model's essence:</p>
+  <p class="zh">把 MOS 電路當成一張<b class="term">開關</b>網路、而不是去解它的類比方程,這個想法由 <b>Randal E. Bryant</b> 在 1980 年代初形式化 —— 即<b>開關級模型</b>(MOSSIM, 1981;"A Switch-Level Model and Simulator for MOS Digital Systems", <i>IEEE Transactions on Computers</i>, 1984)。模型的精髓:</p>
+  <ul>
+    <li class="en">A transistor is a <b>bidirectional switch</b>: its gate terminal decides whether its two channel terminals are connected.</li>
+    <li class="zh">一顆電晶體是一個<b>雙向開關</b>:它的 gate 端決定它的兩個 channel 端是否相連。</li>
+    <li class="en">A wire is a <b>node</b> with a logic state (0 / 1 / floating) and a <b>strength</b> (how hard it's driven — a fat bus vs a tiny gate).</li>
+    <li class="zh">一條線是一個<b>節點</b>,帶邏輯狀態(0 / 1 / floating)與<b>強度</b>(被驅動得多強 —— 粗匯流排 vs 小閘極)。</li>
+    <li class="en">The circuit's value is found not by formulas but by <b class="term">relaxation</b>: keep re-resolving the connected nodes until nothing changes (a steady state, or <b>fixpoint</b>).</li>
+    <li class="zh">電路的值不是用公式算出來,而是用<b class="term">鬆弛迭代(relaxation)</b>:反覆重新解析相連的節點,直到不再變化(穩態,或稱<b>不動點 fixpoint</b>)。</li>
+  </ul>
+  <p class="en">Switch-level sits in the sweet spot: it captures things gate-level models miss — pass transistors, bidirectional buses, charge sharing, ratioed (pull-up/pull-down) logic — without paying SPICE's differential-equation cost. Visual6502 is one concrete, beautifully small implementation of this tradition (it doesn't cite a specific paper, but the model is squarely switch-level).</p>
+  <p class="zh">開關級正好在甜蜜點:它抓得到閘級模型抓不到的東西 —— pass transistor、雙向匯流排、電荷分享、比例式(pull-up/pull-down)邏輯 —— 又不用付 SPICE 的微分方程代價。Visual6502 就是這個傳統的一個具體、極精簡的實作(它沒有明確引用某篇論文,但模型完全是開關級的)。</p>
+</section>
+
+<section>
+  <h2><span class="en">What is a netlist, concretely?</span><span class="zh">netlist 具體是什麼?</span></h2>
+  <p class="en">A chip is a flat layout of doped silicon and metal. "Decapping" a 6502 and photographing the die lets you trace, by hand and tooling, every wire and every transistor. The result is a <b class="term">netlist</b> — pure <i>connectivity</i>, no behavior. Visual6502 stores it as three lists:</p>
+  <p class="zh">一顆晶片是一片摻雜矽與金屬的平面佈局。把 6502「開蓋」拍下晶粒,就能(靠人工與工具)描出每一條線、每一顆電晶體。結果就是一張 <b class="term">netlist</b> —— 純粹的<i>連線關係</i>,沒有行為。Visual6502 用三個列表存它:</p>
+  <ul>
+    <li><code>nodenames</code> / <code>segdefs</code> — <span class="en">the wires (nodes), and human names for the important ones.</span><span class="zh">所有的線(節點),以及重要節點的人類命名。</span></li>
+    <li><code>transdefs</code> — <span class="en">each transistor as <code>(gate, c1, c2)</code>: which node is its gate, and which two nodes its channel connects.</span><span class="zh">每顆電晶體 <code>(gate, c1, c2)</code>:gate 接哪個節點、channel 連起哪兩個節點。</span></li>
+  </ul>
+  <p class="en">So the entire CPU reduces to: <b>a set of nodes</b> and <b>a set of three-terminal transistors</b>. Nothing else. The job of the simulator is to make this static connectivity <i>come alive</i> — to compute, cycle by cycle, what value every node settles to.</p>
+  <p class="zh">於是整顆 CPU 就化約成:<b>一堆節點</b> + <b>一堆三端電晶體</b>。沒有別的了。模擬器的工作,就是讓這張靜態連線<i>活起來</i> —— 一個週期一個週期地算出每個節點最後穩定在什麼值。</p>
+</section>
+
+<section>
+  <h2><span class="en">The graph &amp; topology view</span><span class="zh">圖學與拓樸的看法</span></h2>
+  <p class="en">This is where graph theory makes everything click. Treat the netlist as a graph:</p>
+  <p class="zh">這裡用圖學來看,一切就通了。把 netlist 當成一張圖:</p>
+  <ul>
+    <li class="en"><b class="term">Vertices = nodes</b> (wires). <b class="term">Edges = transistor channels</b> — but a special kind: a channel edge between <code>c1</code> and <code>c2</code> <b>exists only when its gate vertex is high</b>. So the "live" graph <b>changes shape every cycle</b> as gates switch.</li>
+    <li class="zh"><b class="term">頂點 = 節點</b>(線)。<b class="term">邊 = 電晶體的 channel</b> —— 但是特殊的邊:<code>c1</code>↔<code>c2</code> 這條邊<b>只有在它的 gate 頂點為高時才存在</b>。所以這張「導通中」的圖<b>每個週期都在變形</b>,隨著 gate 開關。</li>
+    <li class="en"><b class="term">A "group" = a connected component</b> of that live subgraph. All nodes reachable through currently-on channels are electrically one wire and must share one value. Finding it is a classic graph traversal (<b>BFS / DFS</b>), or <b>union-find</b>.</li>
+    <li class="zh"><b class="term">一個「group」= 那張導通子圖的一個連通分量</b>。所有透過目前導通 channel 可達的節點,在電氣上就是同一條線,必須共用一個值。找它就是經典的圖走訪(<b>BFS / DFS</b>),或<b>併查集 union-find</b>。</li>
+    <li class="en">The circuit has <b class="term">feedback loops</b> (latches, flip-flops = cross-coupled gates), so the dependency graph has <b>cycles</b> — it is <i>not</i> a DAG. You can't evaluate it in one topological pass; you must <b>iterate to a fixpoint</b>. Those feedback loops are <b>strongly connected components (SCCs)</b>, and they're exactly why simulation has to "settle" over several passes.</li>
+    <li class="zh">電路有<b class="term">回授迴路</b>(latch、flip-flop = 交叉耦合的閘),所以相依圖有<b>環</b> —— 它<i>不是</i> DAG。不能一次拓樸排序算完;必須<b>迭代到不動點</b>。那些回授迴路就是<b>強連通分量(SCC)</b>,也正是模擬必須跑好幾輪才「收斂」的原因。</li>
+    <li class="en">You don't re-evaluate the whole chip every step — only nodes whose inputs just changed. That set of pending work is a <b class="term">worklist</b> (a queue); propagating changes through it is the textbook <b>event-driven / worklist algorithm</b>.</li>
+    <li class="zh">每一步不會重算整顆晶片 —— 只算輸入剛變動的節點。這份「待處理」的集合就是一個<b class="term">工作佇列(worklist / queue)</b>;讓變化沿著它傳播,就是教科書上的<b>事件驅動 / worklist 演算法</b>。</li>
+  </ul>
+
+  <div class="card">
+    <h3 style="margin-top:.7em"><span class="en">Breadth-first search (BFS), concretely</span><span class="zh">廣度優先搜尋(BFS),具體來說</span></h3>
+    <p class="en"><b class="term">BFS</b> is the textbook way to explore a graph outward in rings from a starting vertex: visit the start, then all its neighbours, then <i>their</i> neighbours, and so on. It uses a <b>FIFO queue</b> — enqueue the start; repeatedly dequeue a vertex and enqueue any neighbour you haven't seen yet; stop when the queue is empty. A <b>"visited" mark</b> on each vertex stops you from re-adding one. (Its sibling, <b>DFS</b>, dives deep down one path first using a stack or recursion — it visits the same set of vertices, just in a different order.)</p>
+    <p class="zh"><b class="term">BFS</b> 是教科書上「從起點一圈一圈往外探索圖」的方法:先走起點,再走它所有鄰居,再走<i>鄰居的</i>鄰居,以此類推。它用一個 <b>FIFO 佇列</b> —— 把起點入列;反覆取出一個頂點、把還沒看過的鄰居入列;佇列空了就停。每個頂點上的<b>「已訪」標記</b>防止重複加入。(它的兄弟 <b>DFS</b> 用堆疊或遞迴先一路往深處鑽 —— 走訪的頂點集合相同,只是順序不同。)</p>
+    <p class="en">BFS shows up in <b>two distinct places</b> in this simulator, and it's worth not confusing them:</p>
+    <p class="zh">BFS 在這個模擬器裡出現在<b>兩個不同的地方</b>,別把它們搞混:</p>
+    <ol>
+      <li class="en"><b>Collecting one group (inside step A):</b> start from the node being evaluated, and BFS outward through <i>conducting</i> channels only. When the queue drains, you've visited exactly one connected component — the group. Visual6502 and MetalNES write this as recursion (i.e. DFS); AprVisual's C# engine rewrites it as an explicit iterative queue (BFS) so the JIT can inline the loop. Same set of nodes either way.</li>
+      <li class="zh"><b>收集一個 group(在步驟 A 內):</b>從被評估的節點出發,只沿著<i>導通的</i> channel 做 BFS 往外擴。佇列抽乾時,你剛好走訪完一個連通分量 —— 就是那個 group。Visual6502 與 MetalNES 用遞迴寫(即 DFS);AprVisual 的 C# 引擎改寫成顯式 iterative 佇列(BFS),讓 JIT 能 inline 迴圈。兩種寫法走訪的節點集合相同。</li>
+      <li class="en"><b>The settle wavefront (steps C→D):</b> the dirty-node worklist is itself a breadth-first wave across the <i>whole chip</i> — round 1 is the nodes touched by the clock edge, round 2 is their downstream neighbours, and so on until the wave dies out. The "current list / next list" double-buffer literally <i>is</i> the BFS levels.</li>
+      <li class="zh"><b>settle 波前(步驟 C→D):</b>髒節點 worklist 本身就是一道掃過<i>整顆晶片</i>的廣度優先波 —— 第 1 輪是被 clock 邊緣碰到的節點,第 2 輪是它們的下游鄰居,以此類推,直到波消散。那個「current list / next list」雙緩衝,字面上<i>就是</i> BFS 的層級。</li>
+    </ol>
+    <p class="en"><b>Why the visited mark is essential:</b> the circuit graph has cycles (feedback). Without the <code>visited</code> set, BFS would re-enqueue the same nodes forever. The mark makes it terminate and run in <b>O(V + E)</b> — linear in the nodes and channels it touches. A single traversal is cheap; the simulator is slow only because it runs <i>millions</i> of these tiny traversals per frame.</p>
+    <p class="zh"><b>為什麼「已訪」標記不可少:</b>電路圖有環(回授)。沒有 <code>visited</code> 集合,BFS 會永遠重複把同樣的節點入列。標記讓它終止,並以 <b>O(V + E)</b> 執行 —— 與它碰到的節點數與 channel 數成線性。單次走訪很便宜;模擬之所以慢,只是因為一張畫面要跑<i>數百萬</i>次這種小走訪。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">The computation, step by step</span><span class="zh">運算流程,一步一步看</span></h2>
+  <p class="en">Your two-part intuition is exactly right — <b>detect conduction</b>, then <b>queue the affected nodes and update state</b>. Here is the full loop, with the resolve step in the middle:</p>
+  <p class="zh">你的兩段直覺完全正確 —— <b>偵測導通</b>,然後<b>把受影響的節點放進 queue 做狀態更新</b>。以下是完整迴圈,中間多一個「解析」步驟:</p>
+
+  <h2><span class="step">A</span><span class="en">Detect conduction → collect the group</span><span class="zh">偵測導通 → 收集 group</span></h2>
+  <p class="en">Start from a node that needs evaluating. Look at its channel transistors; a channel <b>conducts iff its gate node is currently high</b>. Walk outward only through conducting channels, gathering every reachable node. That set is the <b>connected group</b> (= a connected component of the live subgraph). Nodes connected only through an <i>off</i> transistor are not part of it.</p>
+  <p class="zh">從一個需要評估的節點出發。看它的 channel 電晶體;一條 channel <b>只有在它的 gate 節點目前為高時才導通</b>。只沿著導通的 channel 往外走,收集所有可達的節點。這個集合就是<b>連通 group</b>(= 導通子圖的一個連通分量)。只透過<i>關閉</i>電晶體相連的節點不算在內。</p>
+
+  <h2><span class="step">B</span><span class="en">Resolve the group's shared value</span><span class="zh">解析 group 的共用值</span></h2>
+  <p class="en">The whole group is one electrical wire now, so it has one value. Resolve it by priority:</p>
+  <p class="zh">整個 group 現在是同一條電氣線,所以只有一個值。用優先序解析:</p>
+  <ol>
+    <li class="en">a conducting path to <b>GND</b> → the group is <b>0</b> (ground wins);</li>
+    <li class="zh">有導通路徑到 <b>GND</b> → group 為 <b>0</b>(接地最強);</li>
+    <li class="en">else a path to <b>VCC</b> → <b>1</b>;</li>
+    <li class="zh">否則有路徑到 <b>VCC</b> → <b>1</b>;</li>
+    <li class="en">else an external drive (set-high / set-low);</li>
+    <li class="zh">否則外部驅動(set-high / set-low);</li>
+    <li class="en">else a <b>pull-up / pull-down</b> (a weak default);</li>
+    <li class="zh">否則 <b>pull-up / pull-down</b>(弱預設值);</li>
+    <li class="en">else the group is <b>floating</b> → it <b>holds its previous value</b> via parasitic charge; the highest-capacitance member wins.</li>
+    <li class="zh">否則 group 是 <b>floating</b> → 靠寄生電荷<b>維持先前的值</b>;電容最大的成員勝出。</li>
+  </ol>
+
+  <h2><span class="step">C</span><span class="en">Write back &amp; enqueue the neighbours</span><span class="zh">寫回 &amp; 把鄰居放入 queue</span></h2>
+  <p class="en">Write the resolved value to every node in the group. For any node whose value <b>actually changed</b>, the transistors it <i>gates</i> just flipped on or off — so the channel edges around them changed, and their neighbour nodes may now need re-evaluating. Push those neighbours into the <b>worklist</b>. (This is the "put the affected nodes into a queue" step.) Unchanged nodes propagate nothing.</p>
+  <p class="zh">把解析出的值寫進 group 裡每個節點。對任何<b>真的變了</b>值的節點,它所<i>控制(gate)</i>的電晶體剛剛開或關了 —— 所以它們周圍的 channel 邊變了,鄰居節點可能要重算。把那些鄰居推進 <b>worklist</b>。(這就是「把受影響節點放進 queue」那一步。)沒變的節點不會傳播任何東西。</p>
+
+  <h2><span class="step">D</span><span class="en">Repeat until quiescent (the fixpoint)</span><span class="zh">重複到靜止(不動點)</span></h2>
+  <p class="en">Drain the queue, node by node, running A–C on each. Every change can trigger more changes; you loop until a whole pass produces <b>no change</b> — the network has settled. A loop limiter (~100 passes) guards against a non-converging (oscillating / metastable) region. One <b>half clock cycle</b> of the chip = toggle the clock node, then settle the entire network to its new fixpoint. Do that ~24 times and you've simulated one CPU cycle; ~715,000 times and you've simulated one video frame.</p>
+  <p class="zh">把佇列一個節點一個節點抽乾,每個都跑 A–C。每個變化可能引發更多變化;一直迴圈,直到某一整輪<b>沒有任何節點改變</b> —— 網路收斂了。一個迴圈上限(約 100 輪)防止不收斂(振盪 / 介穩)的區域卡住。晶片的一個<b>半時脈週期</b> = 把 clock 節點翻轉一次,然後把整張網路 settle 到新的不動點。做約 24 次就模擬了一個 CPU 週期;約 715,000 次就模擬了一張畫面。</p>
+
+  <div class="card">
+    <h3 style="margin-top:.7em"><span class="en">A tiny worked example — one NMOS inverter</span><span class="zh">一個小範例 —— 一個 NMOS 反相器</span></h3>
+    <pre>        VCC
+         |
+       [pull-up]        in ── gate of T
+         |                     │
+  out ───┴──────[ T ]─────── GND
+                (channel: out ↔ GND, gated by "in")</pre>
+    <p class="en"><b>If <code>in</code> = 1:</b> T's gate is high → its channel conducts → group = {out, GND} → a path to GND exists → <code>out</code> resolves to <b>0</b>.<br>
+       <b>If <code>in</code> = 0:</b> T's gate is low → channel is off → group = {out} alone → no GND/VCC path, but the pull-up gives <b>1</b> → <code>out</code> resolves to <b>1</b>.<br>
+       That's an inverter — and notice we never wrote "NOT". It emerged from conduction + resolution. A whole 6502 is just millions of these interactions settling together.</p>
+    <p class="zh"><b>若 <code>in</code> = 1:</b>T 的 gate 為高 → channel 導通 → group = {out, GND} → 有路徑到 GND → <code>out</code> 解析為 <b>0</b>。<br>
+       <b>若 <code>in</code> = 0:</b>T 的 gate 為低 → channel 關閉 → group = {out} 單獨 → 沒有 GND/VCC 路徑,但 pull-up 給 <b>1</b> → <code>out</code> 解析為 <b>1</b>。<br>
+       這就是一個反相器 —— 注意我們從沒寫過「NOT」。它是從導通 + 解析<i>湧現</i>出來的。整顆 6502 不過就是幾千個這種互動一起收斂。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Why this is the whole story</span><span class="zh">為什麼這就是全貌</span></h2>
+  <p class="en">Everything else on this site is an engineering refinement of these four steps. The cost is brutal because step A–C runs for <i>every</i> changed node, <i>every</i> half cycle — the average group is tiny (~1.4 nodes), but there are millions of them per frame. So the entire optimization story is about doing A–C with less work, smaller data, and tighter code — not about a cleverer algorithm.</p>
+  <p class="zh">本站其他一切,都是這四個步驟的工程精修。代價之所以殘酷,是因為 A–C 對<i>每個</i>變動節點、<i>每個</i>半週期都要跑一次 —— 平均一個 group 很小(~1.4 個節點),但一張畫面有數百萬個。所以整個優化故事,講的是「用更少工作、更小資料、更緊的程式碼去做 A–C」—— 而不是更聰明的演算法。</p>
+  <div class="card" style="text-align:center">
+    <p><a class="home" href="metalnes.html" style="font-size:15px"><span class="en">→ Next: Visual6502 → what MetalNES added → what AprVisual S1 added</span><span class="zh">→ 接著看:Visual6502 → MetalNES 加了什麼 → AprVisual S1 加了什麼</span></a></p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Home</span><span class="zh">首頁</span></a> &nbsp;·&nbsp; <a href="metalnes.html"><span class="en">MetalNES vs Visual6502</span><span class="zh">MetalNES 對 Visual6502</span></a> &nbsp;·&nbsp; <a href="design.html"><span class="en">S1 vs MetalNES</span><span class="zh">S1 對 MetalNES</span></a> &nbsp;·&nbsp; <a href="comparison.html"><span class="en">Performance comparison</span><span class="zh">效能比較</span></a></p>
+  <p class="mut"><span class="en">An educational primer. The switch-level model is due to R. E. Bryant (MOSSIM, 1981; IEEE TC, 1984).</span><span class="zh">教育性入門。開關級模型源自 R. E. Bryant(MOSSIM, 1981;IEEE TC, 1984)。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

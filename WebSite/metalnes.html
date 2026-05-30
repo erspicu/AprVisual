@@ -58,12 +58,15 @@
   <p class="sub en">A supplement: AprVisual S1 is built on MetalNES, which is itself built on Visual6502's <code>chipsim.js</code>. Here's the middle link — the approaches and accelerations MetalNES added on top of the original JS simulator. Line numbers: MetalNES <code>wire_module.cpp</code>; the JS side is <code>chipsim.js</code> (Brian &amp; Barry Silverman, MIT).</p>
   <p class="sub zh">補充資料:AprVisual S1 建立在 MetalNES 上,而 MetalNES 又建立在 Visual6502 的 <code>chipsim.js</code> 上。這頁講中間那一段 —— MetalNES 在原始 JS 模擬器之上加的做法與加速。行號:MetalNES <code>wire_module.cpp</code>;JS 端是 <code>chipsim.js</code>(Brian &amp; Barry Silverman,MIT)。</p>
   <div class="chain">
+    <a class="b" href="primer.html"><b><span class="en">Switch-level model</span><span class="zh">開關級模型</span></b><br><span class="en">Bryant, 1980s — the theory</span><span class="zh">Bryant,1980s — 理論</span></a>
+    <span class="ar">→</span>
     <span class="b"><b>Visual6502</b><br><span class="en">JS, single 6502, chip viewer</span><span class="zh">JS,單顆 6502,晶片檢視器</span></span>
     <span class="ar">→</span>
     <span class="b here"><b>MetalNES</b><br><span class="en">C++, full NES board sim</span><span class="zh">C++,整台 NES 模擬</span></span>
     <span class="ar">→</span>
     <span class="b"><b>AprVisual S1</b><br><span class="en">C# + Rust, optimized</span><span class="zh">C# + Rust,最佳化</span></span>
   </div>
+  <p class="mut" style="font-size:13.5px"><span class="en">New to this? Start with the <a href="primer.html">switch-level simulation primer</a> — it explains netlists, conduction detection, the settle queue, and the graph/BFS concepts behind all of this.</span><span class="zh">第一次看?先從<a href="primer.html">開關級模擬入門科普</a>開始 —— 它解釋 netlist、偵測導通、settle 佇列,以及這一切背後的圖學 / BFS 概念。</span></p>
 </header>
 
 <main>

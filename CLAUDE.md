@@ -78,5 +78,5 @@ The canonical algorithm to reproduce is `wire_compute` in `ref/metalnes-main/sou
 
 - **Communicate with the user in Traditional Chinese (繁體中文)** — chat replies, summaries, explanations. Code, identifiers, code comments, and commit messages stay in English; planning/design docs in `MD/` stay in Traditional Chinese.
 - Planning/design docs → `MD/` (Traditional Chinese); code → `src/`; runtime data → `data/`. Don't edit `ref/`.
-- Commit/push only when the user asks. The repo is `github.com/erspicu/AprVisual` (private). End commit messages with the `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer.
+- Commit/push only when the user asks. The repo is `github.com/erspicu/AprVisual` (public). End commit messages with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
 - When porting a `WireCore` stub, the TODO comment names the `ref/metalnes-main` function and line range; cross-check against `MD/note/`.

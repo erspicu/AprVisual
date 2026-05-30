@@ -39,7 +39,8 @@
   - **根因**:`NodeInfos` 對 dirty-set 而言**沒有「值得隱藏的 miss」** —— dirty set 反覆訪同一批熱節點,其 NodeInfo 已 warm(L2/L1)。prefetch 指令 + 邊界分支(`pf<count`)+ 索引讀的**每迭代開銷**,加在 ~121M 次熱迴圈上,純虧。**從第三個角度再次印證 math-algos「cache capacity 已滿足、不是瓶頸」**(RCM 1.04× / prefetch −1.5%,殊途同歸)。
   - **教訓**:在已達天花板的熱迴圈加**任何** per-iteration 工作(即使是 prefetch hint + 一個 well-predicted 邊界分支)都淨負。**不要再提這條。**
 
-### N3 — `NodeInfo` 位元壓縮到 8 bytes(halve 240KB→120KB)〔MEDIUM / 投機〕
+### N3 — `NodeInfo` 位元壓縮到 8 bytes(halve 240KB→120KB)〔➖ 已試 2026-05-31:中性/wash,不採用〕
+- **➖ 實測**(packed ulong:flags 8b + 3×18b 索引,bit-exact `0x9B103E5E206E4C37`):**median −0.16% / trimmed −0.13% / 配對 13/24(≈50%)→ 純雜訊**。L2 halving 的好處與每次讀 tlist 索引的 shift+mask 成本**幾乎完全抵消**。也再次印證:NodeInfos 存取不是瓶頸(縮一半也沒幫助 = cache 已滿足)。bit-exact 但無收益,不足以 justify packed-struct 的複雜度 → **不採用**。是這批新點子裡唯一「不是明確負」的,但也只是 wash。
 - **想法**:`NodeInfo` 現為 16B(`Flags` 1B + 3× `int` tlist 索引)。`TransistorList` 長 178,529 → 索引需 18 bits。把 `flags(8) + 3×18bit = 62 bits` 打包進一個 `ulong`(8B),`NodeInfos` 砍半。
 - **為何可能有效**:`NodeInfos` 是 L2-resident 熱陣列;砍半 → L2 足跡 −120KB、每 cache line 容 8 個節點(原 4 個)→ dirty-set 觸碰的 line 數減半。
 - **風險(正中鐵律)**:每次讀 tlist 索引要 shift+mask(1~2 cycle),加在**最熱迴圈**。這正是「C# + / Rust −」那類 tradeoff 的高危區。**必須逐引擎量**,很可能 C# 賺 Rust 賠。
@@ -52,7 +53,8 @@
 - **風險**:低(改不對就是 0 效益);難在於要實際量 PMC 才知道有沒有 conflict miss。**預期**:不確定,+0~2%。
 - **註**:這跟失敗的 RCM **不同** —— RCM 改 node id 順序(node 間 spacing),這裡改的是**不同陣列基底位址的 set 對齊**(陣列間 aliasing)。是兩回事。
 
-### N5 — fast-path「單一 pull-down gate」內聯進 dead 的 `TlistC1c2s` 槽〔MEDIUM / 投機〕
+### N5 — fast-path「單一 pull-down gate」內聯進 dead 的 `TlistC1c2s` 槽〔➖ 依證據預判失敗,不實作〕
+- **決定(2026-05-31)**:**不實作**。N5 = 在 `RecalcNodeFast` 加一個子分類 + 分支(讀內聯 gate 或走原路)。這正是 N1/N2/N6 三次實測證實會輸的「在熱路徑加 per-call 工作」那一類;而它的好處(省一次 `TransistorList[TlistC1gnd]` 的 cache-side 讀取)又正是 N3 證明為 wash 的 cache-side 收益。兩半都被既有量測指向 ≤0,加上「在 `TlistC1c2s` dead 槽塞 marker」與「fast-path ⇔ TlistC1c2s==0」這個不變式有踩雷風險(分類錯誤 → 正確性 bug)。**near-certain-zero 收益 + 真實 bug 風險 → 不值得實作**(會是「熱路徑加分支會輸」的第 4 次重複確認)。
 - **想法**:fast-path 節點依定義 `TlistC1c2s==0` → 那個 4B 欄位是**死的**。多數 pure-logic 輸出只透過 **1 顆**電晶體下拉到 GND。把「恰好 1 個 gnd-gate、0 個 pwr-gate」的 fast-path 節點,其 gate id 直接塞進那個 dead 槽;`RecalcNodeFast` 對這類節點直接讀 gate(免 `TransistorList[TlistC1gnd]` 的 L2 間接)。
 - **為何可能有效**:省掉常見情況的一次 L2 間接讀(`TransistorList`)。用「本來就浪費的空間」,不擴大 `NodeInfo`。
 - **風險**:中。需多一個子分類 + `RecalcNodeFast` 多一條分支(踩鐵律邊緣)。需量。**預期**:+0~2%,投機。
@@ -78,5 +80,23 @@
 - **N1(消除 IsPureLogic)與 N2(prefetch NodeInfo)正是這種 low-level、直攻 D-cache 的東西** —— 它們是「**收割那段 headroom**」的候選,不是「突破天花板」。天花板仍是 group-resolution 架構(要突破需 IR/AOT,而那條已驗證更慢)。
 - 最該先做的兩條:**N1**(理由最硬:bit-exact、減 load、減 L1d 壓力、不加分支、不是任何 dead-end)、其次 **N2**。N3/N4/N5 投機,N6/N7 低。
 
-## 4. 一句話
-新訓練資料下,我認為最有價值的單一新點子是 **N1:把 fast-path 分類從 15KB 的 `IsPureLogic[]` 陣列查表,改成對「本來就要載入的 `NodeInfo`」做一個靜態謂詞的內聯計算** —— 它同時減少記憶體讀取與 L1d 競爭,正中 PMC 指出的瓶頸,且不踩任何已知地雷。建議先實作量測這條。
+## 4. 一句話(分析當時的推測 — 已被 §5 實測推翻)
+分析當時我最看好 N1。**§5 實測證明它(以及全部其他點子)都不成立** —— 保留此段為「直覺 vs 實測」的對照記錄。
+
+## 5. 實作結果總結(2026-05-31,全部 7 條試畢)
+
+| 候選 | 結果 | 數字(C#, interleaved-paired 24 輪 / 200k hc) |
+|---|---|---|
+| N1 消除 IsPureLogic[] | ❌ 淨負 | median −1.03% / trim −1.41% / 配對 6/24 |
+| N2 prefetch NodeInfo | ❌ 淨負 | median −1.37% / trim −1.51% / 配對 1/24 |
+| N3 NodeInfo 壓 8B | ➖ 中性/wash | median −0.16% / trim −0.13% / 配對 13/24 |
+| N4 cache-conflict 配置 | ➖ 前提不存在 | base mod-4096 已全部錯開,無標的 |
+| N5 內聯單 pull-down gate | ➖ 不實作 | 同 N1/N2 類(熱路徑加分支)+ N3 證 cache-side wash → 預判 ≤0 |
+| N6 PGO/tiering config | ❌ 略負 | TieredComp=false: median −0.42% / trim −1.11% |
+| N7 AggressiveOptimization | ➖ 被 N6 涵蓋 | 關 tiering=丟 PGO,同 N6 結論 |
+
+**全部 bit-exact 驗證通過(`0x9B103E5E206E4C37`)—— 零正確性問題;但沒有一條對效能有幫助。** 一條都沒採用、程式碼維持 baseline。
+
+**統一根因(本批第 6~10 次確認同一件事)**:S1 C# 熱路徑已在**實測天花板**。① cache 早已滿足(N2 prefetch −1.5%、N3 halving wash、N4 無 conflict、加上舊的 RCM 1.04% —— 四個角度都說「NodeInfos/cache 不是可榨的瓶頸」);② **在 ~121M 次/200k-hc 的熱迴圈加任何 per-call 工作(load / branch / shift-mask / prefetch)都淨負**(N1/N2/N6);③ config 已是最佳(dynamic PGO 在幫忙)。
+
+**結論**:這顆 NES 的 S1 C# 引擎在現行 group-resolution 架構下,已無「不加熱路徑成本」的可榨空間。要再快只能換架構(IR/AOT — 已驗證更慢)或換更快單核 CPU。**`hotpath-ceiling-and-antipatterns` 的天花板結論再次成立。** 本批教訓:即使 Opus 4.8 + 新訓練資料,直攻「memory-latency wall」的標準手法(prefetch、縮 struct、消陣列、PGO)在這個「working-set 已塞進 L1d + 極小 walk + 已高度最佳化」的特例上仍全數無效 —— **量測永遠是最終裁判**。

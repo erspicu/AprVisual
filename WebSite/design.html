@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual S1 — design extensions over MetalNES</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 22px; max-width:940px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:940px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:24px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:21px; margin:.4em 0 .1em; color:#cfe4ff;}
+  h2 .em{font-size:13px; color:var(--mut); font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  code{background:var(--code); padding:1px 5px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  td.t{white-space:nowrap; font-weight:600; color:#e7eef7;}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--mut); margin:6px 0 2px;}
+  .legend b{color:var(--fg);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:940px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">S1's design extensions over MetalNES</span><span class="zh">S1 相對 MetalNES 的延伸設計</span></h1>
+  <p class="sub en">A code-grounded inventory of every effective extension AprVisual S1 adds on top of MetalNES's <code>wire_compute</code> core. MetalNES line numbers refer to <code>source/metalnes/wire_module.cpp</code>.</p>
+  <p class="sub zh">逐條對照源碼,清點 AprVisual S1 在 MetalNES <code>wire_compute</code> 核心之上加的每一項有效延伸。MetalNES 行號對應 <code>source/metalnes/wire_module.cpp</code>。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">First, what S1 reproduces faithfully</span><span class="zh">先講:S1 忠實重現了什麼</span></h2>
+  <p class="en">The golden core is MetalNES's, ported as-is — not claimed as ours: the connected-group BFS resolution (<code>computeNodeGroup</code>, L1583), the 256-entry flags→state lookup table (<code>getNodeValue</code>, L2005), the per-node c1c2 / gnd / pwr transistor sub-lists with early-break (<code>addNodeToGroup</code>, L1962–1999), the largest-capacitance float tie-break (<code>!_group_flags → _max_state</code>, L2017), the double-buffered settle queue (<code>processQueue</code>, L1536), and "a connection is a permanently-on transistor".</p>
+  <p class="zh">golden core 是 MetalNES 的、原樣移植,不算我們的:connected-group BFS 解析(<code>computeNodeGroup</code>,L1583)、256 項 flags→state 查表(<code>getNodeValue</code>,L2005)、每節點 c1c2 / gnd / pwr 電晶體子列表含 early-break(<code>addNodeToGroup</code>,L1962–1999)、最大電容 float tie-break(<code>!_group_flags → _max_state</code>,L2017)、double-buffered 收斂佇列(<code>processQueue</code>,L1536),以及「connection 就是一顆永遠導通的電晶體」。</p>
+  <div class="legend">
+    <span><b>⚡</b> <span class="en">speed</span><span class="zh">效能</span></span>
+    <span><b>🧱</b> <span class="en">memory / cache</span><span class="zh">記憶體 / cache</span></span>
+    <span><b>🔬</b> <span class="en">fidelity</span><span class="zh">保真</span></span>
+    <span><b>🧪</b> <span class="en">engine / method</span><span class="zh">引擎 / 方法</span></span>
+  </div>
+</section>
+
+<section>
+  <h2>A. <span class="en">Skip work</span><span class="zh">省掉工作量</span> <span class="em">— ⚡</span></h2>
+  <table>
+    <tr><th><span class="en">S1 extension</span><span class="zh">S1 延伸</span></th><th><span class="en">What it does &amp; vs MetalNES</span><span class="zh">作用 &amp; 對比 MetalNES</span></th></tr>
+    <tr><td class="t">⚡ <span class="en">Pure-logic fast-path</span><span class="zh">純邏輯 fast-path</span></td><td><span class="en">~27% of nodes provably form a singleton group → resolved O(1), skipping the BFS. MetalNES <code>recalcNode</code> (L1866) calls <code>computeNodeGroup</code> for <i>every</i> node — no fast-path.</span><span class="zh">~27% 節點必為單節點 group → O(1) 解析、跳過 BFS。MetalNES <code>recalcNode</code>(L1866)對<i>每個</i>節點都呼叫 <code>computeNodeGroup</code>,無 fast-path。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">S1.5 lowering pre-pass</span><span class="zh">S1.5 lowering 前置</span></td><td><span class="en">Before simulating: union-find merge of always-on shorts, drop dead (gate=GND) transistors, dedup + dense compaction — 15,164→14,723 nodes, 27,305→26,775 transistors. MetalNES has no lowering; it simulates the raw assembled netlist.</span><span class="zh">模擬前:union-find 合併永遠導通短路、去 gate=GND 死電晶體、dedup + 緻密重編號 —— 15,164→14,723 節點、27,305→26,775 電晶體。MetalNES 無 lowering,直接算組裝後原始 netlist。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">O(1) in-group dedup</span><span class="zh">O(1) group 去重</span></td><td><span class="en">A per-node <code>_inGroup</code> flag (cleared only on touched entries). MetalNES (L1934–1938) linearly scans the whole current <code>_group</code> on every node add.</span><span class="zh">每節點一個 <code>_inGroup</code> 旗標(只清碰過的)。MetalNES(L1934–1938)每加一節點都線性掃描整個 <code>_group</code>。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">Deferred capacitance read</span><span class="zh">延後讀電容值</span></td><td><span class="en">The capacitance field is read only in the rare floating branch (&lt;1% of walks). MetalNES (L1944–1947) updates max-capacitance/state on <i>every</i> node add. +12% on C#.</span><span class="zh">電容欄位只在罕見的 floating 分支讀(&lt;1% 的 walk)。MetalNES(L1944–1947)每加一節點都更新 max-capacitance/state。C# +12%。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">Build-time pruning</span><span class="zh">build 期剪枝</span></td><td><span class="en">When flattening the transistor lists, gate==GND transistors (can never conduct) are skipped outright, so they never appear in the hot walk.</span><span class="zh">攤平電晶體列表時,gate==GND(永不導通)的電晶體直接跳過,熱迴圈裡根本不會出現。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>B. <span class="en">Shrink the hot data</span><span class="zh">縮小熱資料</span> <span class="em">— 🧱 (the single biggest lever)</span></h2>
+  <table>
+    <tr><th><span class="en">S1 extension</span><span class="zh">S1 延伸</span></th><th><span class="en">What it does &amp; vs MetalNES</span><span class="zh">作用 &amp; 對比 MetalNES</span></th></tr>
+    <tr><td class="t">🧱 <span class="en">Hot/cold NodeInfo split (SoA)</span><span class="zh">hot/cold NodeInfo 拆分</span></td><td><span class="en">The hot record is exactly 16 bytes (¼ cache line): flags + the 3 channel sub-list indices. Cold fields (capacitance, fanout-gate list) live in separate arrays. MetalNES keeps everything in one <code>nodeinfo</code> struct.</span><span class="zh">熱 record 剛好 16 bytes(¼ cache line):flags + 3 個通道子列表索引。冷欄位(電容、fanout gate 列表)放獨立陣列。MetalNES 全擠在一個 <code>nodeinfo</code> struct。</span></td></tr>
+    <tr><td class="t">🧱 <span class="en">ushort transistor list</span><span class="zh">ushort 電晶體列表</span></td><td><span class="en">Node ids are &lt;65K, so the flattened adjacency uses <code>ushort</code> — the hottest array shrinks 697KB→350KB. MetalNES uses <code>transistorID</code> (int).</span><span class="zh">node id &lt;65K,攤平的 adjacency 用 <code>ushort</code> —— 最熱陣列 697KB→350KB。MetalNES 用 <code>transistorID</code>(int)。</span></td></tr>
+    <tr><td class="t">🧱 <span class="en">byte recalc hash</span><span class="zh">byte recalc hash</span></td><td><span class="en">The "already-queued" marker is a <code>byte</code> (0/1): 58KB→14KB, fits L1d alongside the node states. MetalNES uses <code>std::vector&lt;int&gt;</code> (L167).</span><span class="zh">「已入列」標記用 <code>byte</code>(0/1):58KB→14KB,能與 node states 一起塞進 L1d。MetalNES 用 <code>std::vector&lt;int&gt;</code>(L167)。</span></td></tr>
+    <tr><td class="t">🧱 <span class="en">Unmanaged aligned arrays</span><span class="zh">unmanaged 對齊陣列</span></td><td><span class="en">All hot arrays are <code>NativeMemory.AlignedAlloc</code>'d — no GC, controlled alignment, straight pointer loads. MetalNES uses <code>std::vector</code>.</span><span class="zh">所有熱陣列用 <code>NativeMemory.AlignedAlloc</code> —— 零 GC、可控對齊、純指標讀取。MetalNES 用 <code>std::vector</code>。</span></td></tr>
+    <tr><td class="t">🧱 <span class="en">Direct callback table</span><span class="zh">callback 直查表</span></td><td><span class="en">The callback branch indexes a flat <code>_callbackByNode[]</code> array instead of hopping through the managed <code>Nodes[nn].Callback</code> object graph (MetalNES: <code>_nodes[gnn]->callback</code>, L1901).</span><span class="zh">callback 分支直接索引扁平的 <code>_callbackByNode[]</code> 陣列,不走受管 <code>Nodes[nn].Callback</code> 物件圖(MetalNES:<code>_nodes[gnn]->callback</code>,L1901)。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>C. <span class="en">Tighten the hot loop</span><span class="zh">收緊熱迴圈</span> <span class="em">— ⚡</span></h2>
+  <table>
+    <tr><th><span class="en">S1 extension</span><span class="zh">S1 延伸</span></th><th><span class="en">What it does &amp; vs MetalNES</span><span class="zh">作用 &amp; 對比 MetalNES</span></th></tr>
+    <tr><td class="t">⚡ <span class="en">setNodeState rework</span><span class="zh">setNodeState 重寫</span></td><td><span class="en">Loop-unswitch on the new state (the gate-high case has no c2-enqueue at all), inline enqueue (queue cursors hoisted to locals, no function call), and c1 skips the supply check (normalized at build). MetalNES <code>setNodeState</code> (L1597) re-reads the node, calls <code>enqueueNode</code>, checks <code>is_pwr_gnd</code> on c1, no unswitch. <b>This is the highest-leverage path</b> — setNodeState runs ~10&times; more often than recalcNode.</span><span class="zh">依新狀態做 loop-unswitch(gate-high 那支完全不 enqueue c2)、inline enqueue(佇列游標提到 locals、不走函式呼叫)、c1 跳過 supply 檢查(build 期已正規化)。MetalNES <code>setNodeState</code>(L1597)每次重讀節點、呼叫 <code>enqueueNode</code>、c1 仍查 <code>is_pwr_gnd</code>、無 unswitch。<b>這是槓桿最大的路徑</b> —— setNodeState 跑得比 recalcNode 多約 10 倍。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">Iterative BFS (C#)</span><span class="zh">iterative BFS(C#)</span></td><td><span class="en">The group walk is rewritten iteratively so the .NET JIT inlines the whole chain (+~3% C#). MetalNES's <code>addNodeToGroup</code> is recursive (self-call at L1970). Rust keeps it recursive — LLVM already inlines that well.</span><span class="zh">group walk 改成 iterative,讓 .NET JIT inline 整條鏈(C# +~3%)。MetalNES <code>addNodeToGroup</code> 是遞迴(L1970 自呼叫)。Rust 維持遞迴 —— LLVM 本來就 inline 得好。</span></td></tr>
+    <tr><td class="t">🔬 <span class="en">Hard settle cap</span><span class="zh">收斂硬上限</span></td><td><span class="en">A non-converging region aborts after 128 passes and clears the queue, so it can never hang the run. MetalNES only prints a warning at 100 passes (L1544) with no hard cap.</span><span class="zh">不收斂的區域跑 128 次就中止 + 清隊列,絕不會卡死整次模擬。MetalNES 只在 100 次印 warning(L1544),無硬上限。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>D. <span class="en">Engine, verification &amp; handlers</span><span class="zh">引擎、驗證與 handler</span> <span class="em">— 🧪 / ⚡</span></h2>
+  <table>
+    <tr><th><span class="en">S1 extension</span><span class="zh">S1 延伸</span></th><th><span class="en">What it does &amp; vs MetalNES</span><span class="zh">作用 &amp; 對比 MetalNES</span></th></tr>
+    <tr><td class="t">🧪 <span class="en">Twin C# + Rust engines</span><span class="zh">C# + Rust 雙引擎</span></td><td><span class="en">Two independent codegens kept bit-identical (same checksum) — cross-validation and a built-in performance comparison; the Rust side runs from a precomputed snapshot. MetalNES is a single C++ engine.</span><span class="zh">兩個獨立 codegen 保持位元完全相同(checksum 一致)—— 互相驗證 + 內建效能對照;Rust 端從預算快照啟動。MetalNES 是單一 C++ 引擎。</span></td></tr>
+    <tr><td class="t">⚡ <span class="en">Batch-settle memory handlers</span><span class="zh">記憶體 handler batch-settle</span></td><td><span class="en">A memory read drives the whole data bus by enqueuing every bit (SetHigh/Low-queued), then settles <i>once</i> — rather than settling per bit.</span><span class="zh">記憶體讀取時把整條 data bus 的每個 bit 都 enqueue(SetHigh/Low-queued),迴圈後<i>一次</i>收斂 —— 而非逐 bit 收斂。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>E. <span class="en">Fidelity extensions</span><span class="zh">保真延伸</span> <span class="em">— 🔬 (not speed, but real design deltas)</span></h2>
+  <table>
+    <tr><th><span class="en">S1 extension</span><span class="zh">S1 延伸</span></th><th><span class="en">What it does &amp; vs MetalNES</span><span class="zh">作用 &amp; 對比 MetalNES</span></th></tr>
+    <tr><td class="t">🔬 <span class="en">Keep pull-downs</span><span class="zh">保留 pull-down</span></td><td><span class="en">Both <code>'+'</code> (pull-up) and <code>'-'</code> (pull-down) segdefs are kept. MetalNES kept only <code>'+'</code>.</span><span class="zh">segdef 的 <code>'+'</code>(pull-up)與 <code>'-'</code>(pull-down)都保留。MetalNES 只留 <code>'+'</code>。</span></td></tr>
+    <tr><td class="t">🔬 <span class="en">Use the weak flag</span><span class="zh">使用 weak 旗標</span></td><td><span class="en">The 7th transdefs column (weak / depletion-load) is actually used to separate strong pull-down from weak pull-up. MetalNES reads it but barely uses it.</span><span class="zh">transdefs 第 7 欄(weak / depletion-load)真的拿來區分 strong pull-down 與 weak pull-up。MetalNES 讀了卻幾乎沒用。</span></td></tr>
+    <tr><td class="t">🔬 <span class="en">NodeValue enum</span><span class="zh">NodeValue 列舉</span></td><td><span class="en">A 4-state result (Low / High / HoldPrevious / Undefined) replaces MetalNES's bool. <b>Honest caveat:</b> the hot path still resolves via the byte LUT and behaves identically to MetalNES today — HoldPrevious is a planned semantic refinement, not yet a live branch.</span><span class="zh">用 4 態結果(Low / High / HoldPrevious / Undefined)取代 MetalNES 的 bool。<b>誠實說明:</b>熱路徑目前仍經 byte LUT、行為與 MetalNES 一致 —— HoldPrevious 是規劃中的語意精修,還沒實際分流。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">In one sentence</span><span class="zh">一句話總結</span></h2>
+  <p class="en">The eight performance-effective extensions cluster in three places — <b>skip work</b> (fast-path, lowering, build-prune), <b>shrink the hot data</b> (hot/cold split, ushort/byte, unmanaged SoA), and <b>tighten the hot loop</b> (setNodeState rework, iterative-BFS-for-JIT). This independently matches what the Visual NES author found in 2017: the wins come from less work + smaller data + tighter codegen, <i>not</i> from higher-level data structures or cleverer algorithms.</p>
+  <p class="zh">八項對效能有效的延伸集中在三處 —— <b>省工</b>(fast-path、lowering、build 剪枝)、<b>縮熱資料</b>(hot/cold 拆分、ushort/byte、unmanaged SoA)、<b>收緊熱迴圈</b>(setNodeState 重寫、iterative-BFS 解鎖 JIT)。這獨立印證了 Visual NES 作者 2017 年的結論:勝利來自更少工作 + 更小資料 + 更緊 codegen,<i>不是</i>更高階的資料結構或更聰明的演算法。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a> &nbsp;·&nbsp; <a href="comparison.html"><span class="en">Performance comparison</span><span class="zh">效能比較</span></a></p>
+  <p class="mut"><span class="en">All deltas verified against ref/metalnes-main wire_module.cpp and the current S1 source.</span><span class="zh">所有差異皆對照 ref/metalnes-main wire_module.cpp 與目前 S1 源碼確認。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

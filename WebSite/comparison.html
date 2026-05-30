@@ -224,8 +224,13 @@
     try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
   }
   (function(){
+    // An explicit toggle (saved) always wins; otherwise detect the browser language.
     var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
-    setLang(saved === 'zh' ? 'zh' : 'en');
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    // First visit: Chinese (Traditional OR Simplified) -> zh; everyone else -> English.
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
   })();
 </script>
 </body>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — netlist NES / 6502 simulator performance comparison</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow:auto; font-size:13px; font-family:Consolas,monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  td.r,th.r{text-align:right;}
+  tr.me td{background:#16222e;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Netlist NES / 6502 simulators — a performance comparison</span><span class="zh">Netlist NES / 6502 模擬器 —— 效能比較</span></h1>
+  <p class="sub en">A sourced survey of publicly-documented transistor-level / switch-level NES, 2A03, 2C02 and 6502 simulators, and where AprVisual sits among them. Only traceable sources are used; every derived number states its assumption.</p>
+  <p class="sub zh">整理目前公開可查的 transistor-level / switch-level NES、2A03、2C02、6502 模擬器效能,以及 AprVisual 在其中的位置。只採用可追溯來源;每個推算數字都標明假設。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">A note on units</span><span class="zh">單位注意</span></h2>
+  <p class="en">Different projects' "Hz" don't mean the same thing — some count 6502 clocks or half-cycles, others count chip-simulation steps, half-steps, trace lines, or internal master half-cycles. The safest comparison keeps each source's original unit and only derives a frame time when the assumption is explicit.</p>
+  <p class="zh">不同專案的「Hz」意義不同 —— 有的算 6502 clock 或 half-cycle,有的算 chip simulation step、half-step、trace line,或內部 master half-cycle。最安全的比較是保留各來源原本的口徑,只有在假設明確時才推算 frame time。</p>
+  <p class="en">For a frame-size baseline: an NTSC PPU frame is 262 scanlines &times; 341 PPU cycles, and Visual 2C02-style traces use 8 half-cycle lines per PPU tick, giving:</p>
+  <p class="zh">frame 規模基準:NTSC PPU 每 frame 262 scanlines &times; 341 PPU cycle,而 Visual 2C02 風格的 trace 每個 PPU tick 有 8 個 half-cycle 行,因此:</p>
+  <pre>341 &times; 262 &times; 8 = 714,736 master half-cycles / frame</pre>
+  <p class="mut en">This is also the fallback frame size in AprVisual's <code>RunFrame()</code>.</p>
+  <p class="mut zh">這也是 AprVisual <code>RunFrame()</code> 的 fallback frame 大小。</p>
+</section>
+
+<section>
+  <h2><span class="en">Summary</span><span class="zh">比較摘要</span></h2>
+  <table>
+    <tr>
+      <th><span class="en">Project</span><span class="zh">專案</span></th>
+      <th><span class="en">Scope</span><span class="zh">範圍</span></th>
+      <th><span class="en">Public speed claim</span><span class="zh">公開效能說法</span></th>
+      <th><span class="en">~ frame time</span><span class="zh">約 frame 時間</span></th>
+    </tr>
+    <tr><td>Visual6502 (JS)</td><td><span class="en">6502 transistor-level</span><span class="zh">6502 電晶體級</span></td><td><span class="en">~1 clock/s animated; ~250Hz+ expert mode</span><span class="zh">~1 clock/s(有動畫);expert ~250Hz+</span></td><td class="mut">n/a (CPU only)</td></tr>
+    <tr><td>Visual6502 Python / C port</td><td><span class="en">6502 transistor-level</span><span class="zh">6502 電晶體級</span></td><td><span class="en">Python ~55Hz; C port ~1kHz</span><span class="zh">Python ~55Hz;C port ~1kHz</span></td><td class="mut">n/a (CPU only)</td></tr>
+    <tr><td>FPGA-netlist-tools / Verilator</td><td><span class="en">6502 netlist-derived HDL</span><span class="zh">6502 netlist 衍生 HDL</span></td><td><span class="en">FPGA 1MHz+; Verilator ~4kHz</span><span class="zh">FPGA 1MHz+;Verilator ~4kHz</span></td><td class="mut">n/a (HW/RTL)</td></tr>
+    <tr><td>perfect6502</td><td><span class="en">6502 NMOS netlist (C)</span><span class="zh">6502 NMOS netlist(C)</span></td><td><span class="en">~1/30 of 1MHz 6502 on a 2025 CPU</span><span class="zh">2025 CPU 上約 1MHz 6502 的 1/30</span></td><td class="mut">n/a (CPU only)</td></tr>
+    <tr><td>Visual NES</td><td><span class="en">Visual 2A03 + 2C02 (C++/C#)</span><span class="zh">Visual 2A03 + 2C02(C++/C#)</span></td><td><span class="en">~1/1000 real NES; dual-chip ~5000Hz</span><span class="zh">~1/1000 實機;雙晶片 ~5000Hz</span></td><td>~30–60 s</td></tr>
+    <tr><td>MetalNES</td><td><span class="en">full NES-001 board, transistor-level</span><span class="zh">完整 NES-001 主機板,電晶體級</span></td><td><span class="en">user/press reports, minutes/frame</span><span class="zh">使用者/媒體轉述,分鐘/frame</span></td><td>~1–2 min</td></tr>
+    <tr class="me"><td><b>AprVisual.S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>67.3K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>10.62 s</td></tr>
+    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>71.9K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>9.94 s</td></tr>
+  </table>
+  <p class="note"><span class="en">AprVisual figures are this machine's actual run (Ryzen 7 3700X, 300k half-cycles of <code>full_palette</code>). A stricter 200k interleaved-paired clean bench gives ~64K (C#) / ~69K (Rust) — same order, slightly more conservative.</span><span class="zh">AprVisual 數字為本機實測(Ryzen 7 3700X,<code>full_palette</code> 300k half-cycle)。更嚴格的 200k 交錯配對 clean bench 為 ~64K(C#)/ ~69K(Rust)—— 同量級、略保守。</span></p>
+</section>
+
+<section>
+  <h2><span class="en">Project by project</span><span class="zh">個別專案整理</span></h2>
+
+  <h3>1. Visual6502 / JSSim <span class="mut">— 6502 transistor-level</span></h3>
+  <p class="en">The original switch-level 6502 simulator. NESdev Wiki records the era's software speeds: a 2010 JavaScript sim ran ~1 clock/s with chip animation; an unreleased Python version ~55Hz; 2011 "expert mode" (no animation) ~250Hz+; Michael Steil et al.'s C port ~1kHz (about 10 s to a C64 BASIC banner, skipping the memory test). All are switch-level — pull-down/pass/pull-up transistors, re-evaluated to stability after every input change.</p>
+  <p class="zh">最早的開關級 6502 模擬器。NESdev Wiki 記錄了那個年代的軟體速度:2010 年的 JavaScript 版有 chip animation 時 ~1 clock/s;未公開的 Python 版 ~55Hz;2011 年「expert mode」(不更新動畫)~250Hz+;Michael Steil 等人的 C port ~1kHz(約 10 秒跑出 C64 BASIC banner,跳過 memory test)。全都是 switch-level —— pull-down/pass/pull-up 電晶體,每次 input 變化後重算到穩定。</p>
+  <p class="mut en">These are 2010–2011 6502-only numbers, not full NES frames — but they set the baseline: even one 6502, in software at switch level, needed heavy optimization to get from 1Hz to 1kHz.</p>
+  <p class="mut zh">這些是 2010–2011 的 6502-only 數字,不是完整 NES frame —— 但它建立了基準:即使只模擬一顆 6502,在開關級軟體上,從 1Hz 到 1kHz 就已經需要大量優化。</p>
+
+  <h3>2. perfect6502 <span class="mut">— 6502 NMOS netlist, C</span></h3>
+  <p class="en">A C simulator of the raw NMOS 6502 netlist extracted by Visual6502 — half-cycle exact, not a rewrite. Its README states that even highly-optimized C on a 2025 high-end CPU reaches only ~1/30 of a 1 MHz 6502.</p>
+  <p class="zh">直接模擬 Visual6502 抽出的原始 NMOS 6502 netlist 的 C 模擬器 —— half-cycle 精準,不是重寫。README 說即使是高度最佳化的 C、在 2025 高階 CPU 上,也只有 1MHz 6502 的約 1/30。</p>
+  <div class="card">
+    <p class="en"><b>CPU-only equivalence (with caveats):</b> treating 1/30 of 1MHz as ~33,333 6502 cycles/s (~66,667 half-cycles/s), and an NES NTSC frame as <code>341&times;262/3 ≈ 29,781</code> CPU cycles, gives ~0.89 s per "NES-CPU-equivalent" frame. <b>But perfect6502 has no PPU/APU/mapper</b> — it cannot produce an NES frame; this is only a same-cycle-count conversion.</p>
+    <p class="zh"><b>CPU-only 等量換算(需注意):</b>把 1MHz 的 1/30 視為 ~33,333 6502 cycles/s(~66,667 half-cycles/s),NES NTSC frame 約 <code>341&times;262/3 ≈ 29,781</code> CPU cycle,得到約 0.89 秒/「NES-CPU-等量」frame。<b>但 perfect6502 沒有 PPU/APU/mapper</b> —— 它無法生成 NES frame,這只是同 cycle 數的換算。</p>
+  </div>
+  <p class="en">Its value is as a half-cycle-exact golden CPU model. That a single 6502 netlist costs ~1/30 real time, versus AprVisual's full-NES netlist at tens of thousands of hc/s, shows a single-CPU netlist and a full-board netlist should never be conflated.</p>
+  <p class="zh">它的價值是 half-cycle 精準的 golden CPU model。單顆 6502 netlist 就要 ~1/30 realtime,對比 AprVisual 整台 NES netlist 的數萬 hc/s,說明單 CPU netlist 與整板 netlist 不該混為一談。</p>
+
+  <h3>3. Visual 2C02 <span class="mut">— NTSC PPU transistor-level</span></h3>
+  <p class="en">Quietust's transistor-level NTSC PPU simulator, on the same Visual6502 core. The wiki gives no fixed Hz, only practical advice (disabling tracing / animation / sprite-RAM display speeds it up a lot). It's more an interactive research tool; the quotable numbers come from the Visual NES port discussion below.</p>
+  <p class="zh">Quietust 的 transistor-level NTSC PPU 模擬器,使用同一個 Visual6502 核心。Wiki 沒給固定 Hz,只有實務建議(關掉 tracing / animation / sprite-RAM 顯示能大幅加速)。它比較偏互動研究工具;可引用的精確數字來自下面的 Visual NES 討論。</p>
+
+  <h3>4. Visual NES <span class="mut">— Visual 2A03 + 2C02, C++/C# (the closest comparison)</span></h3>
+  <p class="en">Sour's C++/C# port that combines Visual 2A03 and Visual 2C02 into a single simulation that runs NES ROMs — roughly 1/1000 real-NES speed, 10–20&times; faster than the JavaScript versions. The repo was archived 2022-05-13. The author's 2017 nesdev posts are the most useful detail:</p>
+  <p class="zh">Sour 的 C++/C# port,把 Visual 2A03 與 Visual 2C02 合成單一 simulation 並能跑 NES ROM —— 約 1/1000 實機速度,比 JavaScript 版快 10–20&times;。Repo 已於 2022-05-13 archived。作者 2017 年的 nesdev 貼文是最有用的細節:</p>
+  <ul>
+    <li class="en">Dual-chip in one simulation: ~5000Hz; should manage ~1 frame/min (≈1 hour per 1 s of NES video).</li>
+    <li class="zh">雙晶片同一 simulation:~5000Hz;應能 ~1 frame/min(約 1 小時生成 1 秒 NES 畫面)。</li>
+    <li class="en">~50–60% of time in the recursive group function.</li>
+    <li class="zh">約 50–60% 時間花在 recursive group function。</li>
+    <li class="en">vector → hashset was <i>slower</i> (groups are usually tiny); a bool presence array didn't help (1–2% slower).</li>
+    <li class="zh">vector 改 hashset 反而<i>更慢</i>(group 通常很小);bool presence array 沒幫助(慢 1–2%)。</li>
+    <li class="en">Multi-threading was hard — heavy lock contention.</li>
+    <li class="zh">分多執行緒很難 —— 大量 lock contention。</li>
+    <li class="en">int → short, removing struct fields, and PGO took it ~5000Hz → ~7500Hz (PGO alone ~+15%). A newer CPU should exceed 10kHz.</li>
+    <li class="zh">int 改 short、移除 struct 欄位、加 PGO,從 ~5000Hz 提到 ~7500Hz(PGO 單獨 ~+15%)。較新 CPU 應能超過 10kHz。</li>
+  </ul>
+  <div class="card">
+    <p class="en"><b>Why this matters for AprVisual:</b> same base (Visual 2A03 + 2C02), same hot spot (recursive connected-component group search), and the author independently found that <b>data shrink + cache + PGO beat fancier data structures and threads</b> — exactly AprVisual's experience. Two independent projects converging on the same conclusion is a strong signal.</p>
+    <p class="zh"><b>對 AprVisual 為何重要:</b>同樣的基礎(Visual 2A03 + 2C02)、同樣的熱點(遞迴 connected-component group 搜尋),而且作者獨立發現<b>縮資料 + cache + PGO 勝過花俏資料結構與多執行緒</b> —— 正是 AprVisual 的經驗。兩個獨立專案得到同樣結論,是很強的訊號。</p>
+  </div>
+
+  <h3>5. MetalNES <span class="mut">— full NES-001 board, transistor-level (AprVisual's reference)</span></h3>
+  <p class="en">A transistor-level NES-001 simulation (macOS, no MMU support, board support chips + composite/audio ladders, "needs lots of optimization"). AprVisual's S1 engine is an independent reimplementation of its wire / group-resolution core. Performance is from press and user reports, not a README benchmark: PCGamesN and HotHardware (2022) describe "minutes per frame"; a Hacker News user reported ~2 frames in ~3 minutes on an M1 Max; one video appeared to show ~9000 cycles/s (likely lower on average).</p>
+  <p class="zh">transistor-level NES-001 模擬(macOS、無 MMU、含主機板支援晶片 + composite/audio ladder,「需要大量優化」)。AprVisual 的 S1 引擎是它 wire / group-resolution 核心的獨立重寫。效能來自媒體與使用者回報,不是 README benchmark:PCGamesN 與 HotHardware(2022)形容「分鐘/frame」;一位 Hacker News 使用者在 M1 Max 上回報約 3 分鐘 2 frame;某段影片看似 ~9000 cycles/s(平均可能更低)。</p>
+  <p class="mut en">Treat it as the ~1–2 min/frame tier — the same order as Visual NES's tens-of-seconds, both confirming that full NES transistor-level software simulation is far below real time in every public case.</p>
+  <p class="mut zh">大致是 ~1–2 分鐘/frame 等級 —— 與 Visual NES 的數十秒同量級,都印證了完整 NES 電晶體級軟體模擬在所有公開案例中都遠低於 realtime。</p>
+
+  <h3>6. AprVisual.S1 / rust-s1 <span class="mut">— this project</span></h3>
+  <p class="en">A C# (<code>AprVisual.S1</code>) and Rust (<code>rust-s1</code>) switch-level NES core using pure node/transistor BFS — no IR, no codegen. On this machine (Ryzen 7 3700X), benchmarking 300,000 half-cycles of <code>full_palette</code>: <b>Rust 71,877 hc/s → 9.94 s/frame; C# 67,284 hc/s → 10.62 s/frame</b>, both producing the identical checksum <code>0x794A43A8DF169ADA</code>. That's ~600&times; short of NES NTSC real time (42,954,552 hc/s).</p>
+  <p class="zh">C#(<code>AprVisual.S1</code>)與 Rust(<code>rust-s1</code>)的開關級 NES 核心,純 node/transistor BFS —— 無 IR、無 codegen。在本機(Ryzen 7 3700X)測試 <code>full_palette</code> 300,000 個 half-cycle:<b>Rust 71,877 hc/s → 9.94 秒/frame;C# 67,284 hc/s → 10.62 秒/frame</b>,兩者 checksum 同為 <code>0x794A43A8DF169ADA</code>。離 NES NTSC 實機(42,954,552 hc/s)約 600 倍。</p>
+  <p class="en">A throughput estimate (714,736 hc/frame) lines up with the measured frame-dump times. It does <b>not</b> mean every game already renders a correct, usable frame — correctness, timing and ROM coverage still need their own rigorous verification — but for the workloads tested, AprVisual already sits clearly above the public early figures for Visual NES and MetalNES (with the caveats that those are older hardware, often with tracing, and use different "frame" definitions).</p>
+  <p class="zh">以 714,736 hc/frame 的 throughput 推算,與實測 frame-dump 時間吻合。這<b>不</b>代表每個遊戲都已正確生成一張可用畫面 —— correctness、timing、ROM 覆蓋仍需各自嚴格驗證 —— 但就測試過的工作負載而言,AprVisual 已明顯高於 Visual NES 與 MetalNES 的公開早期數字(但須注意那些是較舊硬體、常帶 tracing、且 frame 定義不同)。</p>
+</section>
+
+<section>
+  <h2><span class="en">Performance tiers</span><span class="zh">效能等級粗分</span></h2>
+  <table>
+    <tr><th><span class="en">Tier</span><span class="zh">等級</span></th><th><span class="en">Representative</span><span class="zh">代表</span></th><th class="r"><span class="en">Approx speed</span><span class="zh">大概速度</span></th></tr>
+    <tr><td><span class="en">early interactive JS</span><span class="zh">互動視覺化 JS 初期</span></td><td>Visual6502 animation</td><td class="r">~1 clock/s</td></tr>
+    <tr><td><span class="en">improved JS / Python / old C</span><span class="zh">改良 JS / Python / 舊 C</span></td><td>Visual6502 expert / Python / C port</td><td class="r">55Hz – 1kHz (CPU-only)</td></tr>
+    <tr><td><span class="en">early full-NES software transistor sim</span><span class="zh">早期完整 NES 軟體電晶體模擬</span></td><td>Visual NES / MetalNES</td><td class="r">~30 s – 2 min/frame</td></tr>
+    <tr><td><span class="en">optimized 6502-only netlist</span><span class="zh">最佳化 6502-only netlist</span></td><td>perfect6502</td><td class="r">~1/30 realtime 6502</td></tr>
+    <tr class="me"><td><b>current AprVisual S1</b></td><td>C# / Rust pure BFS</td><td class="r"><b>~10 s/frame</b></td></tr>
+    <tr><td><span class="en">FPGA netlist-derived</span><span class="zh">FPGA netlist 衍生</span></td><td>FPGA-netlist-tools</td><td class="r">1MHz realtime 6502</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">How it relates to AprVisual's optimization work</span><span class="zh">與 AprVisual 優化方向的關聯</span></h2>
+  <ul>
+    <li class="en">Visual NES's author put ~50–60% of time in the recursive group function — exactly AprVisual's BFS group-walk hot spot.</li>
+    <li class="zh">Visual NES 作者把 ~50–60% 時間放在 recursive group function —— 正是 AprVisual 的 BFS group walk 熱點。</li>
+    <li class="en">Hashset and bool-presence arrays were net-negative for Visual NES; AprVisual independently found the same — "higher-level data structures" don't automatically win.</li>
+    <li class="zh">Visual NES 上 hashset 與 bool presence array 都是淨負;AprVisual 獨立得到相同結果 ——「更高階資料結構」不會自動贏。</li>
+    <li class="en">Visual NES's real gains came from PGO and int→short; AprVisual's came from byte/ushort + SoA hot/cold splitting — the same "shrink the hot data" direction.</li>
+    <li class="zh">Visual NES 的實際進步來自 PGO 與 int→short;AprVisual 來自 byte/ushort + SoA hot/cold 拆分 —— 同樣是「縮小熱資料」的方向。</li>
+    <li class="en">Both show full NES transistor-level software sim is a tens-of-seconds-to-minutes/frame business, not an FPS one; perfect6502 shows even a single optimized 6502 netlist is only ~1/30 real time. Transistor-level exactness is simply expensive.</li>
+    <li class="zh">兩者都顯示完整 NES 電晶體級軟體模擬是「數十秒到數分鐘/frame」而非 FPS 等級;perfect6502 顯示即使單顆最佳化 6502 netlist 也只有 ~1/30 realtime。電晶體級的精確就是這麼貴。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">Conservative phrasing we recommend</span><span class="zh">建議的保守說法</span></h2>
+  <ul>
+    <li class="en">"In public cases, full NES transistor-level software simulation mostly lands at tens of seconds to minutes per frame."</li>
+    <li class="zh">「公開案例中,完整 NES 電晶體級軟體模擬多落在每 frame 數十秒到數分鐘。」</li>
+    <li class="en">"Visual NES's author reported ~5000Hz / ~1 frame/min for the combined 2A03+2C02 in 2017, ~7500Hz after data shrink + PGO."</li>
+    <li class="zh">「Visual NES 作者 2017 年回報整合 2A03+2C02 約 5000Hz、約 1 frame/min;縮資料 + PGO 後約 7500Hz。」</li>
+    <li class="en">"AprVisual measures ~67K (C#) / ~72K (Rust) hc/s on a Ryzen 7 3700X ≈ ~10 s/frame, pending correctness/timing/frame-output verification."</li>
+    <li class="zh">「AprVisual 在 Ryzen 7 3700X 上量到 ~67K(C#)/ ~72K(Rust)hc/s ≈ ~10 秒/frame,仍待 correctness/timing/frame-output 驗證。」</li>
+  </ul>
+  <p class="note"><span class="en"><b>Avoid:</b> claiming "all netlist NES emulators can only do minutes/frame" (AprVisual and Visual NES beat 1 min); quoting "MetalNES official benchmark = 2 frames/3 min" (that's user/press, not a README benchmark); saying "perfect6502 can render an NES frame in 0.9 s" (it's CPU-only); or equating Visual NES's Hz with AprVisual's hc/s (different step definitions).</span><span class="zh"><b>避免:</b>說「所有 netlist NES 模擬器都只能分鐘/frame」(AprVisual 與 Visual NES 已低於 1 分鐘);引用「MetalNES 官方 benchmark = 2 frames/3 min」(那是使用者/媒體,不是 README benchmark);說「perfect6502 可 0.9 秒生成 NES frame」(它是 CPU-only);或把 Visual NES 的 Hz 直接等同 AprVisual 的 hc/s(step 定義不同)。</span></p>
+</section>
+
+<section>
+  <h2><span class="en">Sources</span><span class="zh">來源</span></h2>
+  <ul>
+    <li><a href="https://github.com/trebonian/visual6502">Visual6502 GitHub README</a></li>
+    <li><a href="https://www.nesdev.org/wiki/Visual6502wiki/6502_-_simulating_in_real_time_on_an_FPGA">Visual6502 NESdev Wiki — performance page</a></li>
+    <li><a href="https://www.nesdev.org/wiki/Visual_2C02">Visual 2C02 NESdev Wiki</a></li>
+    <li><a href="https://www.nesdev.org/wiki/PPU_rendering">NESdev — PPU rendering</a></li>
+    <li><a href="https://github.com/mist64/perfect6502">perfect6502 GitHub README</a></li>
+    <li><a href="https://github.com/SourMesen/VisualNes">Visual NES GitHub README</a></li>
+    <li><a href="https://forums.nesdev.org/viewtopic.php?t=15334">Visual NES nesdev thread</a></li>
+    <li><a href="https://github.com/iaddis/metalnes">MetalNES GitHub README</a></li>
+    <li><a href="https://www.pcgamesn.com/emulation/nes-metalnes-nesticle">PCGamesN — MetalNES coverage</a></li>
+    <li><a href="https://news.ycombinator.com/item?id=30481762">Hacker News — MetalNES discussion</a></li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">Compiled from public, traceable sources; AprVisual figures are local 2026-05-30 measurements.</span><span class="zh">整理自公開、可追溯來源;AprVisual 數字為本地 2026-05-30 量測。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    setLang(saved === 'zh' ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

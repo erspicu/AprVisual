@@ -130,6 +130,35 @@
   <p class="zh">八項對效能有效的延伸集中在三處 —— <b>省工</b>(fast-path、lowering、build 剪枝)、<b>縮熱資料</b>(hot/cold 拆分、ushort/byte、unmanaged SoA)、<b>收緊熱迴圈</b>(setNodeState 重寫、iterative-BFS 解鎖 JIT)。這獨立印證了 Visual NES 作者 2017 年的結論:勝利來自更少工作 + 更小資料 + 更緊 codegen,<i>不是</i>更高階的資料結構或更聰明的演算法。</p>
 </section>
 
+<section>
+  <h2><span class="en">Where these ideas come from — credits &amp; further reading</span><span class="zh">這些想法的源頭 —— 出處與延伸閱讀</span></h2>
+  <p class="en">Almost none of these techniques are ours. We <i>applied</i> (and often failed with) ideas from a long line of research and practice. Whether a strategy won or lost for us, credit belongs to its originators. References below are ones we're confident of; a couple of attributions are marked where the canonical source is fuzzy.</p>
+  <p class="zh">這些技術幾乎沒有一個是我們原創的。我們只是<i>套用</i>(且常常失敗)了一長串研究與實務的點子。無論某個策略對我們是賺是賠,功勞都屬於原創者。以下是我們有把握的引用;少數來源較模糊的會標注。</p>
+  <table>
+    <tr><th><span class="en">Used here for…</span><span class="zh">我們用在…</span></th><th><span class="en">Origin</span><span class="zh">源頭</span></th></tr>
+    <tr><td><span class="en">The whole switch-level model (transistors as switches, settle by relaxation)</span><span class="zh">整個開關級模型(電晶體=開關、鬆弛收斂)</span></td>
+        <td>R. E. Bryant, <i>"A Switch-Level Model and Simulator for MOS Digital Systems"</i>, IEEE Trans. Computers C-33(2), 1984 (from his 1981 MIT PhD work, MOSSIM).</td></tr>
+    <tr><td><span class="en">The settle loop = worklist / event-driven fixpoint iteration</span><span class="zh">settle 迴圈 = worklist / 事件驅動 fixpoint 迭代</span></td>
+        <td>G. A. Kildall, <i>"A Unified Approach to Global Program Optimization"</i>, POPL 1973 (iterative dataflow to a fixpoint); plus classic discrete-event simulation.</td></tr>
+    <tr><td><span class="en">S1.5 lowering — merging always-on shorts into one node</span><span class="zh">S1.5 lowering — 合併永遠導通短路成一個節點</span></td>
+        <td><b>Union-Find / disjoint-set:</b> B. A. Galler &amp; M. J. Fisher, CACM 7(5), 1964; near-linear analysis (path compression + union by rank) R. E. Tarjan, JACM 22(2), 1975.</td></tr>
+    <tr><td><span class="en">Loop / cycle detection (the S2 IR stage)</span><span class="zh">迴路 / 環偵測(S2 IR 階段)</span></td>
+        <td>R. E. Tarjan, <i>"Depth-First Search and Linear Graph Algorithms"</i>, SIAM J. Computing 1(2), 1972 (linear-time strongly-connected components).</td></tr>
+    <tr><td><span class="en">Hot/cold split + Structure-of-Arrays (the biggest real win)</span><span class="zh">hot/cold 拆分 + Structure-of-Arrays(最大的真實勝利)</span></td>
+        <td>Data-Oriented Design — M. Acton, <i>"Data-Oriented Design and C++"</i>, CppCon 2014 (the canonical modern talk; SoA itself is a long-standing vectorization idea, not a single paper).</td></tr>
+    <tr><td><span class="en">Knowing memory latency — not compute — is the wall</span><span class="zh">認清瓶頸是記憶體延遲、不是運算</span></td>
+        <td>Wm. A. Wulf &amp; S. A. McKee, <i>"Hitting the Memory Wall: Implications of the Obvious"</i>, ACM SIGARCH CAN 23(1), 1995.</td></tr>
+    <tr><td><span class="en">RCM cache-locality renumbering <b>(failed for us)</b></span><span class="zh">RCM cache 區域性重編號 <b>(對我們失敗)</b></span></td>
+        <td>E. Cuthill &amp; J. McKee, <i>"Reducing the Bandwidth of Sparse Symmetric Matrices"</i>, ACM Nat. Conf. 1969; the <i>reverse</i> (RCM) variant is attributed to J. A. George, 1971.</td></tr>
+    <tr><td><span class="en">Bit-parallel / dense-scan BFS <b>(failed for us)</b></span><span class="zh">bit-parallel / dense-scan BFS <b>(對我們失敗)</b></span></td>
+        <td>S. Beamer, K. Asanović, D. Patterson, <i>"Direction-Optimizing Breadth-First Search"</i>, SC 2012; the Ligra framework, J. Shun &amp; G. E. Blelloch, PPoPP 2013. Bit-packed boolean-graph roots: the "Four Russians" method (Arlazarov, Dinic, Kronrod, Faradzhev, 1970). <span class="mut"><span class="en">[bit-packing root — approximate]</span><span class="zh">[bit-packing 根源 — 近似]</span></span></td></tr>
+    <tr><td><span class="en">Profile-guided optimization (PGO), as Visual NES also used</span><span class="zh">PGO(Visual NES 也用過)</span></td>
+        <td>K. Pettis &amp; R. C. Hansen, <i>"Profile Guided Code Positioning"</i>, PLDI 1990.</td></tr>
+  </table>
+  <p class="mut en">If we've mis-credited anything, please tell us via the <a href="https://baxermux.org/myemu/AprVisual/">feedback form</a> — we'd rather fix it.</p>
+  <p class="mut zh">若有任何誤標,請透過<a href="https://baxermux.org/myemu/AprVisual/">意見回饋表單</a>告訴我們 —— 我們很樂意更正。</p>
+</section>
+
 </main>
 
 <footer>

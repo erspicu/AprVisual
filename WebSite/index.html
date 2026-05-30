@@ -182,6 +182,8 @@
     <li class="en">After S1.5 lowering (merge always-on shorts, drop dead transistors, dedup), the engine actually simulates <b>26,775 transistors over 14,723 nodes</b> — that's the real per-half-cycle workload.</li>
     <li class="zh">經 S1.5 lowering(合併永遠導通短路、去死電晶體、dedup)後,引擎實際模擬的是 <b>26,775 顆電晶體、14,723 個節點</b> —— 這才是每半週期真正的工作量。</li>
   </ul>
+
+  <p class="note"><span class="en"><b>Could this be smaller — a future speed-up?</b> Possibly. Fewer nodes means smaller hot arrays and fewer that can ever go dirty, so shrinking the netlist itself is a candidate breakthrough. But the easy, <i>safe</i> cuts are already taken (the lowering above). Going deeper — folding constant / supply-tied nodes, collapsing logic-equivalent sub-networks — runs straight into the correctness traps that sank earlier attempts: cross-coupled latches with two stable states (which made <code>prune-merge</code> render a black screen) and the floating-capacitance tie-break (which "dead-end skip" broke). So it's a real but delicate avenue — any further reduction must be proven <b>per-node equivalent and verified against a PPU visual frame, not just a CPU checksum.</b></span><span class="zh"><b>這還能更小嗎 —— 日後的速度突破口?</b>有可能。節點少代表熱陣列更小、能變髒的節點更少,所以把 netlist 本身縮小是個候選突破點。但容易又<i>安全</i>的縮減已經撿光了(上面的 lowering)。再往下 —— 折疊常數 / 接電源的節點、收合邏輯等價子網路 —— 會直接撞上葬送先前嘗試的正確性陷阱:有兩個穩態的 cross-coupled latch(就是讓 <code>prune-merge</code> 渲染黑屏的元兇),以及 floating 電容 tie-break(「dead-end skip」踩的雷)。所以這是真實但細膩的方向 —— 任何進一步縮減都必須證明<b>逐節點等價,並且用 PPU 畫面實圖驗證,而不只是 CPU checksum。</b></span></p>
 </section>
 
 <!-- ============ 2. NOTES ============ -->

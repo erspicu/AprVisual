@@ -116,7 +116,7 @@ echo [5/6] Writing Windows run_*.bat / shot_*.bat ...
     echo setlocal
     echo set "HC=%%~1"
     echo if "%%HC%%"=="" set "HC=300000"
-    echo "%%~dp0win\AprVisual.S1.exe" --benchmark "%%~dp0roms\full_palette.nes" --bench-hc %%HC%% --extra-ram --system-def-dir "%%~dp0data\system-def"
+    echo "%%~dp0win\AprVisual.S1.exe" --benchmark "%%~dp0roms\full_palette.nes" --bench-hc %%HC%% --extra-ram --system-def-dir "%%~dp0data\system-def" --log-dir "%%~dp0log"
     echo pause
 )
 > "%OUT%\run_rust.bat" (
@@ -124,7 +124,7 @@ echo [5/6] Writing Windows run_*.bat / shot_*.bat ...
     echo setlocal
     echo set "HC=%%~1"
     echo if "%%HC%%"=="" set "HC=300000"
-    echo "%%~dp0win\wire_s1.exe" bench "%%~dp0snapshot\full_palette.aprsnap" %%HC%%
+    echo "%%~dp0win\wire_s1.exe" bench "%%~dp0snapshot\full_palette.aprsnap" %%HC%% "%%~dp0log"
     echo pause
 )
 > "%OUT%\shot_csharp.bat" (

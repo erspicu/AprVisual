@@ -22,6 +22,7 @@ namespace AprVisual.Test
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             string frameOutDir = "frames";
+            string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
             int shotFrames = 3;
@@ -55,6 +56,7 @@ namespace AprVisual.Test
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
+                    case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -84,7 +86,7 @@ namespace AprVisual.Test
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
-            if (benchPath     != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount);
+            if (benchPath     != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount, logDir);
             if (benchPath     != null) return Benchmark(benchPath, shotFrames);
 
             if (romPath != null)
@@ -443,7 +445,7 @@ namespace AprVisual.Test
         }
 
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──
-        public static int BenchmarkHalfCycles(string romPath, int hcCount)
+        public static int BenchmarkHalfCycles(string romPath, int hcCount, string logDir = "log")
         {
             if (hcCount < 1) hcCount = 1000;
             var rom = NesRom.LoadFromFile(romPath);
@@ -469,6 +471,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 PrintRealtimeGap(stepsHz);
+                WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
             }
             finally { WireCore.Shutdown(); }
             return 0;
@@ -492,6 +495,146 @@ namespace AprVisual.Test
             Console.WriteLine($"#    {fps:F3} simulated NES frames / real second  (real NES = {NesRealtimeFps:F1} fps)");
             Console.WriteLine($"#    {secPerFr:F2} s to render 1 frame  (real NES = {1.0 / NesRealtimeFps:F4} s/frame)");
             Console.WriteLine($"# =============================================");
+        }
+
+        // ── Benchmark JSON log — one machine-parseable record per run, for a future
+        //    "upload your result" aggregation mechanism. Console output is unchanged;
+        //    this is an *additional* file: <logDir>/<machineGuid>-<user>-<UTCstamp>-csharp.log
+        private static void WriteBenchLog(string logDir, string romPath, long benchHc, long halfCycles,
+                                          double secs, double stepsHz, ulong checksum)
+        {
+            try
+            {
+                Directory.CreateDirectory(logDir);
+                string guid  = MachineGuid(logDir);
+                string user  = Environment.UserName;
+                var now      = DateTime.UtcNow;
+                string stamp = now.ToString("yyyyMMddHHmmss");
+                string file  = Path.Combine(logDir, $"{Safe(guid)}-{Safe(user)}-{stamp}-csharp.log");
+
+                double pct      = stepsHz / NesRealtimeHcPerSec * 100.0;
+                double gap      = NesRealtimeHcPerSec / stepsHz;
+                double secPerFr = NesHcPerFrame / stepsHz;
+
+                var sb = new StringBuilder();
+                sb.Append("{\n");
+                sb.Append("  \"schema\": \"aprvisual-bench/1\",\n");
+                sb.Append("  \"engine\": \"csharp\",\n");
+                sb.Append($"  \"timestampUtc\": \"{now:yyyy-MM-ddTHH:mm:ss}Z\",\n");
+                sb.Append($"  \"machineGuid\": \"{Esc(guid)}\",\n");
+                sb.Append($"  \"user\": \"{Esc(user)}\",\n");
+                sb.Append($"  \"os\": \"{Esc(System.Runtime.InteropServices.RuntimeInformation.OSDescription)}\",\n");
+                sb.Append($"  \"arch\": \"{System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}\",\n");
+                sb.Append($"  \"cpuModel\": \"{Esc(CpuModel())}\",\n");
+                sb.Append($"  \"cpuCount\": {Environment.ProcessorCount},\n");
+                sb.Append($"  \"rom\": \"{Esc(Path.GetFileName(romPath))}\",\n");
+                sb.Append($"  \"benchHc\": {benchHc},\n");
+                sb.Append($"  \"halfCycles\": {halfCycles},\n");
+                sb.Append($"  \"elapsedSec\": {secs:F6},\n");
+                sb.Append($"  \"hcPerSec\": {stepsHz:F1},\n");
+                sb.Append($"  \"secondsPerFrame\": {secPerFr:F4},\n");
+                sb.Append($"  \"pctRealtime\": {pct:F4},\n");
+                sb.Append($"  \"slowdownFactor\": {gap:F1},\n");
+                sb.Append($"  \"checksum\": \"0x{checksum:X16}\",\n");
+                sb.Append($"  \"fastPathNodes\": {WireCore.PureLogicNodeCount},\n");
+                sb.Append($"  \"liveNodes\": {WireCore.NonNullNodeCount}\n");
+                sb.Append("}\n");
+                File.WriteAllText(file, sb.ToString());
+                Console.WriteLine($"# log written: {file}");
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"# (bench log write skipped: {ex.Message})"); }
+        }
+
+        // Stable per-machine id, consistent across the C# and Rust engines on the same machine:
+        //   Windows → registry MachineGuid;  macOS → IOPlatformUUID;  else → a GUID cached in logDir.
+        private static string MachineGuid(string logDir)
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    string o = RunShell("reg", @"query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid");
+                    foreach (var line in o.Split('\n'))
+                    {
+                        int idx = line.IndexOf("REG_SZ", StringComparison.Ordinal);
+                        if (idx >= 0) { string g = line.Substring(idx + 6).Trim(); if (g.Length > 0) return g; }
+                    }
+                }
+                else if (OperatingSystem.IsMacOS())
+                {
+                    string o = RunShell("ioreg", "-rd1 -c IOPlatformExpertDevice");
+                    foreach (var line in o.Split('\n'))
+                        if (line.Contains("IOPlatformUUID"))
+                        {
+                            int eq = line.IndexOf('='); int q1 = line.IndexOf('"', eq + 1); int q2 = line.IndexOf('"', q1 + 1);
+                            if (q1 >= 0 && q2 > q1) return line.Substring(q1 + 1, q2 - q1 - 1);
+                        }
+                }
+            }
+            catch { }
+            try
+            {
+                string f = Path.Combine(logDir, "machine.guid");
+                if (File.Exists(f)) { string s = File.ReadAllText(f).Trim(); if (s.Length > 0) return s; }
+                string g = Guid.NewGuid().ToString();
+                File.WriteAllText(f, g);
+                return g;
+            }
+            catch { return "unknown"; }
+        }
+
+        private static string CpuModel()
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    string o = RunShell("reg", @"query ""HKLM\HARDWARE\DESCRIPTION\System\CentralProcessor\0"" /v ProcessorNameString");
+                    foreach (var line in o.Split('\n'))
+                    {
+                        int idx = line.IndexOf("REG_SZ", StringComparison.Ordinal);
+                        if (idx >= 0) { string s = line.Substring(idx + 6).Trim(); if (s.Length > 0) return s; }
+                    }
+                }
+                else if (OperatingSystem.IsMacOS())
+                    return RunShell("sysctl", "-n machdep.cpu.brand_string").Trim();
+            }
+            catch { }
+            return "unknown";
+        }
+
+        private static string RunShell(string exe, string args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(exe, args)
+            { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p == null) return "";
+            string o = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(3000);
+            return o;
+        }
+
+        private static string Safe(string s)
+        {
+            var c = s.ToCharArray();
+            for (int i = 0; i < c.Length; i++)
+                if (!char.IsLetterOrDigit(c[i]) && c[i] != '.' && c[i] != '-' && c[i] != '_') c[i] = '_';
+            return new string(c);
+        }
+
+        private static string Esc(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (char ch in s)
+            {
+                if (ch == '"' || ch == '\\') { sb.Append('\\'); sb.Append(ch); }
+                else if (ch == '\n') sb.Append("\\n");
+                else if (ch == '\r') sb.Append("\\r");
+                else if (ch == '\t') sb.Append("\\t");
+                else if (ch < ' ') sb.Append(' ');
+                else sb.Append(ch);
+            }
+            return sb.ToString();
         }
 
         // ── --ppu-dump: after N frames, dump palette RAM + VRAM nametable 0 + rendering state + pclk1 samples ──

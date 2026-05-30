@@ -15,5 +15,5 @@ if [ ! -x "$BIN" ]; then
     mkdir -p "$DIR/mac"
     cp "$DIR/rust-src/target/release/wire_s1" "$BIN"
 fi
-"$BIN" bench "$DIR/snapshot/full_palette.aprsnap" "$HC"
+"$BIN" bench "$DIR/snapshot/full_palette.aprsnap" "$HC" "$DIR/log"
 read -p "Press Enter to close..."

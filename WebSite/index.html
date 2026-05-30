@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — switch-level NES simulator</title>
+<style>
+  :root {
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff;
+    --card:#171a21; --bd:#262b34;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    margin:0; min-height:100%;
+    font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+    background:radial-gradient(1200px 700px at 50% -10%, #18202c 0%, var(--bg) 60%);
+    color:var(--fg); line-height:1.65;
+    display:flex; flex-direction:column;
+  }
+  nav {
+    display:flex; align-items:center; gap:14px;
+    padding:14px 24px; border-bottom:1px solid var(--bd);
+  }
+  nav .brand { font-weight:700; color:var(--acc); letter-spacing:.4px; }
+  nav .spacer { flex:1; }
+  nav button {
+    background:var(--card); color:var(--fg); border:1px solid var(--bd);
+    border-radius:6px; padding:6px 14px; cursor:pointer; font-size:14px;
+  }
+  nav button.active { background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600; }
+
+  main {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:48px 24px 64px; max-width:760px; margin:0 auto;
+  }
+  .badge {
+    display:inline-flex; align-items:center; gap:8px;
+    background:#1f2a38; color:var(--acc); border:1px solid #2c3a4d;
+    border-radius:20px; padding:6px 16px; font-size:13px; margin-bottom:28px;
+  }
+  .dot {
+    width:9px; height:9px; border-radius:50%; background:var(--acc);
+    box-shadow:0 0 0 0 rgba(78,161,255,.6); animation:pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow:0 0 0 0 rgba(78,161,255,.55); }
+    70%  { box-shadow:0 0 0 12px rgba(78,161,255,0); }
+    100% { box-shadow:0 0 0 0 rgba(78,161,255,0); }
+  }
+  h1 { font-size:clamp(40px,9vw,72px); margin:0 0 4px; letter-spacing:-1px;
+       background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text;
+       background-clip:text; color:transparent; }
+  .tagline { font-size:clamp(16px,3.4vw,20px); color:#cfe4ff; margin:0 0 26px; font-weight:500; }
+  p.lead { font-size:16px; color:var(--fg); margin:0 0 14px; }
+  p.sub  { font-size:14px; color:var(--mut); margin:0 0 34px; }
+  .cta a {
+    display:inline-block; text-decoration:none;
+    background:var(--card); color:var(--fg); border:1px solid var(--bd);
+    border-radius:8px; padding:10px 20px; font-size:14px; transition:border-color .15s, color .15s;
+  }
+  .cta a:hover { border-color:var(--acc); color:var(--acc); }
+  footer { padding:18px 24px 28px; text-align:center; color:var(--mut); font-size:12px; }
+
+  /* language switching */
+  .en, .zh { display:none; }
+  body.lang-en .en, body.lang-zh .zh { display:revert; }
+</style>
+</head>
+<body class="lang-en">
+<nav>
+  <span class="brand">AprVisual</span>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <div class="badge"><span class="dot"></span>
+    <span class="en">Site under construction</span>
+    <span class="zh">網站建置中</span>
+  </div>
+
+  <h1>AprVisual</h1>
+
+  <p class="tagline en">A Visual6502-style switch-level NES simulator &amp; translation pipeline</p>
+  <p class="tagline zh">Visual6502 風格的開關級 NES 模擬器與轉換管線</p>
+
+  <p class="lead en">AprVisual turns transistor-level netlists of the NES CPU (2A03) into
+     analyzable, verifiable, executable logic models — from raw silicon connectivity,
+     through a logic/sequencing graph, to fast verifiable simulation backends.</p>
+  <p class="lead zh">AprVisual 把 NES CPU(2A03)的電晶體級網表 (netlist),轉成可分析、可驗證、
+     可執行的邏輯模型 —— 從原始的矽連線,經過邏輯與時序圖,到快速且可驗證的模擬後端。</p>
+
+  <p class="sub en">The full project site is on its way. Check back soon.</p>
+  <p class="sub zh">完整的專案網站即將上線,敬請期待。</p>
+
+  <div class="cta">
+    <a class="en" href="https://github.com/erspicu/AprVisual" target="_blank" rel="noopener">View on GitHub →</a>
+    <a class="zh" href="https://github.com/erspicu/AprVisual" target="_blank" rel="noopener">前往 GitHub →</a>
+  </div>
+</main>
+
+<footer>
+  <span class="en">© AprVisual — switch-level silicon, made analyzable.</span>
+  <span class="zh">© AprVisual — 讓開關級矽電路變得可分析。</span>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try { localStorage.setItem('aprvisual-lang', l); } catch(e){}
+  }
+  (function(){
+    var saved = null;
+    try { saved = localStorage.getItem('aprvisual-lang'); } catch(e){}
+    setLang(saved === 'zh' ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

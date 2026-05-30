@@ -250,6 +250,8 @@
       <span class="zh">淨負效益,與 Visual NES 的發現一致。維護每節點的 supply 計數器代價 −6%,因為寫入路徑比它想加速的讀取路徑多跑約 10 倍。</span></li>
   </ul>
 
+  <p class="note"><span class="en"><b>An important caveat:</b> most of these failures are not flaws in the strategy itself — they're mismatches with the hardware it ran on. A method can be perfectly correct, even more elegant on paper, yet collapse the moment its instruction footprint (i-cache) or working set (d-cache) spills out of cache and starts thrashing. So what failed wasn't the idea — it's that the idea didn't fit <i>this</i> CPU's operating envelope. The flip side is the interesting part: as hardware advances — larger caches, more memory bandwidth — some of these more aggressive strategies could turn out to be exactly the right fit.</span><span class="zh"><b>一個重要的但書:</b>這些策略的失敗,多半不是策略本身有問題,而是它和所跑的硬體不合拍。一個方法可以完全正確、甚至在紙上更優雅,但只要它的指令足跡(i-cache)或工作集(d-cache)一溢出快取、開始顛簸(thrashing),就會崩潰。所以失敗的不是那個點子,而是它剛好不符合<i>這顆</i> CPU 的使用情境。而反過來才是有意思的地方:哪天硬體更進步 —— 更大的快取、更高的記憶體頻寬 —— 這些較激進的策略,可能反而剛好適用。</span></p>
+
   <h3><span class="en">Wins (what actually moved the needle)</span><span class="zh">真正有效的</span></h3>
   <ul class="cases">
     <li><span class="tagY">✓</span> <b><span class="en">Memory shrink</span><span class="zh">記憶體縮減</span></b> —

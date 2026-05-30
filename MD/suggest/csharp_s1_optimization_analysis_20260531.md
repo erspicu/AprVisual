@@ -17,13 +17,16 @@
 
 ## 1. 新候選策略 LIST(依預期價值排序)
 
-### ⭐ N1 — 消除 `IsPureLogic[]` 陣列,改從已載入的 `NodeInfo` 內聯計算 fast-path 資格 〔HIGH〕
+### N1 — 消除 `IsPureLogic[]` 陣列,改從已載入的 `NodeInfo` 內聯計算 fast-path 資格 〔❌ 已試 2026-05-31:bit-exact 但 C# −1.4%,退回〕
 - **想法**:`RecalcNode` 目前先讀 `IsPureLogic[nn]`(一個 `byte[14.7K]`)決定走 fast-path。但該分類是**靜態且執行期不變**的純函數:`TlistC1c2s==0 && (Flags & (HasCallback|ForceCompute|Pwr|Gnd))==0`(這四個 flag 都是 reset 期固定、runtime 不動;`TlistC1c2s` 靜態)。改成在 `RecalcNode` 內聯這個判斷 —— 而 `NodeInfos[nn]` 本來下一步(`RecalcNodeFast` 或 `AddNodeToGroup`)就要載入,可順手 `ref` 進來重用。
 - **為何可能有效(直攻瓶頸)**:① **直接移除一個 15KB hot byte 陣列**(`IsPureLogic`)→ L1d 競爭從 ~75KB 降到 ~60KB(−20% byte-array 足跡),正中 constraint #7 / PMC D-cache;② 每次 recalc(~121M 次/200k hc)**少一次記憶體讀取**(`IsPureLogic[nn]`),換成對已在暫存器的 `NodeInfo` 做一個 AND+cmp。
 - **正確性**:bit-exact。內聯式 = `ClassifyPureLogicNodes` 的完全相同謂詞;exclude 四 flag 為靜態、`TlistC1c2s` 靜態 → 每次呼叫結果與原 `IsPureLogic[nn]` 一致(supply 節點在 `RecalcNode` 開頭已 early-return,null 節點不會被 enqueue)。
 - **為何不是 dead-end**:不是加分支 —— 是**用「已載入資料的純計算分支」取代「記憶體載入分支」**;不是 counter/state-caching;不是排程改動。是「砍掉冗餘的 per-node 陣列」這個方向,過去從沒做過。
 - **風險/成本**:低。仍保留 `ClassifyPureLogicNodes` 只算 count(給診斷字串用),不配置/不讀陣列。唯一風險是 JIT 對「先 `ref` NodeInfo 再分流」的 codegen —— 需量測(預期正,因為省了 load)。
 - **預期幅度**:可能是這份清單最大的一條(直接減 L1d 壓力 + 減 load)。樂觀 +2~5%,需實測;務必逐引擎量(Rust 同樣有 `is_pure_logic` Vec,可平行驗證)。
+- **❌ 實測結果(2026-05-31,C#,interleaved-paired 24 輪,200k hc)**:checksum bit-identical(`0x9B103E5E206E4C37`)✅,但效能 **median −1.03% / trimmed −1.41% / exp 只贏 6/24 / median 配對差 −548 hc/s** → **淨負,已退回**。
+  - **為何假設錯了(根因)**:① `IsPureLogic`(15KB)本來就穩在 L1d —— dirty-set 反覆訪同一批熱節點,該陣列一直是 warm,移除它沒鬆到真正的壓力(L1d-contention 假設不成立);② 內聯檢查給 ~82% 的 BFS-path 呼叫**多載入 16B 的 `NodeInfo`(常駐 L2)+ 複合分支(`TlistC1c2s==0 && (Flags&mask)==0`)**,比 baseline 的「1-byte L1 讀 + 單一比較」貴;JIT 未把 RecalcNode 的早載入與 AddNodeToGroup 的後載入完全 coalesce。
+  - **教訓(歸入 dead-end)**:移除一個「雖熱但已穩在 L1d」的小 byte 陣列、換成對「更大的 L2 record」做複合檢查 = 淨負。又一次「cache-pressure 直覺不可信、最熱的不是最該動的」(同 counter-fastpath 類)。**不要再提這條。**
 
 ### ⭐ N2 — software prefetch 下游 dirty 節點的 `NodeInfo`(`Sse.Prefetch0`)〔HIGH〕
 - **想法**:`ProcessQueueInterp` 內層 `for i in 0..count: nn=RecalcList[i]; …RecalcNode(nn)` —— **下幾個要處理的節點 id 是已知的**(`RecalcList[i+PD]`)。在每次迭代開頭加 `Sse.Prefetch0((byte*)(NodeInfos + RecalcList[i+PD]))`(PD=prefetch distance,試 4/8),把那個節點的 16B 熱記錄提前從 L2 拉進 L1,隱藏 L2 延遲(~12 cycle)。可選同時 prefetch 其 `NodeTlistGates`/`TransistorList` 頭。

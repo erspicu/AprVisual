@@ -249,6 +249,18 @@
     <li><span class="tagN">✗</span> <b><span class="en">Fancy data structures (hashset, presence arrays, counters)</span><span class="zh">花俏資料結構(hashset、presence array、計數器)</span></b> —
       <span class="en">net-negative, matching Visual NES's findings. Maintaining a per-node supply-counter cost −6% because the write path runs ~10× more often than the read it was meant to speed up.</span>
       <span class="zh">淨負效益,與 Visual NES 的發現一致。維護每節點的 supply 計數器代價 −6%,因為寫入路徑比它想加速的讀取路徑多跑約 10 倍。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Observability merge-pruning ("prune-merge")</span><span class="zh">可觀測性合併修剪(prune-merge)</span></b> —
+      <span class="en">collapsing nodes whose individual state can't be independently observed. An early ~1.3× win in an experimental branch — but it <b>broke PPU rendering</b>, and once the JIT inline cascade landed, on the optimized S1 baseline it went <b>net-negative</b> (−4% C# / −7% Rust). A speedup that survived neither correctness nor a faster baseline.</span>
+      <span class="zh">把「無法被獨立觀測」的節點合併掉。在實驗分支早期看似 ~1.3× 的勝利 —— 但它<b>弄壞了 PPU 畫面</b>,而且等 JIT inline cascade 進來、在最佳化後的 S1 baseline 上它變成<b>淨負</b>(C# −4% / Rust −7%)。一個既過不了正確性、也撐不過更快 baseline 的加速。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Levelized scheduling</span><span class="zh">分層排程(levelized scheduling)</span></b> —
+      <span class="en">evaluating nodes in topological levels instead of an event queue. A structural dead-end here: the pruning ceiling was only ~1.37×, and level scheduling doesn't fit the tiny event-driven waves the netlist actually produces.</span>
+      <span class="zh">用拓樸層級而非事件佇列來評估節點。在這裡是結構性死路:修剪天花板只有 ~1.37×,而且分層排程不適合 netlist 實際產生的那種極小事件波。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">"Oblivious" full-sweep evaluation</span><span class="zh">「oblivious」全掃描評估</span></b> —
+      <span class="en">dropping the dirty-set and recomputing every node each half-cycle. Far slower — it re-evaluates ~14,700 nodes when only a few hundred actually changed. This is also exactly why the batch AOT/codegen and GPU backends lost to the event-driven interpreter (the GPU one ran ~10–18× slower than S1).</span>
+      <span class="zh">丟掉 dirty-set,每半週期重算所有節點。慢得多 —— 實際只有幾百個節點變動,它卻重算 ~14,700 個。這也正是批次 AOT/codegen 與 GPU 後端輸給事件驅動直譯器的原因(GPU 版比 S1 慢約 10–18 倍)。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Generation-counter dedup</span><span class="zh">世代計數器去重</span></b> —
+      <span class="en">replacing "clear the visited flags" with a monotonic epoch counter to skip the clear. −3.9%: the wider counter and its periodic reset cost more than the per-call clear it removed.</span>
+      <span class="zh">把「清掉 visited 旗標」改成單調遞增的世代計數器以省下清除步驟。−3.9%:較寬的計數器加上它的週期性重置,比它省掉的每次清除還貴。</span></li>
   </ul>
 
   <p class="note"><span class="en"><b>An important caveat:</b> most of these failures are not flaws in the strategy itself — they're mismatches with the hardware it ran on. A method can be perfectly correct, even more elegant on paper, yet collapse the moment its instruction footprint (i-cache) or working set (d-cache) spills out of cache and starts thrashing. So what failed wasn't the idea — it's that the idea didn't fit <i>this</i> CPU's operating envelope. The flip side is the interesting part: as hardware advances — larger caches, more memory bandwidth — some of these more aggressive strategies could turn out to be exactly the right fit.</span><span class="zh"><b>一個重要的但書:</b>這些策略的失敗,多半不是策略本身有問題,而是它和所跑的硬體不合拍。一個方法可以完全正確、甚至在紙上更優雅,但只要它的指令足跡(i-cache)或工作集(d-cache)一溢出快取、開始顛簸(thrashing),就會崩潰。所以失敗的不是那個點子,而是它剛好不符合<i>這顆</i> CPU 的使用情境。而反過來才是有意思的地方:哪天硬體更進步 —— 更大的快取、更高的記憶體頻寬 —— 這些較激進的策略,可能反而剛好適用。</span></p>

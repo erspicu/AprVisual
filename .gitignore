@@ -59,3 +59,6 @@ temp2/
 
 # benchmark staging output (build_benchmark.bat)
 AprVisualBenchMark/
+
+# self-hosted PHP portal (deployed manually to user's PHP host; may hold filled-in config)
+WebSitePHP/

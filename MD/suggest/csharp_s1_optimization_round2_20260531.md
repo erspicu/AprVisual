@@ -88,10 +88,15 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 | 1 | +0.13% | 11/20 |
 | 2 | +0.37% | 14/20 |
 | 3 | +1.47%(該批 base 偏低) | 14/20 |
-| **合併 60 輪** | mean **+0.79%** | **39/60 = 65%** |
+| 決定性(單段緊密交錯 30 對) | +0.88% | 21/30 |
+| **合併 90 輪** | 逐輪配對差中位數 **+0.6~0.9%** | **60/90 = 66.7%** |
 
-配對勝場 39/60 ≈ **2.3σ(單尾 p≈0.01)→ 統計顯著**;三批同號、bit-exact。
-最佳估計 **~+0.4%(median)~ +0.8%(mean)** —— 小但真實。這是 N1–N7 + R1–R3 全敗後**第一個確認的 win**。
+逐輪配對差中位數(最抗時間漂移的估計)= **+403 hc/s(60 輪)/ +578 hc/s(決定性 30 對)≈ +0.62~0.88%**;sign-test 合併 z=3.06 → **單尾 p≈0.001**;四批同號、全程 bit-exact。
+最佳估計 **~+0.6%** —— 小但真實。這是 N1–N7 + R1–R3 全敗後**第一個確認的 win**。
+
+> **⚠️ 重要:與 2026-05-29 舊測的衝突與釐清。** 2026-05-29 的 `gemini_query` 文件曾記「OR-all on early-break GND/PWR scans: C# **−3.07%**」並當成 anti-pattern #3 的證據。本輪 90 輪 interleaved-paired 量到 **+0.6%**,**直接推翻**。
+> 釐清:那個 −3.07% 是 **2026-05-30 採用 interleaved-paired 之前**用 **batched 舊方法**量的 —— 而 interleaved-paired 正是因為「batched 對 sub-3% 效應因 time-drift 不可信」才被採用的(見 `interleaved-paired-bench` 記憶:2026-05-30 在 fast-path PullUp-gate change 上 batched 給了模稜兩可/錯誤答案)。**這次的 −3% → +0.6% 翻盤,正是同一個 batched 假象**。一個被當成「dead-end 證據」的舊結論,其實是量測雜訊。
+> **連帶教訓**:記憶中其他「2026-05-29 batched 量的 sub-3% 負面結論」現在都應視為**待重驗**(大幅度的如 per-chip 15×、bitset 156×、RCM −3-4%、counter −6% 不受影響 —— 那些方法無關且幅度大)。已更新 `hotpath-ceiling-and-antipatterns` 記憶。
 **為何這條會贏(而 N1–N7 全敗)**:它是兩輪以來唯一**移除**熱路徑工作的改動(拿掉 per-gate data-dependent branch),不是加成本。pure-logic gnd/pwr list 短(多為 1–2),早退幾乎不觸發,所以 OR-all 幾乎不多讀,卻省下分支誤判 → 在寬 OoO 核心上小贏。方向與 N-lessons 完全一致(加成本=輸,減成本=贏)。
 **Rust 版**:review 文件也列了 `recalc_node_fast` OR-all,但依 `jit-vs-llvm-recursive-inline` 教訓「C# 熱路徑改動別盲目同步 Rust」,本輪 C# 為主,Rust 留待各自 A/B(未做)。
 **已採用**:`WireCore.FastPath.cs` RecalcNodeFast 的 gnd/pwr 掃描改 OR-all。

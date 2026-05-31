@@ -113,9 +113,17 @@ impl WireCore {
         for nn in 0..nc {
             if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
             let ni = &snap.node_infos[nn];
+            if (ni.flags & exclude) != 0 { continue; }            // class 0 — callback / forceCompute / supply
+            if ni.tlist_c1c2s != 0 {
+                // R-1 class 2: dynamic-singleton candidate. PullUp NOT required — recalc_node_singleton
+                // handles the floating (f==0 ⇒ hold previous) case, so no-pullup dynamic singletons are
+                // covered too. That's where the bulk of them are (~10.8K vs ~3K if PullUp-gated).
+                is_pure_logic[nn] = 2;
+                continue;
+            }
+            // class 1 — static pure-logic. Rust keeps the PullUp gate: recalc_node_fast has no floating
+            // branch, and adding one to that hot static path was -1.9% in Rust (be4cd38 / [[jit-vs-llvm]]).
             if (ni.flags & FLAG_PULLUP) == 0 { continue; }
-            if (ni.flags & exclude) != 0 { continue; }
-            if ni.tlist_c1c2s != 0 { continue; }
             is_pure_logic[nn] = 1;
             fast_path_count += 1;
         }
@@ -212,6 +220,39 @@ impl WireCore {
                 }
             }
             self.set_node_state(nn, *self.flags_to_state.get_unchecked(f as usize));
+        }
+    }
+
+    // R-1: singleton resolver for class-2 (dynamic-singleton) nodes — identical to recalc_node_fast
+    // but reproduces GetNodeValue's floating tie-break: f==0 (no pull-up, nothing conducting) ⇒ hold
+    // previous state (for a 1-node group the max-capacitance member IS nn). This branch lives ONLY on
+    // the dyn path, so the hot static recalc_node_fast keeps its no-branch form (the -1.9% gate).
+    #[inline(always)]
+    fn recalc_node_singleton(&mut self, nn: i32) {
+        let u = nn as usize;
+        unsafe {
+            let ni = *self.node_hot.get_unchecked(u);
+            let mut f = ni.flags;
+            if ni.tlist_c1gnd != 0 {
+                let mut p = ni.tlist_c1gnd as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p);
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_GND; break; }
+                }
+            }
+            if ni.tlist_c1pwr != 0 {
+                let mut p = ni.tlist_c1pwr as usize;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p);
+                    if gate == 0 { break; }
+                    p += 1;
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_PWR; break; }
+                }
+            }
+            let v = if f != 0 { *self.flags_to_state.get_unchecked(f as usize) } else { *self.node_states.get_unchecked(u) };
+            self.set_node_state(nn, v);
         }
     }
 
@@ -420,9 +461,19 @@ impl WireCore {
         if nn == self.npwr || nn == self.ngnd { return; }
         // Fast-path: pure-logic-gnd nodes resolve in O(1). Always on in S1 fork.
         unsafe {
-            if *self.is_pure_logic.get_unchecked(nn as usize) != 0 {
-                self.recalc_node_fast(nn);
-                return;
+            let cls = *self.is_pure_logic.get_unchecked(nn as usize);
+            if cls == 1 { self.recalc_node_fast(nn); return; }
+            if cls == 2 {
+                // R-1: all c1c2s gates OFF ⇒ conducting group is {nn} ⇒ O(1) recalc_node_fast (bit-identical).
+                let mut p = (*self.node_hot.get_unchecked(nn as usize)).tlist_c1c2s as usize;
+                let mut grows = false;
+                loop {
+                    let gate = *self.transistor_list.get_unchecked(p);
+                    if gate == 0 { break; }
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { grows = true; break; }
+                    p += 2;  // (gate, other) pairs
+                }
+                if !grows { self.recalc_node_singleton(nn); return; }
             }
         }
         let new_state = self.compute_node_group(nn);

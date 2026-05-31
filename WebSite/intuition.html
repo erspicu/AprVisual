@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — why the "obvious" speedups don't work</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Why the "obvious" speedups don't work</span><span class="zh">為什麼「直覺上該更快」的點子都沒用</span></h1>
+  <p class="sub en">Everyone who looks at a transistor-level simulator proposes the same handful of fixes: "use a matrix", "throw it on the GPU", "go parallel", "compile it". They're all correct engineering — for a different workload. Here's an honest, measured tour of why each one loses on <i>this</i> problem, and the single principle that explains them all.</p>
+  <p class="sub zh">每個看到電晶體級模擬器的人,幾乎都會提同一組解法:「用矩陣」「丟 GPU」「平行化」「編譯成 code」。它們在工程上都對 —— 只是對的是<i>另一種</i>工作負載。這裡誠實地、用實測數字帶你看每一個為什麼在<i>這個</i>問題上會輸,以及能一次解釋全部的那條原則。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">First: the workload that breaks your intuition</span><span class="zh">先看:那個會讓直覺失效的工作負載</span></h2>
+  <p class="en">Almost every speedup intuition is calibrated for a workload that is <b>big, dense, throughput-bound, and continuous</b>. This simulator is the exact opposite on every axis — that mismatch is the whole story:</p>
+  <p class="zh">幾乎所有「加速直覺」都是為「<b>大、密、吞吐受限、連續</b>」的工作負載校準的。這個模擬器在每一個軸上都剛好相反 —— 這個錯配就是整篇文章的核心:</p>
+  <table>
+    <tr><th><span class="en">Axis</span><span class="zh">面向</span></th><th><span class="en">Where the "obvious" tricks shine</span><span class="zh">直覺技巧發光的地方</span></th><th><span class="en">This simulator (switch-level NES)</span><span class="zh">這個模擬器(switch-level NES)</span></th></tr>
+    <tr><td><span class="en">Work per step</span><span class="zh">每步工作量</span></td><td><span class="en">large frontiers, dense matrices</span><span class="zh">大 frontier、密集矩陣</span></td><td><b><span class="en">~1.4 nodes change per event</span><span class="zh">每個 event 平均只變 ~1.4 個節點</span></b></td></tr>
+    <tr><td><span class="en">Bound by</span><span class="zh">受限於</span></td><td><span class="en">throughput (do lots in parallel)</span><span class="zh">吞吐(大量平行)</span></td><td><b><span class="en">latency (each half-cycle gates the next)</span><span class="zh">延遲(每半週期卡住下一個)</span></b></td></tr>
+    <tr><td><span class="en">Working set</span><span class="zh">工作集</span></td><td><span class="en">spills cache; memory-bandwidth bound</span><span class="zh">溢出快取;記憶體頻寬受限</span></td><td><b><span class="en">fits in 32 KB L1d</span><span class="zh">塞進 32 KB L1d</span></b></td></tr>
+    <tr><td><span class="en">Math</span><span class="zh">運算</span></td><td><span class="en">continuous (linear algebra, floats)</span><span class="zh">連續(線性代數、浮點)</span></td><td><b><span class="en">discrete logic (0/1, GND-wins)</span><span class="zh">離散邏輯(0/1、GND 贏)</span></b></td></tr>
+    <tr><td><span class="en">Structure</span><span class="zh">結構</span></td><td><span class="en">parallel / feed-forward / partitionable</span><span class="zh">可平行 / 前饋 / 可切分</span></td><td><b><span class="en">~94% one bidirectional feedback SCC; sequential in time</span><span class="zh">~94% 一個雙向回饋 SCC;時間上序列</span></b></td></tr>
+    <tr><td><span class="en">Instances</span><span class="zh">實例數</span></td><td><span class="en">many independent ones</span><span class="zh">很多獨立的</span></td><td><b><span class="en">one (we want a single NES fast)</span><span class="zh">一個(我們要單台 NES 快)</span></b></td></tr>
+  </table>
+  <p class="note en">Keep that table in mind. Every "obvious" idea below is excellent for the left column and loses on the right — and the numbers are <i>ours</i>, measured on this engine, not hand-waving.</p>
+  <p class="note zh">記住這張表。下面每個「直覺」點子對左欄都很棒、對右欄都輸 —— 而且數字是<i>我們自己</i>在這個引擎上量的,不是嘴砲。</p>
+</section>
+
+<section>
+  <h2><span class="en">The tour — six ideas everyone proposes</span><span class="zh">巡禮 —— 每個人都會提的六個點子</span></h2>
+  <table>
+    <tr><th><span class="en">"Just…"</span><span class="zh">「不就…」</span></th><th><span class="en">Why it sounds right</span><span class="zh">為何聽起來對</span></th><th><span class="en">What actually happened</span><span class="zh">實測結果</span></th><th><span class="en">The real reason</span><span class="zh">真正原因</span></th></tr>
+    <tr><td><b><span class="en">…make it a matrix &amp; solve it</span><span class="zh">…做成矩陣解掉</span></b></td><td><span class="en">SPICE does this; the dependency/ordering problem vanishes (LU ignores cycles).</span><span class="zh">SPICE 就這樣做;相依/順序問題消失(LU 不在乎環)。</span></td><td><span class="tagN">✗</span> <span class="en">it's the thing switch-level was invented to escape; the matrix-family (oblivious) measured 121× slower.</span><span class="zh">這正是 switch-level 設計來逃離的;矩陣家族(oblivious)實測慢 121×。</span></td><td><span class="en">solving the whole system every step throws away the ~1.4-node sparsity.</span><span class="zh">每步解整個系統 = 丟掉 ~1.4 節點的稀疏性。</span></td></tr>
+    <tr><td><b><span class="en">…run it on the GPU</span><span class="zh">…丟 GPU 跑</span></b></td><td><span class="en">thousands of cores; "no dependency in the matrix" → compute all at once.</span><span class="zh">幾千核;「矩陣裡沒相依」→ 一次全算。</span></td><td><span class="tagN">✗</span> <span class="en">GPU (bit-sliced) backend measured ~10–18× slower.</span><span class="zh">GPU(bit-sliced)後端實測慢 ~10–18×。</span></td><td><span class="en">latency, not throughput: the dependency relocates to per-pass &amp; per-half-cycle barriers, and a CPU↔GPU round-trip per half-cycle dwarfs 1.4 nodes.</span><span class="zh">是延遲不是吞吐:相依性搬到每 pass / 每半週期的 barrier,而每半週期一次 CPU↔GPU 來回遠大於 1.4 個節點。</span></td></tr>
+    <tr><td><b><span class="en">…use more threads</span><span class="zh">…開多執行緒</span></b></td><td><span class="en">8+ cores sitting idle; parallelize the settle.</span><span class="zh">8+ 核閒著;把 settle 平行。</span></td><td><span class="tagN">✗</span> <span class="en">per-chip threading measured ~15× slower.</span><span class="zh">逐晶片多執行緒實測慢 ~15×。</span></td><td><span class="en">a barrier every half-cycle + ~1.4-node waves: sync cost (MESI ~40–100 ns) dwarfs the work (tens of ns). Visual NES hit the same wall in 2017.</span><span class="zh">每半週期一個 barrier + ~1.4 節點的波:同步成本(MESI ~40–100 ns)遠大於工作(數十 ns)。Visual NES 2017 也撞同一面牆。</span></td></tr>
+    <tr><td><b><span class="en">…compile it (IR / codegen)</span><span class="zh">…編譯成 code(IR / codegen)</span></b></td><td><span class="en">native code beats interpreting a graph; surely faster.</span><span class="zh">原生碼勝過直譯圖;一定更快。</span></td><td><span class="tagN">✗</span> <span class="en">batch AOT/codegen measured 3–6× slower; HDL/GPU emit worse.</span><span class="zh">批次 AOT/codegen 實測慢 3–6×;HDL/GPU emit 更慘。</span></td><td><span class="en">batch eval re-computes ~14,700 nodes when ~hundreds change; and the 94% bidirectional SCC won't turn into feed-forward code.</span><span class="zh">批次評估在 ~幾百個變時重算 ~14,700 個;且 94% 雙向 SCC 變不成前饋碼。</span></td></tr>
+    <tr><td><b><span class="en">…use a smarter search algorithm</span><span class="zh">…用更聰明的搜尋演算法</span></b></td><td><span class="en">dynamic-connectivity / direction-optimizing BFS have better big-O.</span><span class="zh">dynamic-connectivity / direction-optimizing BFS 有更好的 big-O。</span></td><td><span class="tagN">✗</span> <span class="en">bit-parallel/dense BFS 156× slower; RCM reorder ~1.0× (nothing).</span><span class="zh">bit-parallel/dense BFS 慢 156×;RCM 重排 ~1.0×(沒用)。</span></td><td><span class="en">those win on huge frontiers; their constants + extra per-node memory crush a 2–4-node walk and break L1d residency.</span><span class="zh">那些贏在大 frontier;它們的常數 + 每節點額外記憶體壓垮 2–4 節點的 walk,還破壞 L1d。</span></td></tr>
+    <tr><td><b><span class="en">…cache / memoize results</span><span class="zh">…快取 / memoize 結果</span></b></td><td><span class="en">stop recomputing the same thing.</span><span class="zh">別重算同樣的東西。</span></td><td><span class="tagN">✗</span> <span class="en">generation-counter −3.9%; per-node active-counter −6%.</span><span class="zh">世代計數器 −3.9%;每節點 active 計數器 −6%。</span></td><td><span class="en">the result is state-dependent; maintaining/keying the cache costs more than recomputing 1.4 nodes, and the extra state spills L1d.</span><span class="zh">結果隨狀態變;維護/算 cache key 比重算 1.4 個節點還貴,額外狀態又溢出 L1d。</span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">Two spotlights — the matrix and the GPU</span><span class="zh">兩個聚光燈 —— 矩陣與 GPU</span></h2>
+  <div class="card">
+    <h3><span class="en">"Make it a matrix — then there's no dependency problem"</span><span class="zh">「做成矩陣 —— 就沒有相依性問題了」</span></h3>
+    <p class="en">True: a matrix solve (SPICE-style nodal analysis, <code>Gx=b</code>) dissolves the ordering/SCC dependency — linear algebra doesn't care about cycles. <b>But the dependency doesn't disappear; it relocates.</b> You never solve a circuit in "one shot" — direct LU is itself sequential, and discrete logic is solved by <i>relaxation</i> (iterate to a fixpoint; our settle runs 12–45 passes), so a barrier now sits <i>between passes</i> instead of between nodes. And a matrix solve is <b>oblivious</b> — it touches every node, throwing away the fact that only ~1.4 changed. That's precisely why switch-level (Bryant, 1980s) was invented to <i>avoid</i> the matrix, and why our oblivious experiments ran 121× slower.</p>
+    <p class="zh">沒錯:矩陣解(SPICE 式 nodal analysis,<code>Gx=b</code>)化掉了順序/SCC 相依 —— 線性代數不在乎環。<b>但相依性沒有消失,只是換了位置。</b>你從來不是「一次」解完電路 —— 直接 LU 本身序列,離散邏輯靠 <i>relaxation</i> 迭代到 fixpoint(我們的 settle 跑 12–45 passes),所以 barrier 從「節點間」搬到「<i>pass 之間</i>」。而且矩陣解是 <b>oblivious</b> —— 碰每一個節點,丟掉「只有 ~1.4 個變」這件事。這正是 switch-level(Bryant, 1980s)被發明來<i>避開</i>矩陣的原因,也是我們 oblivious 實驗慢 121× 的原因。</p>
+  </div>
+  <div class="card">
+    <h3><span class="en">"There's no dependency now — so just GPU it all at once"</span><span class="zh">「現在沒相依性了 —— 那就 GPU 一次全算」</span></h3>
+    <p class="en">The GPU is a <b>throughput</b> machine: it needs thousands of independent work-items to fill its cores. Our problem is <b>latency</b>: each half-cycle must finish before the next can start (you can't parallelize across time for one instance), and within a half-cycle only ~1.4 nodes change. Doing the full-matrix/oblivious update on the GPU means doing ~10,000× the necessary work, plus a CPU↔GPU round-trip <i>every half-cycle</i>. Measured: ~10–18× slower. The GPU's real home is <b>many independent instances</b> (bit-slice thousands of NESes) — a different goal, and even then lane divergence forces an oblivious per-lane update, so you'd need to simulate >121 instances just to break even with one CPU core running event-driven. It still wouldn't make a single NES hit real time.</p>
+    <p class="zh">GPU 是<b>吞吐</b>機器:要幾千份獨立工作才餵得飽核心。我們的問題是<b>延遲</b>:每半週期必須先做完才能進下一個(單一 instance 無法跨時間平行),而半週期內只有 ~1.4 個節點變。在 GPU 上做矩陣全解/oblivious 更新 = 做 ~一萬倍多餘的工作,還每半週期一次 CPU↔GPU 來回。實測:慢 ~10–18×。GPU 真正的家是<b>很多獨立 instance</b>(bit-slice 上千台 NES)—— 那是另一個目標,而且即使如此,lane 發散逼每 lane 都 oblivious 更新,你得模擬 >121 台才追平「一個 CPU 核跑事件驅動」。而且單台 NES 仍然到不了 real time。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">The one principle behind all six</span><span class="zh">貫穿六者的那條原則</span></h2>
+  <div class="big">
+    <p class="en"><b>An optimization is not "good" or "bad" in the abstract — it's a bet on the shape of the workload.</b> Matrices, GPUs, threads, codegen, fancy graph algorithms, and caches are all bets on <i>big, dense, throughput-bound, parallel, continuous, many-instance</i>. This simulator is <i>tiny-per-event, sparse, latency-bound, sequential-in-time, discrete, single-instance</i>. Every "obvious" idea is the right answer to a question we're not asking.</p>
+    <p class="zh"><b>一個優化沒有抽象的「好」或「壞」—— 它是對「工作負載長相」的一個賭注。</b>矩陣、GPU、執行緒、codegen、花俏圖演算法、快取,全都賭在<i>大、密、吞吐受限、可平行、連續、多實例</i>。而這個模擬器是<i>每事件極小、稀疏、延遲受限、時間序列、離散、單實例</i>。每個「直覺」點子,都是在回答一個我們沒在問的問題。</p>
+  </div>
+  <p class="en">So what <i>does</i> work here? The opposite-shaped tools: shrink the hot data so it stays in L1d, keep the event-driven sparsity (only touch what changed), remove work and branches from the tiny inner loop, and — the biggest win of all — notice that ~70% of events are trivial singletons and resolve them in O(1) (our "R-1", +18%). None of those are glamorous; all of them are matched to the workload.</p>
+  <p class="zh">那這裡<i>什麼</i>有用?形狀相反的工具:把熱資料縮到留在 L1d、保住事件驅動的稀疏性(只碰有變的)、把工作與分支移出極小的內迴圈,以及 —— 最大的一勝 —— 發現約 70% 的 event 是 trivial singleton、用 O(1) 解掉(我們的「R-1」,+18%)。沒有一個是炫的;每一個都跟工作負載對得上。</p>
+  <p class="note en"><b>The meta-meta-lesson:</b> measure before you assume. Several of these were tried because they "obviously" should help; the only way to know was to build the minimal version and benchmark it (bit-exact). The ideas that survived weren't the elegant ones — they were the ones the hardware actually liked.</p>
+  <p class="note zh"><b>更上一層的教訓:</b>假設之前先量。上面好幾個都是因為「明明該有用」才去試的;唯一知道答案的方法,是做出最小版本、benchmark(且 bit-exact)。活下來的不是優雅的點子,而是硬體真的喜歡的那些。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">Every figure here is a measurement on this engine (AMD Ryzen 7 3700X, <code>full_palette</code>), not an estimate. The dead-end catalogue and per-change A/B numbers live in the repository's optimization notes; the field context (why academia has no 20-year breakthrough for this regime) is in <a href="landscape.html">the research landscape</a>; how AprVisual compares to other netlist simulators is in <a href="comparison.html">the comparison</a>.</p>
+  <p class="zh">這裡每個數字都是這個引擎上的實測(AMD Ryzen 7 3700X、<code>full_palette</code>),不是估計。死路清單與逐項 A/B 數字在 repo 的優化筆記裡;領域脈絡(為何學界對這個 regime 近 20 年沒突破)見<a href="landscape.html">研究現況</a>;AprVisual 與其他 netlist 模擬器的比較見<a href="comparison.html">比較頁</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">An educational note on matching optimization to workload — every "obvious" speedup measured, on this engine. 2026-05-31.</span><span class="zh">一篇關於「把優化對準工作負載」的教育筆記 —— 每個「直覺」加速都在這個引擎上實測過。2026-05-31。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

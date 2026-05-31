@@ -43,14 +43,18 @@ S1 熱路徑經多輪實測已在**天花板**:C# ~65.7K / Rust ~70.1K hc/s(full
 
 | # | 提案 | 一句話 | 來源 | 為何「大」+ 評估 |
 |---|---|---|---|---|
-| R-1 | **Dynamic-singleton fast-path** | 對「本 half-cycle 剛好所有 pass-transistor 都 off」的 node(動態 ~51.5%)走 O(1) | 記憶 2026-05-30 future avenue | 改熱迴圈 dispatch。**唯一可能高報酬**,但 ① 加熱迴圈分支(anti-pattern #2)② floating hold-previous 極易 subtly 錯(dead-end #8 類)。要做必須 per-engine bit-exact 實測。 |
+| ~~R-1~~ | ~~**Dynamic-singleton fast-path**~~ | — | — | ✅ **已實作並採用(2026-05-31,commit `a80dab4`)→ +18.6% C#,專案最大 win!** 見下方。 |
 | R-2 | **Clock-phase partitioning** | 依時鐘相位把 edges 分段,runtime 依相位整段 skip | netlist_non_ir P2、gemini Q3 | 改 BFS 掃描結構 + 需正確辨識 clock 語意。Gemini 原預測 +15-30%,但實測 clock Wave-0 工作佔比 **<1%** → ROI 上界 <1%;borderline-IR + 正確性風險。 |
 | R-3 | **Warm-up constant propagation** | warm-up 跑出長期不變 node,當常數重新 lowering | netlist_non_ir P3 | netlist 重構。R2(2026-05-31)已證 static const-fold 破 tie-break(#8)+ 效能上界 0;warm-up 版更危險、同零上界。 |
 | R-4 | **Long-list SIMD / bitset mirror(len>16)** | 對長 gate list 走 SIMD gather 或 ulong bitset | gemini Q2、netlist_non_ir、#I3 | 加平行資料結構。small-N SIMD = anti-pattern #3;walk 平均 1.4 node;bitset-BFS 實測 156× 慢。長串子集罕見。 |
 | R-5 | **Per-handler dirty-set lookup** | 預算每個 handler 寫入後會 dirty 的 node 集合,查表取代 settle | gemini Q4 | 改 settle 流程。Gemini 預測 +5-10%,但 handler 冷(5×/200k)→ 真實 ROI ≈ 0。 |
 | R-6 | **Rust fixed-width bus / video fixed arrays** | bus/video node 改 `Bus16`/`[u16;9]` 等定長結構 | RustS1 P2 | 改資料結構、侵入性高;footprint 已夠 → 預期噪音。 |
 
-> §2 排序即優先序:真要動,R-1 最有想像空間(但最危險);R-2~R-6 預期 ≤1% 或 moot。
+> **🎉 R-1 已畢業並採用(2026-05-31)→ +18.6% C#(~65.5K → ~77.6K hc/s),60/60 配對全勝,bit-exact。專案至今最大的單一 win,並突破先前認定的 72-75K 天花板。**
+> 機制:把「動態 singleton」(有 c1c2s channel 但本 half-cycle 全 OFF,佔 ~51.5% 的 recalc call)在 `RecalcNode` 裡先掃 c1c2s,全 OFF 就走 O(1) `RecalcNodeFast`(對單節點群組 bit-identical)。3-valued `IsPureLogic`(0/1/2)維持單一陣列載入。
+> **教訓**:`hotpath-ceiling` 記憶曾斷言「cheap singleton wins 已捕捉/天花板已到」—— **錯**:只捕捉了 static singleton(18.3%),動態的(半數 call)一直走完整 BFS。再次驗證:預測不可恃,實作量測才算數。
+> **待辦**:Rust(`experiment/rust-s1`)同款結構未測 —— 這是大型演算法 win(非 micro-branch),很可能 Rust 也贏,值得各自 A/B。
+> §2 其餘(R-2~R-6)維持參考:預期 ≤1% 或 moot。
 
 ---
 

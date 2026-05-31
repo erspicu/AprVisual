@@ -78,6 +78,22 @@ S2-A 屬**實作層面**(只改資料擺放,不改演算法/結果)→ 依政策
 
 (Rust 端後續優化另循 Rust 自己最佳路線,不跟 C# 綁。)
 
+## 逐項測試結果(C# S1,「有進步就用」逐條 interleaved-paired)
+
+| 候選 | 結果 | 判定 |
+|---|---|---|
+| **S2-A** 節點鄰接內聯 | +4.18%(7/7) | ✅ **採用**(已 graduate S1) |
+| **S2-A2** 不發射內聯節點 channel 子表(縮 TransistorList) | **+0.81% median / 18-27 勝**(27 輪) | ✅ **採用**(commit `9cc0dc7`)+ 縮 RSS、移死資料 |
+| 記憶體清除(bench residual + GC barrier) | 中性(大頭本就有 ClearPostLoadBuildState) | ✅ 補上(hygiene,perf 中性) |
+| **S2-B** outline overflow/冷路徑保 L1i | −1.43% median / 2-7 勝 | ❌ 拒絕(call 開銷 + JIT cascade 被打斷) |
+| **O3** SetNodeState supply-check 消除(RecalcHash shield) | 中性(+0.11% median / 8-16,16 輪) | ❌ 拒絕(C# 分支預測本就處理好;不像 Rust) |
+| **O1** 重驗 2026-05-29 batched 負面 | 無翻盤 | ✅ 查畢(本 session 早已 interleaved 重驗 T1-T4;§3 大負面為根本;唯一翻盤 R4 已採用) |
+| **union 變體**(內聯 96%→98%) | 未測 | ⏸ 棄置:預期 +0.1–0.3%(僅 2% 中 fan-out 節點),**低於 ~±4% 機器噪音地板**(S2-A2 的 +0.8% 都要 27 輪才解析),不可靠;且 explicit-layout fixed-buffer union 會擾動已穩定的 NodeInfo,風險>報酬 |
+| **O2** prune/merge 解耦電容 | 未測 | ⏸ 棄置:`MD/suggest` 已評 prune/merge「效能上界 0」(易丟的死電晶體 lowering 已丟),且破 #8 風險、複雜度高 |
+
+**關鍵教訓**:機器噪音地板 ~±4%/輪,sub-0.5% 改動實際**不可量測**。本輪能落地的只有**資料佈局類**(S2-A / S2-A2,打記憶體延遲);**所有 per-call 微調(S2-B/O3)都是噪音或負**——再次印證 `MD/suggest` 的「熱路徑加成本必輸,唯一 win 是移除東西」。
+
 ## 對應 commit
 
-C# S2-A:`src/AprVisual.S1/Sim/WireCore{,.Recalc,.FastPath,.Group}.cs`(已 graduate 自 S2)。Rust:無(維持 baseline)。
+C# S2-A:`src/AprVisual.S1/Sim/WireCore{,.Recalc,.FastPath,.Group}.cs`(已 graduate 自 S2)。
+C# S2-A2:`WireCore.cs` + `WireCore.FastPath.cs`(commit `9cc0dc7`)。Rust:無(維持自己最佳 baseline)。

@@ -247,6 +247,12 @@ namespace AprVisual.Sim
             //    resolve in O(1) via RecalcNodeFast, bypassing the group DFS. See WireCore.FastPath.cs.
             ClassifyPureLogicNodes();
 
+            // ── S2 IR (Phase A): extract + enable the clean pure-logic subset (truth-table LUT).
+            //    Reads the managed Node graph (still alive here, before ClearPostLoadBuildState).
+            //    Reclassifies survivors to IrCls so RecalcNode dispatches them to EvalIr. No-op if
+            //    EnableIr is false. See WireCore.Ir.cs / MD/S2/design/04.
+            BuildIr();
+
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).
             _callbackByNode = new CallbackInfo?[NodeCount];

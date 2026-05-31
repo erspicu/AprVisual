@@ -118,6 +118,7 @@ namespace AprVisual.Sim
             //   0 = must go through the BFS (callback / forceCompute / supply resolution).
             byte cls = IsPureLogic[nn];
             if (cls == 1) { RecalcNodeFast(nn); return; }
+            if (cls == IrCls) { SetNodeState(nn, EvalIr(nn)); return; }   // S2 IR: clean pure-logic via truth-table LUT
             if (cls == 2)
             {
                 // S2-A: read the c1c2 gates from the inline payload (one cache line, no chase) when

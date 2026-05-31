@@ -61,6 +61,7 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
+                    case "--ir":              WireCore.EnableIr = true; break;          // S2 IR (Phase A) dispatch on
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -430,6 +431,7 @@ namespace AprVisual.Test
 
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                if (WireCore.EnableIr) Console.WriteLine($"# {WireCore.LastIrStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
                 Console.WriteLine($"# real time: {secs:F3} s");
@@ -475,6 +477,7 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                if (WireCore.EnableIr) Console.WriteLine($"# {WireCore.LastIrStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");

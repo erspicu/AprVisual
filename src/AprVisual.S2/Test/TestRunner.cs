@@ -456,6 +456,15 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
+                // Memory hygiene before the hot path: LoadSystem's ClearPostLoadBuildState already freed
+                // the build graph (~25-50 MB); release the residual name maps + Node shells the hot loop
+                // never touches, then force a final compacting Gen2 GC so no collection can fire mid-
+                // measurement. Hot data is unmanaged (NodeStates/NodeInfos/TransistorList/...), so this is
+                // timing-stability hygiene + minimum resident heap, not a throughput change.
+                WireCore.ReleaseBenchResidualState();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                System.GC.WaitForPendingFinalizers();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);

@@ -85,6 +85,20 @@ namespace AprVisual.Sim
             System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
 
+        /// <summary>Bench-only final sweep: release the LAST residual build-time managed data the hot
+        /// loop never reads — the name↔id maps (LookupNode/GetNodeName are setup/diag-only) and the
+        /// gutted Node shells. ClearPostLoadBuildState (in LoadSystem) already freed the big lists/JSON;
+        /// this trims the remainder so the timed loop starts with the minimum managed heap. NOT called
+        /// on the --test/--frames/trace paths, which may still resolve node names after load. The hot
+        /// path reads only the unmanaged arrays, so this is timing hygiene, not a throughput change.</summary>
+        public static void ReleaseBenchResidualState()
+        {
+            _nodeByName.Clear(); _nodeByName.TrimExcess();
+            _nameByNode.Clear(); _nameByNode.TrimExcess();
+            for (int i = 0; i < _nodes.Count; i++) _nodes[i] = null;   // drop Node shells (RecomputeAllNodes already ran at power-on)
+            _nodes.Clear(); _nodes.TrimExcess();
+        }
+
         /// <summary>Allocate <paramref name="count"/> fresh node ids, aligned to <paramref name="alignment"/>. Port of node_resolver::allocNodes.</summary>
         public static int AllocNodes(int alignment, int count)
         {

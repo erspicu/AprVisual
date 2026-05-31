@@ -197,17 +197,18 @@ namespace AprVisual.Sim
                     else if (other == Npwr) c1pwr.Add(t.Gate);
                     else { c1c2.Add(t.Gate); c1c2.Add(other); }
                 }
-                ns.TlistC1c2s = AddSubList(c1c2);
-                ns.TlistC1gnd = AddSubList(c1gnd);
-                ns.TlistC1pwr = AddSubList(c1pwr);
-
                 // S2-A: inline the channel payload into the 32-byte NodeInfo for small-fanout nodes
                 // (~96%), so the hot path (cls==2 singleton check / RecalcNodeFast / BFS) reads ONE
                 // cache line with no dependent chase into TransistorList. InlinePayload layout:
                 //   [c1c2 (gate,other) pairs: 2*C1c2Count][gnd gates: GndCount][pwr gates: PwrCount].
-                // High-fanout nodes (~4%: buses / clk) keep Inline==0 and use the Tlist* indices +
-                // TransistorList (legacy path, unchanged + bit-exact). The Tlist* indices are still
-                // built for ALL nodes (fast-path classification reads TlistC1c2s != 0).
+                // S2-A2: for inline nodes we DON'T emit their c1c2/gnd/pwr sublists into TransistorList
+                // at all (the inline path never reads them) — leaving TlistC1c2s/gnd/pwr = 0. This drops
+                // the dead duplicate channel data from TransistorList, tightening the working set the hot
+                // SetNodeState gates-writeback (NodeTlistGates -> TransistorList) walks. The gates sublist
+                // is still emitted for ALL nodes (above). High-fanout nodes (~4%: buses/clk) keep
+                // Inline==0 and the legacy TransistorList sublists. NodeConnections (capacitance, from the
+                // managed graph counts) is independent of this -> bit-exact. Classification uses C1c2Count
+                // for inline nodes (TlistC1c2s no longer set) — see ClassifyPureLogicNodes.
                 int payLen = c1c2.Count + c1gnd.Count + c1pwr.Count;
                 if (payLen <= NodeInfo.InlineCap)
                 {
@@ -220,6 +221,13 @@ namespace AprVisual.Sim
                     for (int k = 0; k < c1c2.Count; k++) pay[w++] = (ushort)c1c2[k];
                     for (int k = 0; k < c1gnd.Count; k++) pay[w++] = (ushort)c1gnd[k];
                     for (int k = 0; k < c1pwr.Count; k++) pay[w++] = (ushort)c1pwr[k];
+                    // TlistC1c2s/gnd/pwr stay 0 (unused on the inline path; not emitted into TransistorList).
+                }
+                else
+                {
+                    ns.TlistC1c2s = AddSubList(c1c2);
+                    ns.TlistC1gnd = AddSubList(c1gnd);
+                    ns.TlistC1pwr = AddSubList(c1pwr);
                 }
             }
             TransistorList = AllocArray<ushort>(tl.Count);

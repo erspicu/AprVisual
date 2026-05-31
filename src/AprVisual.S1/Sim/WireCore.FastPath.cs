@@ -57,7 +57,10 @@ namespace AprVisual.Sim
                 if (nn == Npwr || nn == Ngnd || Nodes[nn] == null) continue;
                 ref NodeInfo ns = ref NodeInfos[nn];
                 if ((ns.Flags & exclude) != 0) continue;            // class 0 — must go through the BFS (callback / forceCompute resolution)
-                if (ns.TlistC1c2s != 0)
+                // S2-A2: inline nodes no longer set TlistC1c2s (their channel sublist isn't emitted into
+                // TransistorList), so "has a normal-node channel?" is read from C1c2Count for them.
+                bool hasC1c2 = ns.Inline != 0 ? ns.C1c2Count != 0 : ns.TlistC1c2s != 0;
+                if (hasC1c2)
                 {
                     // R-1: class 2 — "dynamic-singleton candidate". Has normal-node channel(s) so the
                     // group CAN grow, but if all those channels happen to be OFF this half-cycle the

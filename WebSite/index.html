@@ -108,7 +108,8 @@
     <a class="btn ghost" href="https://github.com/erspicu/AprVisual/tree/aot-codegen">
       <span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
   </div>
-  <p class="mut" style="font-size:12.5px; margin-top:16px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-05-31 07:30</span> (UTC)</p>
+  <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.05.31</b> &middot; 2026-05-31 &middot; engine 27ec8cc</span><span class="zh">發佈版本 <b>benchmark-2026.05.31</b> &middot; 2026-05-31 &middot; 引擎 27ec8cc</span></p>
+  <p class="mut" style="font-size:12.5px; margin-top:6px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-05-31 07:30</span> (UTC)</p>
 </header>
 
 <main>
@@ -335,13 +336,13 @@
   <p class="zh">從第一天就知道 realtime 達不到。但引擎快到一個程度後,它就跨進「真正可用、可驗證的工具」這個門檻了。以下是我們在開發機上的實際跑分(本節下方的截圖),測試 <code>full_palette</code> 的 300,000 個 master half-cycle:</p>
 
   <div class="stat">
-    <div class="box"><div class="n">71.9K</div><div class="l"><span class="en">Rust — hc/s &middot; 9.94 s/frame</span><span class="zh">Rust — hc/s &middot; 9.94 秒/frame</span></div></div>
-    <div class="box"><div class="n">67.3K</div><div class="l"><span class="en">C# — hc/s &middot; 10.62 s/frame</span><span class="zh">C# — hc/s &middot; 10.62 秒/frame</span></div></div>
-    <div class="box"><div class="n">598&times;</div><div class="l"><span class="en">Rust gap to real-time (0.167%)</span><span class="zh">Rust 離實機(占 0.167%)</span></div></div>
-    <div class="box"><div class="n">638&times;</div><div class="l"><span class="en">C# gap to real-time (0.157%)</span><span class="zh">C# 離實機(占 0.157%)</span></div></div>
+    <div class="box"><div class="n">78.1K</div><div class="l"><span class="en">Rust — hc/s &middot; 9.15 s/frame</span><span class="zh">Rust — hc/s &middot; 9.15 秒/frame</span></div></div>
+    <div class="box"><div class="n">78.0K</div><div class="l"><span class="en">C# — hc/s &middot; 9.17 s/frame</span><span class="zh">C# — hc/s &middot; 9.17 秒/frame</span></div></div>
+    <div class="box"><div class="n">550&times;</div><div class="l"><span class="en">Rust gap to real-time (0.182%)</span><span class="zh">Rust 離實機(占 0.182%)</span></div></div>
+    <div class="box"><div class="n">551&times;</div><div class="l"><span class="en">C# gap to real-time (0.182%)</span><span class="zh">C# 離實機(占 0.182%)</span></div></div>
   </div>
-  <p class="en">On this machine Rust renders a frame in <b>9.94 s</b> and C# in <b>10.62 s</b> (both engines produce a bit-identical result — same checksum <code>0x794A43A8DF169ADA</code>). NES NTSC real-time needs 42,954,552 hc/s, so we're still ~600&times; short — the near-term goal is to <b>stably hold one frame under 10 seconds</b>. That gap is exactly why outside ideas and faster machines are valuable.</p>
-  <p class="zh">在這台機器上,Rust 算一張 frame 要 <b>9.94 秒</b>、C# 要 <b>10.62 秒</b>(兩個引擎輸出位元完全相同 —— checksum 同為 <code>0x794A43A8DF169ADA</code>)。NES NTSC 實機需要每秒 42,954,552 個 hc,所以我們還差約 <b>600 倍</b> —— 近期目標是<b>穩定把單 frame 壓進 10 秒內</b>。這個差距正是外部點子與更快機器有價值的原因。</p>
+  <p class="en">On this machine Rust now renders a frame in <b>9.15 s</b> and C# in <b>9.17 s</b> (both engines produce a bit-identical result — same checksum <code>0x794A43ABDF169ADA</code>). The R-1 dynamic-singleton fast-path (§02·7) lifted both engines from ~68–72K to ~78K hc/s, finally pulling a frame <b>under 10 seconds</b> — the near-term mark we'd been aiming at. NES NTSC real-time still needs 42,954,552 hc/s, so we're ~550&times; short; that remaining gap is exactly why outside ideas and faster machines are valuable.</p>
+  <p class="zh">在這台機器上,Rust 現在算一張 frame 要 <b>9.15 秒</b>、C# 要 <b>9.17 秒</b>(兩個引擎輸出位元完全相同 —— checksum 同為 <code>0x794A43ABDF169ADA</code>)。R-1 動態 singleton fast-path(§02·7)把兩個引擎從 ~68–72K 拉到 ~78K hc/s,終於把單 frame 壓進 <b>10 秒內</b> —— 正是我們先前設定的近期目標。NES NTSC 實機仍需每秒 42,954,552 個 hc,所以我們還差約 <b>550 倍</b>;這個剩下的差距,正是外部點子與更快機器有價值的原因。</p>
 
   <div class="card">
     <h3 style="margin-top:.6em"><span class="en">The machine these numbers came from</span><span class="zh">這些數字來自的機器</span></h3>
@@ -359,6 +360,7 @@
     <p class="zh" style="margin-top:14px"><b>有更快的 CPU 嗎?跑跑看 benchmark,分享你的數字。</b>套件是可攜、自包含的(不用裝 .NET),同時附上 C# 與 Rust 引擎,支援 Windows + macOS(Apple Silicon)。</p>
     <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.31/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
        &nbsp; <a class="btn ghost" href="https://github.com/erspicu/AprVisual/releases"><span class="en">All releases</span><span class="zh">所有版本</span></a></p>
+    <p class="mut" style="font-size:12.5px; margin-top:2px"><span class="en">Latest release: <b>benchmark-2026.05.31</b> &middot; engine <code>27ec8cc</code> &middot; released 2026-05-31 &middot; C# &amp; Rust both ~78K hc/s (R-1)</span><span class="zh">最新發佈:<b>benchmark-2026.05.31</b> &middot; 引擎 <code>27ec8cc</code> &middot; 發佈於 2026-05-31 &middot; C# 與 Rust 皆 ~78K hc/s(R-1)</span></p>
     <p style="margin-top:4px"><a href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2);font-weight:600">
        <span class="en">📊 Then upload your result to the community leaderboard ↗</span><span class="zh">📊 跑完把結果上傳到社群排行榜 ↗</span></a></p>
   </div>

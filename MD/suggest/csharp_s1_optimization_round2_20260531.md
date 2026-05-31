@@ -98,8 +98,13 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 > 釐清:那個 −3.07% 是 **2026-05-30 採用 interleaved-paired 之前**用 **batched 舊方法**量的 —— 而 interleaved-paired 正是因為「batched 對 sub-3% 效應因 time-drift 不可信」才被採用的(見 `interleaved-paired-bench` 記憶:2026-05-30 在 fast-path PullUp-gate change 上 batched 給了模稜兩可/錯誤答案)。**這次的 −3% → +0.6% 翻盤,正是同一個 batched 假象**。一個被當成「dead-end 證據」的舊結論,其實是量測雜訊。
 > **連帶教訓**:記憶中其他「2026-05-29 batched 量的 sub-3% 負面結論」現在都應視為**待重驗**(大幅度的如 per-chip 15×、bitset 156×、RCM −3-4%、counter −6% 不受影響 —— 那些方法無關且幅度大)。已更新 `hotpath-ceiling-and-antipatterns` 記憶。
 **為何這條會贏(而 N1–N7 全敗)**:它是兩輪以來唯一**移除**熱路徑工作的改動(拿掉 per-gate data-dependent branch),不是加成本。pure-logic gnd/pwr list 短(多為 1–2),早退幾乎不觸發,所以 OR-all 幾乎不多讀,卻省下分支誤判 → 在寬 OoO 核心上小贏。方向與 N-lessons 完全一致(加成本=輸,減成本=贏)。
-**Rust 版**:review 文件也列了 `recalc_node_fast` OR-all,但依 `jit-vs-llvm-recursive-inline` 教訓「C# 熱路徑改動別盲目同步 Rust」,本輪 C# 為主,Rust 留待各自 A/B(未做)。
-**已採用**:`WireCore.FastPath.cs` RecalcNodeFast 的 gnd/pwr 掃描改 OR-all。
+**已採用(C#)**:`WireCore.FastPath.cs` RecalcNodeFast 的 gnd/pwr 掃描改 OR-all。
+
+**Rust 版(2026-05-31 應使用者要求測):❌ −3.2%,拒絕。** 同款改動移植到 `experiment/rust-s1/src/wire.rs` 的 `recalc_node_fast`,interleaved-paired 40 輪:
+- exp 只贏 **3/40**(base 贏 37/40)、median paired diff **−2,250 hc/s = −3.21%**、mean −2.90%、bit-exact(`0x9B103E5E206E4C37`)。
+- **教科書級 JIT/LLVM 反號**(見 `jit-vs-llvm-recursive-inline`):同一改動 **C# +0.6% / Rust −3.2%**。LLVM 對 early-break 迴圈的 codegen 顯然比手寫 OR-all 好(或 early-break 真的較常提前終止),OR-all 強制每次掃完整串+sentinel 反而虧。
+- **附帶確認**:這次也**證實了 2026-05-29 batched Rust −1.86% 的方向是對的**(只是低估幅度;真值 −3.2%)。對照 C# 同一筆 batched −3.07% 卻是**錯號** —— 所以 batched 在 Rust 上剛好方向對、在 C# 上方向錯,更說明 batched 不可恃,必須逐案 interleaved 重驗。
+- Rust 已 revert,維持 baseline(70.1K hc/s)。
 (原「length-1 特化」需區分 length-1/N → 又是加分類分支,N-lessons 已證會輸;改成更廣、不需分類的 OR-all。)
 把 gnd/pwr 掃描的 `while(*p){ if(state) {f|=...; break;} }` 早退分支,換成無分支 OR-all:`byte any=0; while(*p) any|=NodeStates[*p++]; f|=any<<5;`。
 - **動機**:pure-logic gnd-list 多為長度 1–2(反相器/小 NOR),早退幾乎不觸發;OR-all 每次省一個 data-dependent branch,且不需任何額外 per-node 資料。
@@ -126,4 +131,5 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 
 **淨結果**:fast-path 拿到一個小但確認的 win(R4,~+0.4%);lowering **沒有**剩餘的安全壓縮空間(R2/R3 殘餘 <1% 且冷);**.NET 建構已最佳(net10 + JIT + DynamicPGO),NativeAOT 反而慢 5.5%**。
 回答使用者三問:fast-path 還有一點(R4 已收)、lowering 基本到頂、改 .NET10 建構模式(AOT)不會更快。後續若要再榨,得換架構(IR/AOT 已證更慢)或更快單核。
-**待辦**:R4 是 C# 專屬實測;Rust `recalc_node_fast` 的同款 OR-all 尚未各自 A/B(本輪 C# 為主)。採用 R4 後 `AprVisualBenchMark/` 內打包的 binary 已過時,如需對外比較再重打包。
+**R4 跨平台定論**:**C# +0.6%(採用)/ Rust −3.2%(拒絕)** —— 又一個 JIT/LLVM 反號案例。Rust 維持 baseline。
+**待辦**:採用 R4(C#)後 `AprVisualBenchMark/` 內打包的 C# binary 已過時,如需對外比較再重打包。

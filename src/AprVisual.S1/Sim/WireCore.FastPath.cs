@@ -51,13 +51,24 @@ namespace AprVisual.Sim
         {
             IsPureLogic = AllocArray<byte>(NodeCount);   // tracked + zeroed; freed in FreeUnmanagedMemory
             const NodeFlags exclude = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
-            int count = 0;
+            int count = 0, dynCount = 0;
             for (int nn = 0; nn < NodeCount; nn++)
             {
                 if (nn == Npwr || nn == Ngnd || Nodes[nn] == null) continue;
                 ref NodeInfo ns = ref NodeInfos[nn];
-                if ((ns.Flags & exclude) != 0) continue;
-                if (ns.TlistC1c2s != 0) continue;                   // any normal-node channel ⇒ group can grow ⇒ not {nn}
+                if ((ns.Flags & exclude) != 0) continue;            // class 0 — must go through the BFS (callback / forceCompute resolution)
+                if (ns.TlistC1c2s != 0)
+                {
+                    // R-1: class 2 — "dynamic-singleton candidate". Has normal-node channel(s) so the
+                    // group CAN grow, but if all those channels happen to be OFF this half-cycle the
+                    // group is exactly {nn} and RecalcNode can resolve it via the O(1) RecalcNodeFast
+                    // path (same resolution as a static pure-logic node — this node carries none of the
+                    // excluded flags). RecalcNode does the runtime "are all c1c2s gates off?" check.
+                    IsPureLogic[nn] = 2;
+                    dynCount++;
+                    continue;
+                }
+                // class 1 — static pure-logic: group is provably {nn} (no normal channel at all).
                 // PullUp NOT required: a no-pullup singleton resolves to GND/PWR if a channel
                 // conducts, else floats → "hold previous" (RecalcNodeFast handles the empty-flags
                 // case as a no-op, exactly like ComputeNodeGroup's single-node floating tie-break).
@@ -66,7 +77,8 @@ namespace AprVisual.Sim
             }
             PureLogicNodeCount = count;
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
-            LastFastPathStats = $"fast-path: {count:N0} pure-logic-gnd nodes classified ({pct:F1}% of {NonNullNodeCount:N0} live nodes) take the O(1) RecalcNode";
+            double dpct = NonNullNodeCount > 0 ? 100.0 * dynCount / NonNullNodeCount : 0;
+            LastFastPathStats = $"fast-path: {count:N0} static pure-logic ({pct:F1}%) + {dynCount:N0} dyn-singleton candidates ({dpct:F1}%) of {NonNullNodeCount:N0} live nodes";
         }
 
         /// <summary>

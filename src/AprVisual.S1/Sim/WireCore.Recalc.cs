@@ -110,8 +110,21 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
-            // Fast-path: pure-logic-gnd nodes resolve in O(1). IsPureLogic populated at Reset.
-            if (IsPureLogic[nn] != 0) { RecalcNodeFast(nn); return; }
+            // Fast-path dispatch (IsPureLogic populated at Reset):
+            //   1 = static pure-logic — group provably {nn}, O(1) RecalcNodeFast.
+            //   2 = R-1 dynamic-singleton candidate — has c1c2s channels but no excluded flags; if
+            //       every c1c2s gate is OFF this half-cycle the conducting group is exactly {nn}, so
+            //       RecalcNodeFast is bit-identical to ComputeNodeGroup({nn}). One ON gate ⇒ fall to BFS.
+            //   0 = must go through the BFS (callback / forceCompute / supply resolution).
+            byte cls = IsPureLogic[nn];
+            if (cls == 1) { RecalcNodeFast(nn); return; }
+            if (cls == 2)
+            {
+                ushort* p = TransistorList + NodeInfos[nn].TlistC1c2s;   // (gate, other, …, 0)
+                bool grows = false;
+                while (*p != 0) { if (NodeStates[*p] != 0) { grows = true; break; } p += 2; }
+                if (!grows) { RecalcNodeFast(nn); return; }
+            }
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 

@@ -73,7 +73,7 @@ S2-A 屬**實作層面**(只改資料擺放,不改演算法/結果)→ 依政策
 ## 還能疊加的(後續,**C# 為主**)
 
 1. **S2-B**:把 overflow(`Inline==0`)分支與冷路徑 `NoInlining` outline 出去,讓 96% 熱路徑迴圈更小、保 L1i(C# 小心別讓熱 cascade 失效)。
-2. **記憶體清除**(使用者要求):進 timed loop 前釋放 `_nodes`/`_transistors` 管理圖 + GC,計時無 GC pause、gen2 堆小。
+2. **記憶體清除(使用者要求)—— ✅ 已完成**。發現大頭本就存在:`ClearPostLoadBuildState()`(`LoadSystem` 內、計時迴圈前)已釋放 ~25–50MB(每節點 Gates/C1c2s、`_transistors`、JSON defs)+ compacting GC,且與計時起點之間無配置。新增 bench 專用 `ReleaseBenchResidualState()`(清最後殘留:name maps + Node 空殼)+ 計時前最終 GC barrier。bit-exact `0x794A43ABDF169ADA`、rate 82.2–82.8K **無退步**(中性 —— 熱資料是非託管、與管理堆分離,這是計時穩定性 hygiene 而非吞吐改變)。commit 見下。
 3. **變體 A/B**:目前「32B 含 fallback 索引、Payload[7]/96%」;可試 union 佈局把 Payload 擴到 13(98%)。
 
 (Rust 端後續優化另循 Rust 自己最佳路線,不跟 C# 綁。)

@@ -90,10 +90,10 @@
     <tr><td>perfect6502</td><td><span class="en">6502 NMOS netlist (C)</span><span class="zh">6502 NMOS netlist(C)</span></td><td><span class="en">~1/30 of 1MHz 6502 on a 2025 CPU</span><span class="zh">2025 CPU 上約 1MHz 6502 的 1/30</span></td><td class="mut">n/a (CPU only)</td></tr>
     <tr><td>Visual NES</td><td><span class="en">Visual 2A03 + 2C02 (C++/C#)</span><span class="zh">Visual 2A03 + 2C02(C++/C#)</span></td><td><span class="en">~1/1000 real NES; dual-chip ~5000Hz</span><span class="zh">~1/1000 實機;雙晶片 ~5000Hz</span></td><td>~30–60 s</td></tr>
     <tr><td>MetalNES</td><td><span class="en">full NES-001 board, transistor-level</span><span class="zh">完整 NES-001 主機板,電晶體級</span></td><td><span class="en">user/press reports, minutes/frame</span><span class="zh">使用者/媒體轉述,分鐘/frame</span></td><td>~1–2 min</td></tr>
-    <tr class="me"><td><b>AprVisual.S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>67.3K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>10.62 s</td></tr>
-    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>71.9K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>9.94 s</td></tr>
+    <tr class="me"><td><b>AprVisual.S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>78.0K hc/s</b> <span class="mut">(this machine, 300k hc, R-1)</span></td><td>9.17 s</td></tr>
+    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>78.1K hc/s</b> <span class="mut">(this machine, 300k hc, R-1)</span></td><td>9.15 s</td></tr>
   </table>
-  <p class="note"><span class="en">AprVisual figures are this machine's actual run (Ryzen 7 3700X, 300k half-cycles of <code>full_palette</code>). A stricter 200k interleaved-paired clean bench gives ~64K (C#) / ~69K (Rust) — same order, slightly more conservative.</span><span class="zh">AprVisual 數字為本機實測(Ryzen 7 3700X,<code>full_palette</code> 300k half-cycle)。更嚴格的 200k 交錯配對 clean bench 為 ~64K(C#)/ ~69K(Rust)—— 同量級、略保守。</span></p>
+  <p class="note"><span class="en">AprVisual figures are this machine's actual run (Ryzen 7 3700X, 300k half-cycles of <code>full_palette</code>), with the R-1 dynamic-singleton fast-path. A stricter 200k interleaved-paired clean bench gives ~77K (C#) / ~78K (Rust) — same order. (Before R-1 these were ~65K / ~69K; R-1 added +18.6% C# / +12.5% Rust.)</span><span class="zh">AprVisual 數字為本機實測(Ryzen 7 3700X,<code>full_palette</code> 300k half-cycle),含 R-1 動態 singleton fast-path。更嚴格的 200k 交錯配對 clean bench 為 ~77K(C#)/ ~78K(Rust)—— 同量級。(R-1 之前是 ~65K / ~69K;R-1 加了 C# +18.6% / Rust +12.5%。)</span></p>
 </section>
 
 <section>
@@ -146,8 +146,8 @@
   <p class="mut zh">大致是 ~1–2 分鐘/frame 等級 —— 與 Visual NES 的數十秒同量級,都印證了完整 NES 電晶體級軟體模擬在所有公開案例中都遠低於 realtime。</p>
 
   <h3>6. AprVisual.S1 / rust-s1 <span class="mut">— this project</span></h3>
-  <p class="en">A C# (<code>AprVisual.S1</code>) and Rust (<code>rust-s1</code>) switch-level NES core using pure node/transistor BFS — no IR, no codegen. On this machine (Ryzen 7 3700X), benchmarking 300,000 half-cycles of <code>full_palette</code>: <b>Rust 71,877 hc/s → 9.94 s/frame; C# 67,284 hc/s → 10.62 s/frame</b>, both producing the identical checksum <code>0x794A43A8DF169ADA</code>. That's ~600&times; short of NES NTSC real time (42,954,552 hc/s).</p>
-  <p class="zh">C#(<code>AprVisual.S1</code>)與 Rust(<code>rust-s1</code>)的開關級 NES 核心,純 node/transistor BFS —— 無 IR、無 codegen。在本機(Ryzen 7 3700X)測試 <code>full_palette</code> 300,000 個 half-cycle:<b>Rust 71,877 hc/s → 9.94 秒/frame;C# 67,284 hc/s → 10.62 秒/frame</b>,兩者 checksum 同為 <code>0x794A43A8DF169ADA</code>。離 NES NTSC 實機(42,954,552 hc/s)約 600 倍。</p>
+  <p class="en">A C# (<code>AprVisual.S1</code>) and Rust (<code>rust-s1</code>) switch-level NES core using pure node/transistor BFS — no IR, no codegen. On this machine (Ryzen 7 3700X), benchmarking 300,000 half-cycles of <code>full_palette</code>, with the R-1 dynamic-singleton fast-path: <b>Rust 78,143 hc/s → 9.15 s/frame; C# 77,969 hc/s → 9.17 s/frame</b>, both producing the identical checksum <code>0x794A43ABDF169ADA</code>. That's ~550&times; short of NES NTSC real time (42,954,552 hc/s) — R-1 lifted both engines ~+13–19% from the pre-R-1 ~67–72K.</p>
+  <p class="zh">C#(<code>AprVisual.S1</code>)與 Rust(<code>rust-s1</code>)的開關級 NES 核心,純 node/transistor BFS —— 無 IR、無 codegen。在本機(Ryzen 7 3700X)測試 <code>full_palette</code> 300,000 個 half-cycle,含 R-1 動態 singleton fast-path:<b>Rust 78,143 hc/s → 9.15 秒/frame;C# 77,969 hc/s → 9.17 秒/frame</b>,兩者 checksum 同為 <code>0x794A43ABDF169ADA</code>。離 NES NTSC 實機(42,954,552 hc/s)約 550 倍 —— R-1 把兩個引擎從 R-1 前的 ~67–72K 拉高約 +13–19%。</p>
   <p class="en">A throughput estimate (714,736 hc/frame) lines up with the measured frame-dump times. It does <b>not</b> mean every game already renders a correct, usable frame — correctness, timing and ROM coverage still need their own rigorous verification — but for the workloads tested, AprVisual already sits clearly above the public early figures for Visual NES and MetalNES (with the caveats that those are older hardware, often with tracing, and use different "frame" definitions).</p>
   <p class="zh">以 714,736 hc/frame 的 throughput 推算,與實測 frame-dump 時間吻合。這<b>不</b>代表每個遊戲都已正確生成一張可用畫面 —— correctness、timing、ROM 覆蓋仍需各自嚴格驗證 —— 但就測試過的工作負載而言,AprVisual 已明顯高於 Visual NES 與 MetalNES 的公開早期數字(但須注意那些是較舊硬體、常帶 tracing、且 frame 定義不同)。</p>
 </section>
@@ -160,7 +160,7 @@
     <tr><td><span class="en">improved JS / Python / old C</span><span class="zh">改良 JS / Python / 舊 C</span></td><td>Visual6502 expert / Python / C port</td><td class="r">55Hz – 1kHz (CPU-only)</td></tr>
     <tr><td><span class="en">early full-NES software transistor sim</span><span class="zh">早期完整 NES 軟體電晶體模擬</span></td><td>Visual NES / MetalNES</td><td class="r">~30 s – 2 min/frame</td></tr>
     <tr><td><span class="en">optimized 6502-only netlist</span><span class="zh">最佳化 6502-only netlist</span></td><td>perfect6502</td><td class="r">~1/30 realtime 6502</td></tr>
-    <tr class="me"><td><b>current AprVisual S1</b></td><td>C# / Rust pure BFS</td><td class="r"><b>~10 s/frame</b></td></tr>
+    <tr class="me"><td><b>current AprVisual S1</b></td><td>C# / Rust pure BFS (R-1)</td><td class="r"><b>~9 s/frame</b></td></tr>
     <tr><td><span class="en">FPGA netlist-derived</span><span class="zh">FPGA netlist 衍生</span></td><td>FPGA-netlist-tools</td><td class="r">1MHz realtime 6502</td></tr>
   </table>
 </section>
@@ -186,8 +186,8 @@
     <li class="zh">「公開案例中,完整 NES 電晶體級軟體模擬多落在每 frame 數十秒到數分鐘。」</li>
     <li class="en">"Visual NES's author reported ~5000Hz / ~1 frame/min for the combined 2A03+2C02 in 2017, ~7500Hz after data shrink + PGO."</li>
     <li class="zh">「Visual NES 作者 2017 年回報整合 2A03+2C02 約 5000Hz、約 1 frame/min;縮資料 + PGO 後約 7500Hz。」</li>
-    <li class="en">"AprVisual measures ~67K (C#) / ~72K (Rust) hc/s on a Ryzen 7 3700X ≈ ~10 s/frame, pending correctness/timing/frame-output verification."</li>
-    <li class="zh">「AprVisual 在 Ryzen 7 3700X 上量到 ~67K(C#)/ ~72K(Rust)hc/s ≈ ~10 秒/frame,仍待 correctness/timing/frame-output 驗證。」</li>
+    <li class="en">"AprVisual measures ~78K (C#) / ~78K (Rust) hc/s on a Ryzen 7 3700X ≈ ~9 s/frame (with the R-1 dynamic-singleton fast-path), pending correctness/timing/frame-output verification."</li>
+    <li class="zh">「AprVisual 在 Ryzen 7 3700X 上量到 ~78K(C#)/ ~78K(Rust)hc/s ≈ ~9 秒/frame(含 R-1 動態 singleton fast-path),仍待 correctness/timing/frame-output 驗證。」</li>
   </ul>
   <p class="note"><span class="en"><b>Avoid:</b> claiming "all netlist NES emulators can only do minutes/frame" (AprVisual and Visual NES beat 1 min); quoting "MetalNES official benchmark = 2 frames/3 min" (that's user/press, not a README benchmark); saying "perfect6502 can render an NES frame in 0.9 s" (it's CPU-only); or equating Visual NES's Hz with AprVisual's hc/s (different step definitions).</span><span class="zh"><b>避免:</b>說「所有 netlist NES 模擬器都只能分鐘/frame」(AprVisual 與 Visual NES 已低於 1 分鐘);引用「MetalNES 官方 benchmark = 2 frames/3 min」(那是使用者/媒體,不是 README benchmark);說「perfect6502 可 0.9 秒生成 NES frame」(它是 CPU-only);或把 Visual NES 的 Hz 直接等同 AprVisual 的 hc/s(step 定義不同)。</span></p>
 </section>

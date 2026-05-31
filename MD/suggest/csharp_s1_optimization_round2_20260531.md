@@ -59,9 +59,19 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 - **通過條件**:interleaved median + trimmed-mean 都 > 0 **且** checksum 一致。
 - 風險:低(純建構,不改一行邏輯)。
 
-### R2 — supply-short 常數摺疊 + 死電晶體串級  〔lowering〕  ➖ measured-moot,不實作 (2026-05-31)
-**Step 0 實測殘餘(`--lower-diag` 暫時碼,已 revert)**:**84** supply-short nodes、其中 **56** provably-const、cascade 僅 **84** gated-transistors。
-→ 最樂觀只摺 56/14,681 = **0.38%** node、影響 84/26,726 = **0.31%** transistor;且 56 個常數 node **本來就永不 toggle → 永不 re-enqueue**(runtime 早已 inert),真正能省的 84 個電晶體**全由常數驅動 = 冷路徑**。與 dead-end-skip 同一面牆(殘餘 <1% 且冷),A/B 必被噪音吃掉或淨負 → **依協定不實作**。
+### R2 — supply-short 常數摺疊 + 死電晶體串級  〔lowering〕  ❌ 實作並實測:drop 破壞 bit-exact + 零效能上界,不採用 (2026-05-31 二次)
+> 應使用者要求「真的實作測一次,微小正面就採用」。從「預測 moot」**升級為實作+實測**。
+
+**實作方式**:在 `LowerNetlist` 前置 pass,把「只被強 always-on(`gate==Npwr` non-weak)短路到單一 supply、無其他 channel」的 const node 所 **gate 的電晶體** 改寫 gate→該 supply(const-high→Npwr、const-low→Ngnd),再交給現有 merge/drop。理論上 runtime 等價。實測殘餘 = **56 const nodes / 84 gated-transistors**(同 Step 0 診斷)。
+
+**bisect 結果**:
+- **merge-only(const-high→Npwr,2 個):bit-exact ✓ 但 no-op** —— 那 2 個改寫後淨值與 base 完全相同(merged 413 / dropped 502 不變),零縮減。
+- **drop(const-low→Ngnd,82 個):破壞 bit-exact ❌**(checksum `0x68FB…` ≠ base `0x02D4…`)。
+  - **根因**:dropping 死電晶體會降低 node 的 `cap = C1c2s.Count + Gates.Count`(= NodeConnections),而那是 **floating tie-break「最大電容者勝」** 的依據。原引擎裡死電晶體雖永不導通,仍被算進電容。**這正是 dead-end #8(stub-removal)同一個坑** —— 這次是親手實作再次撞到。
+
+**效能上界(用不正確的 full-drop 版當上限,30 對 interleaved)**:median **−0.21%** / 配對 **14/30(擲硬幣)** / mean −0.95%。**連最大化縮減版都沒有任何正向 signal** —— 掉的電晶體是冷的、自動新增的 29 個 fast-path node 也 recalc 不夠頻繁。
+
+**結論**:R2 無法「又正確又有益」—— 有益的部分(drop)不正確(且修正需保留 NodeConnections,繁複又踩 #8),正確的部分(merge)是 no-op,而且效能上界本來就是 0/負。**不採用。**
 <details><summary>原始設計(保留參考)</summary>
 延伸 `Lower.cs`:一個 normal node N 若被**強(non-weak)always-on device 連到 supply**,且**沒有任何可能把它拉向另一極的 channel**,則 N 可證明為常數(vcc→恆 1 / vss→恆 0)。
 - 摺疊後串級:由常數 node 當 gate 的電晶體 → 恆通(merge)或恆斷(drop);迭代到 fixpoint。
@@ -71,8 +81,10 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 - 風險:中(證明要嚴謹)。
 </details>
 
-### R3 — dead-gate channel 的 fast-path 擴大  〔fast-path × lowering〕  ➖ moot(依賴 R2),不實作 (2026-05-31)
-依賴 R2 找出的常數-OFF 集合,而該集合只在那 84 個 cascade 電晶體裡(其中還只有 const-OFF 子集)。一個 node 要因此變 fast-path 須**全部** c1c2s channel 都經 const-OFF gate —— 在這麼小的集合下幾乎不可能(預估 0–數個)。yield ≈ 0 → 不實作。
+### R3 — dead-gate channel 的 fast-path 擴大  〔fast-path × lowering〕  ❌ 實測:+29 node 但零效能,不採用 (2026-05-31 二次)
+R3 被 R2 的 drop **自動涵蓋**:drop 掉 const-low-gated 死電晶體後,c1c2s 全歸零的 node 直接被現有 `ClassifyPureLogicNodes`(查 `TlistC1c2s==0`)收編。實測 fast-path **3,895 → 3,924(+29,26.5%→26.7%)**。
+但 R2 的效能上界 A/B **已經含這 +29 個 fast-path node** → 結果 median −0.21% / 擲硬幣 → **這 29 個 node recalc 不夠頻繁,貢獻 ≈ 0**。
+若要 bit-exact 取得 R3(不 drop、改在 classify 端認「c1c2s 全為 const-low-gated」),yield 仍是同一批 29 個 node、效能仍 ≈ 0,還多一份 classify 複雜度 → **不值得,不採用。**
 <details><summary>原始設計(保留參考)</summary>
 有些 node 有 c1c2s channel,但這些 channel 全部經過「gate 為常數-OFF」的電晶體 → 永不導通 → group 永遠長不出去 → 其實可走 fast-path(即使 `TlistC1c2s != 0`)。
 - 依賴 R2 找出的常數-OFF 集合。量「因此新增可 fast-path」的 node 數;若顯著就放寬 `ClassifyPureLogicNodes`。
@@ -117,7 +129,7 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 每條:① 量 baseline → ② 實作 → ③ interleaved-paired A/B(24 輪 / 200k hc / full_palette,median + trimmed-mean(20%) + 配對勝場)→ ④ checksum 正確性 → ⑤ **只有「效能有幫助 + 正確無誤」才採用、更新本檔狀態、commit+push** → ⑥ 下一條。失敗則 revert + 記錄 + 續下一條。
 
 ## 一句話(本輪假設,已被 §實測 部分確認)
-原本最看好「可能真的減少計算量」的 R2/R3 —— 實測殘餘 < 1% 且冷,如預期被天花板壓死。
+原本最看好「可能真的減少計算量」的 R2/R3 —— 二次**實作並實測**:R2 的 drop 破壞 bit-exact(撞 dead-end #8 的 tie-break 電容),且效能上界本來就是 0/負;R3 自動 +29 fast-path node 但貢獻 ≈ 0。如預期被天花板壓死,但這次是親手驗證,不是預測。
 反而是被我預判「邊際/≤0」的 **R4(OR-all branchless)** 成了本輪唯一的 win(~+0.4%)。教訓再次成立:**減成本會贏、加成本會輸**,而 R4 是唯一減成本的那條。
 
 ## 結果總結(2026-05-31,全部試畢)
@@ -125,11 +137,11 @@ NativeAOT bit-exact 正確,但**慢 ~5.5%** —— 正是預測的「AOT 放棄 
 | 候選 | 類別 | 結果 | 數字 |
 |---|---|---|---|
 | R1 NativeAOT | build | ❌ 不採用 | −5.39% median / −5.58% trim / 0-of-20;bit-exact。**已在 net10,AOT 丟 PGO 更慢** |
-| R2 supply-short 常數摺疊 | lowering | ➖ measured-moot | 殘餘 84/56/84 = <0.4% 且冷 → 不實作 |
-| R3 dead-gate fast-path 擴大 | fast-path×lowering | ➖ moot | 依賴 R2 的微小集合 → yield≈0 → 不實作 |
+| R2 supply-short 常數摺疊 | lowering | ❌ 實作並實測 | drop 破 bit-exact(tie-break 電容=dead-end #8);merge 部分 no-op;效能上界 −0.21%/擲硬幣 → 不採用 |
+| R3 dead-gate fast-path 擴大 | fast-path×lowering | ❌ 實測 | 被 R2 drop 自動 +29 node,但效能上界已含、貢獻≈0 → 不採用 |
 | **R4 OR-all branchless** | fast-path | ✅ **採用** | **+0.79% mean / 39-of-60 配對(p≈0.01)**;bit-exact |
 
-**淨結果**:fast-path 拿到一個小但確認的 win(R4,~+0.4%);lowering **沒有**剩餘的安全壓縮空間(R2/R3 殘餘 <1% 且冷);**.NET 建構已最佳(net10 + JIT + DynamicPGO),NativeAOT 反而慢 5.5%**。
+**淨結果**:fast-path 拿到一個小但確認的 win(R4,~+0.6% C# / Rust −3.2% 拒絕);lowering **沒有**剩餘的安全壓縮空間(R2/R3 二次親手實作實測:drop 破 bit-exact=dead-end #8、效能上界 0/負);**.NET 建構已最佳(net10 + JIT + DynamicPGO),NativeAOT 反而慢 5.5%**。
 回答使用者三問:fast-path 還有一點(R4 已收)、lowering 基本到頂、改 .NET10 建構模式(AOT)不會更快。後續若要再榨,得換架構(IR/AOT 已證更慢)或更快單核。
 **R4 跨平台定論**:**C# +0.6%(採用)/ Rust −3.2%(拒絕)** —— 又一個 JIT/LLVM 反號案例。Rust 維持 baseline。
 **待辦**:採用 R4(C#)後 `AprVisualBenchMark/` 內打包的 C# binary 已過時,如需對外比較再重打包。

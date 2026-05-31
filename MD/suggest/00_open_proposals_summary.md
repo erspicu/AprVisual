@@ -1,0 +1,88 @@
+# suggest/ 總摘要 — 待測試清單 / 參考清單 / 封存索引
+
+> **這個檔的用途**:`suggest/` 以前累積很多 LIST / review / gemini 問答檔,變得混亂。現在規則:
+> - **本檔** = 唯一「活的」清單。提過、但**還沒確認(沒實測結論)的建議方案**,依規模分兩類:
+>   - **§1 待測試清單** = **小型消改**(改動小、可快速 interleaved A/B 的)。
+>   - **§2 參考清單** = **大型結構重構**(改動大/風險高/borderline-IR,留作參考,不主動排測)。
+> - **§3** = 曾出現在建議裡、但**已測過視為 dead** 的(列出來避免重提)。
+> - **§4 + `old/`** = 已完整結案的歷史檔(含 gemini 問答原始紀錄),細節去 `old/` 翻。
+>
+> 最後更新:2026-05-31。用 `hotpath-ceiling-and-antipatterns` 等記憶交叉比對 —— 很多「某檔沒記結論」的項目其實在別處測過了,已歸到 §3 或 §4。
+
+---
+
+## 重要前提(先看再看清單)
+
+S1 熱路徑經多輪實測已在**天花板**:C# ~65.7K / Rust ~70.1K hc/s(full_palette 200k);realistic ceiling C# 72-75K / Rust 78-82K。**real-time(42.95M hc/s)在現行 event-driven BFS 架構下不可達**,要突破得換架構(IR/AOT — 已證更慢)或更快單核。
+所以下面**絕大多數預期 ≤1% 或負**;列出只代表「還沒親手測過」,不代表有希望。
+
+通用教訓(提新點子先核對):
+1. **減成本才贏、加成本必輸** —— ~121M 次/200k-hc 的熱迴圈加任何 per-call 工作(load/branch/shift/prefetch)都淨負。唯一 win R4 是**移除**一個分支。
+2. **C#/JIT 與 Rust/LLVM 常反號** —— 同一改動各自實測(R4:+0.6% C# / −3.2% Rust)。
+3. **netlist 摺疊踩 floating tie-break 電容(dead-end #8)** —— drop/merge 改變 node 的 `C1c2s.Count+Gates.Count` 會 silently 破 checksum(R2、stub-removal、prune-merge 都中)。
+4. **sub-2% 必用 interleaved-paired**(交替 base/exp + 配對勝場 + 中位數);batched 會偽造方向(R4 舊 batched −3.07% 是錯號)。
+
+---
+
+## §1 待測試清單(小型消改,還沒測過 → 可排隊 A/B)
+
+| # | 提案 | 一句話 | 來源 | 預測 / caveat |
+|---|---|---|---|---|
+| T1 | **Gate-probability sub-list 排序** | setup 時把 `TlistC1gnd/pwr/c1c2s` 子串依「該 gate 最常 ON」排序,讓 early-break 更早中 | netlist_non_ir P2、hotpath_LIST_0529 #I | 小(+0–1%)。**C# fast-path 已 OR-all(R4)無 early-break → 對 C# fast-path 無效**;只可能幫 **BFS 主路徑 + Rust(仍 early-break)**。≠ RCM(那是 cache renumber,已 dead)。**真未測** → 對 Rust/BFS-path 做一次 A/B。 |
+| T2 | **Rust `group_buf` Vec<u16>** | 群組緩衝 i32→u16,58KB→29KB | RustS1 P1 | footprint 已夠用,預期噪音;但改動小、可一試(只 Rust)。 |
+| T3 | **Non-temporal framebuffer store** | pixel 寫入用 streaming store,不污染 L1 | netlist_non_ir P3、Phase G | pixel write 分散 + GDI 端很快讀回 → 預期噪音;改動小可快測。 |
+| T4 | **Memory handler ROM/RAM body 特化** | ROM/RAM 分開 code path(captured byte[]+mask) | Sim_followup、RustS1 | handler 200k hc 只觸發 **5 次**(冷)→ 預期 moot,但改動小。低優先。 |
+
+> 老實說:T1 是這四條裡唯一可能擠出 >0 的(且只在 Rust/BFS-path);T2–T4 預期都是噪音,排在 T1 之後。
+
+---
+
+## §2 參考清單(大型結構重構 — 風險高/borderline-IR,留參考,不主動排測)
+
+| # | 提案 | 一句話 | 來源 | 為何「大」+ 評估 |
+|---|---|---|---|---|
+| R-1 | **Dynamic-singleton fast-path** | 對「本 half-cycle 剛好所有 pass-transistor 都 off」的 node(動態 ~51.5%)走 O(1) | 記憶 2026-05-30 future avenue | 改熱迴圈 dispatch。**唯一可能高報酬**,但 ① 加熱迴圈分支(anti-pattern #2)② floating hold-previous 極易 subtly 錯(dead-end #8 類)。要做必須 per-engine bit-exact 實測。 |
+| R-2 | **Clock-phase partitioning** | 依時鐘相位把 edges 分段,runtime 依相位整段 skip | netlist_non_ir P2、gemini Q3 | 改 BFS 掃描結構 + 需正確辨識 clock 語意。Gemini 原預測 +15-30%,但實測 clock Wave-0 工作佔比 **<1%** → ROI 上界 <1%;borderline-IR + 正確性風險。 |
+| R-3 | **Warm-up constant propagation** | warm-up 跑出長期不變 node,當常數重新 lowering | netlist_non_ir P3 | netlist 重構。R2(2026-05-31)已證 static const-fold 破 tie-break(#8)+ 效能上界 0;warm-up 版更危險、同零上界。 |
+| R-4 | **Long-list SIMD / bitset mirror(len>16)** | 對長 gate list 走 SIMD gather 或 ulong bitset | gemini Q2、netlist_non_ir、#I3 | 加平行資料結構。small-N SIMD = anti-pattern #3;walk 平均 1.4 node;bitset-BFS 實測 156× 慢。長串子集罕見。 |
+| R-5 | **Per-handler dirty-set lookup** | 預算每個 handler 寫入後會 dirty 的 node 集合,查表取代 settle | gemini Q4 | 改 settle 流程。Gemini 預測 +5-10%,但 handler 冷(5×/200k)→ 真實 ROI ≈ 0。 |
+| R-6 | **Rust fixed-width bus / video fixed arrays** | bus/video node 改 `Bus16`/`[u16;9]` 等定長結構 | RustS1 P2 | 改資料結構、侵入性高;footprint 已夠 → 預期噪音。 |
+
+> §2 排序即優先序:真要動,R-1 最有想像空間(但最危險);R-2~R-6 預期 ≤1% 或 moot。
+
+---
+
+## §3 曾被建議、但已測過視為 dead(別重提)
+
+| 提案(別名) | 實測結果 |
+|---|---|
+| Macro-node / 串聯 stack compound edge(= prune-merge) | 破 PPU(full_palette frame 48 黑屏)+ 淨負 |
+| Hypergraph / cache-line-aware renumber(= RCM) | −3-4% |
+| Software prefetch(NodeInfo/NodeStates) | N2(2026-05-31)−1.5%;NodeStates 已 L1d-resident |
+| in_group generation counter | #H2 u16 −3.93% / Rust byte −1.65% |
+| Branchless AddNodeToGroup(BFS 主路徑) | Phase C/E −19% / −37% |
+| Rust raw pointer iteration | −1.57% |
+| netlist_non_ir P0 四條 | 全測過:loop-unswitch=#G2 採用、enqueue+shield=Rust Phase A +1.63%/C# −2.15%、**OR-all=R4 +0.6% C#/−3.2% Rust**、ReadBits=#G1 +0.29% |
+
+---
+
+## §4 封存索引(`old/`)
+
+全部已完整結案 / 歷史問答原始檔。細節數據進去翻。
+
+| 檔名(在 `old/`) | 類型 | 結論摘要 |
+|---|---|---|
+| `csharp_s1_optimization_analysis_20260531.md` | 結案 LIST | N1–N7 全 ≤0,無採用。 |
+| `csharp_s1_optimization_round2_20260531.md` | 結案 LIST | R1 AOT −5.5%、R2/R3 摺疊破 bit-exact+零上界、**R4 OR-all +0.6% C# / −3.2% Rust**。 |
+| `fastpath_lowering_strategy_review_20260530.md` | 結案 review | fast-path/lowering 分布數據;Gemini 6 提案全已做/dead/<1%。 |
+| `hotpath_review_LIST_2026-05-28.md` | 結案 LIST | #01–#08 + P2/P3,採用數項(NodeConnections 延後讀 +12.3% 等)。 |
+| `hotpath_review_LIST_2026-05-29.md` | 結案 LIST(主進度) | #G/#H/#I + Phase A–F;#G2 採用,多數 reverted;#I 區 P2 已併入本摘要。 |
+| `Sim_hotpath_efficiency_suggestions_2026-05-28.md` | 結案建議 | C# 12 提案 P0–P3,各有結論。 |
+| `Sim_hotpath_followup_suggestions_2026-05-29.md` | 建議(open 已併入 §1/§2) | followup 5 提案;SetNodeState split=#G2 採用。 |
+| `RustS1_hotpath_suggestions_2026-05-29.md` | 建議(open 已併入 §1/§2) | Rust 10 提案;多數已測。 |
+| `gemini_query_2026-05-29.md` | 歷史問答 | 送 Gemini 的 Q1–Q6 prompt。 |
+| `gemini_query_round2_2026-05-29.md` | 歷史問答 | round2 prompt(附實測回饋)。 |
+| `gemini_reply_2026-05-29.md` | 歷史問答 | Gemini Q1–Q6 原始回覆。 |
+| `gemini_reply_round2_2026-05-29.md` | 歷史問答 | Gemini 修正版 + 5 anti-patterns + ceiling。 |
+| `gemini_recommended_LIST_2026-05-29.md` | 結案 LIST(open 已併入 §1/§2) | Gemini 建議彙整 + 測試矩陣。 |
+| `netlist_non_ir_optimization_review_20260529.md` | review(open 已併入 §1/§2) | P0–P3 非-IR 框架;P0 已全測,P2/P3 多歸 §2/§3。 |

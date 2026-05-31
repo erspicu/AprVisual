@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — research landscape: where switch-level simulation acceleration stands</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  td.r,th.r{text-align:right;}
+  tr.me td{background:#16222e;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagY{color:var(--acc2); font-weight:700;} .tagN{color:#ff7676; font-weight:700;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">The research landscape — has the algorithm ceiling been reached?</span><span class="zh">研究現況 —— 演算法天花板是不是已經到了?</span></h1>
+  <p class="sub en">What we studied about the state of the art in accelerating switch-level / event-driven logic simulation: where each idea actually peaked, what the last 20 years really delivered, and the honest conclusion about how much room is left.</p>
+  <p class="sub zh">我們對「開關級 / event-driven 邏輯模擬加速」現況的研究整理:每個想法實際在哪個年代成熟、近 20 年到底帶來了什麼、以及「還剩多少空間」的誠實結論。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The short version</span><span class="zh">先講結論</span></h2>
+  <div class="big">
+    <p class="en"><b>For our regime — single-core, event-driven, switch-level, extremely low activity (~1.4 nodes resolved per event) — the algorithmic research space looks close to its ceiling.</b> The two strategy families we rely on (structural reduction and common-case fast-pathing) matured between the 1980s and the mid-2000s, and the last ~20 years brought <b>no disruptive algorithmic breakthrough</b> in this specific niche. The gains since then are <b>systems / data-oriented engineering</b>, not new algorithms.</p>
+    <p class="zh"><b>就我們這個情境而言 —— 單核、event-driven、開關級、極低 activity(平均每個 event 只解析 ~1.4 個節點)—— 演算法研究空間看起來已接近天花板。</b>我們倚賴的兩條策略(結構化簡、common-case fast-path)在 1980s 到 2000s 中期就成熟了,近 20 年在這個特定利基<b>沒有顛覆性的演算法突破</b>。此後的進步是<b>系統 / 資料導向的工程</b>,不是新演算法。</p>
+  </div>
+  <p class="en">So short-term, the realistic lever is not "find a smarter graph algorithm" — it's to <b>validate the classic methods on a real, full netlist, and compose the combination that actually runs fastest on real hardware</b>. That is exactly where this project puts its effort, and where it claims its (modest, honest) value.</p>
+  <p class="zh">所以短期內,務實的槓桿不是「找一個更聰明的圖論演算法」,而是<b>把這些經典方法在一顆真實、完整的網表上驗證,並組合出在真實硬體上實際跑最快的搭配</b>。這正是本專案投入的地方,也是它(謙遜而誠實的)價值所在。</p>
+  <p class="note en"><b>One honest caveat about this very conclusion:</b> "the ceiling is reached" is a claim we (and an external LLM we consulted) made about our <i>own</i> engine once before — and then <b>R-1</b> beat it by +18% by <i>measuring</i> rather than assuming. So read "near the ceiling" as "no <i>known</i> algorithm left to copy from the literature", not "physically impossible to improve". The two are very different.</p>
+  <p class="note zh"><b>對這個結論本身的一個誠實但書:</b>「天花板到了」這句話,我們(以及我們諮詢的外部 LLM)曾對自己的引擎講過一次 —— 然後 <b>R-1</b> 靠<i>實測</i>而非假設,把它打破 +18%。所以「接近天花板」要理解成「<i>文獻上</i>沒有現成可抄的新演算法」,而不是「物理上不可能再快」。這兩者差很多。</p>
+</section>
+
+<section>
+  <h2><span class="en">The two families, in academic terms</span><span class="zh">用學術詞彙講這兩條策略</span></h2>
+  <p class="en">We use two engineering names; here is what they map to in the literature, so an academic reader can connect them to existing work.</p>
+  <p class="zh">我們用兩個工程名稱;以下是它們在文獻中的對應,讓學術背景的讀者能接回既有研究。</p>
+  <table>
+    <tr><th><span class="en">Our name</span><span class="zh">我們的稱呼</span></th><th><span class="en">Academic / EDA equivalent</span><span class="zh">學術 / EDA 對應</span></th></tr>
+    <tr><td><b>lowering</b><br><span class="mut en">(pre-simulation netlist simplification)</span><span class="mut zh">(模擬前的網表化簡)</span></td>
+        <td><span class="en"><b>Logic-network structural reduction:</b> constant propagation / folding, dead-gate (constant-driven) elimination, structural hashing (strashing), AIG rewriting &amp; balancing, SAT-sweeping / functional node merging.</span><span class="zh"><b>邏輯網路結構化簡:</b>常數傳播 / 摺疊、死閘(被常數驅動)消除、structural hashing(strashing)、AIG rewriting 與 balancing、SAT-sweeping / 函式等價節點合併。</span></td></tr>
+    <tr><td><b>fast-path</b><br><span class="mut en">(run-time common-case specialization)</span><span class="mut zh">(執行期 common-case 特化)</span></td>
+        <td><span class="en"><b>Event-driven common-case specialization:</b> selective-trace, activity-directed simulation, event filtering / activity bypass — recognizing the cheap case (a single-node resolve / a group that won't grow) and skipping the general group-resolution machinery.</span><span class="zh"><b>event-driven common-case 特化:</b>selective-trace、activity-directed simulation、event filtering / activity bypass —— 辨識便宜情況(只解析單節點 / group 不會擴張),跳過通用 group-resolution。</span></td></tr>
+  </table>
+  <p class="mut en">The underlying simulation model is Bryant's switch-level model; the strategy taxonomy (event-driven vs levelized vs oblivious / compiled) is textbook. We borrow compiler ("lowering") and systems ("fast-path") vocabulary — the equivalent EDA techniques are all classic.</p>
+  <p class="mut zh">底層模擬模型是 Bryant 的開關級模型;策略分類(event-driven 對 levelized 對 oblivious / compiled)是教科書級。我們借用編譯器(lowering)與系統(fast-path)的詞彙 —— 對應的 EDA 技術都是經典。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where each idea actually peaked — a 40-year timeline</span><span class="zh">每個想法實際在哪一年成熟 —— 40 年時間軸</span></h2>
+  <p class="en">The telling pattern: the load-bearing algorithmic ideas all date from <b>1981–2006</b>. After that, the data-structure work (MIG, 2014) is real but doesn't help low-activity simulation, and everything else is engineering.</p>
+  <p class="zh">關鍵在於:撐起這領域的演算法想法,全部出自 <b>1981–2006</b>。之後的資料結構工作(MIG,2014)是真的,但對低-activity 模擬沒幫助,其餘都是工程。</p>
+  <table>
+    <tr><th><span class="en">Year</span><span class="zh">年份</span></th><th><span class="en">Milestone</span><span class="zh">里程碑</span></th><th><span class="en">Still the state of the art for us?</span><span class="zh">對我們仍是最先進?</span></th></tr>
+    <tr><td>~1981–84</td><td><span class="en">Bryant — switch-level model &amp; MOSSIM (the model we simulate)</span><span class="zh">Bryant —— 開關級模型與 MOSSIM(我們模擬的就是這個模型)</span></td><td><span class="tagY">✓</span> <span class="en">foundational</span><span class="zh">地基</span></td></tr>
+    <tr><td>~1980s</td><td><span class="en">Ulrich et al. — selective-trace / activity-directed event-driven simulation</span><span class="zh">Ulrich 等 —— selective-trace / activity-directed event-driven 模擬</span></td><td><span class="tagY">✓</span> <span class="en">our "fast-path" is this</span><span class="zh">我們的 fast-path 就是這個</span></td></tr>
+    <tr><td>1987</td><td><span class="en">COSMOS (Bryant et al.) — symbolic switch-level analysis: statically extract channel-connected components (CCC) into Boolean / BDD</span><span class="zh">COSMOS(Bryant 等)—— 符號化開關級分析:把 channel-connected component(CCC)靜態提取成 Boolean / BDD</span></td><td><span class="mut">~</span> <span class="en">the "static extraction" idea; we tested its modern form (IR/codegen) — slower for us</span><span class="zh">「靜態提取」的想法;我們測過它的現代版(IR/codegen)—— 對我們更慢</span></td></tr>
+    <tr><td>2006</td><td><span class="en">Berkeley ABC — DAG-aware AIG rewriting (Mishchenko et al.) + SAT-sweeping</span><span class="zh">Berkeley ABC —— DAG-aware AIG rewriting(Mishchenko 等)+ SAT-sweeping</span></td><td><span class="tagY">✓</span> <span class="en">still the structural-reduction champion</span><span class="zh">至今仍是結構化簡霸主</span></td></tr>
+    <tr><td>2014</td><td><span class="en">MIG — Majority-Inverter Graph (Amarù, Gaillardon, De Micheli, EPFL)</span><span class="zh">MIG —— Majority-Inverter Graph(Amarù、Gaillardon、De Micheli,EPFL)</span></td><td><span class="tagN">✗</span> <span class="en">great for synthesis/depth; hurts a bidirectional pass-transistor sim</span><span class="zh">對合成/深度很好;對雙向 pass-transistor 模擬反而有害</span></td></tr>
+    <tr><td>2005–2025</td><td><span class="en">Everything that actually got faster: cache-conscious / data-oriented layout (SoA), flat double-buffered event arrays, SIMD bit-parallel, devirtualization</span><span class="zh">真正變快的全部:cache-conscious / 資料導向佈局(SoA)、扁平雙緩衝事件陣列、SIMD bit-parallel、去虛擬化</span></td><td><span class="tagY">✓</span> <span class="en"><b>engineering, not algorithm</b></span><span class="zh"><b>工程,不是演算法</b></span></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">What the last 20 years actually delivered (and what's hype)</span><span class="zh">近 20 年真正帶來了什麼(以及什麼是炒作)</span></h2>
+  <h3><span class="en">Real, effective — but engineering / systems, not new algorithms</span><span class="zh">真實有效 —— 但是工程 / 系統,不是新演算法</span></h3>
+  <ul>
+    <li><span class="tagY">✓</span> <b><span class="en">Data-oriented layout</span><span class="zh">資料導向佈局</span></b> — <span class="en">SoA, byte/ushort fields, packing the hot record into a cache line, contiguous fan-out lists. When activity is ~1.4, the bottleneck is L1/L2 cache misses and branch mispredicts — not algorithmic complexity. This is the single biggest single-core lever (and where our own +12% came from).</span><span class="zh">SoA、byte/ushort 欄位、把熱記錄壓進一條 cache line、連續的 fan-out 列表。activity ~1.4 時,瓶頸是 L1/L2 cache miss 與分支誤判,不是演算法複雜度。這是單核最大的槓桿(我們自己的 +12% 也來自這)。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Flat double-buffered event arrays</span><span class="zh">扁平雙緩衝事件陣列</span></b> — <span class="en">drop priority queues / calendar wheels for zero/unit-delay; just a current + next array, scanned linearly. We already do this.</span><span class="zh">在零/單位延遲下拋棄 priority queue / calendar wheel;只用 current + next 陣列、線性掃描。我們已經這樣做。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Compiler-baseline awareness</span><span class="zh">編譯器 baseline 意識</span></b> — <span class="en">devirtualization / making the hot branch 100% predictable; and the finding that the same change can be +C# / −Rust. Measured per engine, never assumed.</span><span class="zh">去虛擬化 / 讓熱分支 100% 可預測;以及「同一改動可能 +C# / −Rust」的發現。逐引擎實測,從不假設。</span></li>
+  </ul>
+  <h3><span class="en">Looks clever on paper, loses in practice (for low activity)</span><span class="zh">紙上漂亮、實務上輸(對低 activity)</span></h3>
+  <ul>
+    <li><span class="tagN">✗</span> <b><span class="en">ML-directed event prediction (GNN/RNN)</span><span class="zh">ML 預測事件(GNN/RNN)</span></b> — <span class="en">inference overhead dwarfs a 1.4-node BFS by orders of magnitude.</span><span class="zh">推論成本比一次 1.4 節點的 BFS 高出好幾個數量級。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Fancy schedulers (splay/heap/calendar queues)</span><span class="zh">花俏排程器(splay/heap/calendar queue)</span></b> — <span class="en">balancing overhead beats a plain array.</span><span class="zh">維持平衡的成本大於直接用陣列。</span></li>
+    <li><span class="tagN">✗</span> <b><span class="en">Parallel / GPU / FPGA / RTL-compile</span><span class="zh">平行 / GPU / FPGA / RTL-compile</span></b> — <span class="en">these are the real frontier <i>for other regimes</i> (huge designs, high activity, many instances) — but for a single low-activity instance they lose: we measured per-chip threading ~15× slower, bit-parallel BFS ~156× slower, and batch AOT/codegen 3–6× slower (it re-evaluates ~14,700 nodes when only hundreds changed).</span><span class="zh">這些在<i>別的情境</i>(超大設計、高 activity、多實例)才是真正前沿 —— 但對單一低-activity 實例會輸:我們實測逐晶片多執行緒慢 ~15×、bit-parallel BFS 慢 ~156×、批次 AOT/codegen 慢 3–6×(只有幾百個節點變動,它卻重算 ~14,700 個)。</span></li>
+  </ul>
+  <p class="note en"><b>The important nuance:</b> the field <i>did</i> advance 2005–2025 — but in the directions we deliberately excluded (parallelism, GPU, hardware emulation, compiled cycle-based simulation à la Verilator). Those win for big/high-activity/many-instance workloads. For one low-activity NES on one core, they don't — which is exactly why "no breakthrough" is true <i>for us</i>, not for the field at large.</p>
+  <p class="note zh"><b>重要的細微差別:</b>這領域 2005–2025 <i>確實</i>有進步 —— 但都在我們刻意排除的方向(平行、GPU、硬體模擬、Verilator 式編譯 cycle-based 模擬)。那些對大型/高-activity/多實例工作負載會贏。對「單核、單顆、低-activity 的 NES」不會 —— 這正是為什麼「沒有突破」對<i>我們</i>成立,而非對整個領域成立。</p>
+</section>
+
+<section>
+  <h2><span class="en">How we checked this</span><span class="zh">我們怎麼查證的</span></h2>
+  <p class="en">This summary isn't one person's opinion. It triangulates three sources: (1) our own ~3-week optimization campaign and its documented dead-end catalogue; (2) two independent queries to a frontier LLM (Gemini 3.1 Pro), framed in strict academic vocabulary and asked to honestly separate "genuinely effective" from "paper-elegant"; and (3) verification of the specific citations the LLM returned.</p>
+  <p class="zh">這份整理不是一個人的意見,而是三方交叉比對:(1) 我們自己約三週的優化實驗與其記錄的死路清單;(2) 兩次獨立詢問前沿 LLM(Gemini 3.1 Pro),用嚴格學術詞彙提問、並要求誠實區分「真正有效」與「紙上漂亮」;(3) 對 LLM 回傳的具體 cite 逐一查證。</p>
+  <p class="en"><b>On verification — important:</b> the two LLM runs agreed on the conclusion and on the load-bearing citations (MIG 2014, ABC/AIG rewriting 2006, COSMOS 1987, selective-trace). We confirmed those independently. We also caught the LLM returning <b>one citation that does not exist</b> (a plausible-looking "cache-efficient simulator" paper that no database has) — so it was dropped. We only list references we could verify. (This is the same "measure / verify, don't assume" discipline the whole project runs on.)</p>
+  <p class="zh"><b>關於查證 —— 重要:</b>兩次 LLM 回答在結論與關鍵 cite(MIG 2014、ABC/AIG rewriting 2006、COSMOS 1987、selective-trace)上一致,我們也獨立確認了。同時我們也抓到 LLM 回傳了<b>一個並不存在的 cite</b>(一篇看起來很合理、但任何資料庫都查不到的「cache-efficient simulator」論文)—— 所以把它剔除了。本頁只列出我們能查證的參考。(這正是整個專案奉行的「實測 / 查證,不要假設」紀律。)</p>
+</section>
+
+<section>
+  <h2><span class="en">What this means for AprVisual</span><span class="zh">這對 AprVisual 意味著什麼</span></h2>
+  <p class="en">It clarifies the project's positioning honestly:</p>
+  <p class="zh">它把專案的定位講清楚了:</p>
+  <ul>
+    <li class="en"><b>We are not chasing a missing algorithm</b> — the literature says there isn't one to copy for this regime.</li>
+    <li class="zh"><b>我們不是在追一個缺失的演算法</b> —— 文獻顯示這個情境沒有現成可抄的。</li>
+    <li class="en"><b>The value is engineering validation + the fastest combination</b>: take the classic methods (Bryant model, selective-trace fast-path, structural lowering), prove them on a real full NES netlist, cross-check on two bit-identical engines (C# + Rust), and measure every change.</li>
+    <li class="zh"><b>價值在工程驗證 + 最快搭配</b>:把經典方法(Bryant 模型、selective-trace fast-path、結構化 lowering)拿來,在一顆真實完整的 NES 網表上驗證,用兩個位元一致的引擎(C# + Rust)交叉比對,並逐項實測。</li>
+    <li class="en"><b>R-1 is the proof that this is worth doing.</b> It is <i>not</i> a new algorithm — it's a measured realization that ~half of all events are trivial (dynamic singletons), which a "ceiling reached" assumption had hidden. That one measurement was worth +18%.</li>
+    <li class="zh"><b>R-1 正是「這值得做」的證明。</b>它<i>不是</i>新演算法 —— 而是一個實測得到的領悟:約一半的 event 其實 trivial(動態 singleton),這被「天花板到了」的假設遮住了。那一次實測值 +18%。</li>
+  </ul>
+  <p class="big en"><b>Bottom line:</b> short-term, the breakthrough space is essentially tapped; the realistic, valuable work is rigorous engineering validation and finding the best combination on real hardware. A genuine leap would require a different computational model — and we've already tested the obvious candidates (IR/codegen, GPU, parallel) and shown they lose for this low-activity, single-instance regime. So we keep the engine honest, fast, and verifiable, and we keep measuring.</p>
+  <p class="big zh"><b>底線:</b>短期內,突破空間基本上見底了;務實而有價值的工作,是嚴謹的工程驗證與在真實硬體上找出最佳搭配。真正的躍進需要換一個計算模型 —— 而我們已經測過明顯的候選(IR/codegen、GPU、平行),證明它們在這個低-activity、單實例情境會輸。所以我們把引擎保持誠實、快速、可驗證,然後持續實測。</p>
+</section>
+
+<section>
+  <h2><span class="en">Verified references</span><span class="zh">查證過的參考</span></h2>
+  <ul>
+    <li><a href="https://dl.acm.org/doi/abs/10.1145/2593069.2593158">Amarù, Gaillardon, De Micheli — <i>Majority-Inverter Graph: A Novel Data-Structure and Algorithms for Efficient Logic Optimization</i>, DAC 2014</a> <span class="mut">(<a href="https://infoscience.epfl.ch/entities/publication/10dae280-8d2c-42d6-8b6d-6eb51c7a0eb1">EPFL Infoscience</a>)</span></li>
+    <li><a href="https://people.eecs.berkeley.edu/~alanmi/abc/">Berkeley ABC — logic synthesis &amp; verification (AIG rewriting / SAT-sweeping; Mishchenko et al., DAC 2006)</a></li>
+    <li><span class="en">R. E. Bryant — <i>A Switch-Level Model and Simulator for MOS Digital Systems</i>, IEEE Trans. Computers, 1984; and COSMOS (Bryant, Beatty, et al.), <i>A Compiled Simulator for MOS Circuits</i>, DAC 1987.</span><span class="zh">R. E. Bryant —《A Switch-Level Model and Simulator for MOS Digital Systems》,IEEE Trans. Computers,1984;以及 COSMOS(Bryant、Beatty 等),《A Compiled Simulator for MOS Circuits》,DAC 1987。</span></li>
+    <li><span class="en">E. G. Ulrich — selective-trace / event-driven logic simulation (foundational, 1960s–80s).</span><span class="zh">E. G. Ulrich —— selective-trace / event-driven 邏輯模擬(奠基性,1960s–80s)。</span></li>
+  </ul>
+  <p class="mut en">See also AprVisual's own optimization notes and the <a href="comparison.html">simulator comparison</a> for the measured numbers behind the "engineering, not algorithm" claim.</p>
+  <p class="mut zh">「工程而非演算法」這個說法背後的實測數字,另見 AprVisual 自己的優化筆記與<a href="comparison.html">模擬器比較</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">A research-landscape summary, triangulated from our own measurements, a frontier-LLM consultation, and verified citations. 2026-05-31.</span><span class="zh">研究現況整理,交叉自我們自己的量測、前沿 LLM 諮詢、與查證過的文獻。2026-05-31。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

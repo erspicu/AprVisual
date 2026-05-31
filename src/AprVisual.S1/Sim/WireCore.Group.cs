@@ -90,30 +90,48 @@ namespace AprVisual.Sim
             while (readIndex < _groupCount)
             {
                 int nn = _groupBuf[readIndex++];
-                ref NodeInfo ns = ref NodeInfos[nn];
+                NodeInfo* ns = NodeInfos + nn;
 
-                // walk channels to normal nodes: (gate, other) pairs, 0-terminated
-                if (ns.TlistC1c2s != 0)
+                // S2-A: walk channels from the inline payload (one cache line, no chase) when available.
+                if (ns->Inline != 0)
                 {
-                    ushort* p = TransistorList + ns.TlistC1c2s;
-                    while (*p != 0)
+                    ushort* pay = ns->InlinePayload;
+                    int n2 = ns->C1c2Count << 1;
+                    // channels to normal nodes: (gate, other) pairs
+                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) AddNodeOrApplyDriver(pay[k + 1]); }
+                    // any ON channel to GND ⇒ pulled low
+                    int gndEnd = n2 + ns->GndCount;
+                    for (int k = n2; k < gndEnd; k++) { if (NodeStates[pay[k]] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
+                    // any ON channel to VCC ⇒ pulled high
+                    int pwrEnd = gndEnd + ns->PwrCount;
+                    for (int k = gndEnd; k < pwrEnd; k++) { if (NodeStates[pay[k]] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                }
+                else
+                {
+                    // high-fanout fallback: TransistorList 0-terminated sub-lists (unchanged).
+                    // walk channels to normal nodes: (gate, other) pairs, 0-terminated
+                    if (ns->TlistC1c2s != 0)
                     {
-                        int gate = *p++;
-                        int other = *p++;
-                        if (NodeStates[gate] != 0) AddNodeOrApplyDriver(other);
+                        ushort* p = TransistorList + ns->TlistC1c2s;
+                        while (*p != 0)
+                        {
+                            int gate = *p++;
+                            int other = *p++;
+                            if (NodeStates[gate] != 0) AddNodeOrApplyDriver(other);
+                        }
                     }
-                }
-                // any ON channel to GND ⇒ the whole group is pulled low
-                if (ns.TlistC1gnd != 0)
-                {
-                    ushort* p = TransistorList + ns.TlistC1gnd;
-                    while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
-                }
-                // any ON channel to VCC ⇒ pulled high
-                if (ns.TlistC1pwr != 0)
-                {
-                    ushort* p = TransistorList + ns.TlistC1pwr;
-                    while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                    // any ON channel to GND ⇒ the whole group is pulled low
+                    if (ns->TlistC1gnd != 0)
+                    {
+                        ushort* p = TransistorList + ns->TlistC1gnd;
+                        while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
+                    }
+                    // any ON channel to VCC ⇒ pulled high
+                    if (ns->TlistC1pwr != 0)
+                    {
+                        ushort* p = TransistorList + ns->TlistC1pwr;
+                        while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                    }
                 }
             }
         }

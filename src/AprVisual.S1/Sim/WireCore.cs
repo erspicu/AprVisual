@@ -200,6 +200,27 @@ namespace AprVisual.Sim
                 ns.TlistC1c2s = AddSubList(c1c2);
                 ns.TlistC1gnd = AddSubList(c1gnd);
                 ns.TlistC1pwr = AddSubList(c1pwr);
+
+                // S2-A: inline the channel payload into the 32-byte NodeInfo for small-fanout nodes
+                // (~96%), so the hot path (cls==2 singleton check / RecalcNodeFast / BFS) reads ONE
+                // cache line with no dependent chase into TransistorList. InlinePayload layout:
+                //   [c1c2 (gate,other) pairs: 2*C1c2Count][gnd gates: GndCount][pwr gates: PwrCount].
+                // High-fanout nodes (~4%: buses / clk) keep Inline==0 and use the Tlist* indices +
+                // TransistorList (legacy path, unchanged + bit-exact). The Tlist* indices are still
+                // built for ALL nodes (fast-path classification reads TlistC1c2s != 0).
+                int payLen = c1c2.Count + c1gnd.Count + c1pwr.Count;
+                if (payLen <= NodeInfo.InlineCap)
+                {
+                    ns.Inline = 1;
+                    ns.C1c2Count = (byte)(c1c2.Count >> 1);   // (gate,other) pairs
+                    ns.GndCount = (byte)c1gnd.Count;
+                    ns.PwrCount = (byte)c1pwr.Count;
+                    ushort* pay = (NodeInfos + nn)->InlinePayload;
+                    int w = 0;
+                    for (int k = 0; k < c1c2.Count; k++) pay[w++] = (ushort)c1c2[k];
+                    for (int k = 0; k < c1gnd.Count; k++) pay[w++] = (ushort)c1gnd[k];
+                    for (int k = 0; k < c1pwr.Count; k++) pay[w++] = (ushort)c1pwr[k];
+                }
             }
             TransistorList = AllocArray<ushort>(tl.Count);
             for (int i = 0; i < tl.Count; i++) TransistorList[i] = (ushort)tl[i];
@@ -239,15 +260,27 @@ namespace AprVisual.Sim
         }
     }
 
-    // Per-node hot record. 16 bytes exactly (1 byte flag + 3 byte padding + 3× 4-byte int) = 4 per cache line.
-    // Cold fields (Connections, TlistGates) split out to WireCore.NodeConnections / NodeTlistGates so AddNodeToGroup's
-    // hot-loop struct read fetches only the bits it needs (BFS visits much more often than tie-break or writeback).
-    internal struct NodeInfo
+    // Per-node hot record. S2-A: 32 bytes (2 per 64B cache line). Holds the mutable Flags + the
+    // channel payload INLINE for small-fanout nodes (Inline==1, ~96%), so the hot path reads ONE
+    // cache line with NO dependent chase into TransistorList. High-fanout nodes (~4%: buses/clk)
+    // keep Inline==0 and use the Tlist* indices into TransistorList (legacy path, unchanged +
+    // bit-exact). Tlist* indices are kept for ALL nodes (fast-path classify reads TlistC1c2s != 0).
+    // Cold fields (Connections, TlistGates/writeback) remain in WireCore.NodeConnections /
+    // NodeTlistGates (different access pattern: tie-break + SetNodeState writeback, not the BFS scan).
+    internal unsafe struct NodeInfo
     {
-        public WireCore.NodeFlags Flags;
-        public int TlistC1c2s;      // index into WireCore.TransistorList: (gate,other, gate,other, ..., 0) — channels to a normal node
-        public int TlistC1gnd;      // ...: (gate, gate, ..., 0) — channels whose far end is GND
-        public int TlistC1pwr;      // ...: (gate, gate, ..., 0) — channels whose far end is VCC
+        public const int InlineCap = 7;   // InlinePayload slots; node is inline iff 2*C1c2Count + GndCount + PwrCount <= InlineCap
+
+        public WireCore.NodeFlags Flags;   // 0 (byte enum) — mutable (SetHigh/SetLow/SetFloat at runtime)
+        public byte C1c2Count;             // 1 — number of (gate,other) PAIRS inline (Inline==1)
+        public byte GndCount;              // 2 — number of GND-channel gates inline
+        public byte PwrCount;              // 3 — number of VCC-channel gates inline
+        public byte Inline;                // 4 — 1 = use InlinePayload; 0 = use Tlist* + TransistorList
+        // (1 byte pad at offset 5 to 2-align the fixed buffer)
+        public fixed ushort InlinePayload[InlineCap];  // 6..20 — [c1c2 pairs][gnd gates][pwr gates]
+        public int TlistC1c2s;      // 20 — index into WireCore.TransistorList: (gate,other, ..., 0)
+        public int TlistC1gnd;      // 24 — ...: (gate, ..., 0) — channels whose far end is GND
+        public int TlistC1pwr;      // 28 — ...: (gate, ..., 0) — channels whose far end is VCC
     }
 
     // Build-time transistor record (the hot path uses the flattened WireCore.TransistorList instead).

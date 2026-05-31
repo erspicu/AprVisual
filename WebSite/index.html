@@ -103,12 +103,12 @@
   <p class="sub en">Transistor-accurate NES (2A03 + 2C02) simulation in software. This site is an experience-sharing / research log; contributions and faster hardware results are very welcome.</p>
   <p class="sub zh">在軟體裡做電晶體精準的 NES(2A03 + 2C02)模擬。這個網站是經驗分享 / 研究筆記,歡迎一起集思廣益,也歡迎在更快的電腦上跑出你的結果。</p>
   <div class="hbtns">
-    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.30/AprVisualBenchMark.zip">
+    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.31/AprVisualBenchMark.zip">
       <span class="en">⬇ Download benchmark</span><span class="zh">⬇ 下載 benchmark 工具</span></a>
     <a class="btn ghost" href="https://github.com/erspicu/AprVisual/tree/aot-codegen">
       <span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
   </div>
-  <p class="mut" style="font-size:12.5px; margin-top:16px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-05-30 13:23</span> (UTC)</p>
+  <p class="mut" style="font-size:12.5px; margin-top:16px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-05-31 07:30</span> (UTC)</p>
 </header>
 
 <main>
@@ -225,8 +225,8 @@
   <div class="grid2">
     <div class="card">
       <h3 style="margin-top:.6em"><span class="en">Layer A — algorithmic (graph / topology / matrix)</span><span class="zh">A 層 —— 演算法(圖學 / 拓樸 / 矩陣)</span></h3>
-      <p class="en">Two strategies here stuck and are real wins — the <b>pure-logic fast-path</b> and the <b>lowering pre-pass</b> (above). Beyond those, there was no sweeping algorithmic breakthrough: the role was to drive an AI to propose, implement, and benchmark dozens of mathematically-elegant strategies, then keep only the few that survive engineering reality. The other big contribution is the <b>negative catalogue</b>: cases that <i>should</i> win on paper but lose on real hardware, and exactly why.</p>
-      <p class="zh">這層有兩個策略站住了、是真正的勝利 —— <b>純邏輯 fast-path</b> 與 <b>lowering 前置</b>(見上表)。除此之外沒有大範圍的演算法突破:角色是驅使 AI 去提出、實作、benchmark 數十種數學上很漂亮的策略,再只留下少數能撐過工程現實的。另一個重要貢獻是這份<b>負面案例清單</b>:那些紙上<i>應該</i>贏、但在真實硬體上輸的策略,以及確切的原因。</p>
+      <p class="en">Two strategies here stuck and are real wins — the <b>pure-logic fast-path</b> and the <b>lowering pre-pass</b> (above). Beyond those — and, later, the R-1 dynamic-singleton fast-path, a genuine +18% breakthrough (see §02·7 below) — sweeping algorithmic breakthroughs were rare: the role was to drive an AI to propose, implement, and benchmark dozens of mathematically-elegant strategies, then keep only the few that survive engineering reality. The other big contribution is the <b>negative catalogue</b>: cases that <i>should</i> win on paper but lose on real hardware, and exactly why.</p>
+      <p class="zh">這層有兩個策略站住了、是真正的勝利 —— <b>純邏輯 fast-path</b> 與 <b>lowering 前置</b>(見上表)。除了這些 —— 以及後來的 R-1 動態 singleton fast-path,一個真正 +18% 的突破(見下方 §02·7)—— 之外,大範圍的演算法突破很罕見:角色是驅使 AI 去提出、實作、benchmark 數十種數學上很漂亮的策略,再只留下少數能撐過工程現實的。另一個重要貢獻是這份<b>負面案例清單</b>:那些紙上<i>應該</i>贏、但在真實硬體上輸的策略,以及確切的原因。</p>
     </div>
     <div class="card">
       <h3 style="margin-top:.6em"><span class="en">Layer B — programming / compiler</span><span class="zh">B 層 —— 程式設計 / 編譯器</span></h3>
@@ -288,6 +288,45 @@
   </div>
 </section>
 
+<!-- ============ 2.7 BREAKTHROUGHS ============ -->
+<section id="breakthroughs">
+  <h2><span class="kick">02·7</span><span class="en">Major algorithm breakthroughs</span><span class="zh">重大演算法突破</span></h2>
+
+  <p class="en">A short, curated list of the changes that produced the largest <i>verified</i> speedups — every one bit-identical to the reference model (same NodeStates checksum, confirmed pixel-for-pixel on a rendered PPU frame). The headline, R-1, is recent: it broke a performance ceiling we had previously written up as "reached".</p>
+  <p class="zh">這是一份精選短清單,列出帶來最大、且<i>經驗證</i>加速的改動 —— 每一項都與參考模型位元完全相同(NodeStates checksum 一致,並在實際 PPU 畫格上逐像素確認)。頭條 R-1 是最近才出現的:它突破了我們先前已寫成「已到頂」的效能天花板。</p>
+
+  <div class="card">
+    <h3 style="margin-top:.6em"><span class="en">★ R-1 — Dynamic-singleton fast-path</span><span class="zh">★ R-1 —— 動態 singleton fast-path</span> <span class="mut">(2026-05-31)</span></h3>
+    <p class="en"><b>+18.6% on C# / +12.5% on Rust — both engines now ~77K hc/s</b> (from ~65K C# / ~69K Rust), 60-of-60 interleaved-paired wins on each, bit-exact.</p>
+    <p class="zh"><b>C# +18.6% / Rust +12.5% —— 兩個引擎現在都 ~77K hc/s</b>(原本 C# ~65K / Rust ~69K),各自 interleaved-paired 60 戰全勝,位元完全相同。</p>
+    <p class="en">The static pure-logic fast-path only caught nodes that <i>provably</i> form a singleton group (no pass-transistor channels at all — ~27% of nodes). But measurement showed <b>~51% of all node re-evaluations are <i>dynamic</i> singletons</b>: nodes that <i>do</i> have channels, but whose gate transistors all happen to be off this half-cycle, so the conducting group is still just <code>{self}</code>. Those were running the entire group-BFS (clear → walk → resolve → bookkeeping) only to find one node. R-1 detects them with one cheap channel scan and resolves them in O(1) — for half of every call.</p>
+    <p class="zh">原本的靜態純邏輯 fast-path 只抓「<i>可證明</i>必為單節點 group」的節點(完全沒有 pass-transistor channel —— 約 27%)。但實測發現 <b>約 51% 的節點重算其實是<i>動態</i> singleton</b>:它們<i>有</i> channel,只是 gate 電晶體在這個半週期剛好全關,導通 group 仍只有 <code>{自己}</code>。這些原本要走完整 group-BFS(清除 → 走訪 → 解析 → 簿記)才得到一個節點。R-1 用一次便宜的 channel 掃描偵測它們,並以 O(1) 解析 —— 涵蓋每一次呼叫的一半。</p>
+    <p class="note en"><b>Why it matters beyond the number:</b> we had written "the cheap singleton wins are already captured / realistic ceiling ~72–75K" as if it were measured. It wasn't — it was an assumption. Only the <i>static</i> singletons had been captured; the dynamic half hadn't. Implementing the candidate we'd already written off beat that ceiling by ~18%. The lesson the whole project keeps re-learning: <b>measure — don't assume "exhausted".</b></p>
+    <p class="note zh"><b>除了數字之外的意義:</b>我們曾把「便宜的 singleton 已經抓完了 / 實際天花板 ~72–75K」當成量測過的結論寫下來。其實沒有 —— 那是個假設。只有<i>靜態</i> singleton 被抓到,動態那一半沒有。把我們原本已經放棄的候選實作出來,直接打破天花板約 18%。整個專案不斷重學的教訓:<b>量測 —— 別假設「榨乾了」。</b></p>
+  </div>
+
+  <h3><span class="en">The other confirmed wins</span><span class="zh">其他確認有效的勝利</span></h3>
+  <ul class="cases">
+    <li><span class="tagY">✓</span> <b><span class="en">Pure-logic fast-path (static)</span><span class="zh">純邏輯 fast-path(靜態)</span></b> —
+      <span class="en">O(1) resolve for the ~27% of nodes provably forming a singleton group; skips the BFS entirely. The foundation R-1 extends to the dynamic case.</span>
+      <span class="zh">對 ~27% 可證明為單節點 group 的節點做 O(1) 解析、完全跳過 BFS。R-1 正是把它延伸到動態情形。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Hot-data shrink + SoA</span><span class="zh">熱資料縮減 + SoA</span></b> —
+      <span class="en">byte/ushort fields, hot/cold split packed to a quarter cache line — the single biggest reliable lever (keep the working set in L1d).</span>
+      <span class="zh">byte/ushort 欄位、hot/cold 拆到 ¼ cache line —— 最大、最可靠的單一槓桿(把 working set 留在 L1d)。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Deferred capacitance read</span><span class="zh">延後讀電容</span></b> —
+      <span class="en">move a rarely-needed field read out of the per-visit path → +12% on C#. (Bounds-check elision did the same job on Rust, +12%.)</span>
+      <span class="zh">把很少用到的欄位讀取移出每次拜訪路徑 → C# +12%。(Rust 上由移除 bounds check 達成同樣效果,+12%。)</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">S1.5 lowering pre-pass</span><span class="zh">S1.5 lowering 前置</span></b> —
+      <span class="en">merge always-on shorts, drop dead transistors, dedup + dense compaction — once, before simulating.</span>
+      <span class="zh">合併永遠導通短路、移除死電晶體、dedup + 緻密重編號 —— 模擬前做一次。</span></li>
+    <li><span class="tagY">✓</span> <b><span class="en">Branchless OR-all fast-path scan (C# only)</span><span class="zh">無分支 OR-all fast-path 掃描(僅 C#)</span></b> —
+      <span class="en">+0.6% on C# by removing a per-gate branch; −3.2% on Rust, so kept C#-only — a clean example of the cross-engine divergence below.</span>
+      <span class="zh">移除每個 gate 的分支,C# +0.6%;Rust −3.2%,故只在 C# 採用 —— 下方「跨引擎反號」的乾淨例子。</span></li>
+  </ul>
+  <p class="mut en">Each entry is backed by per-change interleaved-paired A/B numbers and checksums in the repository's optimization notes. R-1 narrowed the gap to NES real-time from ~645× to ~553× — still far off, but the ceiling moved. Run the benchmark on your own CPU and the version stamp (engine + git commit + date) is recorded with your result on the leaderboard.</p>
+  <p class="mut zh">每一項都有 repo 優化筆記裡逐項的 interleaved-paired A/B 數字與 checksum 佐證。R-1 把距 NES 即時的差距從 ~645× 縮到 ~553× —— 依然很遠,但天花板移動了。在你自己的 CPU 上跑 benchmark,版本戳記(引擎 + git commit + 日期)會跟著你的結果記在排行榜上。</p>
+</section>
+
 <!-- ============ 3. RESULTS ============ -->
 <section id="results">
   <h2><span class="kick">03</span><span class="en">Where it stands — and a call to help</span><span class="zh">最終成果 —— 以及邀請</span></h2>
@@ -318,7 +357,7 @@
   <div class="card" style="text-align:center;">
     <p class="en" style="margin-top:14px"><b>Have a faster CPU? Run the benchmark and share your numbers.</b> The package is portable, self-contained (no .NET install), and ships both the C# and Rust engines for Windows + macOS (Apple Silicon).</p>
     <p class="zh" style="margin-top:14px"><b>有更快的 CPU 嗎?跑跑看 benchmark,分享你的數字。</b>套件是可攜、自包含的(不用裝 .NET),同時附上 C# 與 Rust 引擎,支援 Windows + macOS(Apple Silicon)。</p>
-    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.30/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
+    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.05.31/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
        &nbsp; <a class="btn ghost" href="https://github.com/erspicu/AprVisual/releases"><span class="en">All releases</span><span class="zh">所有版本</span></a></p>
     <p style="margin-top:4px"><a href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2);font-weight:600">
        <span class="en">📊 Then upload your result to the community leaderboard ↗</span><span class="zh">📊 跑完把結果上傳到社群排行榜 ↗</span></a></p>

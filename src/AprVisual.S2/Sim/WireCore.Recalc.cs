@@ -120,9 +120,21 @@ namespace AprVisual.Sim
             if (cls == 1) { RecalcNodeFast(nn); return; }
             if (cls == 2)
             {
-                ushort* p = TransistorList + NodeInfos[nn].TlistC1c2s;   // (gate, other, …, 0)
+                // S2-A: read the c1c2 gates from the inline payload (one cache line, no chase) when
+                // available; high-fanout nodes (Inline==0) fall back to the TransistorList scan.
+                NodeInfo* ns = NodeInfos + nn;
                 bool grows = false;
-                while (*p != 0) { if (NodeStates[*p] != 0) { grows = true; break; } p += 2; }
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;         // [c1c2 pairs ...] — gates at even offsets
+                    int n2 = ns->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) { grows = true; break; } }
+                }
+                else
+                {
+                    ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
+                    while (*p != 0) { if (NodeStates[*p] != 0) { grows = true; break; } p += 2; }
+                }
                 if (!grows) { RecalcNodeFast(nn); return; }
             }
             byte newState = ComputeNodeGroup(nn);

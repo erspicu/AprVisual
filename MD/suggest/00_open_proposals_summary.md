@@ -24,16 +24,18 @@ S1 熱路徑經多輪實測已在**天花板**:C# ~65.7K / Rust ~70.1K hc/s(full
 
 ---
 
-## §1 待測試清單(小型消改,還沒測過 → 可排隊 A/B)
+## §1 待測試清單 — 2026-05-31 全部實測完畢,清單清空(無一新採用)
 
-| # | 提案 | 一句話 | 來源 | 預測 / caveat |
-|---|---|---|---|---|
-| T1 | **Gate-probability sub-list 排序** | setup 時把 `TlistC1gnd/pwr/c1c2s` 子串依「該 gate 最常 ON」排序,讓 early-break 更早中 | netlist_non_ir P2、hotpath_LIST_0529 #I | 小(+0–1%)。**C# fast-path 已 OR-all(R4)無 early-break → 對 C# fast-path 無效**;只可能幫 **BFS 主路徑 + Rust(仍 early-break)**。≠ RCM(那是 cache renumber,已 dead)。**真未測** → 對 Rust/BFS-path 做一次 A/B。 |
-| T2 | **Rust `group_buf` Vec<u16>** | 群組緩衝 i32→u16,58KB→29KB | RustS1 P1 | footprint 已夠用,預期噪音;但改動小、可一試(只 Rust)。 |
-| T3 | **Non-temporal framebuffer store** | pixel 寫入用 streaming store,不污染 L1 | netlist_non_ir P3、Phase G | pixel write 分散 + GDI 端很快讀回 → 預期噪音;改動小可快測。 |
-| T4 | **Memory handler ROM/RAM body 特化** | ROM/RAM 分開 code path(captured byte[]+mask) | Sim_followup、RustS1 | handler 200k hc 只觸發 **5 次**(冷)→ 預期 moot,但改動小。低優先。 |
+4 條小型消改全部以 interleaved-paired A/B + checksum 實測。結果與預期一致(噪音/負面),且 **T4 發現其實早已實作**:
 
-> 老實說:T1 是這四條裡唯一可能擠出 >0 的(且只在 Rust/BFS-path);T2–T4 預期都是噪音,排在 T1 之後。
+| # | 提案 | 結果(interleaved-paired,full_palette 200k) |
+|---|---|---|
+| T1 | gate-probability sub-list 排序(以 pull-up=likely-ON 為靜態 proxy,排到子串前) | ❌ **−0.43% median / 配對 14-30(擲硬幣)** → 噪音,reverted。子串多為長度 1-2,early-break 本就快,排序無感;C# fast-path 已是 OR-all(R4)無 early-break。 |
+| T2 | Rust `group_buf` Vec<i32>→Vec<u16> | ❌ **−0.91% median / 配對 6-40** → 明確負面,reverted。group_buf 工作集本就 ~1.4 entries(縮 footprint 無益),u16 cast/codegen 反傷 LLVM。 |
+| T3 | non-temporal framebuffer store(`Sse2.StoreNonTemporal`) | ❌ **−0.10% median / 配對 14-30** → 噪音,reverted。每像素單 store 是 callback 成本的零頭,且打散了同 scanline 的 write-combining。 |
+| T4 | memory handler ROM/RAM body 特化(captured byte[]+mask、ROM/RAM 分 closure) | ✅ **早已實作** —— `Handlers.cs` `AttachRamLikeHandler`(標 "suggest #F2"):`byte[] data` 與 `mask` 已 hoist、`readOnly` vs read/write 已分成兩個 closure。**無事可做。** |
+
+**淨結果**:fast-path / footprint 的「小型消改」空間已逐條驗證為空(三條噪音/負面 + 一條早完成)。引擎維持 baseline。再次印證:這條熱路徑加任何 per-call 成本都不賺,唯一 win 是 R4(移除分支)。詳見 `old/csharp_s1_optimization_round2_20260531.md`。
 
 ---
 

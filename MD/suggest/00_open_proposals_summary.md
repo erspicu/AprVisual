@@ -53,7 +53,7 @@ S1 熱路徑經多輪實測已在**天花板**:C# ~65.7K / Rust ~70.1K hc/s(full
 > **🎉 R-1 已畢業並採用(2026-05-31)→ +18.6% C#(~65.5K → ~77.6K hc/s),60/60 配對全勝,bit-exact。專案至今最大的單一 win,並突破先前認定的 72-75K 天花板。**
 > 機制:把「動態 singleton」(有 c1c2s channel 但本 half-cycle 全 OFF,佔 ~51.5% 的 recalc call)在 `RecalcNode` 裡先掃 c1c2s,全 OFF 就走 O(1) `RecalcNodeFast`(對單節點群組 bit-identical)。3-valued `IsPureLogic`(0/1/2)維持單一陣列載入。
 > **教訓**:`hotpath-ceiling` 記憶曾斷言「cheap singleton wins 已捕捉/天花板已到」—— **錯**:只捕捉了 static singleton(18.3%),動態的(半數 call)一直走完整 BFS。再次驗證:預測不可恃,實作量測才算數。
-> **待辦**:Rust(`experiment/rust-s1`)同款結構未測 —— 這是大型演算法 win(非 micro-branch),很可能 Rust 也贏,值得各自 A/B。
+> **Rust 也採用了(2026-05-31,commit `0bfc967`)→ +12.5%(~68.8K → ~77.3K hc/s,60/60 配對,bit-exact)。兩端現在都 ~77K。** 注意:Rust 第一版誤把 PullUp gate 套在 dyn 候選上,只覆蓋 28%(−0.24% 假象);拿掉 gate、改用會處理 floating 的 `recalc_node_singleton`(只放 dyn 路徑、不動 static)後覆蓋率 = C# 的 10,776 → +12.5%。教訓:下「C# 行但 Rust 不行」結論前,先確認兩邊**覆蓋率相同**。
 > §2 其餘(R-2~R-6)維持參考:預期 ≤1% 或 moot。
 
 ---

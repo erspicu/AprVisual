@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    AprVisual.S2 — the S2 stage (netlist -> IR).
+
+    STARTING POINT: a verbatim copy of AprVisual.S1's sources (2026-05-31), kept in its own
+    directory so the S2 IR work develops WITHOUT mixing into the S1 fork. At copy time S2 == S1
+    (bit-identical engine; same NodeStates checksum). The plan: extract boolean logic /
+    loop-SCC structure into an Expr IR + an IR interpreter, while the inherited S1 switch-level
+    engine stays as the bit-exact GOLDEN REFERENCE the IR must match per node.
+
+    RULE (memory: beat-s1-rule-and-ir-reattempt-plan): any IR direction must prove, on the
+    SMALLEST hand-written prototype, FASTER-than-S1 AND bit-exact BEFORE building further
+    (validation point before investment point; the earlier IR attempt failed by deferring
+    validation, ending 3-6x slower). Stay event-driven (batch lost the ~1.4-node sparsity); the
+    ~94% bidirectional pass-transistor SCC is the structural wall (only the feed-forward
+    fringe is compressible). See WebSite/landscape.html + WebSite/intuition.html.
+
+    Inherited S1 engine (the golden reference, not yet the thing to replace): Sim/WireCore.*
+    with the fast-path (incl. R-1 dynamic-singleton, +18.6%), S1.5 lowering, SoA L3 layout.
+  -->
+
+  <!-- 2026-05-30: converted from WinExe/WinForms to a pure console app. The live
+       256x240 window (MainForm + Render/NativeGDI) was removed; the S1 fork is
+       headless-only (benchmark / test / frame-dump). PNG output now goes through
+       Render/PngWriter.cs (ZLibStream, BCL-only) instead of System.Drawing, so the
+       target drops from net10.0-windows to portable net10.0 with no desktop deps. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AprVisual</RootNamespace>
+    <AssemblyName>AprVisual.S2</AssemblyName>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Optimize>true</Optimize>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
+  </PropertyGroup>
+
+  <!-- Embed a benchmark version (short git commit + commit date, "-dirty" if this project's tracked
+       sources have uncommitted changes) as assembly metadata, read at runtime by TestRunner. Baked in
+       at build time so the distributed benchmark binary reports its version with no git available.
+       git failures fall back to "unknown" (ContinueOnError); %25cd = MSBuild-escaped %cd. -->
+  <Target Name="SetGitVersion" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short=7 HEAD"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gc" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; log -1 --date=short --format=%25%25cd"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gd" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; status --porcelain ."
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gs" />
+    </Exec>
+    <PropertyGroup>
+      <_GitCommit>@(_Gc)</_GitCommit>
+      <_GitCommit Condition="'$(_GitCommit)' == ''">unknown</_GitCommit>
+      <_GitDate>@(_Gd)</_GitDate>
+      <_GitDate Condition="'$(_GitDate)' == ''">unknown</_GitDate>
+      <_AprVersion>$(_GitCommit)</_AprVersion>
+      <_AprVersion Condition="'@(_Gs)' != ''">$(_GitCommit)-dirty</_AprVersion>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>GitVersion</_Parameter1>
+        <_Parameter2>$(_AprVersion)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>CommitDate</_Parameter1>
+        <_Parameter2>$(_GitDate)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
+</Project>

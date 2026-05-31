@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AprVisual.Deprecated", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AprVisual.S1", "src\AprVisual.S1\AprVisual.S1.csproj", "{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AprVisual.S2", "src\AprVisual.S2\AprVisual.S2.csproj", "{A257E819-745B-4A77-85FF-B98204E1AED3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Debug|x64.Build.0 = Debug|x64
 		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Release|x64.ActiveCfg = Release|x64
 		{8C2A4D7E-9B1F-4E3A-A6D8-2F5B7C1E4D9A}.Release|x64.Build.0 = Release|x64
+		{A257E819-745B-4A77-85FF-B98204E1AED3}.Debug|x64.ActiveCfg = Debug|x64
+		{A257E819-745B-4A77-85FF-B98204E1AED3}.Debug|x64.Build.0 = Debug|x64
+		{A257E819-745B-4A77-85FF-B98204E1AED3}.Release|x64.ActiveCfg = Release|x64
+		{A257E819-745B-4A77-85FF-B98204E1AED3}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

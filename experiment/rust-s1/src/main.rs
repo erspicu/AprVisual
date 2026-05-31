@@ -108,6 +108,7 @@ fn bench(args: &[String]) {
     println!("# bench-hc: (rust S1) — {n} master half-cycles");
     println!("# simulated: {n} master half-cycles in {secs:.3} s");
     println!("# rate: {hcps:.0} hc/s ({us_per_hc:.2} µs/hc)");
+    println!("# engine: rust  version: {} ({})", env!("APR_VERSION"), env!("APR_COMMIT_DATE"));
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
     print_realtime_gap(hcps);
@@ -151,8 +152,10 @@ fn write_bench_log(log_dir: &str, snap_path: &str, n: i64, secs: f64, hcps: f64,
     let cpus = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(0);
     let json = format!(
 "{{
-  \"schema\": \"aprvisual-bench/1\",
+  \"schema\": \"aprvisual-bench/2\",
   \"engine\": \"rust\",
+  \"engineVersion\": \"{version}\",
+  \"commitDate\": \"{cdate}\",
   \"timestampUtc\": \"{iso}\",
   \"machineGuid\": \"{guid}\",
   \"user\": \"{user}\",
@@ -176,8 +179,10 @@ fn write_bench_log(log_dir: &str, snap_path: &str, n: i64, secs: f64, hcps: f64,
         guid = esc(&guid), user = esc(&user), os = std::env::consts::OS, arch = std::env::consts::ARCH,
         cpu = esc(&cpu), cpus = cpus, rom = esc(&rom), n = n, secs = secs, hcps = hcps,
         sec_per_fr = sec_per_fr, pct = pct, gap = gap, checksum = checksum,
-        fast_path = fast_path, node_count = node_count, iso = iso);
-    let fname = format!("{}-{}-{}-rust.log", sanitize(&guid), sanitize(&user), stamp);
+        fast_path = fast_path, node_count = node_count, iso = iso,
+        version = env!("APR_VERSION"), cdate = env!("APR_COMMIT_DATE"));
+    // <engine>-<stamp>-… so logs sort by engine, then chronologically.
+    let fname = format!("rust-{}-{}-{}.log", stamp, sanitize(&guid), sanitize(&user));
     let file = dir.join(fname);
     match std::fs::write(&file, json) {
         Ok(_)  => println!("# log written: {}", file.display()),

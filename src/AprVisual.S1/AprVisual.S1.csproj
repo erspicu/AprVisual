@@ -49,4 +49,41 @@
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>
 
+  <!-- Embed a benchmark version (short git commit + commit date, "-dirty" if this project's tracked
+       sources have uncommitted changes) as assembly metadata, read at runtime by TestRunner. Baked in
+       at build time so the distributed benchmark binary reports its version with no git available.
+       git failures fall back to "unknown" (ContinueOnError); %25cd = MSBuild-escaped %cd. -->
+  <Target Name="SetGitVersion" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short=7 HEAD"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gc" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; log -1 --date=short --format=%25%25cd"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gd" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; status --porcelain ."
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gs" />
+    </Exec>
+    <PropertyGroup>
+      <_GitCommit>@(_Gc)</_GitCommit>
+      <_GitCommit Condition="'$(_GitCommit)' == ''">unknown</_GitCommit>
+      <_GitDate>@(_Gd)</_GitDate>
+      <_GitDate Condition="'$(_GitDate)' == ''">unknown</_GitDate>
+      <_AprVersion>$(_GitCommit)</_AprVersion>
+      <_AprVersion Condition="'@(_Gs)' != ''">$(_GitCommit)-dirty</_AprVersion>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>GitVersion</_Parameter1>
+        <_Parameter2>$(_AprVersion)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>CommitDate</_Parameter1>
+        <_Parameter2>$(_GitDate)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
 </Project>

@@ -469,6 +469,8 @@ namespace AprVisual.Test
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
+                var (bv, bd) = BuildVersion();
+                Console.WriteLine($"# engine: csharp  version: {bv} ({bd})");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
@@ -497,6 +499,21 @@ namespace AprVisual.Test
             Console.WriteLine($"# =============================================");
         }
 
+        // Build version embedded by the SetGitVersion MSBuild target (AssemblyMetadata): short git
+        // commit + commit date, "-dirty" if built from uncommitted sources. Falls back to "unknown"
+        // if absent (git unavailable at build time). Shown in bench output + written to the bench log.
+        private static (string ver, string date) BuildVersion()
+        {
+            string ver = "unknown", date = "unknown";
+            foreach (System.Reflection.AssemblyMetadataAttribute a in
+                     typeof(TestRunner).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+            {
+                if (a.Key == "GitVersion" && !string.IsNullOrEmpty(a.Value)) ver = a.Value!;
+                else if (a.Key == "CommitDate" && !string.IsNullOrEmpty(a.Value)) date = a.Value!;
+            }
+            return (ver, date);
+        }
+
         // ── Benchmark JSON log — one machine-parseable record per run, for a future
         //    "upload your result" aggregation mechanism. Console output is unchanged;
         //    this is an *additional* file: <logDir>/<machineGuid>-<user>-<UTCstamp>-csharp.log
@@ -510,7 +527,9 @@ namespace AprVisual.Test
                 string user  = Environment.UserName;
                 var now      = DateTime.UtcNow;
                 string stamp = now.ToString("yyyyMMddHHmmss");
-                string file  = Path.Combine(logDir, $"{Safe(guid)}-{Safe(user)}-{stamp}-csharp.log");
+                var (bv, bd) = BuildVersion();
+                // <engine>-<stamp>-… so logs sort by engine, then chronologically.
+                string file  = Path.Combine(logDir, $"csharp-{stamp}-{Safe(guid)}-{Safe(user)}.log");
 
                 double pct      = stepsHz / NesRealtimeHcPerSec * 100.0;
                 double gap      = NesRealtimeHcPerSec / stepsHz;
@@ -518,8 +537,10 @@ namespace AprVisual.Test
 
                 var sb = new StringBuilder();
                 sb.Append("{\n");
-                sb.Append("  \"schema\": \"aprvisual-bench/1\",\n");
+                sb.Append("  \"schema\": \"aprvisual-bench/2\",\n");
                 sb.Append("  \"engine\": \"csharp\",\n");
+                sb.Append($"  \"engineVersion\": \"{Esc(bv)}\",\n");
+                sb.Append($"  \"commitDate\": \"{Esc(bd)}\",\n");
                 sb.Append($"  \"timestampUtc\": \"{now:yyyy-MM-ddTHH:mm:ss}Z\",\n");
                 sb.Append($"  \"machineGuid\": \"{Esc(guid)}\",\n");
                 sb.Append($"  \"user\": \"{Esc(user)}\",\n");

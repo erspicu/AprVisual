@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The project plan is settled and implementation has started. The plan (`MD/struct/08`) has four stages:
 
-- **S1 — C# rewrite of MetalNES** (the switch-level sim engine) → the foundation. **In progress.** The skeleton lives in `src/AprVisual` (.NET 10, WinForms, x64); the engine itself (`Sim/WireCore.*`) is stubbed with `NotImplementedException` + TODOs that point at the `ref/metalnes-main` functions to port.
+- **S1 — C# rewrite of MetalNES** (the switch-level sim engine) → the foundation. The working engine lives in **`src/AprVisual.S1/`** (.NET 10 console, x64); `Sim/WireCore.*` is the functioning switch-level interpreter ported from `ref/metalnes-main`. (The original WinForms fork is now **`src/AprVisual.Deprecated/`**, reference only.)
 - **S2 — netlist → IR** (loop/SCC detection, boolean extraction into an `Expr` IR, an IR interpreter).
 - **S3 — CPU proof**: the IR interpreter must be correct *and* benchmarked as much faster than the raw switch-level interpreter (the go/no-go gate for S4).
 - **S4 — codegen + GPU**: emit C++/Verilog + a CUDA bit-sliced kernel; per-node equivalence with the CPU IR interpreter.
@@ -20,14 +20,16 @@ Take Visual6502-style switch-level netlists (`segdefs` / `transdefs` / `nodename
 ## Build / run
 
 ```
-dotnet build AprVisual.sln                                       # from the repo root
-dotnet run --project src/AprVisual -- --help
-dotnet run --project src/AprVisual -- --rom path\game.nes        # window: live 256x240 switch-level sim
-dotnet run --project src/AprVisual -- --test path\test.nes       # headless: run to the blargg $6000 signature, print PASS/FAIL, exit code
-dotnet run --project src/AprVisual -- --test-dir path\nes-test-roms\
+dotnet build AprVisual.sln                                                            # builds both forks
+# Active fork — src/AprVisual.S1/ (headless console; ALL current work):
+dotnet run --project src/AprVisual.S1 -- --benchmark path\game.nes --bench-hc 200000  # throughput hc/s + NodeStates checksum
+dotnet run --project src/AprVisual.S1 -- --test path\test.nes                         # run to blargg $6000 PASS/FAIL, exit code
+dotnet run --project src/AprVisual.S1 -- --test-dir path\nes-test-roms\
+# Deprecated fork — src/AprVisual.Deprecated/ (WinForms live window; reference only):
+dotnet run --project src/AprVisual.Deprecated -- --rom path\game.nes                  # window: live 256x240 switch-level sim
 ```
 
-Requires the .NET 10 SDK with the Windows Desktop workload. There is no test project / lint config yet. See `src/AprVisual/README.md` for the layout and the S1 port order.
+Requires the .NET 10 SDK; the deprecated WinForms fork also needs the Windows Desktop workload (`src/AprVisual.S1/` is portable net10.0). There is no test project / lint config yet. See `src/AprVisual.S1/README.md` for the layout.
 
 ## Documentation (`MD/`)
 
@@ -38,9 +40,11 @@ All planning/design docs are in Traditional Chinese under `MD/` (the code does *
 
 Subdirectories under `MD/` are organized by need; new category dirs may be created as the project grows.
 
-## Source layout (`src/AprVisual/`)
+## Source layout (`src/AprVisual.S1/` — active fork)
 
-Single `WinExe` (net10.0-windows, WinForms, `AllowUnsafeBlocks`, x64). `Program.Main`: args → `Test.TestRunner` (headless), else → `MainForm`.
+> **All current work targets `src/AprVisual.S1/`** — the distilled, headless **console** perf fork (portable net10.0; `--benchmark` / `--test` / `--test-dir` / frame-dump; no live window — PNG via `Render/PngWriter.cs`). The original fork was renamed to **`src/AprVisual.Deprecated/`** (the WinForms live-window app + the IR / codegen / dispatcher / levelize / diag experiments) and is kept **for reference only — don't modify it unless explicitly asked.** Both share the same `Sim/WireCore.*` layout below; `MainForm.cs` + `Render/NativeGDI.cs` exist only in the deprecated fork.
+
+The deprecated fork is a single `WinExe` (net10.0-windows, WinForms, `AllowUnsafeBlocks`, x64); `Program.Main`: args → `Test.TestRunner` (headless), else → `MainForm`.
 
 - `Sim/WireCore.*.cs` — the engine: one monolithic `static unsafe partial class WireCore` (AprNes style), split into `.Parse` (`.js` module loader) / `.Module` (instance node-id alloc; *connection = always-on transistor*; name resolution `a[7:0]`/`a[]`/`x|y|z`/`*wildcard`) / `.Recalc` (recalcNodeList/processQueue/recalcNode/setNodeState/enqueueNode/stepCycle) / `.Group` (addNodeToGroup/getNodeValue; the 256-entry `FlagsToState` LUT is real) / `.Handlers` (per-cycle handler chain; callbacks = fake transistor; behavioral RAM/ROM) / `.System` (load `nes-001` + cart, real reset) / `.Trace` (trace columns; blargg `$6000` detection) / `.Native` (`NativeMemory.AlignedAlloc` wrappers, one-shot free). Hot per-node data is unmanaged (`byte* NodeStates`, `int* TransistorList`, `NodeInfo* NodeInfos`), zero-bounds-check inner loops.
 - `Render/NativeApi.cs` + `Render/NativeGDI.cs` — GDI `SetDIBitsToDevice` / `StretchDIBits` blit of an unmanaged ARGB framebuffer onto a control HDC (lifted from `ref/AprNes/tool/NativeRendering.cs`). No PictureBox/Bitmap.Image.
@@ -78,5 +82,5 @@ The canonical algorithm to reproduce is `wire_compute` in `ref/metalnes-main/sou
 
 - **Communicate with the user in Traditional Chinese (繁體中文)** — chat replies, summaries, explanations. Code, identifiers, code comments, and commit messages stay in English; planning/design docs in `MD/` stay in Traditional Chinese.
 - Planning/design docs → `MD/` (Traditional Chinese); code → `src/`; runtime data → `data/`. Don't edit `ref/`.
-- Commit/push only when the user asks. The repo is `github.com/erspicu/AprVisual` (public). End commit messages with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
+- **Project rule: commit & push after every completed stage of output or modification** — don't wait to be asked (chain `git add` + `git commit -F` + `git push` in one call). The repo is `github.com/erspicu/AprVisual` (public). End commit messages with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
 - When porting a `WireCore` stub, the TODO comment names the `ref/metalnes-main` function and line range; cross-check against `MD/note/`.

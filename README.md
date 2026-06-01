@@ -20,6 +20,8 @@ The original plan was a four-stage pipeline (S1 switch-level engine → S2 netli
 
 So the focus became **pushing S1 — the pure switch-level engine — to its limit**, in both **C#** and **Rust**, and documenting the wins and the (many) dead-ends. The recurring lesson, which independently matches what the Visual NES author found in 2017: the gains come from **less work + smaller (cache-fitting) data + tighter codegen**, *not* from cleverer data structures or algorithms.
 
+A final, CPU-first investigation ("Escape-1") then asked whether the chip could be **automatically abstracted to logic** for speed, accepting behavioral (not per-node bit-exact) fidelity. It proved that **~98.9% of the chip is reducible to logic + registers** (only ~1.1% is genuine analog) — yet *still* couldn't beat the event-driven engine, because that engine already runs at the netlist's natural minimum granularity. The full, data-backed write-up — including a reusable **"which acceleration strategy fits which chip" map** — is the **[study paper →](https://erspicu.github.io/AprVisual/study.html)**.
+
 ## Lineage
 
 **Visual6502 (`chipsim.js`)** → **MetalNES** → **AprVisual S1 (C# + Rust)**.
@@ -57,22 +59,19 @@ dotnet build AprVisual.sln                 # C# engines
 ( cd experiment/rust-s1 && cargo build --release )   # Rust engine (rust-s1)
 ```
 
-The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless console) and `experiment/rust-s1/` (Rust). See `src/AprVisual/README.md` for the original layout, and `MD/` for the (Traditional Chinese) design docs.
+The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless console) and `experiment/rust-s1/` (Rust). See `src/AprVisual.Deprecated/README.md` for the original layout, and `MD/` for the (Traditional Chinese) design docs.
 
 ## Repository layout
 
 | Path | What |
 |---|---|
-| `src/AprVisual.S1/` | The S1 switch-level engine — C#, the focus of optimization. |
+| `src/AprVisual.S1/` | The S1 switch-level engine — C#, the golden/canonical artifact and focus of optimization. |
 | `experiment/rust-s1/` | The Rust port of the S1 engine (bit-identical). |
-| `src/AprVisual/` | The original engine + tooling (rendering, ROM parsing). |
+| `src/AprVisual.S2/` | The Escape-1 investigation engine (automatic logic extraction; `--miter`/`--compile`/`--cones`) — concluded; the negative-result record. |
+| `src/AprVisual.Deprecated/` | The original WinForms engine + tooling (rendering, ROM parsing) + the S2/S3/S4 IR/codegen/GPU experiments — reference only. |
 | `WebSite/` | The GitHub Pages project site (served at the link above). |
 | `MD/` | Design & analysis docs (Traditional Chinese). |
 | `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query). |
-
-## This branch
-
-The latest version currently lives on the **`aot-codegen`** branch (for historical reasons) — that's the canonical branch for now.
 
 ## Credits & license
 

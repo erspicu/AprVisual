@@ -4,14 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The project plan is settled and implementation has started. The plan (`MD/struct/08`) has four stages:
+**The performance investigation is complete; its outcome is a documented, falsifiable negative result.** The original four-stage plan (`MD/struct/08`: S1 switch-level engine → S2 netlist→IR → S3 CPU proof → S4 codegen+GPU) was built and verified, and a later CPU-first restart — **S2 "Escape-1"** (automatic logic extraction → faster behavioral sim) — was taken end-to-end. What stands:
 
-- **S1 — C# rewrite of MetalNES** (the switch-level sim engine) → the foundation. The working engine lives in **`src/AprVisual.S1/`** (.NET 10 console, x64); `Sim/WireCore.*` is the functioning switch-level interpreter ported from `ref/metalnes-main`. (The original WinForms fork is now **`src/AprVisual.Deprecated/`**, reference only.)
-- **S2 — netlist → IR** (loop/SCC detection, boolean extraction into an `Expr` IR, an IR interpreter).
-- **S3 — CPU proof**: the IR interpreter must be correct *and* benchmarked as much faster than the raw switch-level interpreter (the go/no-go gate for S4).
-- **S4 — codegen + GPU**: emit C++/Verilog + a CUDA bit-sliced kernel; per-node equivalence with the CPU IR interpreter.
+- **S1, the switch-level engine, is the golden, fastest artifact** (~80K half-cycles/s, bit-exact). It lives in **`src/AprVisual.S1/`** (.NET 10 console, x64; `Sim/WireCore.*`, ported from `ref/metalnes-main`), with a bit-identical Rust port in `experiment/rust-s1/`.
+- **Every abstraction tried was slower than S1 on one CPU core**: IR interpreter ≈ −2.5%; AOT/codegen 3–6× slower; GPU single-instance ~10.7× slower; the Escape-1 route oblivious 45× / compiled 84× slower (i-cache), macro-event cone compression only 1.1×. Root cause: the event-driven engine already runs at the netlist's natural minimum granularity (~1.4-node conducting group); no auto-derivable static DAG. **Real time (~500–600×) is unreachable via this route.**
+- **What Escape-1 DID prove** (fully automatic, in `src/AprVisual.S2/`): ~**98.9%** of the chip's activity is reducible to logic + registers, ~**1.1%** is genuine analog — a clean reducibility result that does *not* translate to single-core speed. Write-up: **`WebSite/study.html`**; design notes in **`MD/S2/`**.
 
-Each stage has a per-node equivalence gate before the next may begin. Scope: 2A03 first (PPU deferred), NROM only.
+Three source forks: **`src/AprVisual.S1/`** (golden engine — the canonical artifact) · **`src/AprVisual.S2/`** (the Escape-1 investigation engine: `--miter` / `--compile` / `--cones`; conclusions reached) · **`src/AprVisual.Deprecated/`** (the original WinForms app + the S2/S3/S4 IR/codegen/GPU experiments — reference only). Per-node / behavioral equivalence gates were used between stages throughout. Scope: 2A03 + 2C02 (whole NES), NROM.
 
 ## Goal of the project
 
@@ -37,14 +36,15 @@ Requires the .NET 10 SDK; the deprecated WinForms fork also needs the Windows De
 
 All planning/design docs are in Traditional Chinese under `MD/` (the code does **not** go here):
 
-- `MD/struct/` — the plan: `08` = the operative four-stage roadmap; `09` = S1 implementation-style decisions (references `ref/AprNes`); `00`–`07` = the original analysis (overview, technical guide, MVP, risks, etc.); `INDEX.md` lists them.
+- `MD/struct/` — the (now-historical) plan: `08` = the original four-stage roadmap (carries a 2026-06-02 correction banner — the GPU/many-instance framing was an early misread, not a goal); `09` = S1 implementation-style decisions (references `ref/AprNes`); `00`–`07` = the original analysis; `INDEX.md` lists them.
+- `MD/S2/` — the **S2 Escape-1 investigation** (design + results): logic-extraction / oblivious-eval / Dynamic-Miter / cone-compression notes that conclude the performance question (see `WebSite/study.html` for the public write-up).
 - `MD/note/` — research notes on existing implementations: currently `ref/metalnes-main` (the S1 reference) — 7 files covering its sim core, module system, system integration, validation, and what it does/doesn't do vs our plan.
 
 Subdirectories under `MD/` are organized by need; new category dirs may be created as the project grows.
 
 ## Source layout (`src/AprVisual.S1/` — active fork)
 
-> **All current work targets `src/AprVisual.S1/`** — the distilled, headless **console** perf fork (portable net10.0; `--benchmark` / `--test` / `--test-dir` / frame-dump; no live window — PNG via `Render/PngWriter.cs`). The original fork was renamed to **`src/AprVisual.Deprecated/`** (the WinForms live-window app + the IR / codegen / dispatcher / levelize / diag experiments) and is kept **for reference only — don't modify it unless explicitly asked.** Both share the same `Sim/WireCore.*` layout below; `MainForm.cs` + `Render/NativeGDI.cs` exist only in the deprecated fork.
+> **`src/AprVisual.S1/` is the canonical/golden engine** — the distilled, headless **console** perf fork (portable net10.0; `--benchmark` / `--test` / `--test-dir` / frame-dump; no live window — PNG via `Render/PngWriter.cs`). **`src/AprVisual.S2/`** is a verbatim S1 copy that carried the (now-concluded) Escape-1 investigation — it adds `Sim/WireCore.{Coverage,Extract,Logic,Cones,Compile}.cs` and the `--miter`/`--compile`/`--cones` modes; treat it as the experiment record. The original WinForms fork is **`src/AprVisual.Deprecated/`** (live-window app + the IR / codegen / dispatcher / levelize / diag + S4 GPU experiments) — **reference only; don't modify unless explicitly asked.** All three share the `Sim/WireCore.*` layout below; `MainForm.cs` + `Render/NativeGDI.cs` exist only in the deprecated fork.
 
 The deprecated fork is a single `WinExe` (net10.0-windows, WinForms, `AllowUnsafeBlocks`, x64); `Program.Main`: args → `Test.TestRunner` (headless), else → `MainForm`.
 

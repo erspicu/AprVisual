@@ -31,6 +31,10 @@ namespace AprVisual.Sim
         internal static int* _logicTTBase;         // per node: index into _logicTT (dense 2^k byte truth table)
         internal static byte* _logicTT;
         internal static byte* _logicSparse;        // 1 = K>16: value looked up in the sparse _covMap, not the dense TT
+        internal static byte* _logicBus;           // 1 = wide (>60-input) bus node: resolved structurally (BusResolve), no TT
+        private static ushort* _busBuf;            // BusResolve scratch: group member ids
+        private static byte* _busInGroup;          // BusResolve scratch: O(1) dedup
+        private static int _busCount;
         internal static bool LogicModelBuilt;
 
         internal static byte* LogicState;          // the logic model's per-node value (parallel to NodeStates)
@@ -62,6 +66,8 @@ namespace AprVisual.Sim
             _selfStateful = AllocArray<byte>(NodeCount);
             _logicStateCut = AllocArray<byte>(NodeCount);
             _golActivity = AllocArray<long>(NodeCount);
+            _busBuf = AllocArray<ushort>(NodeCount);
+            _busInGroup = AllocArray<byte>(NodeCount);
             for (int nn = 0; nn < NodeCount; nn++) LogicState[nn] = NodeStates[nn];   // seed from golden power-on state
             MiterSweeps = MiterNodeChecks = MiterNodeMismatch = MiterUncovered = 0; MiterSweepSec = 0;
             RelaxIterTotal = RelaxNonConverged = 0;
@@ -112,6 +118,49 @@ namespace AprVisual.Sim
             return demoted;
         }
 
+        // Hybrid state accessor: oblivious nodes read the model's LogicState; boundary nodes read golden.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static byte St(int x) => _logicIsExtracted[x] != 0 ? LogicState[x] : NodeStates[x];
+
+        // BUS model: replicate the golden switch-level group resolution (WireCore.Group.cs AddNodeToGroup /
+        // GetNodeValue) for a wide node, but reading the HYBRID state (St) instead of golden NodeStates. When
+        // the oblivious model is correct (extracted nodes == golden, boundary == golden) this reproduces golden
+        // exactly. Wired-OR/tristate buses (>60 transistors) are handled here structurally — no 2^K table.
+        internal static byte BusResolve(int seed)
+        {
+            for (int i = 0; i < _busCount; i++) _busInGroup[_busBuf[i]] = 0;
+            _busCount = 0;
+            NodeFlags gf = NodeInfos[seed].Flags;
+            _busInGroup[seed] = 1; _busBuf[_busCount++] = (ushort)seed;
+            int read = 0;
+            while (read < _busCount)
+            {
+                int nn = _busBuf[read++];
+                NodeInfo* ns = NodeInfos + nn;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int n2 = ns->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2)
+                        if (St(pay[k]) != 0) { int o = pay[k + 1]; if (_busInGroup[o] == 0) { _busInGroup[o] = 1; _busBuf[_busCount++] = (ushort)o; gf |= NodeInfos[o].Flags; } }
+                    int gndEnd = n2 + ns->GndCount;
+                    for (int k = n2; k < gndEnd; k++) if (St(pay[k]) != 0) { gf |= NodeFlags.Gnd; break; }
+                    int pwrEnd = gndEnd + ns->PwrCount;
+                    for (int k = gndEnd; k < pwrEnd; k++) if (St(pay[k]) != 0) { gf |= NodeFlags.Pwr; break; }
+                }
+                else
+                {
+                    if (ns->TlistC1c2s != 0) { ushort* p = TransistorList + ns->TlistC1c2s; while (*p != 0) { int g = *p++; int o = *p++; if (St(g) != 0 && _busInGroup[o] == 0) { _busInGroup[o] = 1; _busBuf[_busCount++] = (ushort)o; gf |= NodeInfos[o].Flags; } } }
+                    if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) { int g = *p++; if (St(g) != 0) { gf |= NodeFlags.Gnd; break; } } }
+                    if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) { int g = *p++; if (St(g) != 0) { gf |= NodeFlags.Pwr; break; } } }
+                }
+            }
+            if (gf != NodeFlags.None) return FlagsToState[(int)gf];
+            int maxConn = -1; byte maxState = 0;     // purely floating: largest-capacitance member holds
+            for (int i = 0; i < _busCount; i++) { int nn = _busBuf[i]; int c = NodeConnections[nn]; if (c > maxConn) { maxState = St(nn); maxConn = c; } }
+            return maxState;
+        }
+
         // Iterative RELAXATION over the candidate set (feed-forward core first, then cyclic pass network).
         // Sweeps repeatedly until LogicState stops changing (fixed point) or the iteration cap is hit. The
         // datapath's bidirectional pass 2-cycles converge here (A=B only while the gate conducts); genuine
@@ -128,19 +177,27 @@ namespace AprVisual.Sim
                 for (int i = 0; i < cnt; i++)
                 {
                     int nn = order[i];
-                    ushort* p = _covInputs + _covBase[nn];
-                    int k = *p++;
-                    ulong key = 0;
-                    for (int j = 0; j < k; j++)
+                    byte v;
+                    if (_logicBus[nn] != 0)
                     {
-                        int inp = p[j];
-                        ulong bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
-                        key |= bit << j;
+                        v = BusResolve(nn);                          // wide bus node: structural group resolution
                     }
-                    byte v = _logicSparse[nn] != 0
-                        ? (_covMap![nn].TryGetValue(key, out byte sv) ? sv : TtUnseen)
-                        : _logicTT[_logicTTBase[nn] + (int)key];
-                    if (v == TtUnseen) { if (iters == 1) MiterUncovered++; continue; }   // unlearned combo -> hold prior
+                    else
+                    {
+                        ushort* p = _covInputs + _covBase[nn];
+                        int k = *p++;
+                        ulong key = 0;
+                        for (int j = 0; j < k; j++)
+                        {
+                            int inp = p[j];
+                            ulong bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
+                            key |= bit << j;
+                        }
+                        v = _logicSparse[nn] != 0
+                            ? (_covMap![nn].TryGetValue(key, out byte sv) ? sv : TtUnseen)
+                            : _logicTT[_logicTTBase[nn] + (int)key];
+                        if (v == TtUnseen) { if (iters == 1) MiterUncovered++; continue; }   // unlearned combo -> hold prior
+                    }
                     if (LogicState[nn] != v) { LogicState[nn] = v; changed = true; }
                 }
             }
@@ -171,7 +228,7 @@ namespace AprVisual.Sim
                     MiterNodeChecks++;
                     if (LogicState[nn] != NodeStates[nn]) { MiterNodeMismatch++; _miterNodeBad[nn]++; }
                 }
-                if (self && _selfStateful[nn] == 0)
+                if (self && _selfStateful[nn] == 0 && _logicBus[nn] == 0)   // bus nodes are structural; no TT to learn
                 {
                     ushort* p = _covInputs + _covBase[nn];
                     int k = *p++;

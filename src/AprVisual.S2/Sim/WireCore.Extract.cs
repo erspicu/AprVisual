@@ -97,6 +97,14 @@ namespace AprVisual.Sim
             var allCandidates = new List<int>(orderList);
             for (int nn = 0; nn < n; nn++) if (extracted[nn] && !inOrder[nn]) allCandidates.Add(nn);
 
+            // BUS candidates: wide (>CovMaxInputs) nodes were excluded from the TT path (no _covBase). Add them
+            // as structurally-resolved bus nodes (BusResolve) — these are the data/address buses dominating the
+            // residual. They carry no TT; correctness is enforced by verify-then-enable (RefineDivergers).
+            int busAdded = 0;
+            for (int nn = 0; nn < n; nn++)
+                if (_covWide[nn] != 0 && nn != Npwr && nn != Ngnd && Nodes[nn] != null) { allCandidates.Add(nn); busAdded++; }
+            Console.WriteLine($"#  BUS candidates (wide >{CovMaxInputs} inputs, structural resolve): {busAdded:N0}");
+
             double live = NonNullNodeCount;
             Console.WriteLine("# ============ EXTRACTOR / LEVELIZER ============");
             Console.WriteLine($"#  clean+observed nodes:        {cleanSeen:N0}");
@@ -122,12 +130,14 @@ namespace AprVisual.Sim
             _logicIsExtracted = AllocArray<byte>(NodeCount);
             _logicTTBase      = AllocArray<int>(NodeCount);
             _logicSparse      = AllocArray<byte>(NodeCount);
+            _logicBus         = AllocArray<byte>(NodeCount);
 
             long ttSize = 1;              // entry 0 reserved (TTBase 0 == "none")
-            int dense = 0, sparse = 0;
+            int dense = 0, sparse = 0, bus = 0;
             foreach (int nn in orderList)
             {
                 _logicIsExtracted[nn] = 1;
+                if (_covBase[nn] == 0) { _logicBus[nn] = 1; bus++; continue; }   // wide node -> structural BusResolve, no TT
                 int kk = _covInputs[_covBase[nn]];
                 if (kk <= MaxDenseK) { _logicTTBase[nn] = (int)ttSize; ttSize += (1 << kk); dense++; }
                 else { _logicSparse[nn] = 1; sparse++; }            // K 17..60: sparse map lookup (_covMap), no dense table
@@ -147,7 +157,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < orderList.Count; i++) _logicOrder[i] = orderList[i];
             _logicOrderCount = orderList.Count;
             LogicModelBuilt = true;
-            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes ({dense:N0} dense + {sparse:N0} sparse), TT bytes {ttSize:N0}, pre-filled {preFilled:N0}");
+            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes ({dense:N0} dense + {sparse:N0} sparse + {bus:N0} bus), TT bytes {ttSize:N0}, pre-filled {preFilled:N0}");
         }
     }
 }

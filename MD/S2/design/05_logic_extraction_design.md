@@ -235,6 +235,28 @@ wired-OR/tristate **bus**,需結構式表示。理想上把殘留壓到 ~1% → 
 即系統 data/address bus。**單調驗證**:每加一種抽取技術,殘留縮、天花板升、且 verify-then-enable 保證全程 100%
 正確。**bus 模型是最後一個大槓桿**(把殘留壓到接近 ~1% analog 底線)。
 
+### 5i. BUS 模型 —— 決定性突破(2026-06-01):天花板 4.3× → 20×
+
+關鍵:golden group-resolver(`WireCore.Group.cs`)的語意是 —— 透過 ON channel **遞移**走連通群,OR 起靜態 flags
+(PullUp/Pwr/Gnd/SetHigh/SetLow)+ ON 的 gnd/pwr channel,查 256-entry `FlagsToState` LUT 解析;全 None(浮接)
+則「最大電容(NodeConnections)成員的現值」勝(這就是 hold)。**State flag 在 runtime 不維護**。
+
+`BusResolve(nn)`(`WireCore.Logic.cs`)**完整複製這個 group walk,但讀 hybrid 狀態**(extracted 讀 LogicState、
+boundary 讀 golden)。模型正確時逐位元 == golden 的 `ComputeNodeGroup`。wired-OR/tristate bus(>60 電晶體)就此
+結構化解析,**不需 2^K 表**。把 132 個 wide bus 節點納入 oblivious 集:
+
+| 抽取技術 | oblivious 活動覆蓋 | 殘留 switch | Amdahl 天花板 | match |
+|---|---|---|---|---|
+| Dense(K≤16) | 56.8% | 32.7% | 3.1× | 100% |
+| +Sparse(K≤60) | 66.0% | 23.2% | 4.3× | 100% |
+| **+Bus(+132 結構式)** | **84.3%** | **5.0%** | **20.1×** | **100%** |
+| (下一步)+register 建模 | ~95%+ | ~1% | ~90× | — |
+
+**oblivious 84.3% + 切出 state 10.7% = 95% 活動已乾淨建模、且逐位元重現 golden**(verify-then-enable:refine-1 切
+282 → 6,265,refine-2 切 0;relaxation 5.66 iters 收斂、0 未收斂)。殘留 5% 裡僅 ~22.8% 是真不可約 analog
+(no-channel/supply),其餘是 radius-1-stateful(register 建模可再縮)。**結論:整顆晶片約 ~99% 活動可約成
+邏輯+register,真 analog 只 ~1%。** 速度天花板的「覆蓋率」維度已徹底回答。
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
 4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)

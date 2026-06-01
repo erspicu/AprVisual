@@ -15,7 +15,9 @@ Each stage has a per-node equivalence gate before the next may begin. Scope: 2A0
 
 ## Goal of the project
 
-Take Visual6502-style switch-level netlists (`segdefs` / `transdefs` / `nodenames`) — the **2A03** (NES CPU, modified 6502) and **2C02** (NES PPU) — and turn them into analyzable, verifiable, executable logic models, ultimately a CUDA bit-parallel kernel for fast cycle-accurate simulation of many NES instances. The value is the *translation pipeline* (silicon connectivity → graph → logic/sequencing abstraction → verifiable backends), not the GPU itself.
+Take Visual6502-style switch-level netlists (`segdefs` / `transdefs` / `nodenames`) — the **2A03** (NES CPU, modified 6502) and **2C02** (NES PPU) — and turn them into **analyzable, verifiable, executable logic models**. The value is the *translation pipeline* (silicon connectivity → graph → logic/sequencing abstraction → verifiable backends) and what it lets us measure/prove about the chip.
+
+> **Correction (2026-06-02):** earlier docs framed the "ultimate goal" as a *CUDA bit-parallel kernel for many NES instances (throughput)*. That was **an early AI misreading of the user's prompt — it was never a preset goal.** GPU/many-instance throughput is at most an orthogonal aside, not the project's objective. The objective is the CPU translation/verification pipeline above. Do not reintroduce "many-instance GPU throughput" as the goal.
 
 ## Build / run
 

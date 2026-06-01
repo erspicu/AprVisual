@@ -261,8 +261,8 @@
     <li class="en"><b>A clarified map of what works and what regresses</b>, every claim backed by a runnable prototype and exact numbers — the project's most durable value.</li>
     <li class="zh"><b>一份「什麼行、什麼反而退步」的釐清地圖</b>,每個論點都有可跑的原型與精確數字背書 —— 這是本專案最持久的價值。</li>
   </ul>
-  <p class="en"><b>The one orthogonal open direction</b> is GPU <i>throughput</i> (many bit-sliced instances in parallel) — a different question (aggregate throughput, not single-instance latency) where oblivious evaluation is the correct model and was not falsified, only parked. It matches the project's original goal of a bit-parallel kernel for many NES instances.</p>
-  <p class="zh"><b>唯一仍開放、且正交的方向</b>是 GPU <i>吞吐</i>(大量 bit-sliced 實例並行)—— 那是不同的問題(總吞吐,非單實例延遲),在那裡 oblivious 評估是對的模型,且未被證偽、只是被擱置。它符合本專案最初「為大量 NES 實例做 bit-parallel kernel」的目標。</p>
+  <p class="en"><b>A note on scope.</b> This study is about <i>single-instance latency</i> on a CPU — that was the goal. A separate, orthogonal question (never a goal here, and not pursued) is whether oblivious evaluation pays off for <i>many-instance bit-sliced throughput</i> on a GPU — a different metric (aggregate throughput, not latency) where oblivious is actually the natural model. We mention it only to delimit what this negative result does and does not cover: it says nothing about that throughput regime.</p>
+  <p class="zh"><b>關於範圍的說明。</b>本研究談的是 CPU 上的<i>單實例延遲</i> —— 那才是目標。另一個正交、不同的問題(在此<b>從來不是目標</b>、也未進行)是:oblivious 評估在 GPU 的<i>多實例 bit-sliced 吞吐</i>上是否划算 —— 那是不同的指標(總吞吐,非延遲),在那裡 oblivious 反而是自然的模型。提它只是為了界定這個負結果涵蓋與不涵蓋的範圍:它對那個吞吐情境不作任何宣稱。</p>
 </section>
 
 <section id="repro">

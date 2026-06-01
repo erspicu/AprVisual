@@ -67,6 +67,7 @@ namespace AprVisual.Test
                     case "--extract":         _coverageMode = true; _extractMode = true; break;   // + extract logic model + levelize
                     case "--miter":           _miterMode = true; break;                          // Escape-1: oblivious logic vs golden, per-hc
                     case "--compile":         _miterMode = true; _compileMode = true; break;      // + emit straight-line C#, compile, compare speed
+                    case "--cones":           _miterMode = true; _coneMode = true; break;          // + macro-event de-risk: cone compression ratio
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -456,6 +457,7 @@ namespace AprVisual.Test
         private static bool _extractMode;   // --extract: + extract logic model + levelize
         private static bool _miterMode;     // --miter: Dynamic Miter — oblivious logic vs golden, per half-cycle
         private static bool _compileMode;   // --compile: + emit straight-line C# sweep (Roslyn), compare speed
+        private static bool _coneMode;      // --cones: + macro-event de-risk (cone compression ratio)
 
         // ── --miter: Escape-1 Dynamic Miter. Phase 1 collects coverage + builds the oblivious logic
         //    model (extracted combinational nodes, their dense truth tables, level order). Phase 2 advances
@@ -532,6 +534,17 @@ namespace AprVisual.Test
             Console.WriteLine($"#  -> speedup ceiling ~ {1.0 / Math.Max(0.001, residual / (double)act):F1}x (Amdahl, if oblivious+register were free)");
             WireCore.ReportResidualBreakdown();
             Console.WriteLine($"# ==================================================================");
+
+            // Macro-event de-risk: condense the final model into cones and measure the per-half-cycle
+            // distinct-macro-unit count (the macro-event count) vs golden's node-events (the compression ratio).
+            if (_coneMode)
+            {
+                WireCore.BuildCones();
+                WireCore.MiterConeCount = true;
+                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.ConeStepBoundary(); }
+                WireCore.MiterConeCount = false;
+                WireCore.ReportCones();
+            }
 
             // Oblivious COMPILATION: emit the relaxation sweep as straight-line C#, compile in-memory, and
             // re-validate with it — proving (a) identical golden match and (b) a faster sweep than the interpreter.

@@ -162,6 +162,7 @@ namespace AprVisual.Sim
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;
             if (MiterActivity) { ActTotal++; _golActivity[nn]++; if (_logicIsExtracted != null && _logicIsExtracted[nn] != 0) ActObliv++; else if (_logicStateCut != null && _logicStateCut[nn] != 0) ActState++; }   // activity coverage
+            if (MiterConeCount) { _coneNodeEvents++; int c = _coneOf[nn]; if (c >= 0 && _coneDirty[c] == 0) { _coneDirty[c] = 1; _coneDirtyList[_coneDirtyCount++] = c; if (_coneIsComb[c] != 0) _coneCombDirtyThisHc++; } }   // cone compression de-risk
             int tlistGates = NodeTlistGates[nn];
             if (tlistGates != 0)
             {

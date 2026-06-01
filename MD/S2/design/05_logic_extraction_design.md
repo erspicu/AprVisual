@@ -307,6 +307,27 @@ boolean(只重算變動節點)—— 但那已是 golden 在做的事(math-algos
 **架構結論維持:此管線無法贏過 S1 的 event-driven 開關級;real-time 不可達。Escape-1 的價值是「可約性證明 + 自動
 抽取/驗證管線」,不是 CPU 加速。**
 
+### 5l. Macro-event 壓縮比量測 —— 決定性 NO-GO(2026-06-01)
+
+Gemini 第二輪(`a_icache_20260601.md`):確認編譯版慢是 **i-cache thrash**(700KB 直線碼掃 6.5×/hc ≫ 32KB L1i),
+**否決 codegen/LLVM**,改推 **data-driven macro-event 解譯器**(原子單位 = latch/bus-bounded 組合 cone),誠實估
+**4-6×**,但前提假設「每半週期只觸動 ~50 個相異 macro-unit」。`WireCore.Cones.cs`(`--cones`)直接量這個壓縮比:
+
+| cone 定義 | 結果 |
+|---|---|
+| gate+far-end union | 1 個巨型 cone(5,349 節點)+ 109 個 size-1/2 → 觸發那個 = 等於 oblivious |
+| **far-end-only union(正確的電氣 settle-unit)** | **2,737 cone,平均 2.0 節點**;每半週期 90 node-events → **81 macro-units → 壓縮 1.1×** |
+
+**NO-GO,而且原因很深**:組合 cone 平均 **2.0 節點 ≈ golden 的平均導通群 1.4 節點**。**golden 早就在最佳的事件
+粒度(導通群)上運作了** —— 沒有更粗的可重用結構可抽。活動是擴散的(90 events 散在 81 units,~1:1),macro-event
+只會把 golden 已做的事重做一遍 + 加抽象開銷 → 打平(= 之前 park 的 event-driven β 的結局)。結構上限:cone 平均 2
+節點 → 壓縮 ≤ ~2× → 不可能到 4-6×。
+
+**∴ CPU 單核加速的搜尋到此確定性收束:沒有任何自動抽象能贏過 golden,因為 golden 已在最佳事件粒度。** 這和
+[[s4-route-single-instance]](AOT-batch 慢 3-6×)、event-driven β(打平)、本輪 oblivious 編譯(慢 45-84×)完全一致。
+Escape-1 的最終定位:**自動「silicon→邏輯」抽取 + 驗證管線 + 「98.9% 可約、~1% analog」可證偽證明 —— 研究成果,
+非 CPU 加速器。**
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
 4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)

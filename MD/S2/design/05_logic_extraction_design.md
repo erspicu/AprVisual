@@ -119,7 +119,31 @@ boolean 函數」(其餘是 analog island,留 switch-level)。
 (SMB 4 frame 未跑遍所有輸入組合)→ 真正抽取要靠**結構式(PullDownCond,從網表算完整 boolean)**,不依賴
 觀測全組合。298 組合環 = 待切的 state element。**下一步:結構抽取器 + state 切割**。
 
-## 6. 後續(若覆蓋率夠高)
-1. 實作完整抽取器(PullDownCond 通用化 + state/clock/analog 自動標記)。
-2. oblivious 編譯(Roslyn / 直線 C#)。
-3. Dynamic Miter 驗證 + 截圖/blargg 驗收。
+## 5d. Dynamic Miter 跑通(2026-06-01,決定性訊號)
+
+建 `WireCore.Logic.cs`(oblivious 邏輯引擎 + Miter)+ 把 `ExtractModel` 持久化模型(`BuildLogicModel`:
+`_logicIsExtracted` / `_logicOrder` 拓樸序 / `_logicTTBase`+`_logicTT` dense 真值表)+ `--miter`(phase 1 收
+coverage+抽取建模,phase 2 golden 每半週期跑一步 → oblivious sweep 比對)。**SMB 200k(100k 建模 + 100k miter)**:
+
+| | 數值 |
+|---|---|
+| oblivious 評估節點(levelizable+完整 TT,K≤16) | 1,263 |
+| 逐 (node,hc) 比對 | 126,300,000 |
+| **MATCH golden** | **96.95%** |
+| **完全不發散的節點(真組合)** | **1,026 / 1,263 = 81%** |
+| 曾發散(= 待切 state) | 237 |
+| oblivious sweep 速度 | 5,289 ns/半週期(239 M node-eval/s) |
+
+**判讀(關鍵)**:
+- **81% 抽出節點 levelized 評估完美重現 golden** —— oblivious 邏輯抽象對「真組合多數」是**忠實的**(行為正確路線成立)。
+- 237 發散節點**自動被 Miter 定位**,top divergers = `ppu.+hpos0_int`/`ppu.++hpos0_2`/hpos0…(PPU 水平計數器
+  回授位元,每半週期 toggle ~50%)→ **正是 radius-1 經驗覆蓋率漏掉的隱藏狀態(state element)**。Miter 把「假
+  乾淨」的 state 精準揪出 —— 這就是它的價值(verify-then-enable 的動態版)。
+- 這直接定義步驟 4:**把發散節點切成 register(讀前值、時脈邊緣更新),從 oblivious 組合 sweep 移除**。
+
+## 6. 後續(進行中)
+1. ~~抽取器 + levelizer~~ ✅(5c)
+2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)
+3. **state/clock 切割**(步驟 4):用 Miter 的發散集自動找最大「可證乾淨」oblivious 集 + 把 state 切成 register。
+4. oblivious 編譯成直線 C#(Roslyn)取代 sweep 解譯。
+5. 截圖/blargg 行為驗收 + 量速度 vs S1 ~80K。

@@ -16,7 +16,9 @@ namespace AprVisual.Sim
     // ───────────────────────────────────────────────────────────────────────────
     internal static unsafe partial class WireCore
     {
-        public static void ExtractModel()
+        public static void ExtractModel() => ExtractModel(true);
+
+        public static void ExtractModel(bool buildModel)
         {
             int n = NodeCount;
             var extracted = new bool[n];          // clean + complete truth table => directly compilable
@@ -62,11 +64,12 @@ namespace AprVisual.Sim
             // Kahn topological sort -> levels. Un-processed extracted nodes are in combinational cycles.
             var q = new Queue<int>();
             var level = new int[n];
+            var orderList = new List<int>();    // levelizable nodes, in topological (eval) order
             int maxLevel = 0, sorted = 0;
             for (int nn = 0; nn < n; nn++) if (extracted[nn] && indeg[nn] == 0) q.Enqueue(nn);
             while (q.Count > 0)
             {
-                int u = q.Dequeue(); sorted++;
+                int u = q.Dequeue(); sorted++; orderList.Add(u);
                 if (succ[u] != null)
                     foreach (int v in succ[u])
                     {
@@ -87,6 +90,45 @@ namespace AprVisual.Sim
             Console.WriteLine($"#    LEVELIZABLE (acyclic, oblivious-emittable): {sorted:N0}  in {maxLevel + 1} levels");
             Console.WriteLine($"#    in combinational CYCLES (uncut state elements): {cyclic:N0}");
             Console.WriteLine("# ===============================================");
+
+            if (buildModel) BuildLogicModel(orderList);
+        }
+
+        // Persist the extracted model into the unmanaged arrays the oblivious eval (WireCore.Logic.cs) reads:
+        //   _logicIsExtracted, _logicOrder (topological), _logicTTBase + _logicTT (dense 2^k truth tables).
+        // Only LEVELIZABLE nodes with a small-enough K get a dense table; the rest stay boundary (golden).
+        private static void BuildLogicModel(List<int> orderList)
+        {
+            const int MaxDenseK = 16;     // 2^16 = 64K table entries; complete TT nodes have small K in practice
+            _logicIsExtracted = AllocArray<byte>(NodeCount);
+            _logicTTBase      = AllocArray<int>(NodeCount);
+
+            var chosen = new List<int>();
+            long ttSize = 1;              // entry 0 reserved (TTBase 0 == "none")
+            foreach (int nn in orderList)
+            {
+                int kk = _covInputs[_covBase[nn]];
+                if (kk > MaxDenseK) continue;
+                chosen.Add(nn);
+                _logicIsExtracted[nn] = 1;
+                _logicTTBase[nn] = (int)ttSize;
+                ttSize += (1 << kk);
+            }
+            _logicTT = AllocArray<byte>((int)ttSize);
+            foreach (int nn in chosen)
+            {
+                int kk = _covInputs[_covBase[nn]];
+                int baseIdx = _logicTTBase[nn];
+                var map = _covMap![nn];
+                int full = 1 << kk;
+                for (int idx = 0; idx < full; idx++)
+                    _logicTT[baseIdx + idx] = map != null && map.TryGetValue((ulong)idx, out byte v) ? v : (byte)0;
+            }
+            _logicOrder = AllocArray<int>(chosen.Count);
+            for (int i = 0; i < chosen.Count; i++) _logicOrder[i] = chosen[i];
+            _logicOrderCount = chosen.Count;
+            LogicModelBuilt = true;
+            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes, TT bytes {ttSize:N0}");
         }
     }
 }

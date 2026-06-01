@@ -65,6 +65,7 @@ namespace AprVisual.Test
                     case "--profile":         _profileMode = true; break;              // whole-NES work profiler (analysis only)
                     case "--coverage":        _coverageMode = true; break;             // boolean-coverability probe (Escape-1 de-risk)
                     case "--extract":         _coverageMode = true; _extractMode = true; break;   // + extract logic model + levelize
+                    case "--miter":           _miterMode = true; break;                          // Escape-1: oblivious logic vs golden, per-hc
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -452,6 +453,34 @@ namespace AprVisual.Test
         private static bool _profileMode;   // --profile: whole-NES work profiler (analysis only)
         private static bool _coverageMode;  // --coverage: boolean-coverability probe (Escape-1 de-risk)
         private static bool _extractMode;   // --extract: + extract logic model + levelize
+        private static bool _miterMode;     // --miter: Dynamic Miter — oblivious logic vs golden, per half-cycle
+
+        // ── --miter: Escape-1 Dynamic Miter. Phase 1 collects coverage + builds the oblivious logic
+        //    model (extracted combinational nodes, their dense truth tables, level order). Phase 2 advances
+        //    the golden switch-level engine one half-cycle at a time and, after each, sweeps the oblivious
+        //    logic model (levelized; extracted inputs read the model's own LogicState, boundary inputs read
+        //    golden NodeStates) and compares — measuring whether the levelized boolean abstraction reproduces
+        //    the switch-level behaviour for the extracted nodes (the core Escape-1 correctness claim).
+        private static int RunMiter(int hcCount)
+        {
+            int phase1 = hcCount / 2; if (phase1 < 1) phase1 = 1;
+            int phase2 = hcCount - phase1; if (phase2 < 1) phase2 = 1;
+
+            Console.WriteLine($"# ===== DYNAMIC MITER: phase 1 = {phase1:N0} hc (coverage+extract), phase 2 = {phase2:N0} hc (miter) =====");
+            WireCore.AllocCoverage();
+            WireCore.Step(phase1);
+            WireCore.ReportCoverage();
+            WireCore.ExtractModel();                 // builds the oblivious logic model (BuildLogicModel)
+            if (!WireCore.LogicModelBuilt) { Console.WriteLine("# miter: no logic model built — abort"); return 1; }
+
+            WireCore.AllocLogicEval();               // seed LogicState from current golden state
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < phase2; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            sw.Stop();
+            Console.WriteLine($"# miter phase 2 wall: {sw.Elapsed.TotalSeconds:F2} s ({phase2 / sw.Elapsed.TotalSeconds:N0} hc/s incl. golden+sweep+compare)");
+            WireCore.ReportMiter();
+            return 0;
+        }
 
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──
         public static int BenchmarkHalfCycles(string romPath, int hcCount, string logDir = "log")
@@ -465,6 +494,7 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
+                if (_miterMode) return RunMiter(hcCount);
                 // Memory hygiene before the hot path: LoadSystem's ClearPostLoadBuildState already freed
                 // the build graph (~25-50 MB); release the residual name maps + Node shells the hot loop
                 // never touches, then force a final compacting Gen2 GC so no collection can fire mid-

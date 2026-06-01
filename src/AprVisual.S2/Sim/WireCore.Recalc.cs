@@ -110,6 +110,7 @@ namespace AprVisual.Sim
         private static void RecalcNode(int nn)
         {
             if (nn == Npwr || nn == Ngnd) return;
+            if (Profiling) ProfTotalRecalc++;
             // Fast-path dispatch (IsPureLogic populated at Reset):
             //   1 = static pure-logic — group provably {nn}, O(1) RecalcNodeFast.
             //   2 = R-1 dynamic-singleton candidate — has c1c2s channels but no excluded flags; if
@@ -138,6 +139,7 @@ namespace AprVisual.Sim
                 }
                 if (!grows) { RecalcNodeFast(nn); return; }
             }
+            if (Profiling) ProfBfsRecalc++;
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 

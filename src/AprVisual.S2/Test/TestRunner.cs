@@ -62,6 +62,7 @@ namespace AprVisual.Test
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--ir":              WireCore.EnableIr = true; break;          // S2 IR (Phase A) dispatch on
+                    case "--profile":         _profileMode = true; break;              // whole-NES work profiler (analysis only)
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -446,6 +447,8 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
+        private static bool _profileMode;   // --profile: whole-NES work profiler (analysis only)
+
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──
         public static int BenchmarkHalfCycles(string romPath, int hcCount, string logDir = "log")
         {
@@ -463,10 +466,17 @@ namespace AprVisual.Test
                 // never touches, then force a final compacting Gen2 GC so no collection can fire mid-
                 // measurement. Hot data is unmanaged (NodeStates/NodeInfos/TransistorList/...), so this is
                 // timing-stability hygiene + minimum resident heap, not a throughput change.
-                WireCore.ReleaseBenchResidualState();
-                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
-                System.GC.WaitForPendingFinalizers();
-                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                if (_profileMode)
+                {
+                    WireCore.AllocProfile();   // profile the STEADY run (post power-on); keeps name maps for the report
+                }
+                else
+                {
+                    WireCore.ReleaseBenchResidualState();
+                    System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                    System.GC.WaitForPendingFinalizers();
+                    System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                }
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);
@@ -485,7 +495,8 @@ namespace AprVisual.Test
                 Console.WriteLine($"# engine: csharp  version: {bv} ({bd})");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 PrintRealtimeGap(stepsHz);
-                WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
+                if (_profileMode) WireCore.ReportProfile();
+                else WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
             }
             finally { WireCore.Shutdown(); }
             return 0;

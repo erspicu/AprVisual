@@ -142,6 +142,7 @@ namespace AprVisual.Sim
             if (_inGroup[nn] != 0) return;
 
             _inGroup[nn] = 1;
+            if (Profiling) { ProfVisit[nn]++; ProfTotalVisits++; }
             ref NodeInfo ns = ref NodeInfos[nn];
             _groupBuf[_groupCount++] = (ushort)nn;
             RecalcHash[nn] = 0;

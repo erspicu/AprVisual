@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — why IR / codegen still hit the wall (with data)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Why IR / codegen still hit the wall</span><span class="zh">為什麼 IR / codegen 仍然撞牆</span></h1>
+  <p class="sub en">The engine is at ~80,000 half-cycles/sec. The textbook next move to go faster is to build an IR and compile it. We did — an interpreter <i>and</i> a profile-driven look at codegen — and both hit a wall. This is the honest, measured account of <b>why</b>, with the whole-NES numbers that settle it. Short version: for a bit-exact switch-level model on one CPU core, ~80K is the architectural ceiling.</p>
+  <p class="sub zh">引擎現在 ~80,000 半週期/秒。要再快,教科書的下一步是「做一個 IR、編譯它」。我們做了 —— 一個直譯器,<i>外加</i>用 profile 數據評估 codegen —— 兩者都撞牆。這頁誠實、用實測說明<b>為什麼</b>,並附上一錘定音的整機數據。一句話:對「單核 CPU + bit-exact switch-level」這個目標,~80K 就是架構天花板。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">Attempt 1 — the IR interpreter: correct, but −2.5%</span><span class="zh">嘗試一 —— IR 直譯器:正確,但 −2.5%</span></h2>
+  <p class="en">We built a CPU-first, event-driven, hybrid IR: extract the cleanest pure-logic nodes into per-node truth-table LUTs, dispatch them through the IR, leave everything else on the switch-level path. It was <b>bit-exact</b> (same whole-NES checksum <code>0x794A43ABDF169ADA</code>) and covered <span class="num">3,390</span> nodes (23% of live). Then we measured it, interleaved-paired:</p>
+  <p class="zh">我們做了一個 CPU-first、事件驅動的混合 IR:把最乾淨的純邏輯節點抽成「每節點一張真值表 LUT」、走 IR 解析,其餘留在 switch-level 路徑。它<b>位元完全相同</b>(整機 checksum <code>0x794A43ABDF169ADA</code>),涵蓋 <span class="num">3,390</span> 個節點(23% live)。然後 interleaved-paired 量它:</p>
+  <table>
+    <tr><th></th><th>hc/s <span class="en">(median)</span><span class="zh">(中位)</span></th><th><span class="en">paired result</span><span class="zh">配對結果</span></th></tr>
+    <tr><td><span class="en">S1 (no IR)</span><span class="zh">S1(無 IR)</span></td><td class="num">81,738</td><td>—</td></tr>
+    <tr><td><span class="en">S2 with IR</span><span class="zh">S2 開 IR</span></td><td class="num">80,026</td><td><span class="tagN">−2.54%</span>, <span class="en">0 of 9 rounds won</span><span class="zh">9 輪 0 勝</span></td></tr>
+  </table>
+  <p class="en">Why slower? The nodes we IR-ized are exactly the ones the switch-level engine already resolves in <b>O(1)</b> (its singleton fast-path — a few instructions + one LUT read). The IR's truth-table eval (read the gate states, pack an index, chase a gate list, read a table) is <i>heavier</i> than that. You wrapped the already-minimal in a layer. And the nodes the engine does <i>slowly</i> can't be IR-ized (next section). Net: a clean, correct IR — that's pure overhead here.</p>
+  <p class="zh">為何更慢?被 IR 化的節點,正是 switch-level 引擎本來就用 <b>O(1)</b> 秒殺的(它的 singleton fast-path —— 幾條指令 + 一次 LUT)。IR 的真值表評估(讀 gate 狀態、打包 index、追 gate list、查表)<i>還更重</i>。你把「已經最精簡的」再包一層。而引擎做得<i>慢</i>的那些,又抽不成 IR(見下節)。淨值:一個乾淨、正確的 IR —— 在這裡純粹是開銷。</p>
+</section>
+
+<section>
+  <h2><span class="en">Attempt 2 — codegen: killed by the profile, before a line was written</span><span class="zh">嘗試二 —— codegen:還沒寫就被 profile 數據判死</span></h2>
+  <p class="en">The interpreter is capped, so the textbook escalation is <b>macro-block codegen</b>: collapse multi-node chains into single compiled methods, queue at the block boundary, evaluate the block obliviously inside (straight-line, L1-i-cache-resident). For that to win, the work must <b>concentrate</b> — a few hot blocks that, once compiled, cover most of the time. So before writing a codegen backend, we profiled the whole NES (CPU 2A03 + PPU 2C02) to see if that concentration exists.</p>
+  <p class="zh">直譯器封頂,於是教科書的升級是 <b>macro-block codegen</b>:把多節點鏈 collapse 成單一編譯方法、在 block 邊界排隊、block 內部 oblivious 評估(直線碼、駐 L1 i-cache)。但它要贏,工作必須<b>集中</b> —— 少數熱 block 編譯後就能涵蓋大部分時間。所以在寫 codegen 後端之前,我們先 profile 整顆 NES(CPU 2A03 + PPU 2C02),看那個集中度存不存在。</p>
+
+  <div class="card">
+    <h3><span class="en">Whole-NES profile</span><span class="zh">整機 profile</span> <span class="mut">— full_palette, 300,000 hc, 181.4M recalcs</span></h3>
+    <table>
+      <tr><th><span class="en">Metric</span><span class="zh">指標</span></th><th><span class="en">Value</span><span class="zh">數值</span></th><th><span class="en">Meaning</span><span class="zh">意義</span></th></tr>
+      <tr><td><span class="en">total recalcs</span><span class="zh">總 recalc</span></td><td class="num">181,429,313</td><td><span class="en">~604.6 per half-cycle</span><span class="zh">每半週期 ~604.6 次</span></td></tr>
+      <tr><td><span class="en"><b>fast-path</b> (singleton, O(1))</span><span class="zh"><b>fast-path</b>(singleton,O(1))</span></td><td class="num">126,072,032 <b>(69.5%)</b></td><td><span class="tagY"><span class="en">S1 already optimal — untouchable</span><span class="zh">S1 已最優 —— 碰不得</span></span></td></tr>
+      <tr><td><span class="en"><b>group-BFS</b> (multi-node)</span><span class="zh"><b>group-BFS</b>(多節點)</span></td><td class="num">55,357,281 <b>(30.5%)</b></td><td><span class="en">the only possible codegen target</span><span class="zh">唯一可能的 codegen 目標</span></td></tr>
+      <tr><td><span class="en">avg BFS group size</span><span class="zh">BFS 平均群大小</span></td><td class="num">2.25 <span class="en">nodes</span><span class="zh">節點</span></td><td><span class="tagN"><span class="en">tiny — nothing to unroll</span><span class="zh">極小 —— 沒東西可展開</span></span></td></tr>
+    </table>
+    <p class="en" style="margin-top:10px"><b>The killer — concentration of the 30.5% BFS work</b> (across 4,752 distinct BFS-touched nodes):</p>
+    <p class="zh" style="margin-top:10px"><b>致命的 —— 那 30.5% BFS 工作的集中度</b>(分散在 4,752 個被 BFS 碰到的節點):</p>
+    <table>
+      <tr><th><span class="en">hottest…</span><span class="zh">最熱的…</span></th><th><span class="en">share of all BFS work</span><span class="zh">佔全部 BFS 工作</span></th></tr>
+      <tr><td><span class="en">top 10 nodes</span><span class="zh">top 10 節點</span></td><td class="num">1.2%</td></tr>
+      <tr><td><span class="en">top 50 nodes</span><span class="zh">top 50 節點</span></td><td class="num">6.0%</td></tr>
+      <tr><td><span class="en">top 200 nodes</span><span class="zh">top 200 節點</span></td><td class="num">21.6%</td></tr>
+    </table>
+    <p class="mut en">By subsystem: PPU ~36%, CPU ~12%, the rest unnamed internal/board nodes. The per-node distribution is nearly <b>flat</b> (the hottest node is 0.14%; the next thirty are all ~0.12%).</p>
+    <p class="mut zh">依子系統:PPU ~36%、CPU ~12%、其餘是無名內部/板級節點。每節點分布幾乎<b>是平的</b>(最熱的 0.14%,後面三十個都 ~0.12%)。</p>
+  </div>
+
+  <div class="bad">
+    <p class="en"><b>That table is the verdict.</b> There is no hot concentration to exploit. To cover even half the BFS work, codegen would have to compile <i>thousands</i> of nodes → the compiled-code working set blows the 32 KB L1 instruction cache (the exact "giant function" death, just spread out). And the groups average <b>2.25 nodes</b> — unrolling a 2-node BFS into straight-line code saves almost nothing. Both prerequisites for a codegen win are absent. The macro-block path was dead before the first line.</p>
+    <p class="zh"><b>這張表就是判決。</b>沒有熱點集中可以打。要覆蓋哪怕一半的 BFS 工作,codegen 得編譯<i>上千個</i>節點 → 編譯碼工作集撐爆 32 KB L1 指令快取(就是「巨型函數」的死法,只是攤開)。而群平均才 <b>2.25 節點</b> —— 把一個 2 節點的 BFS 展開成直線碼,幾乎省不到東西。codegen 要贏的兩個前提都不存在。macro-block 這條路,第一行還沒寫就死了。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">The per-event floor: ~82 CPU cycles, no fat left</span><span class="zh">per-event 地板:每次 ~82 個 CPU cycle,沒肥肉了</span></h2>
+  <p class="en">Put the throughput in cycles. At 80,000 hc/s and ~604.6 recalcs/hc, the engine processes <span class="num">~48.4 million</span> recalcs/second. On a ~4 GHz core that is <b><span class="num">~82 CPU cycles per recalc</span></b>. In 82 cycles the code dequeues an event, reads the node, checks the fast-path, and 30.5% of the time walks a 2.25-node pointer chase, builds an 8-bit flag, indexes a LUT, writes back, and conditionally enqueues downstream with dedup bits.</p>
+  <p class="zh">把吞吐換算成 cycle。80,000 hc/s × ~604.6 recalc/hc = 每秒 <span class="num">~4,840 萬</span>次 recalc。在 ~4 GHz 核心上 = <b><span class="num">每次 recalc ~82 個 CPU cycle</span></b>。82 cycle 內要:dequeue、讀節點、查 fast-path、(30.5% 時)走 2.25 節點的指標追逐、建 8-bit flag、查 LUT、寫回、帶 dedup 位元條件 enqueue 下游。</p>
+  <p class="en">An L1 hit is ~4 cycles; an L2 hit ~12–20; a branch misprediction ~15. Because the hot nodes are uniformly <b>diffuse</b>, there is no small hot-set to keep warm in L1, and the branch predictor keeps guessing on tiny 2-node loops. The bottleneck is <b>memory-dependency latency and pipeline hazards</b>, not arithmetic — and you cannot trim cycles that are spent waiting on a dependent load. There is no fat left to cut.</p>
+  <p class="zh">L1 命中 ~4 cycle;L2 ~12–20;分支誤判 ~15。因為熱節點均勻<b>擴散</b>,沒有小熱集合能留在 L1 暖著,分支器又一直在猜 2 節點的小迴圈。瓶頸是<b>記憶體依賴延遲 + pipeline hazard</b>,不是算術 —— 而你削不掉「在等一個依賴載入」的 cycle。沒有肥肉可削了。</p>
+</section>
+
+<section>
+  <h2><span class="en">Can't make events cheaper — can't make fewer of them either</span><span class="zh">每個 event 不能更便宜 —— 數量也減不了</span></h2>
+  <p class="en">If per-event cost is at the floor, the other axis is <b>fewer events</b> — skip recalcs that "won't change anything". For most discrete-event simulators you do this with a <b>levelized (ranked) event queue</b>: topologically sort the DAG and process in rank order so transient glitches never propagate and re-trigger evaluations. Two things make that impossible here, both fundamental:</p>
+  <p class="zh">如果每個 event 已到地板,另一條軸是<b>減少 event 數</b> —— 跳過「不會改變什麼」的 recalc。多數離散事件模擬器用<b>levelized(分級)事件佇列</b>做這件事:把 DAG 拓樸排序、按 rank 處理,讓瞬態 glitch 不會傳播再觸發重算。兩個原因讓它在這裡不可能,而且都是根本性的:</p>
+  <ul>
+    <li class="en"><b>You can't rank the graph.</b> ~94% of nodes are in one bidirectional pass-transistor SCC — everything clumps into the same rank. There is no topological order.</li>
+    <li class="zh"><b>圖排不了序。</b>~94% 的節點在同一個雙向 pass-transistor SCC —— 全擠進同一個 rank。沒有拓樸序。</li>
+    <li class="en"><b>The transients are load-bearing.</b> In Bryant's switch-level model, the floating-capacitance tie-break depends on the <i>exact sequence</i> of charge-sharing events. The intermediate transient states aren't redundant — skipping a transient that momentarily pulls a floating node alters the tie-break math for the rest of that half-cycle. "Skipping the redundant" isn't redundant; it's wrong.</li>
+    <li class="zh"><b>瞬態是承重的。</b>在 Bryant 的 switch-level 模型裡,floating 電容 tie-break 取決於 charge-sharing 事件的<i>精確順序</i>。中間瞬態不是冗餘 —— 跳過某個「瞬間拉動 floating 節點」的瞬態,就改了該半週期後續的 tie-break 數學。「跳過冗餘」不是冗餘,是錯的。</li>
+  </ul>
+  <p class="mut en">And the activity rate is already ~4% (604 of 14,723 nodes per half-cycle) — the bare dynamic wavefront. Any static prune to shave it costs more analysis than the ~82 cycles it would save.</p>
+  <p class="mut zh">而且活動率已經 ~4%(每半週期 604 / 14,723 個節點)—— 就是最小動態波前。任何想再剪它的靜態分析,成本都超過它能省的那 ~82 cycle。</p>
+</section>
+
+<section>
+  <h2><span class="en">The verdict, and the only escapes</span><span class="zh">判決,以及唯二的逃生口</span></h2>
+  <div class="big">
+    <p class="en"><b>~80K hc/s is the architectural ceiling for a correct, dynamically-interpreted Bryant switch-level simulation of this netlist on one CPU core.</b> Per-event cost is at the memory-latency floor; event count can't be reduced bit-exactly; and codegen has no concentration to exploit. There is no remaining single-core lever — not without changing the abstraction.</p>
+    <p class="zh"><b>對「單核 CPU、正確、動態直譯的 Bryant switch-level」模擬這顆網表,~80K hc/s 就是架構天花板。</b>每個 event 的成本在記憶體延遲地板;event 數量無法 bit-exact 地減少;codegen 又沒有集中熱點可吃。沒有剩下的單核槓桿了 —— 除非換掉抽象。</p>
+  </div>
+  <p class="en">There are exactly two ways past the wall, and both change the problem:</p>
+  <p class="zh">越過這道牆只有兩條路,兩條都改變了問題本身:</p>
+  <table>
+    <tr><th><span class="en">Escape</span><span class="zh">逃生口</span></th><th><span class="en">What it gives up</span><span class="zh">放棄什麼</span></th><th><span class="en">Status here</span><span class="zh">在這裡</span></th></tr>
+    <tr><td><b><span class="en">Logic extraction</span><span class="zh">邏輯抽取</span></b><br><span class="mut"><span class="en">extract the boolean DAG for the ~90% that is really just gates &amp; flip-flops; keep switch-level only for the ~10% genuinely-analog</span><span class="zh">把真正只是閘與正反器的 ~90% 抽成 boolean DAG;只對 ~10% 真類比的保留 switch-level</span></span></td>
+        <td><span class="en"><b>per-node bit-exactness</b> (internal switch-level nodes no longer reproduced) — but observable behavior (the rendered frame, CPU/PPU registers) can survive</span><span class="zh"><b>逐節點 bit-exact</b>(內部 switch-level 節點不再重現)—— 但可觀測行為(畫面、CPU/PPU 暫存器)可以保住</span></td>
+        <td><span class="en">a different, interesting project (auto silicon→logic→fast sim); the extracted logic <i>is</i> feed-forward, so it can be levelized — the actual way past the ceiling, at the cost of precision</span><span class="zh">另一個有趣的專案(自動 silicon→logic→快速模擬);抽出的邏輯<i>是</i>前饋的、能 levelize —— 這才是越過天花板的真路,代價是精度</span></td></tr>
+    <tr><td><b><span class="en">FPGA / spatial</span><span class="zh">FPGA / 空間平行</span></b></td>
+        <td><span class="en">nothing (stays 100% bit-exact)</span><span class="zh">什麼都不放棄(維持 100% bit-exact)</span></td>
+        <td><span class="en">off the table — the goal is one CPU core, not silicon</span><span class="zh">離題 —— 目標是單核 CPU,不是矽</span></td></tr>
+  </table>
+  <p class="note en"><b>Does abstracting to logic gates necessarily break bit-exact?</b> The <b>per-node checksum</b>: yes, necessarily — the internal switch-level mids, transients and tie-break order aren't reproduced. <b>Observable behavior</b>: not necessarily — for the ~90% that is genuine digital logic, gates (plus latches for the state elements) produce the same outputs; the screenshot can stay correct. The risk is the ~10% genuinely-analog (dynamic storage, charge-sharing, bus contention), which a naive boolean abstraction gets wrong unless detected and kept switch-level (or modeled as state). Detecting that automatically is the whole game of the next direction.</p>
+  <p class="note zh"><b>往邏輯閘抽象化,勢必破壞 bit-exact 嗎?</b><b>逐節點 checksum</b>:是,勢必 —— 內部 switch-level 的 mid、瞬態、tie-break 順序不會被重現。<b>可觀測行為</b>:不一定 —— 對 ~90% 真正是數位邏輯的部分,閘(加上 state element 的 latch)會算出同樣的輸出,截圖可以維持正確。風險在 ~10% 真類比的(動態儲存、charge-sharing、bus 競爭),純 boolean 抽象會算錯,除非自動偵測出來、保留 switch-level(或建模成有狀態)。把那件事自動做對,正是下一個方向的全部難點。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">Every figure here is measured on this engine (<code>full_palette</code>, 300k half-cycles), not estimated. The IR interpreter was validated bit-exact (whole-NES checksum) before timing; the profile is from an instrumented run that counts every recalc and every group-BFS visit. The companion notes: <a href="intuition.html">why the "obvious" speedups don't work</a> and <a href="landscape.html">the research landscape</a> (why this regime has no 20-year breakthrough). The cycle-budget framing (~82 cycles/recalc) and the "transients are load-bearing" point were stress-tested against an external model asked, explicitly, to be brutally honest — its verdict was the same: no remaining lever.</p>
+  <p class="zh">這裡每個數字都是這個引擎上的實測(<code>full_palette</code>、30 萬半週期),不是估計。IR 直譯器在計時前已驗 bit-exact(整機 checksum);profile 來自一個會數每次 recalc、每次 group-BFS visit 的儀器化執行。延伸閱讀:<a href="intuition.html">為什麼「直覺上該更快」的點子都沒用</a>、<a href="landscape.html">研究現況</a>(為何這個 regime 近 20 年沒突破)。cycle 預算(每 recalc ~82)與「瞬態承重」的論點,也丟給一個被明確要求「殘酷誠實」的外部模型壓力測試 —— 它的結論一樣:沒有剩下的槓桿。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">An honest, measured account of why IR / codegen can't beat a tight event-driven switch-level interpreter — the whole-NES data that settles it. 2026-06-01.</span><span class="zh">一篇誠實、用實測說明「IR / codegen 為何打不過緊湊的事件驅動 switch-level 直譯器」的記錄 —— 連同一錘定音的整機數據。2026-06-01。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

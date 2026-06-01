@@ -1,0 +1,177 @@
+Timestamp: 2026-06-01T19:20:31
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+I need a concrete, environment-aware, HONEST strategy. If a step is a research dead-end or
+undecidable in practice, say so plainly — do not hand-wave to seem helpful. I will implement
+what you say.
+
+=== THE ENVIRONMENT (read carefully — it changes the answer) ===
+- We have a WORKING, bit-exact switch-level (Bryant-model) simulator of the NES (MOS 2A03 CPU +
+  2C02 PPU), in C#, single CPU core. ~14,723 nodes, ~26,775 NMOS PASS transistors after lowering.
+  It runs ~80,000 half-cycles/sec and is the GOLDEN REFERENCE (we can diff any candidate against
+  it per-node or per-frame).
+- We have PROVEN (measured + an external brutal-honesty review) that bit-exact switch-level on one
+  CPU core is at its ARCHITECTURAL CEILING (~80K): per-event cost is ~82 CPU cycles (memory-latency
+  bound); 94% of nodes are in ONE bidirectional pass-transistor SCC (un-levelizable); event count
+  can't be cut bit-exactly because the floating-capacitance tie-break depends on the exact transient
+  sequence. So bit-exact is done.
+- NEW GOAL (a deliberately DIFFERENT project): automatically abstract the netlist UP to logic level
+  to go faster, ACCEPTING loss of per-node bit-exactness, but REQUIRING:
+    (a) BEHAVIORAL correctness — the rendered framebuffer (screenshot) must match, and blargg CPU
+        test ROMs must still PASS, and ideally the CPU/PPU architectural register trace matches.
+    (b) FULLY AUTOMATIC — derived by program from the transistor netlist, NObody hand-writing
+        per-subsystem logic. (A hand-written logic emulator already exists; the novelty is
+        auto-deriving from silicon.)
+- WHAT WE ALREADY HAVE (automatic): a verified boolean extractor for clean pull-down cones — for a
+  pull-up node with only gates-to-GND, it enumerates the pull-down paths into a boolean Expr
+  NOT(OR(...)) and we verified it 0-mismatch vs switch-level on 3,408 nodes. So automatic
+  combinational-gate extraction of the feed-forward fringe works. The KEY realization: the RAW
+  transistor net is a bidirectional SCC, BUT the FUNCTIONAL logic BETWEEN state elements is
+  combinational and feed-forward -> levelizable -> escapes the un-rankable-SCC wall.
+
+=== THE HARD PROBLEMS (this is what I need concrete methods for) ===
+1. AUTO-DETECT STATE ELEMENTS. To cut the feedback so the inter-register logic becomes a
+   levelizable DAG, I must automatically identify the latches / flip-flops / dynamic-storage nodes
+   in this NMOS pass-transistor netlist. What is the concrete algorithm? (Cross-coupled inverter
+   pairs by structural pattern? Strongly-connected-component feedback edges? Dynamic nodes =
+   nodes with no static pull-up/pull-down, i.e. value held only on parasitic capacitance via a
+   pass gate — how do I find those reliably?) The 2A03/2C02 use heavy dynamic/pass-transistor
+   latches, not clean static DFFs.
+2. AUTO-DETECT THE GENUINELY-ANALOG BLOCKS that pure boolean abstraction gets WRONG (charge
+   sharing, ratioed logic, bus precharge/contention, multi-driver tri-state where the resolved
+   value depends on strength), so I keep ONLY those on the switch-level engine (hybrid) and
+   boolean-ize the rest. What's the concrete detector? (Multiple simultaneous drivers of differing
+   strength? nodes whose switch-level value over a trace is NOT a pure boolean function of their
+   gate inputs — can I detect that empirically by sampling the golden reference?)
+3. CLOCKING. The NES is NOT a clean single-clock synchronous design — it has multiple internal
+   clock phases derived on-chip. How does an automatic extractor discover the phase structure and
+   the register-update schedule without hand annotation?
+4. DOES IT ACTUALLY GET FASTER? Be skeptical: after extraction, is the levelized logic genuinely
+   less work than the ~604 recalcs/half-cycle event-driven engine, or does it inherit the same
+   diffuseness (touch ~the whole chip every clock = oblivious = the 121x death we already measured)?
+   What keeps it event-driven / sparse at the logic level?
+5. VALIDATION + AUTO-LOCALIZATION. When the screenshot is wrong, how do I automatically localize
+   WHICH extracted block diverged from the golden reference (so the pipeline self-corrects),
+   rather than hand-debugging?
+
+=== QUESTIONS ===
+A. Give the concrete pipeline (stages, algorithms) for automatic transistor-net -> levelized
+   logic + hybrid switch-level islands, for THIS environment (we have the golden reference to
+   sample/verify against, and a working pull-down-cone extractor).
+B. Is automatic state-element + analog-block detection actually tractable on a dynamic NMOS
+   pass-transistor chip like the 2A03/2C02, or is it the real wall (and why)? Has anyone done
+   automatic transistor->gate/RTL extraction for such a chip (Visual6502 / netlist-reversing work)?
+C. Honest bottom line: is "automatic, behavior-correct, faster-than-80K" achievable, or does this
+   escape have its own dead-end? If achievable, what's the single first prototype to build to
+   de-risk it (smallest thing that proves the pipeline), validated by screenshot?
+
+Be concrete and brutal. Lead with the first thing to build.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the brutal, honest, concrete strategy. 
+
+First, the most important truth: **100% zero-annotation static analysis of 1980s NMOS pass-transistor logic to find clocks, state, and analog behavior is a research dead-end.** If you try to prove charge-sharing statically from a raw netlist without capacitance values, you will fail. 
+
+However, you have a massive asymmetric advantage: **The Golden Simulator.** You can replace undecidable static analysis with **empirical dynamic analysis**. You don't need to *prove* a node is a dynamic latch statically; you can *observe* it holding state in the golden reference and use static analysis merely to confirm the structure.
+
+Here is your concrete pipeline and the answers to your hard problems.
+
+---
+
+### C. The Honest Bottom Line & The First Prototype
+**Is it achievable?** Yes. You can hit 1M+ half-cycles/sec. But you must abandon the idea of an "event-driven logic simulator." At 14k nodes, the overhead of an event queue (pointers, branching) is higher than just evaluating the boolean equations. You want **Oblivious Compiled Simulation**: auto-generating a massive block of straight-line C# code that evaluates the levelized netlist every clock phase. 
+
+**The First Prototype to Build (De-risking the pipeline):**
+Do not build the whole extractor yet. Build the **Empirical Oracle**.
+1. Instrument your Golden Simulator to dump a cycle-by-cycle VCD (Value Change Dump) trace of all 14,000 nodes running a simple blargg test.
+2. Write an offline script that parses this trace and the netlist.
+3. For a specific subset of nodes (e.g., the 3,408 you already extracted), evaluate your boolean `Expr` offline against the inputs in the trace, and compare it to the golden output node in the trace.
+4. **Goal:** Prove that your boolean expressions *perfectly predict* the golden output for 100,000 cycles. This proves the logic level matches the switch level dynamically before you write a line of simulation runtime.
+
+---
+
+### A & B. The Concrete Pipeline (Solving Problems 1, 2, and 3)
+
+Forget pure static graph theory. Use an **Empirical-Structural Hybrid Pipeline**.
+
+#### Stage 1: Auto-Detect "Analog" Blocks (Problem 2)
+You cannot easily detect ratioed logic/charge-sharing by looking at the graph. You detect it by its failure to be boolean.
+*   **The Algorithm:**
+    1. For every node $N$ in the SCC, use a localized structural search: gather all pass-transistors and pull-down/pull-up paths within a radius of 1 or 2.
+    2. Formulate a candidate boolean function for $N$ based on inputs.
+    3. Stream a 1-million-cycle trace from the Golden Simulator.
+    4. For every cycle, check: Does the candidate boolean function predict the state of $N$?
+    5. **The Brutal Cut:** If a node's state depends on a previous floating state (charge sharing), relies on contention where a weak pull-up loses to a pull-down (ratioed logic), or is part of a bidirectional ALU carry chain (like the 6502's), *the boolean prediction will fail against the golden trace.* 
+    6. Any node that fails prediction is tagged as an **Analog Island Node**. Group contiguous analog nodes into blocks. Leave them for the switch-level engine.
+
+#### Stage 2: Clock Phase Discovery (Problem 3)
+Do not try to statically reverse-engineer the 6502 clock generator.
+*   **The Algorithm:**
+    1. You know the external CLK pin.
+    2. Look at the Golden Trace. Find every node that toggles periodically with a strict, unbroken phase relationship to CLK. (e.g., Node X is always high during CLK half-cycle 1, low during half-cycle 2).
+    3. These are your internal clocks ($\phi_1$, $\phi_2$, precharge signals).
+    4. Tag these nodes as **Clocks**. They are treated as primary inputs to the logic networks, not as logic to be evaluated.
+
+#### Stage 3: Auto-Detect State Elements (Problem 1)
+NMOS state elements are either cross-coupled inverters (static) or pass-gate-isolated capacitors (dynamic). 
+*   **Structural Detection (Static):** Run Tarjan’s Strongly Connected Components algorithm. In boolean logic, an SCC of size > 1 is a static feedback loop. Break the loop by identifying the feedback gate and replacing it with a "D-Flip-Flop" equivalent (a state boundary).
+*   **Structural Detection (Dynamic):** A dynamic latch in NMOS is simply a gate input driven *only* by the source/drain of a pass transistor.
+*   **Empirical Validation:** Look at the Golden Trace. A state node is one that holds its value for multiple cycles while its driver is completely disconnected (all incoming pass transistors are off). If the trace shows a node maintaining '1' or '0' while floating, it is a dynamic state element. Tag it as a **Register**.
+
+#### Stage 4: Levelization
+Now that you have cut the graph at **Clocks**, **Registers**, and **Analog Islands**, what remains is strictly feed-forward combinational logic.
+*   **The Algorithm:** Run a topological sort on the remaining combinational nodes. If the sort fails, you missed a state element (an un-cut loop). Fall back to the trace to figure out which node in the loop acts as the delay element, cut it, and sort again.
+
+#### Stage 5: Code Generation
+Do not write an engine. Write a compiler.
+*   **The Algorithm:** Output straight-line C# (or IL).
+    ```csharp
+    // Phase 1 execution
+    void EvaluateCombinational() {
+       node_A = ~(node_B & node_C);
+       node_D = node_A | node_E;
+       // ... 10,000 lines of this
+    }
+    void UpdateState() {
+       register_F = node_D; // Pass gate opened
+    }
+    ```
+
+---
+
+### 4. DOES IT ACTUALLY GET FASTER? (The Performance Reality Check)
+
+**Be highly skeptical of event-driven logic simulation at this scale.** 
+Your switch-level engine evaluates 604 nodes per half-cycle, taking ~82 cycles per event. 
+Total CPU cycles: $604 \times 82 = \approx 50,000$ CPU cycles per half-cycle.
+
+If you make an *event-driven* logic simulator, the overhead of maintaining the queue, checking if a node changed, and dispatching to a virtual function or delegate in C# will cost you ~20-30 cycles per event. You will save very little.
+
+**The Escape:** Oblivious Compiled Simulation. 
+If you compile the 14,000 nodes down to, say, 5,000 boolean equations, and write them as straight-line C# bitwise operations, the C# JIT will map them to native instructions. Evaluating a boolean equation takes ~1-2 CPU cycles. 
+Evaluating *all 5,000 equations every single half-cycle* (ignoring sparsity entirely) will take $\approx 10,000$ CPU cycles. 
+
+By touching *everything* but doing it blindly and optimally in L1 cache (no branches, no queues, no pointers), you beat the sparse event-driven engine by a factor of 5x to 10x. **Sparsity is a trap on modern superscalar CPUs for small netlists.** Branch prediction misses and memory latency from pointer chasing cost more than just computing the AND/OR gate.
+
+---
+
+### 5. VALIDATION + AUTO-LOCALIZATION
+
+When the screenshot fails, how do you find the bug? 
+You use a **Dynamic Miter**.
+
+1. Run the Golden Switch-Level simulator and your Compiled Logic simulator side-by-side in the same process, fed by the same inputs.
+2. At the end of every half-cycle, compare the states of the **Registers** and the inputs to the **Analog Islands**.
+3. **The Trap-Door:** The exact cycle, half-cycle, and specific Register that diverges (Golden = 1, Logic = 0) is your localized bug. 
+4. Because the logic is levelized and feed-forward, if Register X is wrong, the bug is *mathematically guaranteed* to be in the combinational logic cone leading to Register X. 
+5. You can auto-generate a Graphviz dump of just the logic cone for Register X, overlay the Golden node states vs your Logic node states on the edges, and the exact boolean extraction error will be visually highlighted in red. The pipeline essentially debugs itself.
+
+### Summary of your next move:
+Do not try to write a static analyzer that understands NMOS physics. Use your golden simulator as an oracle to validate structural guesses. 
+1. Build the tracer.
+2. Build the structural boolean extractor. 
+3. Play them against each other offline. If they match, you win. If they don't, you've found an analog island.

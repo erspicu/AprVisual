@@ -1,0 +1,136 @@
+Timestamp: 2026-05-30T11:55:23
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+You are advising on a switch-level NES transistor simulator (C# and Rust, event-driven settle). I want NEW static node-classification strategies that let more nodes skip or shrink the full group BFS while staying BIT-EXACT. Be concrete and skeptical; I have measured many failures (listed at the end) — do not re-propose them.
+
+== ARCHITECTURE ==
+Per-node data: Flags(byte: PullUp/Pwr/Gnd/SetHigh/SetLow/ForceCompute/HasCallback); TlistC1c2s = 0-terminated (gate,other) pairs, the pass-transistor CHANNELS to normal nodes; TlistC1gnd = gates of transistors connecting node->GND; TlistC1pwr = node->VCC; connections = capacitance rank (for floating tie-break); tlist_gates = fanout (transistors this node's state gates). NMOS, c1/c2 interchangeable, a transistor conducts iff its gate node state==1.
+
+Settle loop: double-buffered FIFO of dirty nodes -> recalcNode(nn).
+recalcNode(nn) full path = compute_node_group(nn): iterative BFS from nn across TlistC1c2s entries whose gate is ON, collecting the connected conducting "group"; OR-accumulate each member's Flags into groupFlags; set Gnd/Pwr if any member has an ON channel to a supply. Then getNodeValue(): if groupFlags!=0 return a 256-entry LUT[groupFlags] (priority Gnd>Pwr>SetHigh>SetLow>PullUp); else (purely floating group) the largest-capacitance member holds its previous state. Then setNodeState(member,value) for each member; on a state change, walk that member's tlist_gates, flip those transistors, enqueue their c1/c2 endpoints as dirty.
+
+Current FAST-PATH (the only one): classify a node "pure-logic" iff TlistC1c2s==0 (no channel to any normal node, so the conducting group is PROVABLY {nn} regardless of transistor states) AND it lacks HasCallback/ForceCompute/Pwr/Gnd. These skip the BFS: recalc_node_fast scans TlistC1gnd then TlistC1pwr for any ON gate (early-break), ORs Gnd/Pwr into Flags, applies LUT (or holds previous when no flag set). Coverage = 26.7% of 14,729 live nodes. Classification cost is paid ONCE at reset.
+
+The BFS is already heavily optimized: iterative (the group buffer doubles as the work queue); the _inGroup dedup array is cleared only on touched entries so it stays all-zero between calls (no full-array clear); NodeConnections is read only in the <1% floating branch; gnd/pwr scans early-break; hot NodeInfo packed to 16 bytes.
+
+== WHAT I WANT ==
+Other STATIC classification strategies (property decided once at reset, ideally adding ZERO per-recalc cost to nodes that don't benefit) that shrink/skip the BFS for more nodes or whole node classes. For EACH idea give: (1) the static property that identifies the class; (2) the O(1)/O(k) resolution that replaces the BFS; (3) a proof sketch it is bit-exact vs compute_node_group+getNodeValue; (4) rough expected coverage and per-recalc work saved. Rank by expected value under the constraints below.
+
+== CONSTRAINTS / MEASURED DEAD-ENDS (do NOT re-propose) ==
+1. Branch-cost asymmetry (just measured): dropping the fast-path's PullUp gate to admit +522 more nodes, which required adding ONE branch (floating-hold) to recalc_node_fast's tail, was +0.4..1.3% in C#/JIT but -1.9..2.5% in Rust/LLVM — because that branch runs for ALL fast-path nodes, not only the new ones, and Rust's codegen is already maximally tight. LESSON: prefer strategies with NO added per-recalc branch on the common path; a strategy whose resolution adds branches to an already-hot inlined function is suspect.
+2. State-caching / memoizing group membership keyed on transistor states: FAILED — the relevant transistors flip too often; invalidation cost > recompute.
+3. Per-node counter maintenance (e.g. active_gnd_count/active_pwr_count updated inside setNodeState's transistor walk to make recalc O(1)): FAILED -6% — setNodeState walks ~10x more often than recalcNode; per-walk upkeep overflows the saved scan.
+4. Bit-parallel / dense-scan (Ligra-style) BFS: FAILED 156x slower — the AVERAGE walk is ~1.4 nodes; bit-parallel overhead crushes tiny walks.
+5. Dead-end / unobserved-node skip ("node has no fanout gates so skip it"): FAILED — a gate-less leaf still contributes its state to the group it's pulled into, so "no fanout" != "no observer".
+6. Per-chip or fine-grained parallelism: FAILED 15x slower — per-wave work too small to amortize sync.
+7. L1d budget is HARD: hot set must fit ~32KB (NodeStates 14KB + _inGroup 14KB + hot NodeInfo). A new byte[NodeCount] (~14KB) can evict hotter data and net-lose. Account for this.
+8. Small-N SIMD on the gnd/pwr scan is suspect — those lists are typically 1-3 entries.
+
+Important: most non-singleton conducting groups are probably size 2-3. Tell me, given that, whether a fixed-size (2-node pass-transistor pair) special case actually pays AFTER constraint #1, and exactly where its resolution would add branches. If an idea only helps one compiler, say so. Prefer ideas that are classification-only with a branch-free resolution.
+== PART 2: LOWERING STRATEGIES ==
+"Lowering" is a behaviour-preserving setup-phase pass that canonicalizes/compacts the parsed netlist BEFORE simulation (and is also the input the later IR stage extracts from). It must stay bit-exact, including the floating-group tie-break (the largest-capacitance member must be preserved — a past attempt to drop "stub" nodes here broke correctness exactly via this tie-break).
+
+Current lowering does only: (1) static-group merge — two NORMAL nodes joined ONLY by an always-on (gate==VCC), non-weak transistor are union-find merged into one node forever, keeping capacitance = max over the class; (2) drop dead transistors (gate==GND, can never conduct); (3) compaction — renumber survivors into a dense range, drop self-loops/dup (gate,c1,c2). On the real NES netlist this merges 441 of ~15,164 nodes (~3%) and drops 530 of ~27,305 transistors.
+
+EXPLICITLY NOT done yet: a normal node tied to a supply (VCC/VSS) by an always-on non-weak device is left as-is (keeps its TlistC1pwr/TlistC1gnd entry) rather than folded into the supply.
+
+A CRITICAL profiling fact: PMC hardware counters show the simulator is MEMORY-LATENCY bound — D-cache miss ~5.09% per cycle is the dominant stall; branch-mispredict 0.70%, I-cache 0.14%. So lowering transformations that improve DATA-CACHE LOCALITY of the hot settle loop are especially interesting.
+
+For lowering, propose behaviour-preserving transformations that either (a) shrink the graph (fewer nodes/transistors -> fewer dirty-node recalcs and smaller hot arrays), or (b) improve data-cache locality of the settle loop, WITHOUT changing per-recalc semantics. For each: the static rule, why it's bit-exact (especially vs the capacitance tie-break), expected graph-size reduction or locality gain, and any risk. Specifically address:
+- supply-anchored merge: folding an unconditionally-supply-tied normal node into VCC/VSS (redirecting its fanout gates). Is it bit-exact? What about its capacitance contribution if it would otherwise be the max-cap floating member of some group? What coverage?
+- node renumbering for cache locality: reorder node ids so that nodes frequently co-visited in the same group BFS (and their gnd/pwr/c1c2 transistor-list targets and fanout) land on the same/adjacent cache lines. Given the D-cache bottleneck, is a locality-driven relabeling (e.g. BFS/Cuthill-McKee/community-ordering over the always-on + frequently-on adjacency) likely to pay? How to order to maximize NodeStates[] hit rate in compute_node_group and setNodeState?
+- series/parallel NMOS transistor reductions, constant folding of provably-static nodes, or any other classic netlist simplification that stays switch-level-exact.
+Rank Part-2 ideas by expected value given the D-cache bottleneck. Keep the same skepticism and the same dead-end list from Part 1 in mind (no added per-recalc branches on the common path; respect the L1d budget; tiny average walk size ~1.4 nodes).
+
+========================================================================
+RESPONSE
+========================================================================
+To address the extreme sensitivity of the C#/Rust JIT/AOT compilers to branch-prediction and instruction-cache density, we must change how we think about adding fast-paths. 
+
+Constraint #1 (branch-cost asymmetry) is your biggest enemy. If you add a new classification by adding an `else if (node.IsClassX)` to `recalcNode`, you penalize the 26.7% fast-path and the remaining fallback path. 
+
+**The Enabler: Multi-Queue Static Dispatch**
+Before introducing new static classes, you must decouple their execution paths. 
+Allocate separate dirty-node FIFOs (or a single array of separate queues) for each static class: `queue_fast`, `queue_isolated_pair`, `queue_full`. 
+During `setNodeState`’s fanout walk, you enqueue by static type: `queues[target_node.type].push(target_node)`. 
+Your settle loop becomes:
+```csharp
+while (queues_have_work) {
+    while (queue_fast.TryDequeue(out nn)) recalc_fast(nn);
+    while (queue_pair.TryDequeue(out nn)) recalc_pair(nn);
+    while (queue_full.TryDequeue(out nn)) recalc_full(nn);
+}
+```
+**Why this works:** The enqueue step pays a negligible data-dependency cost (reading the static type). The dequeue/recalc step is now **branch-free regarding node classification**. LLVM and RyuJIT will heavily inline and unroll these homogenous loops. This entirely defeats Constraint #1, allowing you to add specialized paths without bloating the existing fast/full paths.
+
+Here are the new static classifications and lowering strategies, ranked by expected ROI against your memory-latency and branch-prediction bottlenecks.
+
+---
+
+### PART 1: STATIC NODE-CLASSIFICATION STRATEGIES
+
+Given the average walk is ~1.4 nodes, most of your BFS time is spent setting up and tearing down the `_inGroup` array and queue for trivially small topologies.
+
+#### 1. Isolated Bounded Components (The "Size-2/3 Island")
+Many pass-transistors in NMOS/CMOS exist in isolation (e.g., a transmission gate connecting a driver to a latch, or an isolated half-latch). 
+*   **Static Property:** At reset, compute the connected components of the graph using *only* `c1c2` edges. Identify components of exactly size 2 (Nodes A and B) or size 3. These nodes have `TlistC1c2s > 0`, but their pass-transistor network is strictly closed.
+*   **O(1) Resolution (for Size 2):** 
+    ```csharp
+    // Inside the queue_pair drain loop. nn is known to be in a closed {A,B} pair.
+    Node other = nn.StaticPairOther;
+    bool gateOn = NodeStates[nn.StaticPairGate] != 0;
+    
+    byte flags = nn.Flags;
+    flags |= (gateOn ? other.Flags : (byte)0); 
+    // evaluate pwr/gnd scans for nn (and other, if gateOn) via loop-unrolled checks
+    // ...
+    // Floating tie-break: if (flags == 0), value = (nn.Cap > other.Cap) ? nn.prev : other.prev; 
+    ```
+*   **Bit-Exact Proof:** Because neither A nor B has `c1c2` edges to any node outside {A,B}, the theoretical BFS group starting from either node is mathematically bounded to exactly {A}, {B}, or {A,B}. The unrolled logic evaluates this exact set without queue allocations or `_inGroup` writes. The capacitance tie-break strictly matches the BFS behavior.
+*   **Coverage & Savings:** Expected to cover ~10-15% of nodes. Saves the `_inGroup` clear/check, queue bounds checking, and array indirections. Drops D-cache hits on the BFS queue/dedup arrays to zero for these nodes.
+
+#### 2. The "Driven-Stub" Leaf Node
+*   **Static Property:** A node `L` (Leaf) where `TlistC1c2s` has exactly 1 entry pointing to `P` (Parent). `L` has NO `TlistC1gnd`, NO `TlistC1pwr`, NO PullUp, and NO `ForceCompute/HasCallback`. 
+*   **O(1) Resolution:** When `L` is dirtied, do NOT compute it. Just clear its dirty flag. Enqueue `P` instead. 
+*   **Bit-Exact Proof:** Since `L` has no independent ability to drive its state (no gnd/pwr/pullup), its state is 100% dictated by `P` whenever the pass-transistor is ON. If the transistor is OFF, `L` is purely floating and holds its previous state. By deferring to `P`'s recalculation, `P`'s normal BFS will absorb `L` (if ON) and update L's state. If `P` evaluates and the transistor is OFF, `L` is correctly left floating. *Note: Fanout from `L` is perfectly preserved because when `P` updates `L`, `setNodeState(L)` still fires L's fanout.*
+*   **Coverage & Savings:** Expected ~5%. This completely eliminates the BFS origin from useless stub nodes, folding the work into the parent's existing recalculation.
+
+---
+
+### PART 2: LOWERING STRATEGIES (Pre-computation / Canonicalization)
+
+Given your PMC data showing D-cache misses at 5.09% per cycle are the dominant stall, your lowering pass MUST prioritize memory layout and graph compaction over instruction count.
+
+#### 1. Hot/Cold Struct Splitting (AoS to SoA for L1d Budget)
+Your L1d budget is ~32KB. `NodeStates` (14KB) + `_inGroup` (14KB) = 28KB. Your 16-byte `NodeInfo` array is ~240KB. Every time the BFS touches `NodeInfo`, it evicts critical state lines.
+*   **Transformation:** Split `NodeInfo` into two separate arrays. 
+    *   `HotNodeInfo` (BFS data): `Flags`, `TlistC1c2s`, `TlistC1pwr`, `TlistC1gnd`. (Pack this into 8 bytes).
+    *   `ColdNodeInfo` (Fanout data): `tlist_gates`.
+*   **Why it's bit-exact:** Semantics are untouched, just memory layout changes.
+*   **Locality Gain:** The BFS loop *never* reads fanout. Fanout is only read in `setNodeState` *if the node state actually toggles*, which is a fraction of the time. Halving the hot struct size from 16 to 8 bytes doubles your L1d cache density during the memory-bound BFS, significantly dropping the 5.09% miss rate.
+
+#### 2. Supply-Anchored Merge (Answering your specific question)
+*   **Static Rule:** If a normal node `N` is connected to VCC or GND via an unconditionally ON (gate == VCC), NON-weak transistor.
+*   **Is it bit-exact?:** YES. 
+*   **What about its capacitance tie-break?:** It does not matter. Because `N` is hard-tied to a supply via a non-weak transistor, `N` can *never* enter a floating state. Any conducting group containing `N` will inherit `N`'s supply connection. The `getNodeValue()` LUT prioritizes Gnd/Pwr over floating. Therefore, `N`'s capacitance is mathematically unreachable logic.
+*   **Transformation:** 
+    1. Delete `N`.
+    2. For every `c1c2` transistor connecting `N` to `other` (gated by `G`), move it to `other`'s `TlistC1pwr` (if N was VCC tied) or `TlistC1gnd` (if N was GND tied), gated by `G`.
+    3. For every fanout gate `N` drove, statically replace its gate state with 1 (VCC) or 0 (GND). This will likely identify dead transistors (if GND) or newly always-on transistors (if VCC), allowing cascading lowering passes.
+*   **Coverage & Gain:** Moderate coverage, but massive impact per node. It converts O(n) BFS step traversals into O(1) early-break `pwr/gnd` scans for all of `N`'s neighbors.
+
+#### 3. Graph-Locality Renumbering (Targeting D-Cache Stalls)
+*   **Static Rule:** Renumber all Node IDs (0...14,729) so that nodes frequently co-visited in the same BFS land on the same 64-byte cache line. 
+*   **Algorithm:** Use Reverse Cuthill-McKee (RCM) or a greedy BFS layout. 
+    *   Edge Weight 10: `c1c2` pass-transistors (traversed on every BFS).
+    *   Edge Weight 2: `fanout` gates (traversed on toggle to enqueue).
+    *   Start the layout BFS from the most heavily connected nodes (e.g., clocks, prominent bus lines).
+*   **Why it works:** `NodeStates` is densely packed (1 byte = 1 node). 64 nodes fit in a single D-cache line. If a pass-transistor connects Node 5 to Node 8000, traversing it costs 2 cache misses. If they are renumbered to Node 5 and Node 6, they share a cache line. Your 1.4 node average walk will almost always hit L1d if neighbors are contiguous in ID space.
+*   **Risk:** Zero risk to correctness. Purely an index mapping applied at parse-time.
+
+#### 4. Parallel Pass-Transistor Compaction
+*   **Static Rule:** If two normal nodes A and B are connected by *multiple* `c1c2` pass transistors (e.g., `T1(gate=G1)` and `T2(gate=G2)`).
+*   **Transformation:** You cannot easily OR gates dynamically without adding a node. However, if `G1 == G2` (redundant parallel transistors), drop one. If `G1` is the inverse of `G2` (e.g., a CMOS transmission gate but one side is statically always inverse of the other), keep them but flag the pair for the "Size-2 Island" (Part 1, Idea 1) since you only need to evaluate if *either* is ON.
+*   **Gain:** Minor graph shrinkage, but cleans up artifacts from raw die extraction.

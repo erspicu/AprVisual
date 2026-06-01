@@ -1,0 +1,190 @@
+Timestamp: 2026-05-29T20:50:34
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+你在 round 1 給了 Q1-Q6 共 6 個非 IR 優化建議。 我把全部都實測完了,結果如下:
+
+【實測戰績】(C# 和 Rust 雙端,5-run sequential top-3 mean)
+
+| 你的建議 | 你的預估 | C# 實測 | Rust 實測 |
+|---|---|---|---|
+| Q1 Walk-order PQ → 改 static topo sort | -15% to -5% | (未試,你已標負面) | (未試) |
+| Q2 Long-list SIMD scan | -2% to +3% | (未試,雜訊級) | (未試) |
+| Q3 Clock-phase static wave 0 | **+15% to +30%** | (未試,等你校準) | (未試) |
+| Q4 Per-handler dirty-set lookup | +5% to +10% | (未試) | (未試) |
+| Q5 Cold path NoInlining | +2% to +6% | **-1.53%** | **-1.70%** |
+| Q6 lastGate cache + sort | +3% to +8% | **-1.68%** | **-5.36%** |
+
+兩個試過的全部負面。 預估結果差距驚人(你說零風險,實測卻一致失敗)。
+
+---
+
+【根因分析 ── 校正你的世界觀】
+
+### 根因 1:Q5 失敗 ── 現代編譯器 cold path 已自動處理
+
+你假設「Hot/Cold split 釋放 inline budget」,但實測 C# JIT 和 LLVM 都已自動:
+- 根據 branch hint 把 cold 分支推到尾端
+- 對 `if (rare_condition) { cold_code }` 的 cold code 做 dead-code-elimination 或 jump-to-cold
+
+強制 `[NoInlining]` / `#[inline(never)]` 反而引入真實 function call(args setup、stack frame、ret),在 hot path 上是純 overhead。 這在 .NET 6+ 和 LLVM rustc 1.60+ 已是常態。
+
+**校正**:「現代 JIT/LLVM 不會把 cold code 放進 hot path」── 你的預估邏輯需要更新。
+
+### 根因 2:Q6 失敗 ── NMOS 拓樸實際 gate 重複率極低
+
+你假設「對 transistor_list 排序 + lastGate cache 可省 NodeStates[gate] 重複讀」。 實測在 NES 2A03/2C02 NMOS 拓樸上:
+
+- 每個 `TlistC1c2s` 是該 node 的 (gate, other) 對列表
+- 為了 cache hit,需要同 gate 在同一個 node 的 list 中重複出現
+- NMOS 通常 1 transistor / 1 (gate, other) 對,**重複率接近 0**
+- 排序後同 gate 還是只出現 1 次,cache hit rate ≈ 0
+- 結果:`if (gate == last_gate)` 變純 overhead,每 iter 多 1 cmp + 1 conditional
+
+C# 退 -1.68%,Rust 退 -5.36%(LLVM 對 conditional state-load 的 codegen 比 JIT 更差)。
+
+**校正**:Gemini 假設的「high-fanout gate 在同 node 重複」對 NES NMOS 拓樸不成立。 此類 cache 只在「同 gate 控多 transistor 連到同 node」(例如 SRAM 內 6T cell 共享 word line)情境才有意義,而我們的 lowering 已合併這類結構。
+
+---
+
+【更全面的已知 dead-end pattern(請避免重蹈)】
+
+新增到上次清單:
+- **JIT/LLVM 已處理 cold layout**:`[NoInlining]` / `#[inline(never)]` 不會釋放 inline budget,只會引入 function call
+- **NMOS 同 gate 重複罕見**:`TlistC1c2s` 內 lastGate cache 不適用
+- **L1d 是硬限制**:任何擴大熱資料 size 的提案(generation counter u16/u32)會撞牆
+- **Rust LLVM ≠ C# JIT**:branchless / inline 收益不可雙向移植
+- **Walk size 平均 1.4 nodes**:bit-parallel BFS / SIMD scan 在小 list 上 setup cost 碾壓收益
+- **D ~ 100/hc, BFS depth ~1.4**:priority queue 等動態排程在如此微小 set 上 PQ overhead 吃掉收益
+
+---
+
+【目前確認有效的優化(累積)】
+
+- **Data layout**: NodeInfo SoA hot/cold split、64-byte aligned、ushort transistor_list (0-terminated)
+- **Algorithm flattening**: iterative BFS (C#)、recursive BFS (Rust,LLVM 反向偏好)、雙緩衝 FIFO
+- **Inline cascade**: 全 hot 路徑標記 AggressiveInlining / inline(always),outer loop 故意不標
+- **Specialization**: Pure-logic-gnd fast-path、ROM/RAM handler split、ReadBits int[] 特化
+- **Lowering**: S1.5 always-on shorts merge + dead transistor drop
+- **Rust 特例 win**: VCC/GND hash shield + branchless XOR enqueue (+1.63%)
+- **Compiler**: -C target-cpu=native (+2%,本機限定)
+
+---
+
+【現況基準】
+
+- C# .NET 10: ~64.4K hc/s
+- Rust LLVM: ~69.4K hc/s
+- NES NTSC real-time: 42.95M hc/s (距離 ~620-670×)
+- 兩端 checksum bit-identical `0x9B103E5E206E4C37`
+
+---
+
+【新一輪問題】
+
+考慮上述失敗教訓,請給出**新的、未被上次討論的方向**:
+
+1. 對於 Q3 Clock-phase wave 0,你還堅持 +15-30% 嗎? 在「state-dependent fanout 風險」+「Q5/Q6 預估全錯」的前提下,給一個現實的 ROI 範圍 + 哪些 cases 必須先用 sandbox sweep 驗證一致性。
+
+2. 除了 Q1-Q6,**還有什麼是我們沒想到的**?(限制:不導入 IR/codegen/dispatcher,不破壞 event-driven BFS 結構,不導入 mass parallelism)
+
+3. 我們已試 4 個 dead-end memory 的 pattern(計數器、bit-parallel、per-chip parallel、generation counter)── 是否你能識別出共通的「現代 CPU 上反直覺的反 pattern」並列出 5-10 個?(例如「不要用 X 替代 Y 因為現代 CPU 在 Z 條件下 X 反而慢」)
+
+4. 給一個誠實的天花板評估:在 event-driven BFS + 純 switch-level 框架下,**C# 65K 和 Rust 70K 之上還有多少現實空間**?(避免你上一次「全部達成可到 100-120K」這種樂觀預測,請看實際失敗率後給個校正的數字)
+
+請用 Markdown 回應,務必具體。 我會直接貼回專案。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一次非常漂亮且殘酷的實測。感謝你提供精確的數據和根因分析。你完全正確，我的前一輪預估（特別是 Q5 和 Q6）基於過時或不適用的假設，在現代 JIT/LLVM 最佳化機制和 NMOS 特定的物理拓樸下，變成了純粹的 overhead。
+
+被狠狠打臉後，我已經更新了對你專案架構的「世界觀」：**這是一個 ALU 運算極少、高度依賴 L1d Cache 命中率、且 Branch Predictor 經常被不規則拓樸擊敗的極端場景。任何增加分支或擴大記憶體 footprint 的操作都是毒藥。**
+
+以下是針對你四個問題的重新校準與具體回覆：
+
+---
+
+### 1. 對於 Q3 Clock-phase wave 0 的重新評估與驗證
+
+**我的修正預估：+2% to +8%（高風險，極可能為負或觸發 L1d 效應）**
+
+我撤回 +15~30% 的樂觀預估。基於 Q5/Q6 的教訓，Q3 有兩個致命缺陷：
+1. **靜態 Mask 會擠壓 L1d**：預先儲存 Clock High/Low 的 wave 0 靜態狀態（哪些節點被強制拉高/拉低），需要額外的陣列查詢，這會與現有的熱資料（NodeInfo/State）競爭 L1d cache line。
+2. **State-dependent fanout 破壞靜態性**：時脈訊號打開一個 Pass Gate 時，節點電壓是否傳遞，取決於閘道兩端的**動態電壓狀態**與**電容值（大小節點）**。靜態展開無法預知這種動態電荷分享（Charge Sharing），一旦靜態與動態邏輯割裂，為了維持精確度而做的「狀態檢查補償代碼」，其代價會輕易吃掉省下的 BFS enqueue 成本。
+
+**如果仍要嘗試，Sandbox Sweep 的必做一致性驗證：**
+*   **Charge Sharing 驗證**：時脈驅動 Pass Gate 導通時，若兩端都是 High-Z（浮接）但帶有不同電荷，Wave 0 能否正確計算最終電壓？（通常靜態 Mask 辦不到，必須退回動態）。
+*   **Bidirectional Artifacts**：確保時脈強制拉高的節點，不會在現實中因為另一端接 GND 而導致短路（靜態預先拉高可能會暫時產生非法的 VCC-GND 貫穿電流狀態）。
+*   **一致性捕捉**：建立一個 shadow state，每一個 half-cycle，跑一次標準 BFS，再跑一次 Wave 0 + 殘餘 BFS，逐 bit 比對所有 Node State。
+
+---
+
+### 2. 全新的優化方向（無 IR、保持 BFS、無大量平行化）
+
+既然演算法層面已經被你搾乾，剩下的空間在於**資料的「隱式路由」與「拓樸巨集化」**。
+
+**新方向 A：Node ID 分區編碼 (ID Partitioning for Implicit Routing)**
+*   **概念**：不要讀取記憶體來判斷節點類型，而是透過 ID 數值的區間來做 branch。
+*   **做法**：在資料預處理階段，重新編排 Node ID：
+    *   ID `0 ~ 999`: Pure-Logic 節點 (Fast path)
+    *   ID `1000 ~ 1999`: 需要 Charge Sharing 計算的類比節點
+    *   ID `2000+`: 外部引腳 / 特殊 Handler 節點
+*   **收益**：把原本 `if (nodeInfo[id].Type == PURE_LOGIC)` 這種需要 L1d load 的條件，變成 `if (id < 1000)` 的暫存器比較。完全消滅部分 metadata 讀取。
+
+**新方向 B：拓樸巨集合併 (Topology Macro-Merging / Super-Nodes)**
+*   **概念**：雖然我們不編譯 IR，但在讀入 netlist 時，可以把常見的電晶體組合（例如 NMOS Inverter：一個 Pull-up 接 VCC，一個 Pull-down 接 GND，由同一個 input 控制）在**靜態資料結構上**合併為一個「Super-Transistor」。
+*   **做法**：在 `TlistC1c2s` 中定義特殊的 `other` 標記（例如利用 MSB 標示這是一個巨集）。當觸發此 gate 時，BFS 直接將 output 節點寫入反相狀態，省去經歷 VCC/GND 的兩次電晶體 traversal。這不破壞 event-driven 模型，只是壓縮了圖的深度。
+
+**新方向 C：同態狀態 Bypass (Iso-State Culling)**
+*   **概念**：如果一個 Gate 翻轉為 ON，但它兩側的源極和汲極**目前處於相同的邏輯電壓（例如都是 5V）**，那麼這個電晶體導通「不會改變任何狀態」，直接 drop，不要 enqueue 另一端。
+*   **做法**：在檢查 `gate == ON` 之後，`if (state[c1] == state[c2]) continue;`。這是一個極為廉價的暫存器讀取，卻能斬斷大量無效的 BFS 擴散。
+
+---
+
+### 3. 現代 CPU 上反直覺的反模式 (Anti-patterns)
+
+從你的實測與現代微架構來看，以下是 5 個導致優化變毒藥的核心反模式：
+
+1.  **「狀態快取」反模式 (The State-Caching Fallacy)**
+    *   *誤區*：用額外的記憶體（如 last-gate cache, generation counter）記錄狀態以避免重複計算。
+    *   *現實*：現代 CPU 的 ALU 是「免費」的（單週期內可並發多個整數運算），但 L1d cache 容量極小且 load-use penalty 有 3-5 週期。**增加 memory footprint 來省 ALU 運算，在現代 CPU 上通常是負優化。**
+2.  **「微觀條件分支」反模式 (The Micro-Branch Trap)**
+    *   *誤區*：寫一大堆 `if (特殊情況)` 來 short-circuit 邏輯，覺得可以省下後面的程式碼執行。
+    *   *現實*：在高度資料相依的模擬（如 Switch-level）中，Branch Predictor 命中率不會是 99%。一個 mispredict 扣除 15-20 cycles。**盲目覆寫（Blind Overwrite）或執行冗餘的輕量計算，永遠快於充滿分支的智慧型跳過。**
+3.  **「SIMD 強行封裝」反模式 (The Small-N SIMD Delusion)**
+    *   *誤區*：看到 array 操作就想用 SIMD (AVX/NEON) 或 bit-parallel 加速。
+    *   *現實*：當 `N < 8`（你的 Walk size 平均才 1.4），將純量搬進 Vector Register 的 setup cost（甚至跨 domain delay）遠大於純量執行完畢的時間。SIMD 需要連續、龐大的吞吐量。
+4.  **「手動編譯器微操」反模式 (The Compiler Micromanagement)**
+    *   *誤區*：人工標註 `[NoInlining]` 或是手動 hot/cold 分離來「幫助」編譯器。
+    *   *現實*：LLVM 和 RyuJIT 具備全域視野與 PGO 啟發。手動干預經常破壞它的 register allocation heuristic 或強迫生成 stack frame。**最佳化資料的 Memory Layout (SoA/Alignment)，把 Code 生成交給編譯器。**
+5.  **「無鎖並發幻想」反模式 (The Fine-grained Parallelism Illusion)**
+    *   *誤區*：用 lock-free queue 或 per-chip parallel 分攤工作。
+    *   *現實*：跨 Core 的 Cache coherence (MESI protocol) 通訊延遲大約在 40-100ns 級別。如果一個 event loop 的 iteration 只有幾十奈秒，通訊成本直接碾壓運算收益（Amdahl's law 的極端體現）。
+
+---
+
+### 4. 誠實的天花板評估 (Honest Ceiling Assessment)
+
+基於「純 event-driven BFS + switch-level + 無 IR 展開」的死規定，我們來算一下物理極限：
+
+*   目前 Rust LLVM 跑到 `~69.4K hc/s`。
+*   假設每個 half-cycle 平均觸發 100 個動態節點 (D ~ 100)。
+*   雙晶片 (CPU+PPU) = 100 * 2 = 200 個 nodes/hc。
+*   每秒評估的節點數：`69,400 * 200 = ~13.88 百萬 nodes/sec`。
+*   以現代 5GHz CPU 來說，每秒約 200~250 億個指令週期。這意味著**目前每個 Node evaluation 消耗了將近 1500~1800 個 CPU cycles**。
+
+這聽起來很離譜，對吧？但時間去哪了？
+**去 L1/L2 Cache Misses 和 Pipeline Flushes（分支預測失敗）了。**
+
+Switch-level BFS 本質上是「pointer-chasing」（藉由 array index 跳躍），它的記憶體存取模式完全是隨機的。現代 CPU 的 prefetcher 對這種隨機圖遍歷毫無招架之力。每一次 L2 miss 就是 15 cycles，L3 miss 就是 50+ cycles，如果遇到 Branch mispredict 又要再清空 pipeline。
+
+**【校正後的天花板預測】**
+
+在不改變「動態圖遍歷」本質的前提下，你已經撞到了 **CPU Memory Subsystem Latency Wall**。你現在能榨取的，只剩資料結構對 L1 Cache line 的極致利用率。
+
+*   **C# 極限估計：72K - 75K hc/s**（受限於 .NET 陣列邊界檢查與相對保守的 alias analysis）。
+*   **Rust LLVM 極限估計：78K - 82K hc/s**（假設完美榨乾資料佈局與 branchless 邏輯）。
+
+**結論**：在現有框架下，**絕對不可能靠小修小補達到 100K 甚至 42.95M (Real-time)。** 現實空間大概只剩下 **10% ~ 18%** 的提升餘地。要跨越這個數量級的鴻溝，唯一的物理途徑就是將動態遍歷 (Dynamic Traversal) 轉為靜態編譯 (AOT Compilation / IR generation)，強迫將資料流固化成連續的 CPU 指令流。

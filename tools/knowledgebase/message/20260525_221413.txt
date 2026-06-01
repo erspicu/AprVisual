@@ -1,0 +1,270 @@
+Timestamp: 2026-05-25T22:14:13
+Model:     gemini-3.1-pro-preview-customtools
+========================================================================
+QUESTION
+========================================================================
+# NES switch-level sim — 74LS139 LUT replacement breaks rendering
+
+## Context
+
+NES switch-level sim. 主機板上 8 顆 TTL 晶片本來是 transistor-level 模擬,我們嘗試把純組合邏輯的幾顆換成 behavioral LUT callback 來加速。
+
+實作結果:
+- ✅ **74HC04**(hex inverter):LUT 化成功,bit-identical render
+- ✅ **74LS368**(hex inverter w/ tristate):LUT 化成功,bit-identical
+- ❌ **74LS139**(dual 2-to-4 decoder):LUT 化**渲染整個畫面變黑**
+
+我們認為 74LS139 跟其他兩顆一樣是「純組合邏輯」── 沒有 clock、沒有 latch、沒有 feedback。 truth table:
+```
+/E A1 A0 | /Y0 /Y1 /Y2 /Y3
+ 0  0  0 |  0   1   1   1
+ 0  0  1 |  1   0   1   1
+ 0  1  0 |  1   1   0   1
+ 0  1  1 |  1   1   1   0
+ 1  x  x |  1   1   1   1
+```
+
+**問題:它真的是純組合嗎? 為什麼 LUT 化會壞?**
+
+## NES 中的 74LS139 用法
+
+`nes-001.js` 連線(這顆是 instance `u3`):
+```
+[ "vss",      "u3.2/E" ],          // half-2 always enabled
+[ "cpu.clk0", "u3.2A0" ],          // half-2 inputs
+[ "cpu.ab15", "u3.2A1" ],
+[ "u3.2/Y1",  "u3.1/E"],           // half-2 → half-1 cascade!
+[ "cpu.ab13", "u3.1A0" ],          // half-1 inputs
+[ "cpu.ab14", "u3.1A1" ],
+
+[ "u3.1/Y0",  "u1.cs"   ],          // WRAM cs
+[ "u3.1/Y1",  "ppu.io_ce" ],       // PPU register access
+[ "u3.2/Y3",  "cart.edge./romsel"], // /ROMSEL
+```
+
+這顆 chip 處理 CPU 位址解碼,**每次 CPU bus access 都會經過**。
+
+## 我的 LUT 實作 (C#)
+
+```csharp
+private static void SetupHalfDecoder139(string eName, string a0Name, string a1Name, string[] yNames, ...)
+{
+    int e  = LookupNode(eName);
+    int a0 = LookupNode(a0Name);
+    int a1 = LookupNode(a1Name);
+    var y = new int[4];
+    for (int i = 0; i < 4; i++) y[i] = LookupNode(yNames[i]);
+
+    var watched = new[] { e, a0, a1 };
+    var allYs = new[] { y[0], y[1], y[2], y[3] };
+
+    AddCallback(watched, () => {
+        // Compute new state of all 4 outputs; commit as one batch to avoid
+        // transient "all high" during cascade (half-2 → half-1's E).
+        int selLow = -1;
+        if (NodeStates[e] == 0) {  // 1/E = 0 → enabled
+            selLow = (NodeStates[a1] != 0 ? 2 : 0) | (NodeStates[a0] != 0 ? 1 : 0);
+        }
+        // Atomic flag set on all 4 outputs, then ONE RecalcNodeList
+        for (int i = 0; i < 4; i++) {
+            ref NodeInfo ns = ref NodeInfos[allYs[i]];
+            if (i == selLow) { ns.Flags &= ~NodeFlags.SetHigh; ns.Flags |= NodeFlags.SetLow; }
+            else             { ns.Flags &= ~NodeFlags.SetLow;  ns.Flags |= NodeFlags.SetHigh; }
+        }
+        RecalcNodeList(allYs);
+    });
+}
+```
+
+`AddCallback` 機制:
+- 給 watched 每個 node 加 fake transistor (gate=watched, c1=fake_target, c2=Ngnd)
+- 當任何 watched 變化,fake target node 進 group walk → HasCallback flag fires
+- callback 在 `InvokeCallbacks` (`ProcessQueueInterp` 結尾)觸發
+- callback 內 `SetHigh`/`SetLow` 又 trigger `RecalcNodeList` → 新的 `ProcessQueue` 完整 settle
+
+## 已試過的 fix(都沒解決)
+
+1. **Post-lowering callback 註冊** ── 把 LUT callback 從 `AddInstance` 移到 `AttachLutHandlers` (在 lowering 之後),確保 closure 抓的是 post-lowering node IDs。 修了 AccessViolation 但渲染還是黑。
+
+2. **Batch output writes** ── 不要 4 個 SetHigh 加 1 個 SetLow(會產生中間 "全高" 暫態 → cascade 走到 half-1 時 1/E 短暫變 1 → half-1 disabled),改成 atomic 寫 4 個 Flags 然後 1 次 RecalcNodeList。 仍然渲染黑。
+
+## 跟其他兩顆對比
+
+| chip | inputs/group | outputs/group | cascade? | LUT 結果 |
+|---|---|---|---|---|
+| 74HC04 | 1 (各 inverter 獨立)| 1 | no | ✅ |
+| 74LS368 | OE + 4 (group 1) / OE + 2 (group 2)| 4 / 2 | no | ✅ |
+| 74LS139 | E + 2(half-1)/ E + 2(half-2)| 4 / 4 | **yes:half-2 Y1 → half-1 E** | ❌ 黑屏 |
+
+只有 74LS139 有 cascade。 fix #2 雖然 batch 但 cascade 還是經過 `RecalcNodeList`,可能仍有時序問題。
+
+## 74LS139 內部 transistor 結構
+
+每個 input pin 透過內部 NMOS inverter 產生 inverted internal node:
+- `1/E (pin)` --inverter--> `1E (internal, pull-up)`
+- `1A0 (pin)` --inverter--> `1/A0 (internal, pull-up)`
+- `1A1 (pin)` --inverter--> `1/A1 (internal, pull-up)`
+
+decode logic 是 wired-NOR(三個 NMOS pull-down 並聯到 1Y[i],pull-up keep 它 = 1):
+```
+['t', '1/E',  '1Y0', vss],  // 1/E=1 → 1Y0 pulled low
+['t', '1A0',  '1Y0', vss],  // A0=1 → 1Y0 pulled low (so Y0 selected only when A0=0)
+['t', '1A1',  '1Y0', vss],  // A1=1 → 1Y0 pulled low (so Y0 selected only when A1=0)
+['t', '1/E',  '1Y1', vss],
+['t', '1/A0', '1Y1', vss],  // ← uses INVERTED /A0
+['t', '1A1',  '1Y1', vss],
+...
+```
+
+然後 output inverter:`1Y0 (internal, pull-up)` --NMOS-inverter--> `1/Y0 (pin)`
+
+注意 segdefs 上 **內部 nodes(1E, 1Y0..3, 1/A0, 1/A1)有 pull-up,但 PIN nodes(1/E, 1A0, 1A1)沒**。 純邏輯 truth table 仍然成立。
+
+## 已知 facts
+
+1. C# bench `--lut-only-ls139`:rate ~ baseline,callback 確實 fire(diag counter 顯示 13K 次/50K hc)
+2. 渲染 PNG 全黑(793 bytes,framebuffer 從沒寫過 → PPU 卡 vblank 或 rendering_disabled)
+3. NodeStates checksum 跟 baseline 不同(但這也可能只是 fake target node 增加導致 array 長度不同造成的)
+4. 74HC04 跟 74LS368 用同樣 framework + AddCallback,各自 cascade-free,渲染正確
+5. 我 fix #2 batch write 也沒改善
+
+## 問題
+
+**請你深度分析:**
+
+1. **74LS139 真的是純組合邏輯嗎?**(有沒有任何 hidden state、metastability、glitch sensitivity 之類的)
+2. **為什麼 cascade(half-2 /Y1 → half-1 /E)會壞 LUT 化,但 74HC04 那些 inverter 沒事?** 是不是 callback 機制有 reentrancy / order 問題?
+3. **同個 NES system,實際走 transistor sim 的時候,74LS139 的 cascade 是怎麼一個 settle wave 內收斂的?** 跟 LUT callback 模式有什麼結構差別?
+4. **正確的 fix 路徑可能是什麼?** 我有想過:把 half-2 跟 half-1 合成「整顆 chip 一個 callback」(看到任何輸入變化,重新計算 4×2=8 個輸出),避免 cascade 經過 AddCallback 機制。 你怎麼看?
+
+請給 surgical 分析,不要泛泛而談。 我可以做 100-200 行 code 變更,但只想做一次。
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個非常經典且深度的 Switch-level simulation (電晶體級模擬) 與 Behavioral 模型混合時會遇到的 **「事件迴圈延遲 (Event Loop Delay) 與相位歪斜 (Phase Skew)」** 問題。
+
+你的直覺非常敏銳，**「把 half-2 跟 half-1 合成整顆 chip 一個 callback」** 就是正確的解法。
+
+以下為你進行 Surgical 分析，解答你的四個問題，並提供具體的 C# 實作方案。
+
+---
+
+### 1. 74LS139 真的是純組合邏輯嗎？
+**邏輯上是，但在 Switch-level sim 的物理時序上「不是絕對的」。**
+
+在電晶體級模擬中，沒有任何東西是「瞬間」完成的。即使是純組合邏輯，訊號穿過內部 NMOS inverter 與 NOR gate 時，會產生**傳遞延遲 (Propagation Delay)** 以及**暫態 (Glitch/Transient)**。
+
+在 NES 的架構中，74LS139 是一顆 **位址解碼器 (Address Decoder)**，它的輸入包含了 `cpu.clk0` (即 M2 clock) 與位址線 (`ab13, ab14, ab15`)。
+* 6502/2A03 CPU 在 `clk0` 為 Low 時改變位址線，此時位址線處於「未穩定」的跳動狀態。
+* 當 `clk0` 轉為 High 時，位址已經穩定，解碼器輸出有效的 `ROMSEL` 或 `WRAM_CS`。
+
+如果你的 LUT 採用「看到任何變化就瞬間 snap 輸出」的作法，它會**抹殺掉原本電晶體網路中自然的 RC 延遲與濾波效應**。但這還不是最致命的（因為 HC04 也是這樣卻沒事），最致命的是第 2 點：**Cascade 加上 Callback 機制打破了整個主機板的同步性。**
+
+### 2. 為什麼 cascade 會壞，但 74HC04 沒事？ (核心原因)
+這是因為你的 Simulator 處理 Event 的生命週期（Lifecycle）所導致的 **Pipeline 延遲**。
+
+在你的 `AddCallback` 機制中：
+1. Node 變化 -> Group Walk -> 標記 `HasCallback`
+2. `ProcessQueueInterp` 結尾 -> `InvokeCallbacks`
+3. Callback 內呼叫 `SetLow`/`SetHigh` -> 觸發 `RecalcNodeList`（排入下一次 Queue）
+
+**來看看 74LS139 發生了什麼事：**
+1. `cpu.clk0` 變化 (High)。
+2. 第一輪 Queue 結束，觸發 **half-2 callback**。
+3. half-2 計算完畢，將 `u3.2/Y1` 設為 Low (這根 pin 連到 `u3.1/E`)，並呼叫 `RecalcNodeList`。
+4. **【致命空窗期】**：此時 CPU 模擬可能已經往前走了，或者正在等待記憶體回應，但 half-1 **還沒啟動**！
+5. 第二輪 Queue 執行，發現 `u3.1/E` 變了，標記 `HasCallback`。
+6. 第二輪 Queue 結尾，觸發 **half-1 callback**。
+7. half-1 計算完畢，將 `WRAM_cs` 或 `ppu.io_ce` 設為 Low，再呼叫 `RecalcNodeList`。
+8. 第三輪 Queue 執行，WRAM 或 PPU 才真正被 enable。
+
+**結果：** half-1 的輸出 (`WRAM_cs`, `ppu.io_ce`) 比 half-2 的輸出 (`/ROMSEL`) **晚了整整一個到兩個 Simulator Phase**！
+對於 CPU 來說，當 `clk0` High 時，它預期 RAM 的資料要在這個 Phase 準備好，但因為你的 Cascade 切成了兩次 Callback，RAM 的 chip select 訊號遲到了。CPU 讀到 Open Bus (垃圾資料)，執行錯誤 Opcode，瞬間 Crash，導致 PPU 永遠不會收到渲染指令（黑屏）。
+
+74HC04 和 74LS368 成功，是因為它們**沒有內部 Cascade**。輸入一變，下一輪 Queue 輸出就到位了，這點微小的延遲在 CPU 容許範圍內。
+
+### 3. Transistor Settle Wave 跟 LUT 的結構差別？
+* **Transistor Settle Wave (原生)：** 在 Switch-level 裡，當 `clk0` 改變，模擬器建立 Source/Drain Group。訊號穿過 half-2 的 NOR gate 抵達 `u3.2/Y1` 時，它是一個連續的導通波（Wave）。`u3.2/Y1` 的電位下降，會**立刻且連續地**影響 half-1 的 input gate。這一切都在**同一個 `ProcessQueue` 迴圈/物理時間步長 (Time step)** 內收斂。
+* **LUT Callback (你的實作)：** 是一種 **Out-of-band (頻外)** 的干預。它強行中斷了物理波的傳遞，把一個連續的物理方程式求解，硬生生拆成了兩個離散的軟體事件，引入了人為的巨大延遲。
+
+### 4. 正確的 Fix 路徑：Monolithic Callback (單體化)
+你必須把整顆 74LS139 當作一個黑盒子，**繞過模擬器的 Event Loop 來處理 Cascade**。
+
+當你偵測到任何一個輸入腳 (`clk0`, `ab13, 14, 15`) 有變化時，**在同一個 Callback 的同一個 C# 執行緒內，一口氣算完 half-2 與 half-1 的邏輯，並同時發布 8 根 Output pin 的狀態。** 這樣 half-1 的輸出就能跟 half-2 的輸出在同一個 Simulator Phase 被送進 `RecalcNodeList`，完美同步。
+
+#### 實作程式碼參考 (大約 30 行)
+
+請捨棄原本的 `SetupHalfDecoder139`，改用這個專為 NES 主機板 u3 定製的 Monolithic 版本：
+
+```csharp
+private static void SetupMonolithic139_U3()
+{
+    // Inputs (vss is always 0, no need to watch it)
+    int clk0 = LookupNode("cpu.clk0"); // 2A0
+    int ab15 = LookupNode("cpu.ab15"); // 2A1
+    int ab13 = LookupNode("cpu.ab13"); // 1A0
+    int ab14 = LookupNode("cpu.ab14"); // 1A1
+
+    // Outputs - Half 2
+    int y0_2 = LookupNode("u3.2/Y0");
+    int y1_2 = LookupNode("u3.1/E");          // Cascade node! (2/Y1)
+    int y2_2 = LookupNode("u3.2/Y2");
+    int y3_2 = LookupNode("cart.edge./romsel"); // 2/Y3
+
+    // Outputs - Half 1
+    int y0_1 = LookupNode("u1.cs");           // 1/Y0
+    int y1_1 = LookupNode("ppu.io_ce");       // 1/Y1
+    int y2_1 = LookupNode("u3.1/Y2");
+    int y3_1 = LookupNode("u3.1/Y3");
+
+    // Watch ONLY actual changing inputs
+    var watched = new[] { clk0, ab15, ab13, ab14 };
+    var allYs = new[] { y0_2, y1_2, y2_2, y3_2, y0_1, y1_1, y2_1, y3_1 };
+
+    AddCallback(watched, () => {
+        // --- Compute Half-2 (2/E is hardwired to VSS = 0) ---
+        int st_a0_2 = NodeStates[clk0] != 0 ? 1 : 0;
+        int st_a1_2 = NodeStates[ab15] != 0 ? 1 : 0;
+        int sel_2 = (st_a1_2 << 1) | st_a0_2; // 0 to 3
+
+        // --- Compute Half-1 ---
+        // 1/E is electrically driven by 2/Y1. 
+        // 2/Y1 is LOW only when sel_2 == 1.
+        int st_e_1 = (sel_2 == 1) ? 0 : 1; 
+        
+        int st_a0_1 = NodeStates[ab13] != 0 ? 1 : 0;
+        int st_a1_1 = NodeStates[ab14] != 0 ? 1 : 0;
+        
+        // If 1/E is LOW (0), decoder is active, else inactive (-1)
+        int sel_1 = (st_e_1 == 0) ? ((st_a1_1 << 1) | st_a0_1) : -1;
+
+        // --- Batch apply to all 8 outputs atomically ---
+        for (int i = 0; i < 4; i++) {
+            SetNodeOutput(allYs[i],     (i == sel_2) ? 0 : 1);
+            SetNodeOutput(allYs[i + 4], (i == sel_1) ? 0 : 1);
+        }
+
+        // ONE Recalc for everything, ensuring WRAM, PPU, and ROMSEL settle exactly together
+        RecalcNodeList(allYs);
+    });
+}
+
+// 輔助 function
+private static void SetNodeOutput(int nodeIdx, int val)
+{
+    ref NodeInfo ns = ref NodeInfos[nodeIdx];
+    if (val == 0) {
+        ns.Flags &= ~NodeFlags.SetHigh;
+        ns.Flags |= NodeFlags.SetLow;
+    } else {
+        ns.Flags &= ~NodeFlags.SetLow;
+        ns.Flags |= NodeFlags.SetHigh;
+    }
+}
+```
+
+### 總結
+你的 74LS139 LUT 化失敗，**與內部 Pull-up 或 Metastability 無關**，純粹是你的 Simulator Callback 機制在處理 `half-2 -> half-1` 時，產生了跨越 Simulator Phase 的**軟體時序延遲**，導致 RAM/PPU Enable 訊號錯過了 CPU 的資料讀寫窗口。
+
+改用 **Monolithic (全晶片單體計算)** 方案，在記憶體內直接算完 Cascade，一次性輸出 8 根 pin，保證與 CPU 時鐘的絕對同步，這個黑屏問題就會迎刃而解。

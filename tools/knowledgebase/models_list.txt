@@ -6,12 +6,6 @@ gemini-2.0-flash-lite-001 : Stable version of Gemini 2.0 Flash-Lite
 gemini-2.0-flash-lite : Gemini 2.0 Flash-Lite
 gemini-2.5-flash-preview-tts : Gemini 2.5 Flash Preview TTS
 gemini-2.5-pro-preview-tts : Gemini 2.5 Pro Preview TTS
-gemma-3-1b-it : 
-gemma-3-4b-it : 
-gemma-3-12b-it : 
-gemma-3-27b-it : 
-gemma-3n-e4b-it : 
-gemma-3n-e2b-it : 
 gemma-4-26b-a4b-it : Gemma 4 26B A4B IT
 gemma-4-31b-it : Gemma 4 31B IT
 gemini-flash-latest : Latest release of Gemini Flash
@@ -24,16 +18,26 @@ gemini-3-flash-preview : Gemini 3 Flash Preview
 gemini-3.1-pro-preview : Gemini 3.1 Pro Preview
 gemini-3.1-pro-preview-customtools : Gemini 3.1 Pro Preview optimized for custom tool usage
 gemini-3.1-flash-lite-preview : Gemini 3.1 Flash Lite Preview
+gemini-3.1-flash-lite : Gemini 3.1 Flash Lite
 gemini-3-pro-image-preview : Gemini 3 Pro Image Preview
+gemini-3-pro-image : Gemini 3 Pro Image
 nano-banana-pro-preview : Gemini 3 Pro Image Preview
 gemini-3.1-flash-image-preview : Gemini 3.1 Flash Image Preview.
+gemini-3.1-flash-image : Gemini 3.1 Flash Image.
+gemini-3.5-flash : Gemini 3.5 Flash
 lyria-3-clip-preview : Lyria 3 30s model Preview
 lyria-3-pro-preview : Lyria 3 Pro Preview
+gemini-3.1-flash-tts-preview : Gemini 3.1 Flash TTS Preview
 gemini-robotics-er-1.5-preview : Gemini Robotics-ER 1.5 Preview
+gemini-robotics-er-1.6-preview : Gemini Robotics-ER 1.6 Preview
 gemini-2.5-computer-use-preview-10-2025 : Gemini 2.5 Computer Use Preview 10-2025
+antigravity-preview-05-2026 : Preview release of Antigravity Agent (05-2026)
+deep-research-max-preview-04-2026 : Preview release (April 21st, 2026) of Deep Research Max
+deep-research-preview-04-2026 : Preview release (April 21th, 2026) of Deep Research
 deep-research-pro-preview-12-2025 : Preview release (December 12th, 2025) of Deep Research Pro
 gemini-embedding-001 : Obtain a distributed representation of a text.
 gemini-embedding-2-preview : Obtain a distributed representation of multimodal content.
+gemini-embedding-2 : Obtain a distributed representation of multimodal content.
 aqa : Model trained to return answers to questions that are grounded in provided sources, along with estimating answerable probability.
 imagen-4.0-generate-001 : Vertex served Imagen 4.0 model
 imagen-4.0-ultra-generate-001 : Vertex served Imagen 4.0 ultra model
@@ -44,7 +48,3 @@ veo-3.0-fast-generate-001 : Veo 3 fast
 veo-3.1-generate-preview : Veo 3.1
 veo-3.1-fast-generate-preview : Veo 3.1 fast
 veo-3.1-lite-generate-preview : Veo 3.1 lite
-gemini-2.5-flash-native-audio-latest : Latest release of Gemini 2.5 Flash Native Audio
-gemini-2.5-flash-native-audio-preview-09-2025 : Gemini 2.5 Flash Native Audio Preview 09-2025
-gemini-2.5-flash-native-audio-preview-12-2025 : Gemini 2.5 Flash Native Audio Preview 12-2025
-gemini-3.1-flash-live-preview : Gemini 3.1 Flash Live Preview

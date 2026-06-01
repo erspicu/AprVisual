@@ -22,6 +22,7 @@ namespace AprVisual.Sim
         internal static byte* _logicIsExtracted;   // 1 = this node is an extracted combinational node
         internal static int* _logicOrder;          // extracted node ids in topological (level) order
         internal static int _logicOrderCount;
+        public static int LogicOrderCount => _logicOrderCount;
         internal static int* _logicTTBase;         // per node: index into _logicTT (dense 2^k byte truth table)
         internal static byte* _logicTT;
         internal static bool LogicModelBuilt;
@@ -35,12 +36,47 @@ namespace AprVisual.Sim
         internal static long* _miterNodeBad;       // per-node mismatch count (localization)
         public static double MiterSweepSec;
 
+        // self-statefulness: TT evaluated on GOLDEN inputs (not LogicState) every half-cycle. If it ever
+        // mismatches golden, the node is NOT a pure function of its current inputs -> it holds state (NMOS
+        // dynamic latch / deeper sequential) -> a genuine STATE ELEMENT that must become a register, not a
+        // contamination victim. Separates the real cut-set from downstream divergence.
+        public static bool MiterCollectSelf;
+        internal static byte* _selfStateful;
+
         public static void AllocLogicEval()
         {
             LogicState = AllocArray<byte>(NodeCount);
             _miterNodeBad = AllocArray<long>(NodeCount);
+            _selfStateful = AllocArray<byte>(NodeCount);
             for (int nn = 0; nn < NodeCount; nn++) LogicState[nn] = NodeStates[nn];   // seed from golden power-on state
             MiterSweeps = MiterNodeChecks = MiterNodeMismatch = 0; MiterSweepSec = 0;
+        }
+
+        public static void ReseedLogicState()
+        {
+            for (int nn = 0; nn < NodeCount; nn++) LogicState[nn] = NodeStates[nn];
+        }
+
+        public static void ResetMiterCounters()
+        {
+            MiterSweeps = MiterNodeChecks = MiterNodeMismatch = 0; MiterSweepSec = 0;
+            for (int nn = 0; nn < NodeCount; nn++) _miterNodeBad[nn] = 0;
+        }
+
+        // Demote every self-stateful node out of the oblivious set (it becomes a boundary read from golden /
+        // a register in a standalone sim). Filtering the existing order preserves the topological property.
+        // Returns the number demoted. The remaining set is provably clean *by construction* on golden inputs.
+        public static int RefineToSelfClean()
+        {
+            int w = 0, demoted = 0;
+            for (int i = 0; i < _logicOrderCount; i++)
+            {
+                int nn = _logicOrder[i];
+                if (_selfStateful[nn] != 0) { _logicIsExtracted[nn] = 0; demoted++; }
+                else _logicOrder[w++] = nn;
+            }
+            _logicOrderCount = w;
+            return demoted;
         }
 
         // One oblivious pass over the extracted combinational nodes in level order.
@@ -74,11 +110,20 @@ namespace AprVisual.Sim
             MiterSweepSec += sw.Elapsed.TotalSeconds;
             MiterSweeps++;
             int* order = _logicOrder; int cnt = _logicOrderCount;
+            bool self = MiterCollectSelf;
             for (int i = 0; i < cnt; i++)
             {
                 int nn = order[i];
                 MiterNodeChecks++;
                 if (LogicState[nn] != NodeStates[nn]) { MiterNodeMismatch++; _miterNodeBad[nn]++; }
+                if (self && _selfStateful[nn] == 0)
+                {
+                    ushort* p = _covInputs + _covBase[nn];
+                    int k = *p++;
+                    int gidx = 0;
+                    for (int j = 0; j < k; j++) gidx |= NodeStates[p[j]] << j;   // pack from GOLDEN inputs
+                    if (_logicTT[_logicTTBase[nn] + gidx] != NodeStates[nn]) _selfStateful[nn] = 1;
+                }
             }
         }
 

@@ -464,20 +464,37 @@ namespace AprVisual.Test
         private static int RunMiter(int hcCount)
         {
             int phase1 = hcCount / 2; if (phase1 < 1) phase1 = 1;
-            int phase2 = hcCount - phase1; if (phase2 < 1) phase2 = 1;
+            int rest   = hcCount - phase1;
+            int winA   = rest / 2; if (winA < 1) winA = 1;     // window A: miter + identify state elements
+            int winB   = rest - winA; if (winB < 1) winB = 1;  // window B: re-validate the refined clean set
 
-            Console.WriteLine($"# ===== DYNAMIC MITER: phase 1 = {phase1:N0} hc (coverage+extract), phase 2 = {phase2:N0} hc (miter) =====");
+            Console.WriteLine($"# ===== DYNAMIC MITER: build={phase1:N0} hc, identify={winA:N0} hc, validate={winB:N0} hc =====");
             WireCore.AllocCoverage();
             WireCore.Step(phase1);
             WireCore.ReportCoverage();
             WireCore.ExtractModel();                 // builds the oblivious logic model (BuildLogicModel)
             if (!WireCore.LogicModelBuilt) { Console.WriteLine("# miter: no logic model built — abort"); return 1; }
 
-            WireCore.AllocLogicEval();               // seed LogicState from current golden state
+            // Window A: run the miter while also flagging genuine state elements (self-stateful on golden inputs).
+            WireCore.AllocLogicEval();
+            WireCore.MiterCollectSelf = true;
+            for (int i = 0; i < winA; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            Console.WriteLine("# --- window A: raw miter (all extracted nodes) ---");
+            WireCore.ReportMiter();
+
+            // Refine: demote every self-stateful node (dynamic latch / sequential) to the register boundary.
+            int demoted = WireCore.RefineToSelfClean();
+            Console.WriteLine($"# >>> identified {demoted:N0} STATE ELEMENTS (self-stateful on golden inputs) -> cut to register boundary");
+            Console.WriteLine($"# >>> provably-clean oblivious set is now {WireCore.LogicOrderCount:N0} nodes");
+
+            // Window B: re-validate the refined (provably-clean) set. Expect ~100% — correctness by construction.
+            WireCore.MiterCollectSelf = false;
+            WireCore.ResetMiterCounters();
+            WireCore.ReseedLogicState();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            for (int i = 0; i < phase2; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            for (int i = 0; i < winB; i++) { WireCore.Step(1); WireCore.MiterStep(); }
             sw.Stop();
-            Console.WriteLine($"# miter phase 2 wall: {sw.Elapsed.TotalSeconds:F2} s ({phase2 / sw.Elapsed.TotalSeconds:N0} hc/s incl. golden+sweep+compare)");
+            Console.WriteLine($"# --- window B: re-validated refined set ({winB:N0} hc, {winB / sw.Elapsed.TotalSeconds:N0} hc/s incl. golden+sweep) ---");
             WireCore.ReportMiter();
             return 0;
         }

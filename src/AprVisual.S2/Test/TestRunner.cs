@@ -463,38 +463,53 @@ namespace AprVisual.Test
         //    the switch-level behaviour for the extracted nodes (the core Escape-1 correctness claim).
         private static int RunMiter(int hcCount)
         {
-            int phase1 = hcCount / 2; if (phase1 < 1) phase1 = 1;
-            int rest   = hcCount - phase1;
-            int winA   = rest / 2; if (winA < 1) winA = 1;     // window A: miter + identify state elements
-            int winB   = rest - winA; if (winB < 1) winB = 1;  // window B: re-validate the refined clean set
+            int build  = hcCount * 3 / 10; if (build < 1) build = 1;   // coverage probe builds _covMap
+            int rest   = hcCount - build;
+            int learn  = rest * 7 / 10; if (learn < 1) learn = 1;      // fast learn-only: fill TTs + identify state
+            int valid  = rest - learn; if (valid < 1) valid = 1;       // frozen relaxation validate
 
-            Console.WriteLine($"# ===== DYNAMIC MITER: build={phase1:N0} hc, identify={winA:N0} hc, validate={winB:N0} hc =====");
+            Console.WriteLine($"# ===== DYNAMIC MITER: build={build:N0} hc, learn={learn:N0} hc, validate={valid:N0} hc =====");
             WireCore.AllocCoverage();
-            WireCore.Step(phase1);
+            WireCore.Step(build);
             WireCore.ReportCoverage();
             WireCore.ExtractModel();                 // builds the oblivious logic model (BuildLogicModel)
             if (!WireCore.LogicModelBuilt) { Console.WriteLine("# miter: no logic model built — abort"); return 1; }
 
-            // Window A: run the miter while also flagging genuine state elements (self-stateful on golden inputs).
+            // Learn window (fast: golden-pass only, no relaxation): finish filling truth tables for combos that
+            // occur, and flag genuine state elements (self-stateful on golden inputs). Cheap -> can run long.
             WireCore.AllocLogicEval();
             WireCore.MiterCollectSelf = true;
-            for (int i = 0; i < winA; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-            Console.WriteLine("# --- window A: raw miter (all extracted nodes) ---");
-            WireCore.ReportMiter();
+            WireCore.MiterLearnOnly = true;
+            for (int i = 0; i < learn; i++) { WireCore.Step(1); WireCore.MiterStep(); }
 
             // Refine: demote every self-stateful node (dynamic latch / sequential) to the register boundary.
             int demoted = WireCore.RefineToSelfClean();
             Console.WriteLine($"# >>> identified {demoted:N0} STATE ELEMENTS (self-stateful on golden inputs) -> cut to register boundary");
             Console.WriteLine($"# >>> provably-clean oblivious set is now {WireCore.LogicOrderCount:N0} nodes");
 
-            // Window B: re-validate the refined (provably-clean) set. Expect ~100% — correctness by construction.
+            // Validate window (frozen TT, full relaxation): the real correctness measurement.
             WireCore.MiterCollectSelf = false;
+            WireCore.MiterLearnOnly = false;
+            int vw = Math.Max(1, valid / 6);         // shorter windows while iterating the diverger fixpoint
             WireCore.ResetMiterCounters();
             WireCore.ReseedLogicState();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            for (int i = 0; i < winB; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
             sw.Stop();
-            Console.WriteLine($"# --- window B: re-validated refined set ({winB:N0} hc, {winB / sw.Elapsed.TotalSeconds:N0} hc/s incl. golden+sweep) ---");
+            Console.WriteLine($"# --- VALIDATE-0: refined set, frozen TT, relaxation ({vw:N0} hc, {vw / sw.Elapsed.TotalSeconds:N0} hc/s) ---");
+            WireCore.ReportMiter();
+
+            // Iterate verify-then-enable on relaxation divergence until the validated set is clean by construction.
+            for (int r = 1; r <= 6; r++)
+            {
+                int d = WireCore.RefineDivergers();
+                Console.WriteLine($"# >>> refine-{r}: demoted {d:N0} divergers -> provably-clean oblivious set {WireCore.LogicOrderCount:N0} nodes");
+                if (d == 0) break;
+                WireCore.ResetMiterCounters();
+                WireCore.ReseedLogicState();
+                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            }
+            Console.WriteLine($"# --- VALIDATE-final: converged clean oblivious set ---");
             WireCore.ReportMiter();
             return 0;
         }

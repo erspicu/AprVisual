@@ -164,10 +164,39 @@ golden 輸入恆正確的節點才留 oblivious,其餘自動退成 register/swit
 oblivious 集從 1,125 推向 ~11,000,必須 **結構式抽取**(從網表算完整 boolean,不靠觀測全組合)。
 另:sweep 是解譯器(259 M node-eval/s);最終速度要靠 oblivious **編譯**(直線 bitwise)—— 兩者都待做。
 
+## 5f. relaxation + 全 clean 集 + verify-then-enable 收斂(2026-06-01)
+
+**關鍵發現**:放寬到全部 6,562 clean 候選後,strict levelize 從 1,281 **崩到 117** —— 每個 pass transistor 製造
+雙向 2-cycle(A、B 互為 far-end),datapath 變成大 SCC。這正是先前「94% bidirectional SCC 牆」。
+
+**解法:不要求 acyclic,改 iterative RELAXATION**(對全候選反覆 sweep 到 fixed point)。2-cycle 是「pass gate
+開時 A=B」的條件式合併 → relaxation 會收斂;真雙穩態 latch 不收斂 → 被 self-stateful 切掉。再加三段管線:
+**build(coverage 建 TT)→ learn(快速 golden-pass 線上學 TT + 辨識 state)→ validate(凍結 relaxation 量)**,
+最後對 relaxation 發散者做 **verify-then-enable 迭代降級**直到 fixpoint。**SMB 1M(build 300k / learn 490k /
+validate)**:
+
+| 階段 | 結果 |
+|---|---|
+| relaxation 候選集(含 cyclic pass net) | 6,562 節點 |
+| 收斂 | **平均 5.5 iters/半週期,0 個未收斂** ✅ |
+| self-stateful 切 state element | 256 → 6,306 |
+| VALIDATE-0(凍結) | 99.59%,274 發散 |
+| **發散者迭代降級** | refine-1 切 274 → 6,032;refine-2 切 0(穩定) |
+| **VALIDATE-final** | **6,032 節點(41% live),100.000% match,0/6,032 發散** ✅ |
+
+**結論**:Escape-1 管線**端到端跑通且全自動** —— 把晶片 **41% 的節點**抽象成 oblivious 邏輯,relaxation 收斂、
+**行為逐位元重現 golden(out-of-sample window)**。274 降級基於 window-0,在 window-1 驗 0 發散 → 非 in-sample 過擬合。
+
+**誠實的速度現實(下一個牆)**:目前 relaxation 是**解譯器**:6,032 節點 × 5.5 iters ≈ 33K node-eval/半週期 @
+88M/s ≈ **375µs/hc,比 golden 的 12.5µs/hc 慢 ~30×**。要快必須:(a) oblivious **編譯**成直線 bitwise(消解譯
+開銷),且(b) 剩下 ~8,400 個未建模節點(unobserved/wide/analog/state)仍需 switch-level —— **殘留 switch-level
+比例才是加速上限**。覆蓋率(holes 仍 ~0.5%)與殘留量靠**結構式抽取**補。
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)
 2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)
 3. ~~自動 state-element 切割 + 100% 重驗~~ ✅(5e)
-4. **結構式抽取**(下一步,解「經驗只完成 10%」):從網表 pull-down/pull-up 路徑算完整 boolean。
-5. oblivious 編譯成直線 C#(Roslyn)取代 sweep 解譯。
-6. 截圖/blargg 行為驗收 + 量速度 vs S1 ~80K。
+4. ~~relaxation(破 SCC 牆)+ 全 clean 集 + verify-then-enable 收斂到 41%/100%~~ ✅(5f)
+5. **量殘留 switch-level 比例 + 活動量佔比**(決定加速天花板):oblivious 集涵蓋多少 per-cycle recalc?
+6. **結構式抽取**補覆蓋率(把 unobserved/holes 補完,擴大 oblivious 集、縮小殘留)。
+7. oblivious 編譯成直線 bitwise(消解譯開銷)+ 截圖/blargg 行為驗收 + 量速度 vs S1 ~80K。

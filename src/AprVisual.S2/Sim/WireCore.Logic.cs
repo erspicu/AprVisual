@@ -20,9 +20,14 @@ namespace AprVisual.Sim
     {
         // model (populated by ExtractModel)
         internal static byte* _logicIsExtracted;   // 1 = this node is an extracted combinational node
-        internal static int* _logicOrder;          // extracted node ids in topological (level) order
+        internal static int* _logicOrder;          // candidate node ids: feed-forward core (topo) first, then cyclic
         internal static int _logicOrderCount;
+        internal static int _logicFeedForward;     // first N of _logicOrder are the acyclic feed-forward core
         public static int LogicOrderCount => _logicOrderCount;
+
+        public static int MaxRelaxIters = 40;      // relaxation cap per half-cycle (datapath SCC convergence)
+        public static long RelaxIterTotal;         // sum of iterations used (for avg)
+        public static long RelaxNonConverged;      // half-cycles that hit the iter cap without converging
         internal static int* _logicTTBase;         // per node: index into _logicTT (dense 2^k byte truth table)
         internal static byte* _logicTT;
         internal static bool LogicModelBuilt;
@@ -35,12 +40,14 @@ namespace AprVisual.Sim
         public static long MiterNodeMismatch;      // total (node,half-cycle) mismatches
         internal static long* _miterNodeBad;       // per-node mismatch count (localization)
         public static double MiterSweepSec;
+        public static long MiterUncovered;         // (node,hc) evals that hit an unlearned combo (coverage hole)
 
         // self-statefulness: TT evaluated on GOLDEN inputs (not LogicState) every half-cycle. If it ever
         // mismatches golden, the node is NOT a pure function of its current inputs -> it holds state (NMOS
         // dynamic latch / deeper sequential) -> a genuine STATE ELEMENT that must become a register, not a
         // contamination victim. Separates the real cut-set from downstream divergence.
         public static bool MiterCollectSelf;
+        public static bool MiterLearnOnly;         // fast learning pass: golden-input learn + self-stateful only, no relaxation
         internal static byte* _selfStateful;
 
         public static void AllocLogicEval()
@@ -49,7 +56,8 @@ namespace AprVisual.Sim
             _miterNodeBad = AllocArray<long>(NodeCount);
             _selfStateful = AllocArray<byte>(NodeCount);
             for (int nn = 0; nn < NodeCount; nn++) LogicState[nn] = NodeStates[nn];   // seed from golden power-on state
-            MiterSweeps = MiterNodeChecks = MiterNodeMismatch = 0; MiterSweepSec = 0;
+            MiterSweeps = MiterNodeChecks = MiterNodeMismatch = MiterUncovered = 0; MiterSweepSec = 0;
+            RelaxIterTotal = RelaxNonConverged = 0;
         }
 
         public static void ReseedLogicState()
@@ -59,13 +67,31 @@ namespace AprVisual.Sim
 
         public static void ResetMiterCounters()
         {
-            MiterSweeps = MiterNodeChecks = MiterNodeMismatch = 0; MiterSweepSec = 0;
+            MiterSweeps = MiterNodeChecks = MiterNodeMismatch = MiterUncovered = 0; MiterSweepSec = 0;
+            RelaxIterTotal = RelaxNonConverged = 0;
             for (int nn = 0; nn < NodeCount; nn++) _miterNodeBad[nn] = 0;
         }
 
         // Demote every self-stateful node out of the oblivious set (it becomes a boundary read from golden /
         // a register in a standalone sim). Filtering the existing order preserves the topological property.
         // Returns the number demoted. The remaining set is provably clean *by construction* on golden inputs.
+        // Verify-then-enable for the relaxation itself: demote every node that diverged from golden in the last
+        // validate window (state not caught by the golden-input test, relaxation non-convergence, or a wrong
+        // held-prior on a coverage hole). Iterating to a fixpoint yields the maximal set that reproduces golden
+        // EXACTLY under relaxation — correctness by construction. Returns the number demoted.
+        public static int RefineDivergers()
+        {
+            int w = 0, demoted = 0;
+            for (int i = 0; i < _logicOrderCount; i++)
+            {
+                int nn = _logicOrder[i];
+                if (_miterNodeBad[nn] > 0) { _logicIsExtracted[nn] = 0; demoted++; }
+                else _logicOrder[w++] = nn;
+            }
+            _logicOrderCount = w;
+            return demoted;
+        }
+
         public static int RefineToSelfClean()
         {
             int w = 0, demoted = 0;
@@ -79,50 +105,73 @@ namespace AprVisual.Sim
             return demoted;
         }
 
-        // One oblivious pass over the extracted combinational nodes in level order.
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        internal static void EvalObliviousSweep()
+        // Iterative RELAXATION over the candidate set (feed-forward core first, then cyclic pass network).
+        // Sweeps repeatedly until LogicState stops changing (fixed point) or the iteration cap is hit. The
+        // datapath's bidirectional pass 2-cycles converge here (A=B only while the gate conducts); genuine
+        // bistable latches never converge -> they show up as self-stateful and get cut. Returns iters used.
+        internal static int EvalObliviousRelax()
         {
             int* order = _logicOrder;
             int cnt = _logicOrderCount;
-            for (int i = 0; i < cnt; i++)
+            int iters = 0;
+            bool changed = true;
+            while (changed && iters < MaxRelaxIters)
             {
-                int nn = order[i];
-                ushort* p = _covInputs + _covBase[nn];
-                int k = *p++;
-                int idx = 0;
-                for (int j = 0; j < k; j++)
+                changed = false; iters++;
+                for (int i = 0; i < cnt; i++)
                 {
-                    int inp = p[j];
-                    int bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
-                    idx |= bit << j;
+                    int nn = order[i];
+                    ushort* p = _covInputs + _covBase[nn];
+                    int k = *p++;
+                    int idx = 0;
+                    for (int j = 0; j < k; j++)
+                    {
+                        int inp = p[j];
+                        int bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
+                        idx |= bit << j;
+                    }
+                    byte v = _logicTT[_logicTTBase[nn] + idx];
+                    if (v == TtUnseen) { if (iters == 1) MiterUncovered++; continue; }   // unlearned combo -> hold prior
+                    if (LogicState[nn] != v) { LogicState[nn] = v; changed = true; }
                 }
-                LogicState[nn] = _logicTT[_logicTTBase[nn] + idx];
             }
+            RelaxIterTotal += iters;
+            if (changed) RelaxNonConverged++;
+            return iters;
         }
 
         // After the golden engine advanced one half-cycle: sweep + compare extracted nodes.
         public static void MiterStep()
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            EvalObliviousSweep();
-            sw.Stop();
-            MiterSweepSec += sw.Elapsed.TotalSeconds;
+            bool learnOnly = MiterLearnOnly;
+            if (!learnOnly)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                EvalObliviousRelax();
+                sw.Stop();
+                MiterSweepSec += sw.Elapsed.TotalSeconds;
+            }
             MiterSweeps++;
             int* order = _logicOrder; int cnt = _logicOrderCount;
             bool self = MiterCollectSelf;
             for (int i = 0; i < cnt; i++)
             {
                 int nn = order[i];
-                MiterNodeChecks++;
-                if (LogicState[nn] != NodeStates[nn]) { MiterNodeMismatch++; _miterNodeBad[nn]++; }
+                if (!learnOnly)
+                {
+                    MiterNodeChecks++;
+                    if (LogicState[nn] != NodeStates[nn]) { MiterNodeMismatch++; _miterNodeBad[nn]++; }
+                }
                 if (self && _selfStateful[nn] == 0)
                 {
                     ushort* p = _covInputs + _covBase[nn];
                     int k = *p++;
                     int gidx = 0;
                     for (int j = 0; j < k; j++) gidx |= NodeStates[p[j]] << j;   // pack from GOLDEN inputs
-                    if (_logicTT[_logicTTBase[nn] + gidx] != NodeStates[nn]) _selfStateful[nn] = 1;
+                    int slot = _logicTTBase[nn] + gidx;
+                    byte cur = _logicTT[slot];
+                    if (cur == TtUnseen) _logicTT[slot] = NodeStates[nn];        // LEARN this combo from golden
+                    else if (cur != NodeStates[nn]) _selfStateful[nn] = 1;       // CONTRADICTION -> state element
                 }
             }
         }
@@ -138,8 +187,12 @@ namespace AprVisual.Sim
             Console.WriteLine($"#  per-(node,hc) checks: {MiterNodeChecks:N0}");
             Console.WriteLine($"#    MATCH golden: {matchRate:F3}%   ({MiterNodeMismatch:N0} mismatches)");
             Console.WriteLine($"#    extracted nodes that EVER diverged: {badNodes:N0} / {_logicOrderCount:N0}");
+            Console.WriteLine($"#    coverage holes (combo not learned, held prior): {MiterUncovered:N0}");
             if (MiterSweeps > 0)
-                Console.WriteLine($"#  oblivious sweep: {MiterSweepSec / MiterSweeps * 1e9:F0} ns/half-cycle for {_logicOrderCount:N0} nodes  ({_logicOrderCount / (MiterSweepSec / MiterSweeps) / 1e6:F0} M node-evals/s)");
+            {
+                Console.WriteLine($"#  relax: avg {(double)RelaxIterTotal / MiterSweeps:F2} iters/half-cycle, non-converged {RelaxNonConverged:N0} hc");
+                Console.WriteLine($"#  oblivious sweep: {MiterSweepSec / MiterSweeps * 1e9:F0} ns/half-cycle for {_logicOrderCount:N0} nodes  ({(double)RelaxIterTotal * _logicOrderCount / MiterSweepSec / 1e6:F0} M node-evals/s)");
+            }
             // top divergent nodes (localization)
             if (badNodes > 0)
             {

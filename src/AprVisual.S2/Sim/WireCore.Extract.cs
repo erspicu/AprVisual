@@ -16,15 +16,22 @@ namespace AprVisual.Sim
     // ───────────────────────────────────────────────────────────────────────────
     internal static unsafe partial class WireCore
     {
+        internal const int MaxDenseK = 16;     // 2^16 = 64K dense TT entries; clean nodes have small radius-1 K
+        internal const byte TtUnseen = 2;      // truth-table sentinel: this input combo not yet observed/learned
+
         public static void ExtractModel() => ExtractModel(true);
 
         public static void ExtractModel(bool buildModel)
         {
             int n = NodeCount;
-            var extracted = new bool[n];          // clean + complete truth table => directly compilable
-            var k = new int[n];                   // input count
-            int cleanSeen = 0, complete = 0, incompleteK = 0, tooWide = 0;
+            var extracted = new bool[n];          // clean + small-K => oblivious candidate (TT learned online, verified)
+            int cleanSeen = 0, complete = 0, incompleteK = 0, tooWide = 0, extractedCount = 0;
 
+            // Include EVERY clean (non-contradicting) node with a tractable input count. We no longer require a
+            // COMPLETE 2^K truth table: the oblivious sim only needs values for combos that actually OCCUR, the
+            // TT is learned online (sentinel-filled) during the miter, and verify-then-enable (self-stateful
+            // refine) demotes any node that ever contradicts golden. This scales the set from complete-only
+            // (~10%) toward the full clean set (~96%).
             for (int nn = 0; nn < n; nn++)
             {
                 if (nn == Npwr || nn == Ngnd || Nodes[nn] == null) continue;
@@ -33,12 +40,11 @@ namespace AprVisual.Sim
                 if (_covSeen[nn] == 0 || _covStateful[nn] != 0) continue;   // not observed, or stateful/analog
                 cleanSeen++;
                 int kk = _covInputs[b];
-                k[nn] = kk;
                 var map = _covMap![nn];
                 if (map == null) continue;
-                if (kk > 24) { tooWide++; continue; }             // 2^K too big to ever fully observe empirically
-                if (map.Count == (1 << kk)) { extracted[nn] = true; complete++; }
-                else incompleteK++;                                // clean but not all input combos seen yet
+                if (kk > MaxDenseK) { tooWide++; continue; }       // dense TT too big; leave at boundary (struct extract later)
+                if (map.Count == (1 << kk)) complete++; else incompleteK++;
+                extracted[nn] = true; extractedCount++;            // clean + K<=MaxDenseK => oblivious candidate
             }
 
             // Dependency DAG among extracted nodes: edge (input -> node) when an input is itself extracted.
@@ -78,57 +84,60 @@ namespace AprVisual.Sim
                     }
                 if (level[u] > maxLevel) maxLevel = level[u];
             }
-            int cyclic = complete - sorted;   // extracted but stuck in a cycle (uncut state element)
+            int cyclic = extractedCount - sorted;   // extracted but stuck in a cycle (uncut state element)
+
+            // For RELAXATION eval we evaluate ALL candidates, not just the acyclic ones: every pass transistor
+            // makes a bidirectional 2-cycle (A is B's far-end and vice-versa), so the datapath is one big SCC and
+            // strict levelization keeps almost nothing. Iterative relaxation converges these conditional cycles
+            // (A=B only while the gate is on); genuine bistable latches don't converge -> caught as self-stateful.
+            // Order: levelizable nodes first (topological, fast-converging feed-forward core), then the rest.
+            var inOrder = new bool[n];
+            foreach (int u in orderList) inOrder[u] = true;
+            var allCandidates = new List<int>(orderList);
+            for (int nn = 0; nn < n; nn++) if (extracted[nn] && !inOrder[nn]) allCandidates.Add(nn);
 
             double live = NonNullNodeCount;
             Console.WriteLine("# ============ EXTRACTOR / LEVELIZER ============");
             Console.WriteLine($"#  clean+observed nodes:        {cleanSeen:N0}");
-            Console.WriteLine($"#    COMPLETE truth table:      {complete:N0}  ({Pct(complete, (long)live):F1}% of live)   <- directly compilable");
-            Console.WriteLine($"#    clean but combos not all seen yet: {incompleteK:N0}   (longer/varied run, or structural extract)");
-            Console.WriteLine($"#    clean but K>24 (too wide for empirical TT): {tooWide:N0}");
-            Console.WriteLine($"#  dependency DAG (among extracted): {edges:N0} edges");
+            Console.WriteLine($"#  oblivious CANDIDATES (clean, K<={MaxDenseK}): {extractedCount:N0}  ({Pct(extractedCount, (long)live):F1}% of live)");
+            Console.WriteLine($"#    of which COMPLETE 2^K truth table: {complete:N0}   (rest learned online: {incompleteK:N0})");
+            Console.WriteLine($"#    clean but K>{MaxDenseK} (too wide for dense TT): {tooWide:N0}");
+            Console.WriteLine($"#  dependency DAG (among candidates): {edges:N0} edges");
             Console.WriteLine($"#    LEVELIZABLE (acyclic, oblivious-emittable): {sorted:N0}  in {maxLevel + 1} levels");
             Console.WriteLine($"#    in combinational CYCLES (uncut state elements): {cyclic:N0}");
             Console.WriteLine("# ===============================================");
 
-            if (buildModel) BuildLogicModel(orderList);
+            Console.WriteLine($"#  RELAXATION candidate set (levelizable core + cyclic pass net): {allCandidates.Count:N0}  ({sorted:N0} feed-forward first)");
+            if (buildModel) { _logicFeedForward = sorted; BuildLogicModel(allCandidates); }
         }
 
         // Persist the extracted model into the unmanaged arrays the oblivious eval (WireCore.Logic.cs) reads:
         //   _logicIsExtracted, _logicOrder (topological), _logicTTBase + _logicTT (dense 2^k truth tables).
-        // Only LEVELIZABLE nodes with a small-enough K get a dense table; the rest stay boundary (golden).
+        // Truth tables are sentinel-initialised (TtUnseen) and only the already-observed combos pre-filled;
+        // the rest are LEARNED online during the miter's identify window. A combo that is later contradicted
+        // (same inputs, different golden value) flags the node self-stateful -> demoted at refine.
         private static void BuildLogicModel(List<int> orderList)
         {
-            const int MaxDenseK = 16;     // 2^16 = 64K table entries; complete TT nodes have small K in practice
             _logicIsExtracted = AllocArray<byte>(NodeCount);
             _logicTTBase      = AllocArray<int>(NodeCount);
 
-            var chosen = new List<int>();
             long ttSize = 1;              // entry 0 reserved (TTBase 0 == "none")
+            foreach (int nn in orderList) { _logicIsExtracted[nn] = 1; _logicTTBase[nn] = (int)ttSize; ttSize += (1 << _covInputs[_covBase[nn]]); }
+            _logicTT = AllocArray<byte>((int)ttSize);
+            for (long i = 0; i < ttSize; i++) _logicTT[i] = TtUnseen;     // sentinel: unobserved
+            int preFilled = 0;
             foreach (int nn in orderList)
             {
-                int kk = _covInputs[_covBase[nn]];
-                if (kk > MaxDenseK) continue;
-                chosen.Add(nn);
-                _logicIsExtracted[nn] = 1;
-                _logicTTBase[nn] = (int)ttSize;
-                ttSize += (1 << kk);
-            }
-            _logicTT = AllocArray<byte>((int)ttSize);
-            foreach (int nn in chosen)
-            {
-                int kk = _covInputs[_covBase[nn]];
                 int baseIdx = _logicTTBase[nn];
                 var map = _covMap![nn];
-                int full = 1 << kk;
-                for (int idx = 0; idx < full; idx++)
-                    _logicTT[baseIdx + idx] = map != null && map.TryGetValue((ulong)idx, out byte v) ? v : (byte)0;
+                if (map == null) continue;
+                foreach (var kv in map) { _logicTT[baseIdx + (int)kv.Key] = kv.Value; preFilled++; }
             }
-            _logicOrder = AllocArray<int>(chosen.Count);
-            for (int i = 0; i < chosen.Count; i++) _logicOrder[i] = chosen[i];
-            _logicOrderCount = chosen.Count;
+            _logicOrder = AllocArray<int>(orderList.Count);
+            for (int i = 0; i < orderList.Count; i++) _logicOrder[i] = orderList[i];
+            _logicOrderCount = orderList.Count;
             LogicModelBuilt = true;
-            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes, TT bytes {ttSize:N0}");
+            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes, TT bytes {ttSize:N0}, pre-filled combos {preFilled:N0}");
         }
     }
 }

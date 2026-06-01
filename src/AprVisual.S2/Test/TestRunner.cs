@@ -482,10 +482,11 @@ namespace AprVisual.Test
             WireCore.MiterLearnOnly = true;
             for (int i = 0; i < learn; i++) { WireCore.Step(1); WireCore.MiterStep(); }
 
-            // Refine: demote every self-stateful node (dynamic latch / sequential) to the register boundary.
-            int demoted = WireCore.RefineToSelfClean();
-            Console.WriteLine($"# >>> identified {demoted:N0} STATE ELEMENTS (self-stateful on golden inputs) -> cut to register boundary");
-            Console.WriteLine($"# >>> provably-clean oblivious set is now {WireCore.LogicOrderCount:N0} nodes");
+            // Convert self-stateful TT nodes (dynamic latches the radius-1 TT can't hold) to STRUCTURAL BusResolve
+            // (its floating tie-break gives the hold) instead of dropping them to golden — keeps them in-model.
+            int conv = WireCore.ConvertSelfStatefulToStructural();
+            Console.WriteLine($"# >>> converted {conv:N0} self-stateful TT nodes -> structural BusResolve (hold-capable)");
+            Console.WriteLine($"# >>> oblivious set {WireCore.LogicOrderCount:N0} nodes (TT + structural); divergers (true analog) demoted next");
 
             // Validate window (frozen TT, full relaxation): the real correctness measurement.
             WireCore.MiterCollectSelf = false;

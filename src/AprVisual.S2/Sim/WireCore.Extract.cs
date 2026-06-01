@@ -97,13 +97,14 @@ namespace AprVisual.Sim
             var allCandidates = new List<int>(orderList);
             for (int nn = 0; nn < n; nn++) if (extracted[nn] && !inOrder[nn]) allCandidates.Add(nn);
 
-            // BUS candidates: wide (>CovMaxInputs) nodes were excluded from the TT path (no _covBase). Add them
-            // as structurally-resolved bus nodes (BusResolve) — these are the data/address buses dominating the
-            // residual. They carry no TT; correctness is enforced by verify-then-enable (RefineDivergers).
+            // STRUCTURAL candidates (resolved by BusResolve, not a TT): the wide (>CovMaxInputs) bus nodes AND
+            // the radius-1-STATEFUL nodes. Both are excluded from the TT path; BusResolve replicates golden's
+            // group resolution (incl. the floating tie-break = dynamic-latch HOLD), so latches/buses are handled
+            // structurally. Correctness is enforced by verify-then-enable (RefineDivergers demotes true analog).
             int busAdded = 0;
             for (int nn = 0; nn < n; nn++)
-                if (_covWide[nn] != 0 && nn != Npwr && nn != Ngnd && Nodes[nn] != null) { allCandidates.Add(nn); busAdded++; }
-            Console.WriteLine($"#  BUS candidates (wide >{CovMaxInputs} inputs, structural resolve): {busAdded:N0}");
+                if ((_covWide[nn] != 0 || _covStateful[nn] != 0) && nn != Npwr && nn != Ngnd && Nodes[nn] != null) { allCandidates.Add(nn); busAdded++; }
+            Console.WriteLine($"#  STRUCTURAL candidates (wide bus + radius-1-stateful, BusResolve): {busAdded:N0}");
 
             double live = NonNullNodeCount;
             Console.WriteLine("# ============ EXTRACTOR / LEVELIZER ============");
@@ -137,7 +138,7 @@ namespace AprVisual.Sim
             foreach (int nn in orderList)
             {
                 _logicIsExtracted[nn] = 1;
-                if (_covBase[nn] == 0) { _logicBus[nn] = 1; bus++; continue; }   // wide node -> structural BusResolve, no TT
+                if (_covBase[nn] == 0 || _covStateful[nn] != 0) { _logicBus[nn] = 1; bus++; continue; }   // wide/stateful -> structural BusResolve
                 int kk = _covInputs[_covBase[nn]];
                 if (kk <= MaxDenseK) { _logicTTBase[nn] = (int)ttSize; ttSize += (1 << kk); dense++; }
                 else { _logicSparse[nn] = 1; sparse++; }            // K 17..60: sparse map lookup (_covMap), no dense table

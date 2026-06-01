@@ -105,6 +105,20 @@ namespace AprVisual.Sim
             return demoted;
         }
 
+        // Self-stateful TT nodes (clean on radius-1 but contradict golden when re-evaluated every half-cycle =
+        // dynamic latches the TT can't express) are converted to STRUCTURAL (BusResolve), whose floating
+        // tie-break gives the HOLD semantics. Keeps them in the oblivious set instead of dropping to golden.
+        public static int ConvertSelfStatefulToStructural()
+        {
+            int n = 0;
+            for (int i = 0; i < _logicOrderCount; i++)
+            {
+                int nn = _logicOrder[i];
+                if (_selfStateful[nn] != 0 && _logicBus[nn] == 0) { _logicBus[nn] = 1; _logicSparse[nn] = 0; n++; }
+            }
+            return n;
+        }
+
         public static int RefineToSelfClean()
         {
             int w = 0, demoted = 0;

@@ -257,6 +257,28 @@ boundary 讀 golden)。模型正確時逐位元 == golden 的 `ComputeNodeGroup`
 (no-channel/supply),其餘是 radius-1-stateful(register 建模可再縮)。**結論:整顆晶片約 ~99% 活動可約成
 邏輯+register,真 analog 只 ~1%。** 速度天花板的「覆蓋率」維度已徹底回答。
 
+### 5j. stateful 節點也走 BusResolve → 殘留壓到 analog 底線 1.1%(2026-06-01)
+
+洞見:動態 latch = 「pass gate 關時浮接 hold」,而 BusResolve 的浮接 tie-break(最大電容成員持值)正是 hold。
+所以把**所有 stateful 節點(radius-1-stateful + self-stateful)也走 BusResolve**,只有 BusResolve 在 relaxation
+下仍發散的(真 analog / edge-timing 相依序向)才退成 boundary。`_covStateful` 加為結構候選 + self-stateful 轉
+structural;verify-then-enable 收斂(refine-1 切 1,106 → refine-2 切 7 → refine-3 切 0)。**SMB 1M**:
+
+| 活動分類 | 佔比 | 成本 |
+|---|---|---|
+| oblivious-logic | 76.5% | 編譯 bitwise(便宜) |
+| cut state-element | 22.4% | register 更新(需建模) |
+| **truly-residual switch** | **1.1%** | **100% no-channel/supply/analog —— 真不可約** |
+
+→ **Amdahl 天花板 ~88×**;100.000% match golden;relaxation 6.51 iters 收斂、0 未收斂。
+
+**結論(完整)**:殘留 switch-level 砍到 **1.1% 且 100% 是純 analog** —— 徹底確認「整顆晶片 98.9% 活動可約成
+邏輯 + register,真 analog 僅 1.1%」。但此步把 ~12% 從「便宜 oblivious」移到「需建 register(22.4%)」:那 1,106
+個在 relaxation fixed-point 下發散的節點是 **edge/timing 相依的真序向節點**(relaxation 算 settled 值,抓不到
+「transient 是 load-bearing」),BusResolve 的 hold 不足 → 需**真正的 sample-on-edge register 更新規則**。
+**∴ 1.1% 底線穩;天花板介於 20×(只算已便宜的 oblivious+bus)到 88×(register 也做成便宜)之間,取決於 register
+建模品質。下一步:真正的 register 建模(找每個序向節點的 D/enable/clock-edge)。**
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
 4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)

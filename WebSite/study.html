@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — When does automatic abstraction beat an event-driven switch-level simulator?</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:960px; margin:0 auto;}
+  header.top .badge{display:inline-block; font-size:12px; letter-spacing:.6px; text-transform:uppercase; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:3px 12px; margin-bottom:14px;}
+  header.top h1{font-size:clamp(26px,5vw,38px); margin:0 0 10px; letter-spacing:-.5px; line-height:1.25;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .authors{color:var(--fg); font-size:14px; margin:2px 0;}
+  header.top .sub{color:var(--mut); font-size:14px; margin:2px 0;}
+  main{max-width:960px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h2 .n{color:var(--mut); font-weight:600; margin-right:8px;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .abstract{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 20px 16px; margin:18px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .quote{border-left:3px solid var(--acc); background:#121821; padding:8px 16px; border-radius:0 8px 8px 0; margin:12px 0; font-style:italic; color:#cfe0f2;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .toc{font-size:14px; columns:2; column-gap:30px;}
+  .toc a{display:block; margin:.2em 0;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:960px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  @media(max-width:620px){ .toc{columns:1;} }
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <span class="badge en">Study &middot; Negative result &middot; 2026-06-01</span>
+  <span class="badge zh">研究紀錄 &middot; 負結果 &middot; 2026-06-01</span>
+  <h1><span class="en">When does automatic abstraction beat an event-driven switch-level simulator?</span><span class="zh">自動抽象化在什麼時候能贏過事件驅動的開關級模擬器?</span></h1>
+  <p class="authors en">A case study on the NES 2A03 / 2C02 — an honest, fully-measured account.</p>
+  <p class="authors zh">以 NES 2A03 / 2C02 為案例 —— 一份誠實、全程實測的紀錄。</p>
+  <p class="sub en">AprVisual project notes. All numbers below are measured on the project's own C# engine, not estimated. The external-model viewpoints are from Gemini 3.1-pro, explicitly instructed to be brutally honest.</p>
+  <p class="sub zh">AprVisual 專案紀錄。以下所有數字皆為本專案 C# 引擎上的實測,非估計。外部模型觀點來自 Gemini 3.1-pro,並明確要求其「殘酷誠實」。</p>
+</header>
+
+<main>
+
+<section>
+  <div class="abstract">
+    <h3><span class="en">Abstract</span><span class="zh">摘要</span></h3>
+    <p class="en">We ask whether a flat transistor netlist can be transformed, <b>fully automatically</b>, into a faster single-CPU-core simulator than a carefully tuned event-driven switch-level engine. Using that golden engine as an <b>oracle</b> (static analysis of charge-sharing / clocking from a netlist with no capacitances is undecidable), we build an automatic pipeline that extracts <b><span class="num">98.9%</span></b> of the chip's per-cycle activity into boolean logic + registers — leaving only <b>~1.1%</b> irreducible analog — and that reproduces the golden engine <b>bit-for-bit</b> on the covered nodes over hundreds of millions of checks. Despite this strong <i>reducibility</i>, <b>every</b> evaluation strategy we implement is <i>slower</i> than the golden engine on a single core: oblivious evaluation <span class="num">45&times;</span> slower, compiled-oblivious <span class="num">84&times;</span> (instruction-cache thrashing), and a macro-event scheme yields only <span class="num">1.1&times;</span> structural compression. We trace the cause to a <b>sparsity-vs-density crossover</b>: the golden engine already operates at the netlist's natural minimum granularity (the ~1.4-node conducting group), and the bidirectional, two-phase, pass-transistor structure forbids auto-deriving the static dataflow graph that dense evaluation would need. We generalize the negative result into a <b>chip-characteristic &rarr; strategy map</b>: the strategies are not bad, they are mismatched to this netlist; on chips with different properties the same strategies are live paths. Contributions: (i) a fully-automatic silicon&rarr;logic extraction + verification pipeline, (ii) a falsifiable reducibility measurement, and (iii) the characteristic&rarr;strategy map.</p>
+    <p class="zh">我們問:能否<b>全自動地</b>把一份扁平的電晶體網表,轉換成比「精心調校的事件驅動開關級引擎」更快的單核 CPU 模擬器?由於從「沒有電容值的網表」靜態分析 charge-sharing / 時脈是不可判定的,我們把該 golden 引擎當成<b>oracle</b>,建立一條自動管線:把晶片每週期活動的 <b><span class="num">98.9%</span></b> 抽取成「布林邏輯 + 暫存器」—— 只剩 <b>~1.1%</b> 不可約的類比 —— 並在數億次比對中,於涵蓋節點上<b>逐位元重現</b> golden 引擎。儘管<i>可約性</i>如此之高,我們實作的<b>每一種</b>評估策略在單核上都比 golden <i>更慢</i>:oblivious 評估慢 <span class="num">45&times;</span>、編譯版 oblivious 慢 <span class="num">84&times;</span>(指令快取 thrash)、macro-event 方案只得到 <span class="num">1.1&times;</span> 的結構壓縮。根因是<b>稀疏 vs 稠密的交叉點</b>:golden 引擎已運作在網表的天然最小粒度(平均 ~1.4 節點的導通群),而「雙向、兩相、pass-transistor」的結構,使我們無法自動導出稠密評估所需的靜態資料流圖。我們把這個負結果一般化成一張<b>晶片特性 &rarr; 策略對照表</b>:這些策略並不爛,只是跟這份網表不匹配;在特性不同的晶片上,同樣的策略會是活路。貢獻:(i) 一條全自動的 silicon&rarr;logic 抽取 + 驗證管線、(ii) 一個可證偽的可約性量測、(iii) 特性&rarr;策略對照表。</p>
+  </div>
+  <div class="card">
+    <h3><span class="en">Contents</span><span class="zh">目錄</span></h3>
+    <div class="toc">
+      <a href="#bg">1. <span class="en">Background &amp; problem</span><span class="zh">背景與問題</span></a>
+      <a href="#method">2. <span class="en">Method: oracle-driven extraction</span><span class="zh">方法:oracle 驅動抽取</span></a>
+      <a href="#reduce">3. <span class="en">Result A: reducibility (98.9%)</span><span class="zh">結果 A:可約性(98.9%)</span></a>
+      <a href="#perf">4. <span class="en">Result B: every strategy is slower</span><span class="zh">結果 B:每種策略都更慢</span></a>
+      <a href="#why">5. <span class="en">Analysis: the sparsity&ndash;density crossover</span><span class="zh">分析:稀疏–稠密交叉點</span></a>
+      <a href="#map">6. <span class="en">The chip-characteristic &rarr; strategy map</span><span class="zh">晶片特性 &rarr; 策略對照表</span></a>
+      <a href="#gemini">7. <span class="en">External-model consultations</span><span class="zh">外部模型諮詢</span></a>
+      <a href="#concl">8. <span class="en">Conclusions &amp; contributions</span><span class="zh">結論與貢獻</span></a>
+      <a href="#repro">9. <span class="en">Reproducibility &amp; threats</span><span class="zh">重現性與效度威脅</span></a>
+    </div>
+  </div>
+</section>
+
+<section id="bg">
+  <h2><span class="n">1.</span><span class="en">Background &amp; problem</span><span class="zh">背景與問題</span></h2>
+  <p class="en">The subject is the <b>NES 2A03</b> (a 6502-family CPU + APU) and <b>2C02</b> (PPU), simulated at the <b>switch (transistor) level</b> from a Visual6502/MetalNES-style netlist: <span class="num">~14,700</span> live nodes, <span class="num">~30,000</span> NMOS transistors, pass-transistor logic. The only inputs are connectivity (gate, c1, c2) and which nodes are VCC / GND / pull-up. There is no RTL, no source, and no annotated capacitances.</p>
+  <p class="zh">研究對象是 <b>NES 2A03</b>(6502 家族 CPU + APU)與 <b>2C02</b>(PPU),以 Visual6502/MetalNES 風格的網表做<b>開關(電晶體)級</b>模擬:<span class="num">~14,700</span> 個 live 節點、<span class="num">~30,000</span> 顆 NMOS 電晶體、pass-transistor 邏輯。唯一輸入是連線關係(gate, c1, c2)與哪些節點是 VCC / GND / pull-up。沒有 RTL、沒有原始碼、沒有電容標註。</p>
+  <h3><span class="en">The golden engine (the baseline to beat)</span><span class="zh">Golden 引擎(要打敗的基準)</span></h3>
+  <p class="en">An event-driven switch-level engine (Bryant's model), ported to C# and heavily optimized (struct-of-arrays, unmanaged pointers, an O(1) singleton fast-path, a 256-entry flags&rarr;state LUT). On the test machine it runs at <b><span class="num">~83,000 half-cycles/s = 12.0 µs/hc</span></b> (&asymp;48,000 CPU cycles/hc at 4 GHz). Per half-cycle it resolves connected transistor groups via flags-OR &rarr; LUT, with a floating-capacitance tie-break. Crucially, <b>only ~90&ndash;600 nodes change per half-cycle and the average conducting group walked is ~1.4 nodes</b> — extreme dynamic sparsity. This engine is bit-exact and is the offline reference.</p>
+  <p class="zh">一個事件驅動的開關級引擎(Bryant 模型),移植到 C# 並大幅最佳化(struct-of-arrays、非託管指標、O(1) singleton 快路徑、256 項 flags&rarr;state LUT)。在測試機上達 <b><span class="num">~83,000 半週期/秒 = 12.0 µs/hc</span></b>(4 GHz 下約 48,000 cycle/hc)。每半週期透過 flags-OR &rarr; LUT 解析連通電晶體群,並以 floating 電容 tie-break。關鍵:<b>每半週期只有 ~90&ndash;600 個節點改變,平均走訪的導通群僅 ~1.4 個節點</b> —— 極端的動態稀疏。此引擎逐位元正確,是離線參考基準。</p>
+  <p class="en"><b>The question.</b> The textbook way to make a logic simulator faster is to lift it to a higher abstraction and compile/levelize it. We require the lift to be <b>fully automatic</b> (program-derived from the netlist + the oracle; no hand-written per-block behavioral code, no "recognize it's a 6502"), <b>CPU-only, single-instance</b>, and only <b>behaviorally</b> correct (the rendered frame and test ROMs must pass; per-node bit-exactness may be sacrificed). Can such a lift beat 12.0 µs/hc?</p>
+  <p class="zh"><b>研究問題。</b>讓邏輯模擬器更快的教科書做法,是把它抬升到更高的抽象、再編譯/levelize。我們要求這個抬升必須<b>全自動</b>(由網表 + oracle 程式化導出;不准手寫各區塊行為碼、不准「認出它是 6502」)、<b>限 CPU、單實例</b>、且只需<b>行為</b>正確(畫面與測試 ROM 要過;逐節點 bit-exact 可犧牲)。這樣的抬升能贏過 12.0 µs/hc 嗎?</p>
+</section>
+
+<section id="method">
+  <h2><span class="n">2.</span><span class="en">Method: oracle-driven empirical extraction ("Escape-1")</span><span class="zh">方法:oracle 驅動的實證抽取(「Escape-1」)</span></h2>
+  <p class="en">Pure static analysis of a netlist with no capacitances cannot decide which nodes are dynamic latches, where clock phases are, or which behavior is charge-share analog. The asymmetric advantage is that we <b>have a golden simulator</b>. We replace undecidable static analysis with <b>empirical-dynamic analysis</b>: observe the oracle, then keep only what provably matches it. The pipeline, each stage fully automatic:</p>
+  <p class="zh">對「沒有電容值的網表」做純靜態分析,無法判定哪些節點是動態 latch、時脈相位在哪、哪些行為是 charge-share 類比。我們的不對稱優勢是<b>有一個 golden 模擬器</b>。於是用<b>實證動態分析</b>取代不可判定的靜態分析:觀察 oracle,只保留可證明與它相符的部分。管線各階段皆全自動:</p>
+  <ol>
+    <li class="en"><b>Coverability probe.</b> For each node, is its value a consistent boolean function of its radius-1 inputs (its transistors' gate + far-end states) over a long oracle trace? A single contradiction flags it non-boolean (hidden state / analog).</li>
+    <li class="zh"><b>可覆蓋性探針。</b>對每個節點,在長 oracle trace 上,它的值是否是其 radius-1 輸入(電晶體的 gate + far-end 狀態)的一致布林函數?出現一次矛盾就標記為非布林(隱藏狀態 / 類比)。</li>
+    <li class="en"><b>Extractor.</b> Learn each clean node's truth table online — a dense table for &le;16 inputs, a sparse hash map for 17&ndash;60.</li>
+    <li class="zh"><b>抽取器。</b>線上學習每個乾淨節點的真值表 —— &le;16 輸入用 dense 表,17&ndash;60 用 sparse hash map。</li>
+    <li class="en"><b>Structural bus model.</b> Wide (&gt;60-input) data/address buses are resolved by replicating the oracle's group resolution (a transitive walk over conducting channels &rarr; flags LUT + largest-capacitance float tie-break = dynamic-latch <i>hold</i>) but reading the model's own state. No truth table.</li>
+    <li class="zh"><b>結構式 bus 模型。</b>寬(&gt;60 輸入)的 data/address bus,以「複製 oracle 的群解析」(沿導通通道遞移走訪 &rarr; flags LUT + 最大電容浮接 tie-break = 動態 latch 的 <i>hold</i>)來解,但讀模型自己的狀態。不需真值表。</li>
+    <li class="en"><b>Evaluation by relaxation.</b> The pass network is one giant <b>bidirectional</b> SCC (every pass transistor is a 2-cycle), so the extracted logic cannot be levelized; we iterate a sweep to a fixed point (~6.5 iterations).</li>
+    <li class="zh"><b>以 relaxation 評估。</b>pass 網路是一個巨大的<b>雙向</b> SCC(每顆 pass transistor 都是一個 2-cycle),抽出的邏輯無法 levelize;我們把 sweep 迭代到 fixed point(~6.5 次)。</li>
+    <li class="en"><b>Dynamic Miter + verify-then-enable.</b> The model runs beside the oracle every half-cycle; any node that ever diverges is automatically demoted (a state element or true analog). The set converges, by construction, to one that reproduces the oracle exactly on the covered nodes.</li>
+    <li class="zh"><b>Dynamic Miter + verify-then-enable。</b>模型每半週期與 oracle 並排跑;任何曾發散的節點自動降級(視為狀態元件或真類比)。此集合「建構即正確」地收斂到「在涵蓋節點上完全重現 oracle」。</li>
+  </ol>
+  <p class="note en"><b>Methodological note.</b> "verify-then-enable" makes correctness a property of the construction, not an afterthought: a node is in the fast model only if it has been observed to never disagree with the oracle. This is what lets us claim behavioral exactness on the covered set despite using empirical (not proven) extraction.</p>
+  <p class="note zh"><b>方法論註記。</b>「verify-then-enable」讓正確性成為建構的內建性質,而非事後檢查:一個節點只有在「被觀察到從不與 oracle 不符」時,才會進入快速模型。這正是我們能在「使用實證(而非證明)抽取」的情況下,仍宣稱涵蓋集合行為精確的原因。</p>
+</section>
+
+<section id="reduce">
+  <h2><span class="n">3.</span><span class="en">Result A — the chip is ~99% reducible to logic + registers</span><span class="zh">結果 A —— 整顆晶片約 99% 可約成邏輯 + 暫存器</span></h2>
+  <p class="en">Coverability is high and broad. Across three workloads (a static palette image, an all-opcodes CPU test, and the game Super Mario Bros driving the whole NES), <span class="num">95.8&ndash;97.5%</span> of <i>observed</i> nodes are clean radius-1 boolean; with the game exercising 78% of the chip, the PPU is <b>99.3%</b> clean and the CPU <b>91.7%</b> (the ~8% non-clean CPU nodes are exactly the famous 6502 analog points: ALU carry chain, decode PLA, dynamic nodes).</p>
+  <p class="zh">可覆蓋性又高又廣。在三種 workload(靜態調色盤畫面、全指令 CPU 測試、以及驅動整機的遊戲《超級瑪利歐》)下,<i>被觀測</i>節點中 <span class="num">95.8&ndash;97.5%</span> 是乾淨的 radius-1 布林;在遊戲活化 78% 晶片時,PPU 達 <b>99.3%</b> 乾淨、CPU <b>91.7%</b>(那 ~8% 不乾淨的 CPU 節點,正是著名的 6502 類比點:ALU carry chain、decode PLA、動態節點)。</p>
+  <p class="en">Adding extraction techniques one at a time, each shrinks the residual switch-level activity and raises the idealized speed ceiling, while <b>verify-then-enable holds behavioral match at 100.000%</b> throughout (measured as the fraction of golden state-changes landing on covered nodes, Super Mario Bros, validation windows):</p>
+  <p class="zh">逐一加入抽取技術,每一種都縮小殘留的開關級活動、抬高理想加速上限,而 <b>verify-then-enable 全程把行為相符維持在 100.000%</b>(以「golden 狀態變化落在涵蓋節點上的比例」量測,《超級瑪利歐》,驗證窗):</p>
+  <table>
+    <tr><th><span class="en">Extraction</span><span class="zh">抽取技術</span></th><th><span class="en">activity covered</span><span class="zh">活動覆蓋</span></th><th><span class="en">residual switch-level</span><span class="zh">殘留開關級</span></th><th><span class="en">Amdahl ceiling*</span><span class="zh">Amdahl 上限*</span></th><th><span class="en">match</span><span class="zh">相符</span></th></tr>
+    <tr><td><span class="en">Dense truth tables (K&le;16)</span><span class="zh">Dense 真值表(K&le;16)</span></td><td class="num">56.8%</td><td class="num">32.7%</td><td class="num">3.1&times;</td><td class="tagY">100%</td></tr>
+    <tr><td><span class="en">+ Sparse maps (K&le;60)</span><span class="zh">+ Sparse map(K&le;60)</span></td><td class="num">66.0%</td><td class="num">23.2%</td><td class="num">4.3&times;</td><td class="tagY">100%</td></tr>
+    <tr><td><span class="en">+ Structural bus model</span><span class="zh">+ 結構式 bus 模型</span></td><td class="num">84.3%</td><td class="num">5.0%</td><td class="num">20.1&times;</td><td class="tagY">100%</td></tr>
+    <tr><td><span class="en">+ Stateful nodes via bus-resolve</span><span class="zh">+ stateful 節點走 bus-resolve</span></td><td><span class="num">76.5%</span> <span class="mut">+ 22.4% reg</span></td><td class="num">1.1%</td><td class="num">88.1&times;</td><td class="tagY">100%</td></tr>
+  </table>
+  <p class="mut en">*Amdahl ceiling assumes the covered (logic + register) work is free — an upper bound on reducibility, <b>not</b> an achieved speed (see §4&ndash;5). The final residual <span class="num">1.1%</span> is <b>100% no-channel / supply / analog</b> — the irreducible core.</p>
+  <p class="mut zh">*Amdahl 上限假設「涵蓋的(邏輯 + 暫存器)工作免費」—— 那是可約性的上界,<b>不是</b>實際達成的速度(見 §4&ndash;5)。最終殘留的 <span class="num">1.1%</span> 是 <b>100% 的 no-channel / supply / 類比</b> —— 不可約的核心。</p>
+  <div class="big">
+    <p class="en"><b>Finding A.</b> The NES 2A03/2C02 is, to within ~1.1% of its dynamic activity, a digital machine: boolean logic plus registers. This is a clean, automatic, falsifiable reducibility result. It is the strongest answer the project produced to "can this silicon be abstracted?".</p>
+    <p class="zh"><b>發現 A。</b>NES 2A03/2C02 在動態活動的 ~1.1% 誤差內,就是一台數位機器:布林邏輯加上暫存器。這是一個乾淨、自動、可證偽的可約性結果,也是本專案對「這塊矽能不能被抽象化」給出的最強答案。</p>
+  </div>
+</section>
+
+<section id="perf">
+  <h2><span class="n">4.</span><span class="en">Result B — reducibility does <i>not</i> become speed: every strategy is slower</span><span class="zh">結果 B —— 可約性<i>不會</i>變成速度:每種策略都更慢</span></h2>
+  <p class="en">The reducibility ceiling assumes the extracted logic is cheap to evaluate. It is not. We implemented and measured each evaluation strategy against the 12.0 µs/hc golden engine:</p>
+  <p class="zh">可約性上限假設「抽出的邏輯評估起來很便宜」。並不便宜。我們把每種評估策略實作出來,對 12.0 µs/hc 的 golden 引擎量測:</p>
+  <table>
+    <tr><th><span class="en">Strategy</span><span class="zh">策略</span></th><th><span class="en">µs / half-cycle</span><span class="zh">µs / 半週期</span></th><th>vs golden</th><th><span class="en">why</span><span class="zh">原因</span></th></tr>
+    <tr><td><b>golden</b> <span class="mut">(event-driven switch-level)</span></td><td class="num">12.0</td><td class="tagY">1&times;</td><td><span class="en">the baseline</span><span class="zh">基準</span></td></tr>
+    <tr><td><span class="en">Oblivious, interpreted</span><span class="zh">Oblivious,直譯</span></td><td class="num">539</td><td class="tagN">45&times; slower</td><td><span class="en">~39,000 node-evals/hc (6,000 nodes &times; 6.5 iters) vs golden's ~90&ndash;600</span><span class="zh">每 hc ~39,000 次節點評估(6,000 節點 &times; 6.5 迭代)vs golden ~90&ndash;600</span></td></tr>
+    <tr><td><span class="en">Oblivious, compiled (Roslyn)</span><span class="zh">Oblivious,編譯(Roslyn)</span></td><td class="num">1,004</td><td class="tagN">84&times; slower</td><td><span class="en">~700 KB straight-line code &times; 6.5 sweeps &Gt; 32 KB L1i &rArr; i-cache thrash</span><span class="zh">~700 KB 直線碼 &times; 6.5 次掃 &Gt; 32 KB L1i &rArr; i-cache thrash</span></td></tr>
+    <tr><td><span class="en">AOT batch backends (prior S4)</span><span class="zh">AOT batch 後端(先前 S4)</span></td><td class="mut">—</td><td class="tagN">3&ndash;6&times; slower</td><td><span class="en">re-evaluates ~14.7k nodes/hc when hundreds change</span><span class="zh">幾百個變動時卻重算 ~14.7k 節點/hc</span></td></tr>
+    <tr><td><span class="en">Per-node event-driven boolean</span><span class="zh">Per-node 事件驅動布林</span></td><td class="mut">—</td><td class="tagN">break-even / wrong</td><td><span class="en">breaks conducting-group atomicity; transient order is load-bearing</span><span class="zh">破壞導通群原子性;暫態順序是承重的</span></td></tr>
+    <tr><td><span class="en">Macro-event (cone granularity)</span><span class="zh">Macro-event(cone 粒度)</span></td><td class="mut">—</td><td class="tagN">1.1&times; compression</td><td><span class="en">cones mean 2.0 nodes &asymp; golden's 1.4-node group; activity ~1:1 with cones (§5)</span><span class="zh">cone 平均 2.0 節點 &asymp; golden 的 1.4 節點群;活動與 cone ~1:1(§5)</span></td></tr>
+    <tr><td><span class="en">GPU, single instance (prior S4)</span><span class="zh">GPU,單實例(先前 S4)</span></td><td class="mut">—</td><td class="tagN">10.7&times; slower</td><td><span class="en">one workgroup &asymp; 1/76 of the GPU; the rest idle</span><span class="zh">一個 workgroup &asymp; GPU 的 1/76,其餘閒置</span></td></tr>
+  </table>
+  <div class="bad">
+    <p class="en"><b>The instruction-cache inversion.</b> The most diagnostic data point: the <i>compiled</i> oblivious sweep is <b>2&times; slower than the interpreter</b>. The interpreter is a tiny code loop over data (L1i fine; the cost is scattered data gathers). The compiled version unrolls ~6,000 nodes into ~700 KB of machine code streamed 6.5&times; per half-cycle — far exceeding the 32&ndash;48 KB L1 instruction cache, so the CPU front-end stalls re-fetching code while the ALUs idle. <b>"Compile the oblivious sweep" is self-defeating precisely because oblivious means touching the whole circuit every cycle, so the code footprint scales with the whole circuit.</b></p>
+    <p class="zh"><b>指令快取的反轉。</b>最具診斷性的一點:<i>編譯版</i>的 oblivious sweep <b>比直譯器慢 2&times;</b>。直譯器是「小程式碼迴圈跑資料」(L1i 沒事;成本在散落的資料 gather)。編譯版把 ~6,000 節點展開成 ~700 KB 機器碼、每半週期掃 6.5 次 —— 遠超 32&ndash;48 KB L1 指令快取,CPU 前端不斷重抓指令、ALU 空轉。<b>「把 oblivious sweep 編譯掉」會自我擊敗,正是因為 oblivious 意味著每週期碰整顆電路,程式碼足跡因此隨整顆電路增長。</b></p>
+  </div>
+</section>
+
+<section id="why">
+  <h2><span class="n">5.</span><span class="en">Analysis — the sparsity&ndash;density crossover, and why no static DAG exists</span><span class="zh">分析 —— 稀疏–稠密交叉點,以及為何沒有靜態 DAG</span></h2>
+  <p class="en">Every circuit simulator sits on one side of a crossover. Per half-cycle the cost is roughly:</p>
+  <p class="zh">每個電路模擬器都坐落在一個交叉點的某一側。每半週期的成本大致是:</p>
+  <div class="card">
+    <p style="text-align:center; font-family:Consolas,monospace; color:#cfe4ff;">Cost = MIN( <span style="color:#7ee0a8">Events &times; PerEvent</span> , <span style="color:#ffd479">Nodes &times; Iterations &times; PerNode</span> )</p>
+    <table>
+      <tr><th></th><th><span class="en">Sparse (golden)</span><span class="zh">稀疏(golden)</span></th><th><span class="en">Dense (oblivious)</span><span class="zh">稠密(oblivious)</span></th></tr>
+      <tr><td><span class="en">work units</span><span class="zh">工作單位</span></td><td>~90&ndash;600 <span class="en">events</span><span class="zh">事件</span></td><td>~6,000 <span class="en">nodes</span><span class="zh">節點</span></td></tr>
+      <tr><td><span class="en">iterations</span><span class="zh">迭代</span></td><td>1</td><td class="tagN">~6.5</td></tr>
+      <tr><td><span class="en">cost / unit</span><span class="zh">每單位成本</span></td><td>~80 <span class="en">cyc</span><span class="zh">cyc</span></td><td>~2.5 <span class="en">cyc (ideal)</span><span class="zh">cyc(理想)</span></td></tr>
+      <tr><td><b>CPU cycles / hc</b></td><td class="num">~24,000&ndash;48,000</td><td class="num">~97,500</td></tr>
+    </table>
+  </div>
+  <p class="en">Even an <i>idealized</i> dense evaluation (2.5 cyc/node, perfect L1d) costs ~97,500 cycles — already ~2&times; golden — <b>because of the 6.5 iterations</b>. To win, dense must drop to <b>1 iteration</b>, which requires a topologically-ordered, acyclic dataflow graph. And here is the wall:</p>
+  <p class="zh">即使<i>理想化</i>的稠密評估(2.5 cyc/節點、完美 L1d)也要 ~97,500 cycle —— 已是 golden 的 ~2&times; —— <b>就因為那 6.5 次迭代</b>。要贏,稠密必須降到 <b>1 次迭代</b>,而那需要一個拓樸有序、無環的資料流圖。牆就在這:</p>
+  <div class="big">
+    <p class="en"><b>You cannot auto-derive a static DAG from a flat, two-phase, bidirectional pass-transistor netlist.</b> NMOS pass gates are bidirectional (a gate's "input" and "output" sides are decided dynamically by which side drives), and two-phase transparent latches make the transparent paths cyclic. Without RTL or clock-phase metadata — which we are forbidden to assume — static extraction must treat these as SCCs and cannot sever the cycles. The model is structurally condemned to ~6.5 iterations, so dense execution always loses.</p>
+    <p class="zh"><b>你無法從「扁平、兩相、雙向 pass-transistor」的網表自動導出靜態 DAG。</b>NMOS pass gate 是雙向的(誰是「輸入」誰是「輸出」由哪一側在驅動動態決定),兩相透明 latch 又讓透明路徑成環。在沒有 RTL 或時脈相位 metadata(我們又被禁止假設)的情況下,靜態抽取只能把它們當成 SCC、切不開環。模型在結構上被判定卡在 ~6.5 次迭代,所以稠密執行永遠輸。</p>
+  </div>
+  <h3><span class="en">Why "fewer, coarser events" also fails (the macro-event measurement)</span><span class="zh">為何「更少、更粗的事件」也失敗(macro-event 量測)</span></h3>
+  <p class="en">If dense loses, the other route is to keep event-driven sparsity but make each event a <b>combinational cone</b> (latch-bounded), recovering ~90% fewer, atomic events. We measured the compression directly: condense the combinational nodes into cones (cut at bus/latch boundaries) and count distinct cones touched per half-cycle.</p>
+  <p class="zh">若稠密會輸,另一條路是「保留事件驅動的稀疏,但把每個事件變成一個(latch 邊界界定的)<b>組合 cone</b>」,以拿回少 ~90%、且原子的事件。我們直接量了壓縮比:把組合節點凝縮成 cone(在 bus/latch 邊界切開),數每半週期觸動的相異 cone 數。</p>
+  <table>
+    <tr><th><span class="en">cone definition</span><span class="zh">cone 定義</span></th><th><span class="en">result</span><span class="zh">結果</span></th></tr>
+    <tr><td><span class="en">channel (far-end) connectivity</span><span class="zh">通道(far-end)連通</span></td><td><span class="num">2,737</span> <span class="en">cones, mean <b>2.0 nodes</b>; 90 node-events &rarr; 81 macro-units = <b>1.1&times;</b></span><span class="zh">個 cone,平均 <b>2.0 節點</b>;90 node-events &rarr; 81 macro-units = <b>1.1&times;</b></span></td></tr>
+    <tr><td><span class="en">gate + channel connectivity</span><span class="zh">gate + 通道連通</span></td><td><span class="en">collapses into <b>one giant 5,349-node cone</b> &rArr; firing it = full oblivious again</span><span class="zh">塌成<b>一個 5,349 節點的巨型 cone</b> &rArr; 觸發它 = 又變回完整 oblivious</span></td></tr>
+  </table>
+  <div class="bad">
+    <p class="en"><b>The deepest finding.</b> A combinational cone averages <b>2.0 nodes</b> — essentially identical to golden's mean conducting group of <b>1.4 nodes</b>. <b>The golden engine already operates at the netlist's natural minimum granularity.</b> There is no coarser, reusable structural unit to extract; the activity is diffuse (~1:1 node-to-cone). The macro-event scheme would re-do golden's work plus abstraction overhead — break-even at best.</p>
+    <p class="zh"><b>最深的發現。</b>一個組合 cone 平均 <b>2.0 節點</b> —— 幾乎等同於 golden 平均 <b>1.4 節點</b>的導通群。<b>golden 引擎早已運作在網表的天然最小粒度上。</b>沒有更粗、可重用的結構單位可抽;活動是擴散的(節點對 cone ~1:1)。macro-event 方案只會把 golden 已做的事重做一遍、再加抽象開銷 —— 最好的情況也只是打平。</p>
+  </div>
+  <h3><span class="en">The per-event floor (~80 cycles) and why temporal tricks fail</span><span class="zh">per-event 地板(~80 cycle),以及時間性技巧為何失敗</span></h3>
+  <p class="en">Golden spends ~80 cycles/event: dequeue, load node state, branch on change, chase 1&ndash;3 adjacency edges (dependent loads), index a LUT, write back, enqueue downstream. With diffuse hot nodes there is no small hot-set to keep in L1 and the branch predictor keeps guessing on tiny loops; the bottleneck is memory-dependency latency, not arithmetic. ~80 cycles is the pointer-chasing floor on a 14.7k-node irregular graph. Finally, <b>temporal memoization</b> (cache &amp; replay recurring state transitions) is a mirage here: the APU has free-running timers and a 15-bit LFSR with mutually-coprime periods, so the chip's global micro-state virtually never repeats — and isolating the "CPU part" to hash would itself require auto-detecting a functional boundary we cannot derive.</p>
+  <p class="zh">golden 每事件花 ~80 cycle:dequeue、載入節點狀態、依變動分支、追 1&ndash;3 條鄰接邊(依賴載入)、查 LUT、寫回、enqueue 下游。熱節點擴散 &rArr; 沒有小熱集能留在 L1,分支器又一直在猜小迴圈;瓶頸是記憶體依賴延遲,不是算術。對一張 14.7k 節點的不規則圖,~80 cycle 就是指標追逐的地板。最後,<b>時間記憶化</b>(快取並重播重複的狀態轉移)在這裡是海市蜃樓:APU 有自由跑的計時器與一個週期互質的 15-bit LFSR,使晶片全域微狀態幾乎永不重複 —— 而要「只 hash CPU 部分」又需要自動偵測一個我們導不出的功能邊界。</p>
+</section>
+
+<section id="map">
+  <h2><span class="n">6.</span><span class="en">The general lesson — a chip-characteristic &rarr; strategy map</span><span class="zh">通則 —— 一張晶片特性 &rarr; 策略對照表</span></h2>
+  <p class="en">The crucial point: <b>the strategies are not bad — they are mismatched to this netlist.</b> Each one is the right tool for a circuit with the opposite property. The negative result is therefore reusable: it tells you, for a new chip, which strategy to reach for and which to avoid.</p>
+  <p class="zh">關鍵在於:<b>這些策略並不爛 —— 它們只是跟這份網表不匹配。</b>每一種都是「具相反性質的電路」的正確工具。因此這個負結果是可重用的:對一顆新晶片,它告訴你該拿哪種策略、該避開哪種。</p>
+  <table>
+    <tr><th><span class="en">Strategy</span><span class="zh">策略</span></th><th><span class="en">Wins when the chip is…</span><span class="zh">在以下晶片上會贏…</span></th><th><span class="en">Why it dies on the NES 2A03</span><span class="zh">為何死於 NES 2A03</span></th></tr>
+    <tr><td><b><span class="en">Event-driven switch-level</span><span class="zh">事件驅動開關級</span></b></td><td><span class="en"><b>sparse activity</b> (few nodes change/cycle) — the winner here</span><span class="zh"><b>稀疏活動</b>(每週期少數節點變)—— 此處的贏家</span></td><td class="tagY"><span class="en">— (it wins)</span><span class="zh">—(它贏)</span></td></tr>
+    <tr><td><b><span class="en">Dense / oblivious / static-DAG</span><span class="zh">稠密 / oblivious / 靜態 DAG</span></b></td><td><span class="en">synchronous CMOS from <b>RTL</b>, unidirectional logic, clean clock domains; <i>or</i> <b>dense-active</b> chips where most nodes toggle every cycle (systolic arrays, dataflow accelerators) — event-driven has no sparsity to exploit there</span><span class="zh">由 <b>RTL</b> 合成的同步 CMOS、單向邏輯、乾淨時脈域;<i>或</i> <b>稠密活躍</b>的晶片(大多數節點每週期都翻轉,如 systolic array、dataflow 加速器)—— 那裡事件驅動沒有稀疏可吃</span></td><td class="tagN"><span class="en">bidirectional pass-transistor + two-phase &rArr; no auto static DAG &rArr; stuck at 6.5 iters; and only ~1% active</span><span class="zh">雙向 pass-transistor + 兩相 &rArr; 無法自動靜態定序 &rArr; 卡 6.5 迭代;且只 ~1% 活躍</span></td></tr>
+    <tr><td><b><span class="en">Macro-event / cone</span><span class="zh">Macro-event / cone</span></b></td><td><span class="en"><b>coarse structure</b>: deep combinational cones between sparse registers (big ALUs/datapaths, few state elements)</span><span class="zh"><b>粗粒度結構</b>:稀疏暫存器之間有深組合 cone(大 ALU/datapath、少量狀態元件)</span></td><td class="tagN"><span class="en">cones &asymp; 2 nodes &asymp; conducting group; no coarse structure to exploit (1.1&times;)</span><span class="zh">cone &asymp; 2 節點 &asymp; 導通群;沒有粗結構可吃(1.1&times;)</span></td></tr>
+    <tr><td><b><span class="en">Temporal / trace memoization</span><span class="zh">時間 / trace 記憶化</span></b></td><td><span class="en"><b>bounded recurring state</b>: controllers/state machines that loop, no free-running counters</span><span class="zh"><b>有界且重複的狀態</b>:會迴圈的控制器/狀態機,沒有自由跑的計數器</span></td><td class="tagN"><span class="en">APU coprime timers + LFSR &rArr; global state never repeats</span><span class="zh">APU 互質計時器 + LFSR &rArr; 全域狀態永不重複</span></td></tr>
+    <tr><td><b><span class="en">GPU bit-slicing</span><span class="zh">GPU bit-slicing</span></b></td><td><span class="en"><b>many independent instances</b> (throughput, not latency) — oblivious is the <i>right</i> model there (no divergence)</span><span class="zh"><b>大量獨立實例</b>(吞吐,非延遲)—— oblivious 在那裡是<i>對的</i>模型(不發散)</span></td><td class="tagN"><span class="en">single instance uses 1/76 of the GPU; this study is latency-only</span><span class="zh">單實例只用 1/76 的 GPU;本研究只看延遲</span></td></tr>
+  </table>
+  <p class="note en"><b>The 2A03 is close to the worst case for single-core CPU acceleration of <i>any</i> abstraction:</b> bidirectional pass-transistor (no DAG) + two-phase dynamic (transient-order-sensitive) + extreme sparsity (~1% active) + small (cache-resident, so the event-driven overhead <i>is</i> the whole cost, nothing to amortize) + free-running coprime counters (no temporal repetition). Each property independently disables one strategy; the common root is the first two.</p>
+  <p class="note zh"><b>對「<i>任何</i>抽象的單核 CPU 加速」而言,2A03 接近最壞情況:</b>雙向 pass-transistor(無 DAG)+ 兩相動態(暫態順序敏感)+ 極稀疏(~1% 活躍)+ 小(整個進快取,所以事件驅動的開銷<i>就是</i>全部成本、沒東西可攤)+ 自由跑的互質計數器(無時間重複)。每個性質各自關掉一種策略;共同的根源是前兩者。</p>
+</section>
+
+<section id="gemini">
+  <h2><span class="n">7.</span><span class="en">External-model consultations (Gemini 3.1-pro)</span><span class="zh">外部模型諮詢(Gemini 3.1-pro)</span></h2>
+  <p class="en">We stress-tested the analysis against an external model, instructed each time to be brutally honest and to prefer a correct "no" over a hopeful "maybe." Its position evolved as we fed back measurements — a useful record of how an optimistic prior collapses under data.</p>
+  <p class="zh">我們把分析丟給一個外部模型壓力測試,每次都明確要求它「殘酷誠實」、寧可給正確的「不行」也不要給樂觀的「也許」。隨著我們回饋實測,它的立場逐步演變 —— 這是一份「樂觀先驗如何在數據下崩解」的有用紀錄。</p>
+  <table>
+    <tr><th><span class="en">Consult</span><span class="zh">諮詢</span></th><th><span class="en">Its proposal / verdict</span><span class="zh">其提案 / 判決</span></th><th><span class="en">Our empirical outcome</span><span class="zh">我們的實證結果</span></th></tr>
+    <tr><td><span class="en">1 — the bottleneck</span><span class="zh">1 — 瓶頸</span></td><td><span class="en">Macro-event via SCC condensation; cone = atomic unit; est. <b>5&ndash;15&times;</b></span><span class="zh">用 SCC 凝縮做 macro-event;cone = 原子單位;估 <b>5&ndash;15&times;</b></span></td><td><span class="en">measured cone compression = <b>1.1&times;</b> (§5) &rArr; falsified</span><span class="zh">實測 cone 壓縮 = <b>1.1&times;</b>(§5)&rArr; 被證偽</span></td></tr>
+    <tr><td><span class="en">2 — the i-cache angle</span><span class="zh">2 — i-cache 角度</span></td><td><span class="en">confirmed compiled-slower = i-cache thrash; <b>codegen/LLVM is self-defeating</b>; use a data-driven interpreter; revised to <b>4&ndash;6&times;</b></span><span class="zh">確認編譯較慢 = i-cache thrash;<b>codegen/LLVM 會自我擊敗</b>;改用 data-driven 直譯器;下修為 <b>4&ndash;6&times;</b></span></td><td><span class="en">consistent with the 2&times; compiled-vs-interp inversion we measured</span><span class="zh">與我們量到的「編譯比直譯慢 2&times;」反轉一致</span></td></tr>
+    <tr><td><span class="en">3 — last resort</span><span class="zh">3 — 最後手段</span></td><td><span class="en"><b>"a genuine, structural dead end."</b> Sparsity-vs-density crossover; no auto static DAG; per-event 80-cyc floor; temporal memoization a mirage (APU)</span><span class="zh"><b>「這是真正的、結構性的死路。」</b>稀疏 vs 稠密交叉點;無法自動靜態定序;per-event 80-cyc 地板;時間記憶化是海市蜃樓(APU)</span></td><td><span class="en">matches every independent measurement in this study</span><span class="zh">與本研究每一項獨立量測相符</span></td></tr>
+  </table>
+  <div class="quote">
+    <p class="en">"You are not failing to see a hidden trick; you have fully mapped the boundaries of the problem. … This is likely the fastest single-instance switch-level simulator possible for the 2A03 on a von Neumann architecture." — Gemini 3.1-pro, third consult</p>
+    <p class="zh">「你不是沒看到隱藏的技巧,你已經完整測繪了這個問題的邊界。……這大概是 von Neumann 架構上、單實例 2A03 switch-level 模擬器的最快可能形態。」 — Gemini 3.1-pro,第三次諮詢</p>
+  </div>
+  <p class="mut en">We treat this as corroboration, not authority: the model twice proposed an approach (macro-event) that our own measurement then falsified, which is exactly why the measurement, not the model, is the arbiter. The value of the consults was sharper framing (the crossover equation; the APU-LFSR argument), not the conclusion.</p>
+  <p class="mut zh">我們把這當成佐證,而非權威:該模型兩度提出一個方法(macro-event),隨後被我們自己的量測證偽 —— 這正是為何裁決者是量測、不是模型。諮詢的價值在於更銳利的框架(交叉點方程式、APU-LFSR 論證),而非結論本身。</p>
+</section>
+
+<section id="concl">
+  <h2><span class="n">8.</span><span class="en">Conclusions &amp; contributions</span><span class="zh">結論與貢獻</span></h2>
+  <div class="big">
+    <p class="en"><b>Main conclusion.</b> For a flat, bidirectional, two-phase pass-transistor netlist of this scale, <b>no fully-automatic abstraction beats a well-tuned event-driven switch-level engine on a single CPU core</b> — because that engine already runs at the netlist's natural minimum granularity (the ~1.4-node conducting group), the per-event cost is at the memory-latency floor, and the static dataflow graph that dense evaluation needs cannot be auto-derived without clock-phase/RTL hints. Real-time (~516&times; faster) is unreachable by this route.</p>
+    <p class="zh"><b>主結論。</b>對這種規模、扁平、雙向、兩相的 pass-transistor 網表,<b>沒有任何全自動抽象能在單核 CPU 上贏過調校良好的事件驅動開關級引擎</b> —— 因為該引擎已運作在網表的天然最小粒度(~1.4 節點的導通群)、per-event 成本在記憶體延遲地板、而稠密評估所需的靜態資料流圖在沒有時脈/RTL 提示下無法自動導出。即時(快 ~516&times;)在這條路上不可達。</p>
+  </div>
+  <p class="en">What the project nonetheless contributes:</p>
+  <p class="zh">儘管如此,本專案的貢獻:</p>
+  <ul>
+    <li class="en"><b>An automatic silicon&rarr;logic extraction + verification pipeline.</b> Oracle-driven empirical extraction, a structural bus resolver, a Dynamic Miter, and "verify-then-enable" (correctness by construction) — reusable on any switch-level netlist with a golden reference.</li>
+    <li class="zh"><b>一條全自動的 silicon&rarr;logic 抽取 + 驗證管線。</b>Oracle 驅動實證抽取、結構式 bus resolver、Dynamic Miter、以及「verify-then-enable」(建構即正確)—— 對任何「有 golden 參考的開關級網表」都可重用。</li>
+    <li class="en"><b>A falsifiable reducibility result.</b> The NES 2A03/2C02 is ~98.9% reducible to logic + registers; ~1.1% is genuine analog. Measured, not asserted.</li>
+    <li class="zh"><b>一個可證偽的可約性結果。</b>NES 2A03/2C02 約 98.9% 可約成邏輯 + 暫存器;~1.1% 是真類比。實測,非斷言。</li>
+    <li class="en"><b>The characteristic&rarr;strategy map (§6)</b> — the negative result generalized into reusable engineering guidance: which acceleration strategy fits which circuit property.</li>
+    <li class="zh"><b>特性&rarr;策略對照表(§6)</b> —— 把負結果一般化成可重用的工程指引:哪種加速策略適合哪種電路性質。</li>
+    <li class="en"><b>A clarified map of what works and what regresses</b>, every claim backed by a runnable prototype and exact numbers — the project's most durable value.</li>
+    <li class="zh"><b>一份「什麼行、什麼反而退步」的釐清地圖</b>,每個論點都有可跑的原型與精確數字背書 —— 這是本專案最持久的價值。</li>
+  </ul>
+  <p class="en"><b>The one orthogonal open direction</b> is GPU <i>throughput</i> (many bit-sliced instances in parallel) — a different question (aggregate throughput, not single-instance latency) where oblivious evaluation is the correct model and was not falsified, only parked. It matches the project's original goal of a bit-parallel kernel for many NES instances.</p>
+  <p class="zh"><b>唯一仍開放、且正交的方向</b>是 GPU <i>吞吐</i>(大量 bit-sliced 實例並行)—— 那是不同的問題(總吞吐,非單實例延遲),在那裡 oblivious 評估是對的模型,且未被證偽、只是被擱置。它符合本專案最初「為大量 NES 實例做 bit-parallel kernel」的目標。</p>
+</section>
+
+<section id="repro">
+  <h2><span class="n">9.</span><span class="en">Reproducibility &amp; threats to validity</span><span class="zh">重現性與效度威脅</span></h2>
+  <p class="en"><b>Reproducibility.</b> The engine is C# (.NET 10, x64). The reducibility/speed pipeline runs as <code>--miter</code> / <code>--compile</code> / <code>--cones</code> on the headless build; the golden engine is the same code with the model disabled. Workloads: <code>full_palette.nes</code> (static), <code>cpu.nes</code> (all opcodes), <code>Super Mario Bros</code> (whole-NES, mapper 0). The golden engine is validated bit-exact against an independent reference (whole-NES checksum <code>0x794A43ABDF169ADA</code>). All figures are single-machine, single-thread, Release build.</p>
+  <p class="zh"><b>重現性。</b>引擎為 C#(.NET 10、x64)。可約性/速度管線以 <code>--miter</code> / <code>--compile</code> / <code>--cones</code> 在 headless build 上執行;golden 引擎是同一份程式碼關掉模型。Workload:<code>full_palette.nes</code>(靜態)、<code>cpu.nes</code>(全指令)、<code>超級瑪利歐</code>(整機,mapper 0)。golden 引擎對獨立參考驗過 bit-exact(整機 checksum <code>0x794A43ABDF169ADA</code>)。所有數字皆為單機、單執行緒、Release build。</p>
+  <p class="en"><b>Threats to validity.</b> (i) Workloads are limited to three ROMs; activity patterns of other games may differ, though the radius-1 cleanliness was stable across all three (95.8&ndash;97.5%). (ii) Reducibility is <i>empirical</i> (oracle-validated over finite windows), not proven; ~0.5% of validate-window evaluations hit unlearned input combinations (held the prior value, which happened to be correct in our runs). (iii) The Amdahl ceilings are upper bounds assuming free covered work; §4 shows the realized speed is the opposite. (iv) The cone analysis depends on the cone definition; we report two definitions, both pointing the same way. (v) Per-event cycle figures are derived from measured throughput and a 4 GHz assumption; the relative conclusions do not depend on the exact clock.</p>
+  <p class="zh"><b>效度威脅。</b>(i) Workload 僅限三顆 ROM;其他遊戲的活動模式可能不同,不過 radius-1 乾淨度在三者間穩定(95.8&ndash;97.5%)。(ii) 可約性是<i>實證</i>的(在有限窗上經 oracle 驗證),非證明;驗證窗中約 0.5% 的評估遇到未學過的輸入組合(沿用前值,在我們的執行中恰好正確)。(iii) Amdahl 上限是「假設涵蓋工作免費」的上界;§4 顯示實際速度恰相反。(iv) cone 分析取決於 cone 定義;我們報告兩種定義,皆指向同一結論。(v) per-event cycle 數由實測吞吐與 4 GHz 假設推導;相對結論不依賴確切時脈。</p>
+  <p class="mut en">Companion pages: <a href="ceiling.html">why IR / codegen hit the wall (the bit-exact ceiling)</a> &middot; <a href="intuition.html">why the "obvious" speedups don't work</a> &middot; <a href="landscape.html">the research landscape</a>.</p>
+  <p class="mut zh">延伸頁面:<a href="ceiling.html">為什麼 IR / codegen 撞牆(bit-exact 天花板)</a> &middot; <a href="intuition.html">為什麼「直覺上該更快」的點子沒用</a> &middot; <a href="landscape.html">研究現況</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">An empirical study of automatic abstraction vs. an event-driven switch-level simulator, NES 2A03/2C02. Fully measured; honest negative result. 2026-06-01.</span><span class="zh">一份「自動抽象化 vs 事件驅動開關級模擬器」的實證研究,NES 2A03/2C02。全程實測;誠實的負結果。2026-06-01。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

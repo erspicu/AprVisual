@@ -102,6 +102,23 @@ boolean 函數」(其餘是 analog island,留 switch-level)。
 可走 hybrid。Escape-1(自動邏輯抽取 → oblivious 編譯 + analog 島留 switch-level)**可行,5–10× 可信**。
 殘留:SMB 未活化的 ~22% 節點(低活動,影響速度小;若啟用時偏差,Dynamic Miter 會抓到 → 退回 switch-level)。
 
+## 5c. 抽取器 + levelizer(2026-06-01,已建並跑)
+
+建 `WireCore.Extract.cs`(`--extract`:跑 coverage 收集真值表 → 抽取 + levelize)。SMB 3M:
+
+| | 數值 |
+|---|---|
+| clean(一致)節點 | 11,483 |
+| **完整真值表(直接可編譯)** | **2,400**(16.3% live) |
+| clean 但組合未全觀測 | 9,054(需結構抽取補完) |
+| K>24 太寬(經驗 TT 不可行) | 29 |
+| **可 levelize(無環)** | **2,102 / 2,400 = 88%,13 層** |
+| 組合環(未切 state element) | 298 |
+
+**判讀**:管線跑通,**levelization 可行且淺(13 層,88%)** → oblivious 編譯有利。但**經驗式 TT 只完成 16%**
+(SMB 4 frame 未跑遍所有輸入組合)→ 真正抽取要靠**結構式(PullDownCond,從網表算完整 boolean)**,不依賴
+觀測全組合。298 組合環 = 待切的 state element。**下一步:結構抽取器 + state 切割**。
+
 ## 6. 後續(若覆蓋率夠高)
 1. 實作完整抽取器(PullDownCond 通用化 + state/clock/analog 自動標記)。
 2. oblivious 編譯(Roslyn / 直線 C#)。

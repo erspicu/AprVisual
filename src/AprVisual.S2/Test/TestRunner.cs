@@ -64,6 +64,7 @@ namespace AprVisual.Test
                     case "--ir":              WireCore.EnableIr = true; break;          // S2 IR (Phase A) dispatch on
                     case "--profile":         _profileMode = true; break;              // whole-NES work profiler (analysis only)
                     case "--coverage":        _coverageMode = true; break;             // boolean-coverability probe (Escape-1 de-risk)
+                    case "--extract":         _coverageMode = true; _extractMode = true; break;   // + extract logic model + levelize
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -450,6 +451,7 @@ namespace AprVisual.Test
 
         private static bool _profileMode;   // --profile: whole-NES work profiler (analysis only)
         private static bool _coverageMode;  // --coverage: boolean-coverability probe (Escape-1 de-risk)
+        private static bool _extractMode;   // --extract: + extract logic model + levelize
 
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──
         public static int BenchmarkHalfCycles(string romPath, int hcCount, string logDir = "log")
@@ -502,7 +504,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 PrintRealtimeGap(stepsHz);
                 if (_profileMode) WireCore.ReportProfile();
-                else if (_coverageMode) WireCore.ReportCoverage();
+                else if (_coverageMode) { WireCore.ReportCoverage(); if (_extractMode) WireCore.ExtractModel(); }
                 else WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
             }
             finally { WireCore.Shutdown(); }

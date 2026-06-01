@@ -220,6 +220,21 @@ wired-OR/tristate **bus**,需結構式表示。理想上把殘留壓到 ~1% → 
 (誠實註:這是 idealized Amdahl;真實還要扣 relaxation 5.5× 迭代、residual 與 oblivious 的 group 糾纏無法乾淨
 切離、register 建模成本。但「不可約只有 ~1%」這個下界是穩的、可證偽的。)
 
+### 5h. Sparse 擴充(K≤60)驗證單調性(2026-06-01)
+
+把候選從 dense K≤16 擴到 **sparse K≤60**(17-60 輸入用 `_covMap` Dictionary 查,key 仍打包成 ulong,不需 2^k 記憶體):
+
+| 抽取技術 | oblivious 活動覆蓋 | 殘留 switch | Amdahl 天花板 | match |
+|---|---|---|---|---|
+| Dense TT(K≤16) | 56.8% | 32.7% | 3.1× | 100% |
+| **+ Sparse(K≤60,+109 節點)** | **66.0%** | **23.2%** | **4.3×** | **100%** |
+| (預估)+ Bus 模型(>60) | ~90%+ | ~5% | ~20× | — |
+| 不可約底線 | — | ~1% | ~90× | — |
+
+加 sparse 後「clean 但非候選」殘留歸零;殘留現由 **wide bus(>60 輸入,78.6% 殘留,板級 "other" 91.6%)** 主導 ——
+即系統 data/address bus。**單調驗證**:每加一種抽取技術,殘留縮、天花板升、且 verify-then-enable 保證全程 100%
+正確。**bus 模型是最後一個大槓桿**(把殘留壓到接近 ~1% analog 底線)。
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
 4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)

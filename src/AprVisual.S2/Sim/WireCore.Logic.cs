@@ -30,6 +30,7 @@ namespace AprVisual.Sim
         public static long RelaxNonConverged;      // half-cycles that hit the iter cap without converging
         internal static int* _logicTTBase;         // per node: index into _logicTT (dense 2^k byte truth table)
         internal static byte* _logicTT;
+        internal static byte* _logicSparse;        // 1 = K>16: value looked up in the sparse _covMap, not the dense TT
         internal static bool LogicModelBuilt;
 
         internal static byte* LogicState;          // the logic model's per-node value (parallel to NodeStates)
@@ -129,14 +130,16 @@ namespace AprVisual.Sim
                     int nn = order[i];
                     ushort* p = _covInputs + _covBase[nn];
                     int k = *p++;
-                    int idx = 0;
+                    ulong key = 0;
                     for (int j = 0; j < k; j++)
                     {
                         int inp = p[j];
-                        int bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
-                        idx |= bit << j;
+                        ulong bit = _logicIsExtracted[inp] != 0 ? LogicState[inp] : NodeStates[inp];   // hybrid boundary
+                        key |= bit << j;
                     }
-                    byte v = _logicTT[_logicTTBase[nn] + idx];
+                    byte v = _logicSparse[nn] != 0
+                        ? (_covMap![nn].TryGetValue(key, out byte sv) ? sv : TtUnseen)
+                        : _logicTT[_logicTTBase[nn] + (int)key];
                     if (v == TtUnseen) { if (iters == 1) MiterUncovered++; continue; }   // unlearned combo -> hold prior
                     if (LogicState[nn] != v) { LogicState[nn] = v; changed = true; }
                 }
@@ -172,12 +175,22 @@ namespace AprVisual.Sim
                 {
                     ushort* p = _covInputs + _covBase[nn];
                     int k = *p++;
-                    int gidx = 0;
-                    for (int j = 0; j < k; j++) gidx |= NodeStates[p[j]] << j;   // pack from GOLDEN inputs
-                    int slot = _logicTTBase[nn] + gidx;
-                    byte cur = _logicTT[slot];
-                    if (cur == TtUnseen) _logicTT[slot] = NodeStates[nn];        // LEARN this combo from golden
-                    else if (cur != NodeStates[nn]) _selfStateful[nn] = 1;       // CONTRADICTION -> state element
+                    ulong gkey = 0;
+                    for (int j = 0; j < k; j++) gkey |= (ulong)NodeStates[p[j]] << j;   // pack from GOLDEN inputs
+                    byte gv = NodeStates[nn];
+                    if (_logicSparse[nn] != 0)
+                    {
+                        var map = _covMap![nn];
+                        if (!map.TryGetValue(gkey, out byte cur)) map[gkey] = gv;        // LEARN
+                        else if (cur != gv) _selfStateful[nn] = 1;                       // CONTRADICTION
+                    }
+                    else
+                    {
+                        int slot = _logicTTBase[nn] + (int)gkey;
+                        byte cur = _logicTT[slot];
+                        if (cur == TtUnseen) _logicTT[slot] = gv;                        // LEARN
+                        else if (cur != gv) _selfStateful[nn] = 1;                       // CONTRADICTION
+                    }
                 }
             }
         }

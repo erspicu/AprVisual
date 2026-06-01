@@ -17,6 +17,7 @@ namespace AprVisual.Sim
     internal static unsafe partial class WireCore
     {
         internal const int MaxDenseK = 16;     // 2^16 = 64K dense TT entries; clean nodes have small radius-1 K
+        internal const int MaxSparseK = CovMaxInputs;   // 17..60 inputs: sparse map lookup (key packs into a ulong)
         internal const byte TtUnseen = 2;      // truth-table sentinel: this input combo not yet observed/learned
 
         public static void ExtractModel() => ExtractModel(true);
@@ -42,9 +43,9 @@ namespace AprVisual.Sim
                 int kk = _covInputs[b];
                 var map = _covMap![nn];
                 if (map == null) continue;
-                if (kk > MaxDenseK) { tooWide++; continue; }       // dense TT too big; leave at boundary (struct extract later)
-                if (map.Count == (1 << kk)) complete++; else incompleteK++;
-                extracted[nn] = true; extractedCount++;            // clean + K<=MaxDenseK => oblivious candidate
+                if (kk > MaxSparseK) { tooWide++; continue; }       // > sparse cap; leave at boundary (bus model later)
+                if (kk <= MaxDenseK && map.Count == (1 << kk)) complete++; else incompleteK++;
+                extracted[nn] = true; extractedCount++;            // clean + K<=MaxSparseK => oblivious candidate (dense or sparse)
             }
 
             // Dependency DAG among extracted nodes: edge (input -> node) when an input is itself extracted.
@@ -120,14 +121,23 @@ namespace AprVisual.Sim
         {
             _logicIsExtracted = AllocArray<byte>(NodeCount);
             _logicTTBase      = AllocArray<int>(NodeCount);
+            _logicSparse      = AllocArray<byte>(NodeCount);
 
             long ttSize = 1;              // entry 0 reserved (TTBase 0 == "none")
-            foreach (int nn in orderList) { _logicIsExtracted[nn] = 1; _logicTTBase[nn] = (int)ttSize; ttSize += (1 << _covInputs[_covBase[nn]]); }
+            int dense = 0, sparse = 0;
+            foreach (int nn in orderList)
+            {
+                _logicIsExtracted[nn] = 1;
+                int kk = _covInputs[_covBase[nn]];
+                if (kk <= MaxDenseK) { _logicTTBase[nn] = (int)ttSize; ttSize += (1 << kk); dense++; }
+                else { _logicSparse[nn] = 1; sparse++; }            // K 17..60: sparse map lookup (_covMap), no dense table
+            }
             _logicTT = AllocArray<byte>((int)ttSize);
             for (long i = 0; i < ttSize; i++) _logicTT[i] = TtUnseen;     // sentinel: unobserved
             int preFilled = 0;
             foreach (int nn in orderList)
             {
+                if (_logicSparse[nn] != 0) continue;                 // sparse nodes keep using _covMap directly
                 int baseIdx = _logicTTBase[nn];
                 var map = _covMap![nn];
                 if (map == null) continue;
@@ -137,7 +147,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < orderList.Count; i++) _logicOrder[i] = orderList[i];
             _logicOrderCount = orderList.Count;
             LogicModelBuilt = true;
-            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes, TT bytes {ttSize:N0}, pre-filled combos {preFilled:N0}");
+            Console.WriteLine($"#  [logic model built] {_logicOrderCount:N0} oblivious nodes ({dense:N0} dense + {sparse:N0} sparse), TT bytes {ttSize:N0}, pre-filled {preFilled:N0}");
         }
     }
 }

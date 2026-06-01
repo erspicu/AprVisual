@@ -83,7 +83,24 @@ boolean 函數」(其餘是 analog island,留 switch-level)。
 2. radius-1 是**下界**(被標 stateful 的島,其 OUTPUT 可能在更大 radius 下仍 boolean)→ 真實覆蓋率可能更高。
 3. 靜態 ROM 輸入變化少 → 抓到的矛盾偏少 → 97.5% 可能略樂觀;遊戲 ROM 會更嚴格。
 
-**結論**:**GO 訊號**(覆蓋率在量到的範圍內極高),但建議用遊戲 ROM 確認廣度後再投入完整抽取器。
+**結論(初版,full_palette)**:GO 訊號,但廣度待確認。
+
+### 多 ROM 確認(2026-06-01,決定性)
+
+| ROM | observed | **clean %** | stateful | cpu % | ppu % |
+|---|---|---|---|---|---|
+| full_palette(靜態) | 6,833(46% live) | 97.5% | 172 | 95.8 | 99.0 |
+| cpu.nes(全指令,1M hc,mapper1) | 7,074(46%) | 95.8% | 296 | 93.4 | 98.8 |
+| **SMB(遊戲,3M hc,mapper0)** | **11,892(78% live)** | **96.6%** | 409 | 91.7 | **99.3** |
+
+**SMB 把廣度補上了**:真實遊戲活化 **78% 的晶片(11,892 節點)**,其中 **96.6% 是乾淨 radius-1 boolean**。
+- **PPU 99.3% clean** —— PPU 幾乎全是乾淨邏輯(計數器/shift register/比較器),極適合 oblivious 編譯。
+- **CPU 91.7% clean** —— 那 ~8% 不乾淨的,正是 6502 著名的類比/狀態點(ALU carry chain、decode PLA、動態節點)→ 這些就是要留 switch-level 的 **analog islands**。
+- 三 ROM 的 clean% 一致(95.8–97.5%),結論穩健;radius-1 是下界 → 真實覆蓋率 ≥ 此。
+
+**最終判定:GO。** boolean 覆蓋率**高(~96.6%)且廣(78% 晶片)**,analog 島小(~3–4% 總體,集中在 CPU)、
+可走 hybrid。Escape-1(自動邏輯抽取 → oblivious 編譯 + analog 島留 switch-level)**可行,5–10× 可信**。
+殘留:SMB 未活化的 ~22% 節點(低活動,影響速度小;若啟用時偏差,Dynamic Miter 會抓到 → 退回 switch-level)。
 
 ## 6. 後續(若覆蓋率夠高)
 1. 實作完整抽取器(PullDownCond 通用化 + state/clock/analog 自動標記)。

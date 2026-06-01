@@ -158,6 +158,7 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
+            if (Coverage) CoverageObserve(nn, newState);   // boolean-coverability probe (observes resolved value)
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;
             int tlistGates = NodeTlistGates[nn];

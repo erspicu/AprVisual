@@ -41,6 +41,10 @@ namespace AprVisual.Sim
         internal static long* _miterNodeBad;       // per-node mismatch count (localization)
         public static double MiterSweepSec;
         public static long MiterUncovered;         // (node,hc) evals that hit an unlearned combo (coverage hole)
+        public static bool MiterActivity;          // count golden state-changes partitioned by oblivious membership
+        public static long ActTotal, ActObliv, ActState;   // total / on oblivious nodes / on cut state-element nodes
+        internal static byte* _logicStateCut;      // 1 = demoted to the state/register boundary (was a candidate)
+        internal static long* _golActivity;        // per-node golden state-change count during the activity window
 
         // self-statefulness: TT evaluated on GOLDEN inputs (not LogicState) every half-cycle. If it ever
         // mismatches golden, the node is NOT a pure function of its current inputs -> it holds state (NMOS
@@ -55,6 +59,8 @@ namespace AprVisual.Sim
             LogicState = AllocArray<byte>(NodeCount);
             _miterNodeBad = AllocArray<long>(NodeCount);
             _selfStateful = AllocArray<byte>(NodeCount);
+            _logicStateCut = AllocArray<byte>(NodeCount);
+            _golActivity = AllocArray<long>(NodeCount);
             for (int nn = 0; nn < NodeCount; nn++) LogicState[nn] = NodeStates[nn];   // seed from golden power-on state
             MiterSweeps = MiterNodeChecks = MiterNodeMismatch = MiterUncovered = 0; MiterSweepSec = 0;
             RelaxIterTotal = RelaxNonConverged = 0;
@@ -85,7 +91,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < _logicOrderCount; i++)
             {
                 int nn = _logicOrder[i];
-                if (_miterNodeBad[nn] > 0) { _logicIsExtracted[nn] = 0; demoted++; }
+                if (_miterNodeBad[nn] > 0) { _logicIsExtracted[nn] = 0; _logicStateCut[nn] = 1; demoted++; }
                 else _logicOrder[w++] = nn;
             }
             _logicOrderCount = w;
@@ -98,7 +104,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < _logicOrderCount; i++)
             {
                 int nn = _logicOrder[i];
-                if (_selfStateful[nn] != 0) { _logicIsExtracted[nn] = 0; demoted++; }
+                if (_selfStateful[nn] != 0) { _logicIsExtracted[nn] = 0; _logicStateCut[nn] = 1; demoted++; }
                 else _logicOrder[w++] = nn;
             }
             _logicOrderCount = w;
@@ -174,6 +180,38 @@ namespace AprVisual.Sim
                     else if (cur != NodeStates[nn]) _selfStateful[nn] = 1;       // CONTRADICTION -> state element
                 }
             }
+        }
+
+        // Break the truly-residual switch-level activity down by WHY each node is uncovered and by subsystem,
+        // to decide whether the residual is a reducible coverage gap (-> structural extraction raises the
+        // ceiling) or the irreducible analog/datapath core (-> the ceiling is near what we measured).
+        public static void ReportResidualBreakdown()
+        {
+            long wide = 0, stateful = 0, unobsClean = 0, noChannel = 0, total = 0;
+            long cpu = 0, ppu = 0, oth = 0;
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                long a = _golActivity[nn];
+                if (a == 0) continue;
+                if ((_logicIsExtracted != null && _logicIsExtracted[nn] != 0) || (_logicStateCut != null && _logicStateCut[nn] != 0)) continue; // covered
+                total += a;
+                if (_covWide[nn] != 0) wide += a;
+                else if (_covStateful[nn] != 0) stateful += a;
+                else if (_covSeen[nn] != 0) unobsClean += a;     // clean radius-1 but never made a candidate (K>16, or never in a map)
+                else noChannel += a;                              // no channels / supply-anchored / not boolean
+                string name = GetNodeName(nn);
+                int dot = name.IndexOf('.');
+                string sub = dot > 0 ? name.Substring(0, dot) : "other";
+                if (sub.StartsWith("cpu")) cpu += a; else if (sub.StartsWith("ppu")) ppu += a; else oth += a;
+            }
+            long t = Math.Max(1, total);
+            Console.WriteLine($"# ---- residual switch-level activity, by cause ----");
+            Console.WriteLine($"#   wide (>{MaxDenseK} inputs):        {wide:N0}  ({Pct(wide, t):F1}%)  reducible: wider TT / structural");
+            Console.WriteLine($"#   stateful @ radius-1:           {stateful:N0}  ({Pct(stateful, t):F1}%)  reducible: deeper-radius / register");
+            Console.WriteLine($"#   clean but not a candidate:     {unobsClean:N0}  ({Pct(unobsClean, t):F1}%)  reducible: structural extract");
+            Console.WriteLine($"#   no-channel / supply / analog:  {noChannel:N0}  ({Pct(noChannel, t):F1}%)  likely irreducible");
+            Console.WriteLine($"#   by subsystem: cpu {Pct(cpu, t):F1}%  ppu {Pct(ppu, t):F1}%  other {Pct(oth, t):F1}%");
+            Console.WriteLine($"# --------------------------------------------------");
         }
 
         public static void ReportMiter()

@@ -192,11 +192,37 @@ validate)**:
 開銷),且(b) 剩下 ~8,400 個未建模節點(unobserved/wide/analog/state)仍需 switch-level —— **殘留 switch-level
 比例才是加速上限**。覆蓋率(holes 仍 ~0.5%)與殘留量靠**結構式抽取**補。
 
+## 5g. 活動量天花板 + 殘留拆解(2026-06-01,翻轉結論)
+
+量 oblivious 集涵蓋多少 golden **狀態變化**(真正的 per-cycle 工作),三分類(SMB,validate window 35k hc):
+
+| 類別 | 佔活動 | 成本 |
+|---|---|---|
+| oblivious 邏輯節點 | **56.8%** | 編譯 bitwise(便宜) |
+| 切出的 state 節點 | **10.4%** | register 更新(便宜,若建模) |
+| 真正殘留 switch-level | **32.7%** | switch-level |
+
+→ 樸素 Amdahl 天花板 **~3.1×**(假設 oblivious+register 免費)。**但**殘留再拆解(by cause):
+
+| 殘留成因 | 佔殘留 | 可約? |
+|---|---|---|
+| wide(>16 輸入,dense TT 放不下) | **55.8%** | ✅ 可約:bus/高扇入 → 結構式/bus 模型 |
+| clean 但非候選(K>16) | **29.0%** | ✅ 可約:結構抽取 |
+| stateful @ radius-1 | 11.7% | ✅ 可約:deeper-radius / register |
+| **no-channel / supply / 真 analog** | **3.5%** | ❌ 真正不可約 |
+| 子系統:cpu 5.8% / ppu 22.7% / **other 71.5%** | | |
+
+**翻轉結論**:真正不可約的 analog 只佔殘留 **3.5% = 總活動 ~1.1%**。目前的 3.1× **不是架構極限,而是 dense-TT
+K≤16 造成的假牆**。殘留 96.5% 可約 —— 最大槓桿是 **wide/bus 節點(殘留 55.8%)**:它們不是 2^60 dense TT,而是
+wired-OR/tristate **bus**,需結構式表示。理想上把殘留壓到 ~1% → Amdahl 天花板可達**數十倍**。
+
+**這正當化「結構式抽取器」(原步驟 3)為下一步**:數據證明它能把殘留 32.7% → ~1-5%,直接攻 85% 殘留。
+(誠實註:這是 idealized Amdahl;真實還要扣 relaxation 5.5× 迭代、residual 與 oblivious 的 group 糾纏無法乾淨
+切離、register 建模成本。但「不可約只有 ~1%」這個下界是穩的、可證偽的。)
+
 ## 6. 後續(進行中)
-1. ~~抽取器 + levelizer~~ ✅(5c)
-2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)
-3. ~~自動 state-element 切割 + 100% 重驗~~ ✅(5e)
-4. ~~relaxation(破 SCC 牆)+ 全 clean 集 + verify-then-enable 收斂到 41%/100%~~ ✅(5f)
-5. **量殘留 switch-level 比例 + 活動量佔比**(決定加速天花板):oblivious 集涵蓋多少 per-cycle recalc?
-6. **結構式抽取**補覆蓋率(把 unobserved/holes 補完,擴大 oblivious 集、縮小殘留)。
-7. oblivious 編譯成直線 bitwise(消解譯開銷)+ 截圖/blargg 行為驗收 + 量速度 vs S1 ~80K。
+1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
+4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)
+6. **結構式抽取器(最高槓桿)**:從網表 pull-down/pull-up 路徑 + bus 模型算 wide/clean-非候選節點的公式 → 殘留 →~1-5%。
+7. register 建模(state 節點獨立更新,脫離 golden boundary)→ 邁向 standalone。
+8. oblivious 編譯成直線 bitwise + 截圖/blargg 行為驗收 + 量真實速度 vs S1 ~80K。

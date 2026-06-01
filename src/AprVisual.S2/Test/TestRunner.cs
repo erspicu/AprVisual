@@ -509,8 +509,26 @@ namespace AprVisual.Test
                 WireCore.ReseedLogicState();
                 for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
             }
-            Console.WriteLine($"# --- VALIDATE-final: converged clean oblivious set ---");
+            // Final window: validate the converged clean set + measure ACTIVITY coverage (what fraction of the
+            // golden engine's actual state-changes land on oblivious-set nodes — bounds the achievable speedup).
+            WireCore.MiterActivity = true; WireCore.ActTotal = WireCore.ActObliv = WireCore.ActState = 0;
+            WireCore.ResetMiterCounters(); WireCore.ReseedLogicState();
+            for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+            WireCore.MiterActivity = false;
+            Console.WriteLine($"# --- VALIDATE-final: converged clean oblivious set ({WireCore.LogicOrderCount:N0} nodes) ---");
             WireCore.ReportMiter();
+            long act = Math.Max(1, WireCore.ActTotal);
+            double oPct = 100.0 * WireCore.ActObliv / act, sPct = 100.0 * WireCore.ActState / act;
+            long residual = WireCore.ActTotal - WireCore.ActObliv - WireCore.ActState;
+            double rPct = 100.0 * residual / act;
+            Console.WriteLine($"# ============ ACTIVITY COVERAGE (golden state-changes) ============");
+            Console.WriteLine($"#  golden state-changes this window: {WireCore.ActTotal:N0}");
+            Console.WriteLine($"#  on oblivious-logic nodes:         {WireCore.ActObliv:N0}  ({oPct:F1}%)  -> compiled bitwise (cheap)");
+            Console.WriteLine($"#  on cut state-element nodes:       {WireCore.ActState:N0}  ({sPct:F1}%)  -> register update (cheap, if modeled)");
+            Console.WriteLine($"#  truly-residual switch-level:      {residual:N0}  ({rPct:F1}%)  <- the irreducible analog/uncovered core");
+            Console.WriteLine($"#  -> speedup ceiling ~ {1.0 / Math.Max(0.001, residual / (double)act):F1}x (Amdahl, if oblivious+register were free)");
+            WireCore.ReportResidualBreakdown();
+            Console.WriteLine($"# ==================================================================");
             return 0;
         }
 

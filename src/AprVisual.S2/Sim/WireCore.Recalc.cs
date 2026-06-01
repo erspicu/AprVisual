@@ -161,6 +161,7 @@ namespace AprVisual.Sim
             if (Coverage) CoverageObserve(nn, newState);   // boolean-coverability probe (observes resolved value)
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;
+            if (MiterActivity) { ActTotal++; _golActivity[nn]++; if (_logicIsExtracted != null && _logicIsExtracted[nn] != 0) ActObliv++; else if (_logicStateCut != null && _logicStateCut[nn] != 0) ActState++; }   // activity coverage
             int tlistGates = NodeTlistGates[nn];
             if (tlistGates != 0)
             {

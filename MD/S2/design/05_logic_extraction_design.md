@@ -279,6 +279,34 @@ structural;verify-then-enable 收斂(refine-1 切 1,106 → refine-2 切 7 → r
 **∴ 1.1% 底線穩;天花板介於 20×(只算已便宜的 oblivious+bus)到 88×(register 也做成便宜)之間,取決於 register
 建模品質。下一步:真正的 register 建模(找每個序向節點的 D/enable/clock-edge)。**
 
+### 5k. Oblivious 編譯(Roslyn 直線 C#)—— 決定性負結果(2026-06-01)
+
+建 `WireCore.Compile.cs`(`--compile`):把 relaxation sweep 發成直線 C#(每節點一條 `tt[BASE+(ls[a]|ns[b]<<1|…)]`,
+bus/sparse 走 `EvalBusOrSparse` 回呼),Roslyn in-memory 編譯成 15 個 `Sweep_k(ls,ns,tt)`、relax 到 fixpoint。
+**SMB 1M,100.000% match golden(正確、toolchain 跑通)**,但速度:
+
+| | ns/半週期 | vs golden |
+|---|---|---|
+| **golden 開關級** | **12.0 µs/hc**(83.3K hc/s) | 1× |
+| oblivious 解譯器 sweep | 539 µs/hc | **45× 慢** |
+| oblivious 編譯 sweep | 1,004 µs/hc | **84× 慢** |
+
+**結論(誠實、決定性)**:編譯路**走得通且正確,但不會更快 —— 反而比 golden 慢 45-84×**。原因:
+1. **Oblivious 放棄了 event-driven 稀疏性**:每半週期要算 ~6,000 節點 × 6.5 relax 迭代 ≈ **39,000 evals/hc**,
+   而 golden event-driven 只動 ~600 節點(平均 walk 1.4 節點)→ oblivious 多做 ~65× 的節點數。即使每個 boolean
+   eval 較便宜,總 cycle-equiv 仍多。**這就是專案早就發現的「oblivious 慢 ~121×」/「94% 雙向 SCC + 稀疏性是牆」**,
+   現在用可跑的編譯原型 + 精確數字證實。
+2. **編譯版比解譯器還慢 2×**:bus/結構節點(~440 個 BusResolve group walk)是成本中心,走 cross-assembly 回呼 +
+   delegate 邊界的開銷,蓋過了 dense 直線化省下的(dense 本來就便宜、是成本的少數)。
+3. **LLVM 不會救**:瓶頸是(a)relaxation 迭代數 × dense 覆蓋(演算法層,非 codegen)、(b)bus group-walk
+   (資料相依,無法直線化)。LLVM 只優化已是少數成本的 dense 直線部分。**∴ 不值得做 LLVM。**
+
+**Amdahl 88× 天花板是「可約性(覆蓋率)」上界,假設 oblivious eval 免費 —— 但實測 oblivious eval 比 golden 慢 45×,
+不免費。** 所以可約性(98.9%)漂亮,但**透過 dense oblivious eval 無法轉成 CPU 速度**。唯一理論殘存路是 event-driven
+boolean(只重算變動節點)—— 但那已是 golden 在做的事(math-algos Phase 2 試過,打平),且 bus 仍需 group walk。
+**架構結論維持:此管線無法贏過 S1 的 event-driven 開關級;real-time 不可達。Escape-1 的價值是「可約性證明 + 自動
+抽取/驗證管線」,不是 CPU 加速。**
+
 ## 6. 後續(進行中)
 1. ~~抽取器 + levelizer~~ ✅(5c)  2. ~~oblivious 引擎 + Dynamic Miter~~ ✅(5d)  3. ~~自動 state 切割 + 100% 重驗~~ ✅(5e)
 4. ~~relaxation 破 SCC 牆 + verify-then-enable 收斂 41%/100%~~ ✅(5f)  5. ~~活動量天花板 + 殘留拆解(不可約僅 ~1%)~~ ✅(5g)

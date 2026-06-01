@@ -44,6 +44,13 @@
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>
 
+  <!-- Roslyn for runtime oblivious-logic codegen (Escape-1 step 7): emit a straight-line C#
+       relaxation sweep from the extracted model, compile in-memory, run + miter vs golden.
+       4.11.0 is the version present in the local NuGet cache (offline-restorable). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+  </ItemGroup>
+
   <!-- Embed a benchmark version (short git commit + commit date, "-dirty" if this project's tracked
        sources have uncommitted changes) as assembly metadata, read at runtime by TestRunner. Baked in
        at build time so the distributed benchmark binary reports its version with no git available.

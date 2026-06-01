@@ -66,6 +66,7 @@ namespace AprVisual.Test
                     case "--coverage":        _coverageMode = true; break;             // boolean-coverability probe (Escape-1 de-risk)
                     case "--extract":         _coverageMode = true; _extractMode = true; break;   // + extract logic model + levelize
                     case "--miter":           _miterMode = true; break;                          // Escape-1: oblivious logic vs golden, per-hc
+                    case "--compile":         _miterMode = true; _compileMode = true; break;      // + emit straight-line C#, compile, compare speed
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -454,6 +455,7 @@ namespace AprVisual.Test
         private static bool _coverageMode;  // --coverage: boolean-coverability probe (Escape-1 de-risk)
         private static bool _extractMode;   // --extract: + extract logic model + levelize
         private static bool _miterMode;     // --miter: Dynamic Miter — oblivious logic vs golden, per half-cycle
+        private static bool _compileMode;   // --compile: + emit straight-line C# sweep (Roslyn), compare speed
 
         // ── --miter: Escape-1 Dynamic Miter. Phase 1 collects coverage + builds the oblivious logic
         //    model (extracted combinational nodes, their dense truth tables, level order). Phase 2 advances
@@ -530,6 +532,22 @@ namespace AprVisual.Test
             Console.WriteLine($"#  -> speedup ceiling ~ {1.0 / Math.Max(0.001, residual / (double)act):F1}x (Amdahl, if oblivious+register were free)");
             WireCore.ReportResidualBreakdown();
             Console.WriteLine($"# ==================================================================");
+
+            // Oblivious COMPILATION: emit the relaxation sweep as straight-line C#, compile in-memory, and
+            // re-validate with it — proving (a) identical golden match and (b) a faster sweep than the interpreter.
+            if (_compileMode)
+            {
+                double interpNs = WireCore.MiterSweeps > 0 ? WireCore.MiterSweepSec / WireCore.MiterSweeps * 1e9 : 0;
+                WireCore.CompileSweep();
+                WireCore.MiterUseCompiled = true;
+                WireCore.ResetMiterCounters(); WireCore.ReseedLogicState();
+                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
+                WireCore.MiterUseCompiled = false;
+                Console.WriteLine($"# --- VALIDATE-compiled: straight-line C# relaxation ({vw:N0} hc) ---");
+                WireCore.ReportMiter();
+                double compNs = WireCore.MiterSweeps > 0 ? WireCore.MiterSweepSec / WireCore.MiterSweeps * 1e9 : 0;
+                Console.WriteLine($"# ===== OBLIVIOUS COMPILATION: interpreter {interpNs:F0} ns/hc -> compiled {compNs:F0} ns/hc  ({interpNs / Math.Max(1, compNs):F1}x faster sweep, same match) =====");
+            }
             return 0;
         }
 

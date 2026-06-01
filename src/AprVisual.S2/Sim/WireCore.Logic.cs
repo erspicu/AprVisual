@@ -227,7 +227,7 @@ namespace AprVisual.Sim
             if (!learnOnly)
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                EvalObliviousRelax();
+                if (MiterUseCompiled) EvalObliviousCompiled(); else EvalObliviousRelax();
                 sw.Stop();
                 MiterSweepSec += sw.Elapsed.TotalSeconds;
             }

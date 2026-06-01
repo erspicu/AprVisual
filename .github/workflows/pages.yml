@@ -1,10 +1,10 @@
 name: Deploy WebSite to GitHub Pages
 
 # Publishes the static site in WebSite/ to GitHub Pages.
-# Source branch: aot-codegen (per project decision 2026-05-30).
+# Source branch: main (aot-codegen was adopted as main's content on 2026-06-02).
 on:
   push:
-    branches: [aot-codegen]
+    branches: [main]
     paths:
       - 'WebSite/**'
       - '.github/workflows/pages.yml'

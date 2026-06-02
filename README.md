@@ -16,7 +16,7 @@ The real value here is the **translation pipeline** — silicon connectivity →
 
 ## The honest story
 
-The original plan was a four-stage pipeline (S1 switch-level engine → S2 netlist→IR → S3 CPU proof → S4 codegen + GPU) to push the simulation toward real time. We built and verified those stages — and found the counter-intuitive result that the "obvious" abstractions (**IR + codegen, or a GPU kernel**) ended up **slower** than the direct switch-level interpreter (code bloat, lost timing/correctness, algorithmic redundancy in batch re-evaluation). Real time is **~600× out of reach** and known-unreachable via this route.
+The original plan was a four-stage pipeline (S1 switch-level engine → S2 netlist→IR → S3 CPU proof → S4 codegen + GPU) to push the simulation toward real time. We built and verified those stages — and found the counter-intuitive result that the "obvious" abstractions (**IR + codegen, or a GPU kernel**) ended up **slower** than the direct switch-level interpreter (code bloat, lost timing/correctness, algorithmic redundancy in batch re-evaluation). Real time is **~540× out of reach** and known-unreachable via this route.
 
 So the focus became **pushing S1 — the pure switch-level engine — to its limit**, in both **C#** and **Rust**, and documenting the wins and the (many) dead-ends. The recurring lesson, which independently matches what the Visual NES author found in 2017: the gains come from **less work + smaller (cache-fitting) data + tighter codegen**, *not* from cleverer data structures or algorithms.
 
@@ -37,10 +37,10 @@ On an AMD Ryzen 7 3700X, benchmarking `full_palette` (300k master half-cycles):
 
 | Engine | Rate | Per frame | vs NES NTSC real-time |
 |---|---|---|---|
-| Rust (`rust-s1`) | ~72K hc/s | ~9.9 s | ~600× too slow |
-| C# (`AprVisual.S1`) | ~67K hc/s | ~10.6 s | ~640× too slow |
+| C# (`AprVisual.S1`) | ~79K hc/s | ~9.0 s | ~542× too slow |
+| Rust (`rust-s1`) | ~78K hc/s | ~9.2 s | ~550× too slow |
 
-Both engines produce **bit-identical** output (same checksum). NES NTSC real time needs **42,954,552 hc/s**. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
+(top-3 mean of 5 runs each; the two engines are essentially on par.) Both produce **bit-identical** output — same checksum `0x794A43ABDF169ADA`. NES NTSC real time needs **42,954,552 hc/s**. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
 
 ## Run the benchmark
 

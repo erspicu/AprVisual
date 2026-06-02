@@ -17,10 +17,11 @@
 3. **真正的 bound 是資料 / 記憶體延遲**(§A 的 `NodeInfos` 460 KB、`TransistorList` 225 KB 的指標追逐 + 不規則
    分支),不是指令快取。per-event ≈ **~82 CPU cycle/recalc**,卡在 load-use latency + branch mispredict
    (見 `WebSite/ceiling.html`)。
-4. **真實硬體 i-cache miss 計數在這台機器上拿不到 —— 已實測確認(非權限問題,見 §5)**:即使經 UAC 提權,
-   PerfView `ListCpuCounters` 回報這台 Ryzen 7 3700X + Windows 11 對 ETW 開放的 **PMC 計數器 = 0**(AMD-on-Windows
-   的 OS/驅動限制)。唯一路徑是 **AMD uProf**(本機未裝)。但 i-cache 的結論**靠 §2 指令足跡就已定論**(熱迴圈
-   4.6 KB ≪ 32 KB L1i → 非 i-cache bound),PMU 只會再確認。
+4. **真實硬體 i-cache miss 計數在這台機器上拿得到**(更正:見 §5)。這台 Ryzen 7 3700X + Win11 經 PerfView
+   `ListCpuCounters`(elevated)確認**有開放 PMC**,含 `IcacheMisses` / `ICMiss` / `ICFetch` / `DcacheMisses` /
+   `BranchMispredictions` / `InstructionRetired` / `TotalCycles` 等。用 `tools\profile_s1_perfview.bat`(系統管理員)
+   採集、PerfView GUI 看 per-method。預期:hot loop(4.6 KB,§2)的 **IcacheMisses 極低、DcacheMisses 主導** ——
+   會用真實 PMU 數據再次坐實「非 i-cache bound、而是資料/記憶體延遲 bound」。
 
 ---
 
@@ -99,27 +100,41 @@ dotnet-trace 好,但 collect 需 admin)。
 
 ---
 
-## 5. 真實硬體 i-cache miss / IPC —— 實測結論:**此機器無法取得(非權限問題)**
+## 5. 真實硬體 i-cache miss / IPC —— 可取得(本機 PMC 已確認開放)
 
-**已實際嘗試(含 UAC 提權)**,結論明確:
+**更正先前判斷**:一度誤判「本機無 PMC」,那是**擷取方式的錯**(PerfView 把計數器清單寫進它自己的 log/檔,
+不是 stdout;先前用 `*>` / `Out-Null` 把它丟掉了)。用 `-LogFile` 正確擷取後(elevated),清單完整,**這台
+Ryzen 7 3700X + Win11 對 ETW 開放下列 PMC**(`ListCpuCounters`):
 
-- 行程 token 是 **UAC 過濾的非提權 token**(`whoami /groups`:`BUILTIN\Administrators` = *"Group used for deny
-  only"*);帳號雖是 admin,行程沒提權。經 `Start-Process -Verb RunAs` UAC 同意後**成功提權**執行 PerfView。
-- 但提權後 `PerfView ListCpuCounters` 回報 **「Cpu Counters available on machine.」後接空清單** —— **這台
-  Ryzen 7 3700X + Windows 11 對 ETW 開放的 PMC 計數器數量 = 0**。
-- ∴ **無論是否提權,都無法經 PerfView / Windows-ETW 取得硬體 i-cache miss(或任何 PMU)計數** —— 這是
-  **AMD-on-Windows 的 OS/驅動限制**(Windows 內建 PMC 對 AMD 支援有限,常回空清單),不是權限問題。
-- **唯一路徑 = AMD uProf**(自帶 PMU 驅動,繞過 Windows ETW-PMC 抽象,能讀 L1i refill / front-end stall / IPC)。
-  本機未安裝;若要原始計數,需安裝 uProf 後對同一條 bench 命令做 profile。
-- **但結論不受影響**:依 §2/§4 的**指令足跡**(熱迴圈 4.6 KB ≪ 32 KB L1i),S1 **非 i-cache bound** 已是定論;
-  PMU 量測只會再確認,不會推翻。
-
-### (參考)若日後在「有開放 PMC 的機器」或裝了 uProf:
-PerfView(系統管理員)路徑:
-
-**(1) 先看這台 Windows 對 Zen 2 開放哪些硬體計數器**(L1i-miss 在 AMD-on-Windows 不一定有):
 ```
-tools\perfview\PerfView.exe -AcceptEula ListCpuCounters
+Timer  TotalIssues  BranchInstructions  DcacheMisses  IcacheMisses  BranchMispredictions
+IcacheIssues  DcacheAccesses  TotalCycles  CacheMisses  InstructionRetired
+ICFetch  ICMiss  FRRetiredx86Instructions  FRRetiredBranches  FRRetiredBranchesMispredicted  DCAccess
+```
+
+即 **`IcacheMisses`(L1 指令快取 miss,正是要的)、`DcacheMisses`、`BranchMispredictions`、`InstructionRetired`/
+`TotalCycles`(可算 IPC)** 全都有。
+
+### 取得方式(系統管理員)
+用 **`tools\profile_s1_perfview.bat`**(右鍵以系統管理員執行,或雙擊自我提權)。它:
+1. `ListCpuCounters` → `temp\perf\listcounters.txt`(確認可用計數器)。
+2. 採集 **`-CpuCounters:"IcacheMisses:65536,DcacheMisses:65536,BranchMispredictions:65536"` + `-ThreadTime`**
+   跑 bench(1M hc)→ `temp\perf\s1_perf.etl.zip`。
+3. PerfView GUI 開該 .etl,左側會有多個 stack 視圖:`CPU Stacks`(時間)、**`IcacheMisses Stacks`**、
+   **`DcacheMisses Stacks`**、`BranchMispredictions Stacks` —— 各自看 per-method 分布。
+
+**預期(待真實數據填回)**:`IcacheMisses` 應**極低**(hot loop 4.6 KB 整個常駐 32 KB L1i)、`DcacheMisses`
+應**主導**(§A 的 NodeInfos/TransistorList 指標追逐)→ 用真實 PMU 坐實「非 i-cache bound、資料/記憶體延遲 bound」。
+（PMU 樣本仍會歸到 inline 後的 `ProcessQueueInterp`;要看其內部來源行,用 PerfView 的 "Goto Source"。）
+
+> 註:行程 token 是 UAC 過濾的非提權 token(`whoami /groups`:`BUILTIN\Administrators` = *deny only*),所以
+> 一般工具呼叫拿不到 PMC;.bat 會自我提權(UAC 同意後)取得完整 token 再採集。
+
+### (參考)等效的手動 PerfView 指令(系統管理員):
+
+**(1) 列計數器:**
+```
+tools\perfview\PerfView.exe -AcceptEula -LogFile:listcounters.txt ListCpuCounters
 ```
 
 **(2a) 乾淨的 per-method CPU 取樣**(PerfView 的 JIT 符號解析會把 §3a dotnet-trace 拆不開的熱迴圈正確歸屬):
@@ -130,15 +145,17 @@ tools\perfview\PerfView.exe -AcceptEula -NoGui -ThreadTime run ^
 產生 `PerfViewData.etl.zip` → 用 PerfView GUI 開 → **CPU Stacks** → 選 dotnet 子行程 → 看 ProcessQueueInterp 內的
 exclusive 分布。
 
-**(2b) 若 (1) 列出了 instruction-cache / I-cache-refill 之類的計數器**,加 `-CpuCounters`:
+**(2b) 加硬體計數器(本機已確認可用)**:
 ```
-tools\perfview\PerfView.exe -AcceptEula -NoGui -CpuCounters:"<counter-name>:10000" -ThreadTime run "dotnet ... --bench-hc 5000000"
+tools\perfview\PerfView.exe -AcceptEula -NoGui ^
+  -CpuCounters:"IcacheMisses:65536,DcacheMisses:65536,BranchMispredictions:65536" -ThreadTime run ^
+  "dotnet src\AprVisual.S1\bin\Release\net10.0\AprVisual.S1.dll --benchmark roms\full_palette.nes --bench-hc 1000000"
 ```
-（`<counter-name>` 用 (1) 列出的名字;`:10000` 是每 N 事件取一樣本。)
+（在 `AprVisualBenchMark\` 下執行,讓 data dir 解析;`:65536` = 每 N 個事件取一樣本。`profile_s1_perfview.bat` 已封裝。)
 
-**誠實提醒**:Windows 的 PMC 抽象在 AMD 上開放的計數器有限,**L1 指令快取 miss 很可能不在清單上**。若要完整 PMU
-(L1i refill、front-end stall、IPC),**AMD uProf** 才是這顆 Zen 2 的對應工具(本機未安裝;可另行安裝後對同一條
-bench 命令做 profile)。不過依 §2/§4 的足跡分析,**結論(非 i-cache bound)不依賴這個量測**。
+> 更正:先前曾誤判「需 AMD uProf / 本機無 PMC」—— 那是擷取方式的錯(PerfView 把清單寫進自己的 log,不是 stdout)。
+> 用 `-LogFile` 正確擷取後,Windows-ETW 在這台 Zen 2 上**確實**開放 `IcacheMisses` 等計數器,PerfView 即可取得。
+> 結論(非 i-cache bound)仍由 §2 足跡定論,PMU 用來坐實。
 
 ---
 

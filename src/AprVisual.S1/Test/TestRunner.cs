@@ -18,7 +18,7 @@ namespace AprVisual.Test
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
-            string? frameDumpPath = null;
+            string? frameDumpPath = null, payloadHistPath = null;
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             string frameOutDir = "frames";
@@ -52,6 +52,7 @@ namespace AprVisual.Test
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
+                    case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
@@ -79,6 +80,7 @@ namespace AprVisual.Test
 
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
+            if (payloadHistPath != null) return PayloadHist(payloadHistPath);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
@@ -114,6 +116,36 @@ namespace AprVisual.Test
 
             PrintUsage();
             return 0;
+        }
+
+        // ── --payload-hist: NodeInfo inline-payload size distribution (for the 16B-pack study) ──
+        private static unsafe int PayloadHist(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            double P(long x, long t) => t == 0 ? 0 : 100.0 * x / t;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int n = WireCore.NodeCount, inlineN = 0, overflow = 0, nullN = 0;
+                var hist = new int[16];   // payload = 2*C1c2Count + GndCount + PwrCount (inline nodes)
+                for (int nn = 0; nn < n; nn++)
+                {
+                    if (WireCore.Nodes[nn] == null) { nullN++; continue; }
+                    var ns = WireCore.NodeInfos[nn];
+                    if (ns.Inline != 0) { inlineN++; int p = 2 * ns.C1c2Count + ns.GndCount + ns.PwrCount; if (p < hist.Length) hist[p]++; }
+                    else overflow++;
+                }
+                Console.WriteLine($"# ===== NodeInfo payload-size distribution ({Path.GetFileName(romPath)}) =====");
+                Console.WriteLine($"#  live nodes {n - nullN:N0}  (inline {inlineN:N0} / overflow {overflow:N0})   InlineCap=7");
+                for (int p = 0; p <= 8 && p < hist.Length; p++)
+                    Console.WriteLine($"#   payload={p,2}: {hist[p],6:N0}  ({P(hist[p], inlineN):F1}% of inline)");
+                Console.WriteLine($"#  -- if InlineCap 7->6: payload==7 inline nodes fall to overflow = {hist[7]:N0} ({P(hist[7], n - nullN):F2}% of live, {P(hist[7], inlineN):F1}% of inline)");
+                Console.WriteLine($"#  overflow now {overflow:N0} ({P(overflow, n - nullN):F1}%) -> after cap6 {overflow + hist[7]:N0} ({P(overflow + hist[7], n - nullN):F1}%)");
+                Console.WriteLine("# ============================================================");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
         }
 
         // ── module-level dump: parse one .js def + sub-modules and print a summary ──

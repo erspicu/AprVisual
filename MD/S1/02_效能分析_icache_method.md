@@ -155,6 +155,34 @@ ICFetch  ICMiss  FRRetiredx86Instructions  FRRetiredBranches  FRRetiredBranchesM
 > 註:行程 token 是 UAC 過濾的非提權 token(`whoami /groups`:`BUILTIN\Administrators` = *deny only*),所以
 > 一般工具呼叫拿不到 PMC;.bat 會自我提權(UAC 同意後)取得完整 token 再採集。
 
+### 5b. 現引擎(16B)per-method 結果(2026-06-03 捕獲,full_palette 1M hc,`--extra-ram`)
+
+修好 `tools\profile_s1_perfview.bat`(STEP 2 改跑 apphost `.exe`)後重新捕獲現引擎,並用自寫的
+`tools\etl-analyze`(TraceEvent 3.2.2,從 CLR rundown 解析 managed 符號,無需 PDB)做 **per-method** 歸屬。
+這次只抓 `DcacheMisses`/`IcacheMisses`/`BranchMispredictions`(未抓 `TotalCycles`,故無 per-1000-cycle;
+但有了上一份缺的 per-method 分布)。本行程樣本(間隔 1/65536):
+
+| 計數器 | 本行程樣本 | `ProcessQueueInterp` 占比 | 該方法樣本 |
+|---|---|---|---|
+| **DcacheMisses** | 43,230 | **96.9%** | 41,870 |
+| BranchMispredictions | 5,875 | 89.6% | 5,263 |
+| **IcacheMisses** | **224** | 23.2% | 52 |
+
+- **整個引擎就是一個方法**:所有熱碼(`AddNodeToGroup`/`RecalcNode`/`SetNodeState`/`ComputeNodeGroup`)
+  都 inline 進 `WireCore.ProcessQueueInterp`,它一個人吃掉 **96.9% 的 D-cache miss、89.6% 的 branch mispredict**。
+  其後是非 inline 的呼叫點(`RecalcNode` 0.3% / `InvokeCallbacks` 0.1% / video handler / `Step`),都 <0.5%。
+- **熱方法內 D-cache : I-cache = 41,870 : 52 ≈ 805 : 1**;全行程 193:1。I-cache miss 全行程才 224 個樣本,
+  貼著雜訊底 → **熱碼指令完全常駐 L1i**。這比 5a 的 65.7:1 更極端地確認「i-cache 幾乎不 miss、純 D-cache/記憶體
+  延遲 bound」,且是**現引擎、且歸屬到那一個方法**的證據。
+- D : branch-mispredict ≈ 7.4:1 —— branch 仍是遙遠的第二名。
+- 絕對量級:43,230 樣本 ×65,536 ≈ 2.83×10⁹ 次 D-cache miss / 1M hc ≈ **~2,830 次/half-cycle**;以每 half-cycle
+  約 600 個節點變化估,**約每個節點變化吃 ~4.7 次 D-cache miss**(NodeInfo 記錄 + 數次 `NodeStates[gate]` 隨機 gather)。
+- **再次釘死 §7a**:要拿來「借」的 i-cache,在熱方法裡 1M hc 只 miss 52 次;把拓樸 data 編成 code 只會把這 52 炸大。
+
+> 量法限制:跨兩份捕獲(5a 600k hc/4 counters/無 --extra-ram vs 5b 1M hc/3 counters/--extra-ram)變因太多,
+> **不宜**用兩者絕對值相減論「16B 省了多少」;5b 的價值是**現引擎的 per-method 分布 + D:I 比**,結論與 5a 同向且更強。
+> 重現:`tools\profile_s1_perfview.bat`(系統管理員)→ `etlanalyze temp\perf\s1_perf.etl.zip AprVisual`。
+
 ### (參考)等效的手動 PerfView 指令(系統管理員):
 
 **(1) 列計數器:**

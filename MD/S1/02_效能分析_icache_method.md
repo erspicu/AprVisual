@@ -123,9 +123,34 @@ ICFetch  ICMiss  FRRetiredx86Instructions  FRRetiredBranches  FRRetiredBranchesM
 3. PerfView GUI 開該 .etl,左側會有多個 stack 視圖:`CPU Stacks`(時間)、**`IcacheMisses Stacks`**、
    **`DcacheMisses Stacks`**、`BranchMispredictions Stacks` —— 各自看 per-method 分布。
 
-**預期(待真實數據填回)**:`IcacheMisses` 應**極低**(hot loop 4.6 KB 整個常駐 32 KB L1i)、`DcacheMisses`
-應**主導**(§A 的 NodeInfos/TransistorList 指標追逐)→ 用真實 PMU 坐實「非 i-cache bound、資料/記憶體延遲 bound」。
-（PMU 樣本仍會歸到 inline 後的 `ProcessQueueInterp`;要看其內部來源行,用 PerfView 的 "Goto Source"。）
+### 5a. 真實測得結果(2026-05-29 捕獲,`pmc_all.csv` 513 MB,full_palette 600k hc)
+
+> **版本註記**:此捕獲是 **NodeInfo 32B→16B 之前**的引擎(當時 `NodeInfos` 460 KB,非現在 230 KB)。
+> 16B 改動會**降低** D-cache miss,故今日絕對值應更低;但「D 主導、I 可忽略」的**分布結論不變**。
+
+每個計數器都用同一取樣間隔 1/65536,樣本數可直接相比。取 **`AprVisual.S1.dll` 本身**(占本行程
+90.1% cycles,排除 coreclr/jit/kernel 啟動雜訊):
+
+| 計數器 | 樣本數 | 每 1000 cycles | 約每幾 cycle 一次 |
+|---|---|---|---|
+| **DcacheMisses** | 46,348 | **50.4** | **~20 cycle** |
+| BranchMispredictions | 5,577 | 6.06 | ~165 cycle |
+| **IcacheMisses** | **705** | **0.77** | ~1,300 cycle |
+| TotalCycles(基準) | 920,290 | — | — |
+
+- **D-cache : I-cache = 65.7 : 1** —— 引擎熱碼大約**每 20 個 cycle 就吃一次 D-cache miss**,而 I-cache miss
+  要 ~1300 cycle 才一次。**這就是「非 i-cache bound、記憶體延遲 bound」的硬體實證**,坐實 §2 的足跡論證。
+- 次要瓶頸是 branch mispredict(~6/1000cyc),仍比 D-cache miss 少 8.3×。
+- 全行程(含所有模組)版本:D 50.9 / I 1.44 / B 7.0(每 1000 cyc),D:I = 35.4:1 —— 結論一致。
+- **直接釘死前述「把閒置 i-cache 借來用(codegen 拓樸進 i-cache)」的提案**(§7a):i-cache 之所以閒,正是因為
+  它的 miss 比 D-cache 少 66×;一旦把 data 變成 code,就是把便宜的 D-data 換成會 miss 的 I-fetch,那 705 會爆掉。
+
+**限制**:此捕獲的 managed 符號未解析(全歸到 `AprVisual.S1.dll!Unknown`),故無 **per-method** D-miss 分布;
+要看是哪一行(`AddNodeToGroup` 的 NodeInfos/TransistorList vs `SetNodeState` vs `ComputeNodeGroup`),需重新
+捕獲並合併 managed PDB,在 PerfView GUI 開 `DcacheMisses Stacks` + "Goto Source"。CPU 取樣(§1 `long_topN.txt`)
+已知熱碼全 inline 在 `ProcessQueueInterp`。
+
+**預期(原始,現已由 5a 證實)**:`IcacheMisses` 極低、`DcacheMisses` 主導(§A 的 NodeInfos/TransistorList 指標追逐)。
 
 > 註:行程 token 是 UAC 過濾的非提權 token(`whoami /groups`:`BUILTIN\Administrators` = *deny only*),所以
 > 一般工具呼叫拿不到 PMC;.bat 會自我提權(UAC 同意後)取得完整 token 再採集。

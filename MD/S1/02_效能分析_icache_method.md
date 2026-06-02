@@ -14,7 +14,7 @@
    只是外層 wrapper。**熱指令工作集 ≈ 4.6 KB,僅 32 KB L1i 的 1/7**,穩穩常駐 L1i。
 2. **對照組**:oblivious 編譯版(Escape-1,`study.html` §4–5)把 ~6,000 節點展成 ~700 KB 直線碼、每半週期掃 6.5
    次 → 遠超 32 KB L1i → **front-end / i-cache thrash,反而比直譯器慢 2×**。S1 正好相反:小程式碼、大資料。
-3. **真正的 bound 是資料 / 記憶體延遲**(§A 的 `NodeInfos` 460 KB、`TransistorList` 225 KB 的指標追逐 + 不規則
+3. **真正的 bound 是資料 / 記憶體延遲**(§A 的 `NodeInfos` 230 KB〔2026-06-02 由 460→230〕、`TransistorList` 225 KB 的指標追逐 + 不規則
    分支),不是指令快取。per-event ≈ **~82 CPU cycle/recalc**,卡在 load-use latency + branch mispredict
    (見 `WebSite/ceiling.html`)。
 4. **真實硬體 i-cache miss 計數在這台機器上拿得到**(更正:見 §5)。這台 Ryzen 7 3700X + Win11 經 PerfView
@@ -93,7 +93,7 @@ dotnet-trace 好,但 collect 需 admin)。
 - **足跡角度(決定性)**:熱指令 ~4.6 KB ≪ 32 KB L1i → 熱迴圈整個常駐 L1i,**front-end 不會 stall 在抓指令**。
 - **對照**:study.html §5 的 oblivious 編譯版 ~700 KB 直線碼掃 6.5×/hc → i-cache thrash、比直譯器慢 2×。**S1 是
   「小程式碼跑大資料」的相反極端。**
-- **真正瓶頸**:§A 資料 —— `NodeInfos`(460 KB)單獨就 > L2(512 KB),`TransistorList`(225 KB);雖然每半週期
+- **真正瓶頸**:§A 資料 —— `NodeInfos`(2026-06-02 砍半 460→**230 KB**)、`TransistorList`(225 KB);雖然每半週期
   working set(~604 活節點 / 平均群 2.25)遠小於全表,但 BFS 是**指標追逐 + 不規則分支**,~82 cycle/recalc 卡在
   load-use latency 與 branch mispredict —— 這才是該攻的維度(且 ceiling.html 已論證在此抽象下已到天花板)。
 - ∴ **對 hc/s 而言,i-cache 不是問題;不需要為 i-cache 做任何事。**

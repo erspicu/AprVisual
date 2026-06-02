@@ -72,3 +72,6 @@ tools/wla-dx/
 
 # compiled native static libs — build artifacts (e.g. AluBlock.lib), regenerable
 *.lib
+
+# PerfView (Microsoft profiler, ~24 MB binary + unpacked support files) — tool, not source
+tools/perfview/

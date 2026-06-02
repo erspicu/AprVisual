@@ -245,3 +245,35 @@ dotnet-trace report s1.nettrace topN -n 25
 唯一低風險、且先前沒測過的一招,故實測。bit-exact(checksum 不變)。
 **interleaved-paired 20 輪@full_palette 300k:median −1.36% / trimmean −1.09% / prefetch 只贏 5/20 → 淨負,已還原。**
 原因正是 small-walk 通病:`RecalcNode` 多走 O(1) fast-path(69.5% singleton),dequeue 迭代間工作太少 → 來不及藏延遲;`prefetcht0` 每輪一個 uop + cache 污染(下一個 `NodeInfo` 往往已駐留)反而蓋過。同 §A small-N anti-pattern 家族。
+
+---
+
+## 8. 攻「序列化 D-cache miss 相依鏈」—— MLP 探針 + 兩個外部建議評估(2026-06-03)
+
+§5b 把瓶頸釘成「`ProcessQueueInterp` 內 96.9% D-miss、序列化 pointer-chase、latency-bound」。唯一的物理攻擊面是
+**MLP**(讓多個獨立 dirty 節點的 `NodeInfos` miss 同時在飛)。逐項實測 / 評估,結論皆**否**:
+
+**(8a) 距離調校 software prefetch —— MLP 探針**:§7b 失敗用的是 distance=1;這次拉開到 **D=8** 預取
+`NodeInfos[RecalcList[i+8]]`,直接測「有沒有未被硬體榨取的 MLP」。bit-exact。
+**interleaved-paired 20 輪:median −5.45% / TM −4.89% / 只贏 1/20**(比 D=1 更糟)。
+→ **硬體 OoO 已經自己重疊好這些獨立 miss**(`RecalcList` 循序掃 → 位址可提前算出 → 多發 load 已在飛);軟體 prefetch 純粹多指令+污染+搶 load port。**這條序列鏈對隨機存取樣式已在硬體物理地板。** 連帶把「兩段式
+branchless gather」降到極低勝率(其機制就是榨 MLP,而 MLP 已被硬體榨乾;且我們的分支可預測、不卡 OoO 視窗)。
+
+**(8b) 外部建議「SoA 把 Flags 拆成獨立陣列」**:
+- **已做**:csproj 已是 SoA split(hot struct + NodeConnections + NodeTlistGates),且分類熱位元組早已是獨立陣列
+  `IsPureLogic[nn]`(14.7 KB,常駐 L1)。
+- **前提被 8a 推翻**:該建議假設「讀 `Flags[nn]` 順便預取 nn+1..nn+63」——只在**循序存取**成立;我們是散亂
+  `RecalcList[i]`,8a 已實測 prefetch-ahead = −5.45%。
+- **拆出去反而更糟**:16B 打包(實測 −7% D-miss,見 `03_NodeInfo_32B_vs_16B`)就是要「一發 miss 取得整節點」;
+  把 Flags 拆走 → group 節點變 `Flags[nn]` + `NodeInfos[nn]` 兩發 miss。→ un-do 勝利。
+
+**(8c) 外部建議「函數指標查表消滅分支」**:
+- **已實測死路**:math-algos 分支 Dispatcher = +5% 開銷 / 淨 −3.2%(見 `MD/impl/math-algos`)。
+- **拆掉熱方法 inline**:96.9% 樣本在 `ProcessQueueInterp` 是因為一切 inline 成 4.6 KB 單一方法;
+  `delegate* unmanaged` 是硬呼叫邊界,不可 inline → 毀掉這個 codegen 基礎。
+- **可預測直接分支 → 不可預測間接呼叫**:cls 分支高度可預測(70% 同路)、branch 本就次要(D:branch≈8:1);
+  per-node 散亂函數指標讓 BTB 無法預測,且 8-byte 指標讀比 1-byte `IsPureLogic` 更佔快取 → 反向收益。
+
+> 綜合:兩個外部建議是「高效能 C/C++ 通用黑魔法」,抽象上沒錯,但都假設**循序存取**與**昂貴分支**——本引擎兩者皆否
+> (散亂存取 + 便宜可預測分支 + 已 inline 單一熱方法)。`~80K hc/s` 是這顆隨機存取 switch-level 引擎在單核的
+> **記憶體延遲物理地板**,由 PMU(§5b)、prefetch 探針(8a)、與既有 dead-ends 三方共同定論。

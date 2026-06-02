@@ -137,11 +137,9 @@ namespace AprVisual.Test
                     else overflow++;
                 }
                 Console.WriteLine($"# ===== NodeInfo payload-size distribution ({Path.GetFileName(romPath)}) =====");
-                Console.WriteLine($"#  live nodes {n - nullN:N0}  (inline {inlineN:N0} / overflow {overflow:N0})   InlineCap=7");
+                Console.WriteLine($"#  live nodes {n - nullN:N0}  (inline {inlineN:N0} / overflow {overflow:N0})   InlineCap={NodeInfo.InlineCap}");
                 for (int p = 0; p <= 8 && p < hist.Length; p++)
                     Console.WriteLine($"#   payload={p,2}: {hist[p],6:N0}  ({P(hist[p], inlineN):F1}% of inline)");
-                Console.WriteLine($"#  -- if InlineCap 7->6: payload==7 inline nodes fall to overflow = {hist[7]:N0} ({P(hist[7], n - nullN):F2}% of live, {P(hist[7], inlineN):F1}% of inline)");
-                Console.WriteLine($"#  overflow now {overflow:N0} ({P(overflow, n - nullN):F1}%) -> after cap6 {overflow + hist[7]:N0} ({P(overflow + hist[7], n - nullN):F1}%)");
                 Console.WriteLine("# ============================================================");
                 return 0;
             }

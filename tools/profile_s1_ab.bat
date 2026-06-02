@@ -20,8 +20,8 @@ REM ============================================================================
 setlocal EnableExtensions
 set "ROOT=C:\ai_project\AprVisual"
 set "PV=%ROOT%\tools\perfview\PerfView.exe"
-set "EXE32=C:\ab32-32b\src\AprVisual.S1\bin\Release\net10.0\AprVisual.S1.exe"
-set "EXE16=%ROOT%\src\AprVisual.S1\bin\Release\net10.0\AprVisual.S1.exe"
+set "EXE32=%ROOT%\temp\ab\32b\AprVisual.S1.exe"
+set "EXE16=%ROOT%\temp\ab\16b\AprVisual.S1.exe"
 set "BENCHDIR=%ROOT%\AprVisualBenchMark"
 set "ROM=%BENCHDIR%\roms\full_palette.nes"
 set "OUT=%ROOT%\temp\perf"
@@ -35,7 +35,7 @@ if %errorlevel% neq 0 (
   exit /b
 )
 if not exist "%PV%"    ( echo [ERROR] PerfView missing: "%PV%" & pause & exit /b 1 )
-if not exist "%EXE32%" ( echo [ERROR] 32B build missing: "%EXE32%"  ^(Claude builds this from a worktree^) & pause & exit /b 1 )
+if not exist "%EXE32%" ( echo [ERROR] 32B build missing: "%EXE32%"  ^(Claude builds both into temp\ab\^) & pause & exit /b 1 )
 if not exist "%EXE16%" ( echo [ERROR] 16B build missing: "%EXE16%" & pause & exit /b 1 )
 if not exist "%ROM%"   ( echo [ERROR] ROM missing: "%ROM%" & pause & exit /b 1 )
 if not exist "%OUT%" mkdir "%OUT%"

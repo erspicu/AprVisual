@@ -174,3 +174,21 @@ dotnet-trace report s1.nettrace topN -n 25
 
 > 註:本報告針對 S1(C#);`experiment/rust-s1`(Rust)的對應分析未含於此。引擎核心演算法與資料結構審查見
 > `MD/S1/01_資料結構審查.md`;為何此抽象已到 ~80K hc/s 天花板見 `WebSite/ceiling.html`。
+
+---
+
+## 7. 兩個「借用閒置 i-cache」提案的評估與實測(2026-06-03)
+
+觀察為真:熱迴圈僅 ~4.6 KB,L1i(32 KB)大量閒置,而 L1d 被 §A 隨機存取打爆。由此衍生兩個提案,結論都是**否**:
+
+**(7a) codegen 把靜態拓樸塞進 i-cache** —— 把 `TransistorList`(節點 ID)烤成立即數的直線碼。
+這**就是已實測的 oblivious / macro codegen**(見 `WebSite/study.html §5`):解譯 sweep 慢 45×、Roslyn 編譯版**慢 84×**,冒煙證據正是 **i-cache thrash**(~6000 節點展成 ~700 KB 直線碼 ≫ 32 KB L1i)。三個結構性原因:
+- 活動**擴散**(`ceiling.html`:top-200 節點僅佔 21.6% BFS 工作)→ 沒有「小而熱」子集可挑,要覆蓋就得編幾千節點 → 爆 L1i。
+- 搬錯目標:`TransistorList` 是**循序、可預取、便宜**,且 96% 節點根本不讀它(payload 已 inline);真正貴的是 `NodeStates[gate]`/`NodeInfos` 的**隨機 gather**,而那**必須留在 D-cache**(動態狀態)→ 搬掉便宜的、留下貴的、還多塞幾百 KB code = 淨負。
+- per-node dispatch 打爛 BTB。
+→ 不投入。i-cache 閒置是「小解譯器跑大資料」這個對的設計的**結果**,不是浪費。
+
+**(7b) software prefetch(`Sse.Prefetch0`)** —— 在 `ProcessQueueInterp` dequeue 迴圈預取**下一個** dirty 節點的 `NodeInfo`(`RecalcList[i+1]`,230 KB 隨機存取陣列)。
+唯一低風險、且先前沒測過的一招,故實測。bit-exact(checksum 不變)。
+**interleaved-paired 20 輪@full_palette 300k:median −1.36% / trimmean −1.09% / prefetch 只贏 5/20 → 淨負,已還原。**
+原因正是 small-walk 通病:`RecalcNode` 多走 O(1) fast-path(69.5% singleton),dequeue 迭代間工作太少 → 來不及藏延遲;`prefetcht0` 每輪一個 uop + cache 污染(下一個 `NodeInfo` 往往已駐留)反而蓋過。同 §A small-N anti-pattern 家族。

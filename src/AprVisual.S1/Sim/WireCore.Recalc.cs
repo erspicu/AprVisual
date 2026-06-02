@@ -24,16 +24,6 @@ namespace AprVisual.Sim
             return h;
         }
 
-        /// <summary>Mark a node dirty and propagate to quiescence.</summary>
-        public static void RecalcNodeList(int nn) { EnqueueNode(nn); ProcessQueue(); }
-
-        /// <summary>Mark several nodes dirty and propagate to quiescence.</summary>
-        public static void RecalcNodeList(ReadOnlySpan<int> list)
-        {
-            foreach (int nn in list) EnqueueNode(nn);
-            ProcessQueue();
-        }
-
         /// <summary>Re-evaluate every (non-supply) node — used at power-on after Reset(). Port of Wires::recomputeAllNodes.</summary>
         public static void RecomputeAllNodes()
         {
@@ -53,15 +43,18 @@ namespace AprVisual.Sim
             }
         }
 
-        // Hard cap on settle passes. MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
-        // We keep a hard cap so a non-converging region can't hang the whole simulation — the state
-        // is a heuristic anyway (see MD/struct/01 §11.2). If this trips routinely it's a bug.
+        // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueueInterp:
+        // the in-loop guard cost +2.77%). MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
+        // The cap catches a non-converging region during development; the state is a heuristic anyway
+        // (see MD/struct/01 §11.2). If it ever trips it's a bug.
         //
         // 2026-05-25: lowered 1000 → 128 after settle-stats measurement across two real workloads:
         //   full_palette.nes / 50K hc:   max 45 iter, p99 in [33-64]
         //   Super Mario Bros. / 71M hc:  max 41 iter, p99 in [17-32]
-        // 128 = ~2.8× safety margin over observed max. Soft warning at 100 still triggers earlier.
+        // 128 = ~2.8× safety margin over observed max — so in practice it never trips.
+#if DEBUG
         private const int MaxSettlePasses = 128;
+#endif
 
         private static void ProcessQueue()
         {
@@ -72,11 +65,18 @@ namespace AprVisual.Sim
         // Per-node FIFO double-buffer settle. The hot loop of the engine.
         private static void ProcessQueueInterp()
         {
+#if DEBUG
             int iteration = 0;
+#endif
             while (RecalcListNextCount != 0)
             {
-                ++iteration;
-                if (iteration == 64)
+#if DEBUG
+                // Non-convergence safety + diagnostics — DEBUG ONLY. In Release this whole block (including the
+                // break) is compiled out: measured +2.77% interleaved-paired (the cold string-interpolation IL
+                // bloated this giant fully-inlined hot method, and the in-loop break inhibited its codegen).
+                // NES settle maxes at ~45 passes « MaxSettlePasses so the cap never trips in practice anyway
+                // (see the const's note); Debug keeps the catch+message for when someone breaks convergence.
+                if (++iteration == 64)
                     Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
                 {
@@ -85,6 +85,7 @@ namespace AprVisual.Sim
                     RecalcListNextCount = 0;
                     break;
                 }
+#endif
 
                 // swap "next" ↔ "current" (can't tuple-swap pointers — use temps)
                 int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;

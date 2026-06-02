@@ -249,11 +249,11 @@ namespace AprVisual.Sim
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).
-            _callbackByNode = new CallbackInfo?[NodeCount];
+            _callbackByNode = new Dictionary<int, CallbackInfo>();
             for (int i = 0; i < NodeCount; i++)
             {
-                var node = Nodes[i];
-                if (node != null) _callbackByNode[i] = node.Callback;
+                var cb = Nodes[i]?.Callback;
+                if (cb != null) _callbackByNode[i] = cb;
             }
         }
 

@@ -48,9 +48,12 @@ namespace AprVisual.Sim
         private static List<CallbackInfo> _pendingCallbacks = new();
         private static List<CallbackInfo> _processingCallbacks = new();
         // Node-id direct lookup (suggest #F4): _callbackByNode[nn] = the CallbackInfo registered
-        // on node nn (or null). Built in Reset; lets the hot RecalcNode callback-enqueue path
-        // do a direct array load instead of jumping into the managed Nodes[] Node object graph.
-        internal static CallbackInfo?[]? _callbackByNode;
+        // on node nn. Built in Reset; lets the (rare) RecalcNode callback-enqueue path look the
+        // callback up directly instead of jumping into the managed Nodes[] Node object graph.
+        // SPARSE: only the handful of callback target nodes are present (gated by the HasCallback
+        // group flag), so this is a small Dictionary, not a NodeCount-sized reference array
+        // (which cost ~115 KB resident + a full gen2 GC scan for ~0 hot-path benefit).
+        internal static Dictionary<int, CallbackInfo>? _callbackByNode;
 
         internal static void ResetHandlers()
         {

@@ -142,13 +142,10 @@ namespace AprVisual.Sim
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
-                // F4: direct node-id array lookup, bypass Nodes[] managed Node object graph
-                var cbByNode = _callbackByNode;
+                // F4: sparse node-id dictionary lookup, bypass Nodes[] managed Node object graph
+                var cbByNode = _callbackByNode!;
                 for (int i = 0; i < _groupCount; i++)
-                {
-                    var cb = cbByNode![_groupBuf[i]];
-                    if (cb != null) EnqueueCallback(cb);
-                }
+                    if (cbByNode.TryGetValue(_groupBuf[i], out var cb)) EnqueueCallback(cb);
             }
         }
 

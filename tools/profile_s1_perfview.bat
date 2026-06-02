@@ -16,8 +16,9 @@ REM ============================================================================
 setlocal EnableExtensions
 set "ROOT=C:\ai_project\AprVisual"
 set "PV=%ROOT%\tools\perfview\PerfView.exe"
-set "DLL=%ROOT%\src\AprVisual.S1\bin\Release\net10.0\AprVisual.S1.dll"
+set "EXE=%ROOT%\src\AprVisual.S1\bin\Release\net10.0\AprVisual.S1.exe"
 set "BENCHDIR=%ROOT%\AprVisualBenchMark"
+set "ROM=%BENCHDIR%\roms\full_palette.nes"
 set "OUT=%ROOT%\temp\perf"
 set "HC=1000000"
 
@@ -28,7 +29,8 @@ if %errorlevel% neq 0 (
   exit /b
 )
 if not exist "%PV%"  ( echo [ERROR] PerfView missing: "%PV%" & pause & exit /b 1 )
-if not exist "%DLL%" ( echo [ERROR] S1 Release build missing: "%DLL%" & pause & exit /b 1 )
+if not exist "%EXE%" ( echo [ERROR] S1 Release apphost missing: "%EXE%"  ^(build: dotnet build src\AprVisual.S1 -c Release^) & pause & exit /b 1 )
+if not exist "%ROM%" ( echo [ERROR] benchmark ROM missing: "%ROM%" & pause & exit /b 1 )
 if not exist "%OUT%" mkdir "%OUT%"
 
 echo ===========================================================
@@ -54,7 +56,10 @@ pause >nul
 
 cd /d "%BENCHDIR%"
 echo Collecting (i-cache + d-cache + branch-mispredict PMC + CPU stacks)... please wait.
-"%PV%" -AcceptEula -NoGui -ThreadTime -CpuCounters:"IcacheMisses:65536,DcacheMisses:65536,BranchMispredictions:65536" -DataFile:"%OUT%\s1_perf.etl" run "dotnet %DLL% --benchmark roms\full_palette.nes --bench-hc %HC%"
+REM NOTE: run the apphost EXE directly (not "dotnet <dll>") and pass args as SEPARATE
+REM tokens. Wrapping the whole "dotnet <dll> <args>" in one quoted string makes PerfView
+REM treat the entire string as the executable name -> "Could not find command ... on path".
+"%PV%" -AcceptEula -NoGui -ThreadTime -CpuCounters:"IcacheMisses:65536,DcacheMisses:65536,BranchMispredictions:65536" -DataFile:"%OUT%\s1_perf.etl" run "%EXE%" --benchmark "%ROM%" --bench-hc %HC% --extra-ram
 
 echo.
 echo ===========================================================
@@ -67,7 +72,7 @@ echo    * "CPU Stacks"             - time (where CPU time goes)
 echo    * "IcacheMisses Stacks"    - L1 instruction-cache misses  <-- your question
 echo    * "DcacheMisses Stacks"    - L1 data-cache misses (expect this to dominate)
 echo    * "BranchMispredictions Stacks"
-echo  Open each, pick the dotnet process. Expectation: IcacheMisses is tiny vs
+echo  Open each, pick the AprVisual.S1 process. Expectation: IcacheMisses is tiny vs
 echo  DcacheMisses (hot loop is one 4.6KB method that fits the 32KB L1i; the cost
 echo  is data/memory latency, not instruction fetch).
 echo  When done, paste me what the "IcacheMisses Stacks" / "DcacheMisses Stacks"

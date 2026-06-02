@@ -17,9 +17,10 @@
 3. **真正的 bound 是資料 / 記憶體延遲**(§A 的 `NodeInfos` 460 KB、`TransistorList` 225 KB 的指標追逐 + 不規則
    分支),不是指令快取。per-event ≈ **~82 CPU cycle/recalc**,卡在 load-use latency + branch mispredict
    (見 `WebSite/ceiling.html`)。
-4. **真實硬體 i-cache miss 計數需要 admin + PMU profiler**(此 Zen 2 對應 AMD uProf,或 PerfView/ETW-PMC,皆需
-   elevated)。本次分析環境**非 elevated**,無法直接量 PMU;改以「指令足跡 + 既有 work-profile」回答 i-cache 問題
-   (足跡已決定性地說明不是 i-cache bound),並在 §5 附上可由你 elevated 執行的 PerfView 指令拿原始計數。
+4. **真實硬體 i-cache miss 計數在這台機器上拿不到 —— 已實測確認(非權限問題,見 §5)**:即使經 UAC 提權,
+   PerfView `ListCpuCounters` 回報這台 Ryzen 7 3700X + Windows 11 對 ETW 開放的 **PMC 計數器 = 0**(AMD-on-Windows
+   的 OS/驅動限制)。唯一路徑是 **AMD uProf**(本機未裝)。但 i-cache 的結論**靠 §2 指令足跡就已定論**(熱迴圈
+   4.6 KB ≪ 32 KB L1i → 非 i-cache bound),PMU 只會再確認。
 
 ---
 
@@ -98,9 +99,23 @@ dotnet-trace 好,但 collect 需 admin)。
 
 ---
 
-## 5. 要拿「真實硬體 i-cache miss / IPC」(需 admin,請你 elevated 執行)
+## 5. 真實硬體 i-cache miss / IPC —— 實測結論:**此機器無法取得(非權限問題)**
 
-本環境非 elevated,跑不了 ETW/PMC collection。請開**系統管理員**的 PowerShell 跑(PerfView 已在 `tools/perfview/`):
+**已實際嘗試(含 UAC 提權)**,結論明確:
+
+- 行程 token 是 **UAC 過濾的非提權 token**(`whoami /groups`:`BUILTIN\Administrators` = *"Group used for deny
+  only"*);帳號雖是 admin,行程沒提權。經 `Start-Process -Verb RunAs` UAC 同意後**成功提權**執行 PerfView。
+- 但提權後 `PerfView ListCpuCounters` 回報 **「Cpu Counters available on machine.」後接空清單** —— **這台
+  Ryzen 7 3700X + Windows 11 對 ETW 開放的 PMC 計數器數量 = 0**。
+- ∴ **無論是否提權,都無法經 PerfView / Windows-ETW 取得硬體 i-cache miss(或任何 PMU)計數** —— 這是
+  **AMD-on-Windows 的 OS/驅動限制**(Windows 內建 PMC 對 AMD 支援有限,常回空清單),不是權限問題。
+- **唯一路徑 = AMD uProf**(自帶 PMU 驅動,繞過 Windows ETW-PMC 抽象,能讀 L1i refill / front-end stall / IPC)。
+  本機未安裝;若要原始計數,需安裝 uProf 後對同一條 bench 命令做 profile。
+- **但結論不受影響**:依 §2/§4 的**指令足跡**(熱迴圈 4.6 KB ≪ 32 KB L1i),S1 **非 i-cache bound** 已是定論;
+  PMU 量測只會再確認,不會推翻。
+
+### (參考)若日後在「有開放 PMC 的機器」或裝了 uProf:
+PerfView(系統管理員)路徑:
 
 **(1) 先看這台 Windows 對 Zen 2 開放哪些硬體計數器**(L1i-miss 在 AMD-on-Windows 不一定有):
 ```

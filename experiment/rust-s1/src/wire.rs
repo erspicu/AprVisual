@@ -90,6 +90,9 @@ pub struct WireCore {
 }
 
 // 2026-05-25: 128 = ~2.8x safety margin over observed max (full_palette 45 iter, SMB 41 iter).
+// debug-only: release omits the per-pass cap check + counter (NES workloads always converge) — +1.8% Rust
+// (LLVM's loop optimizer dislikes the in-loop counter+break far more than the C# JIT, where it was noise).
+#[cfg(debug_assertions)]
 const MAX_SETTLE_PASSES: u32 = 128;
 
 impl WireCore {
@@ -151,7 +154,7 @@ impl WireCore {
             node_hot,
             node_connections,
             node_tlist_gates,
-            transistor_list: snap.transistor_list,
+            transistor_list: { let mut t = snap.transistor_list; t.extend_from_slice(&[0u16; 4]); t },  // +4 pad: ulong dual-pair overread safety
             flags_to_state: snap.flags_to_state,
             recalc_list: vec![0i32; nc],
             recalc_list_next: vec![0i32; nc],
@@ -419,37 +422,50 @@ impl WireCore {
             *self.node_states.get_unchecked_mut(u) = new_state;
             let tlist_gates = *self.node_tlist_gates.get_unchecked(u);
             if tlist_gates != 0 {
+                // ulong dual-pair load: two (c1,c2) pairs (4 u16) per 64-bit read — ported from C# (+0.6% Rust).
+                // transistor_list has +4 pad zeros so the 8-byte read can't go OOB. x64 LE: low u16 = [p].
+                let tl = self.transistor_list.as_ptr();
                 let mut p = tlist_gates as usize;
                 if new_state == 0 {
                     loop {
-                        let c1 = *self.transistor_list.get_unchecked(p) as i32;
-                        if c1 == 0 { break; }
-                        let c2 = *self.transistor_list.get_unchecked(p + 1) as i32;
-                        p += 2;
-                        // c1: branchless enqueue (non-supply by construction)
-                        let cu1 = c1 as usize;
-                        let is_new1 = *self.recalc_hash_next.get_unchecked(cu1) ^ 1;
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1;
-                        *self.recalc_hash_next.get_unchecked_mut(cu1) = 1;
-                        self.list_next_count += is_new1 as usize;
-                        // c2: branchless enqueue (shield handles supply: hash[npwr/ngnd] = 1 → is_new=0)
-                        let cu2 = c2 as usize;
-                        let is_new2 = *self.recalc_hash_next.get_unchecked(cu2) ^ 1;
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2;
-                        *self.recalc_hash_next.get_unchecked_mut(cu2) = 1;
-                        self.list_next_count += is_new2 as usize;
+                        let quad = (tl.add(p) as *const u64).read_unaligned();
+                        let c1a = (quad as u16) as i32;
+                        if c1a == 0 { break; }
+                        let c2a = ((quad >> 16) as u16) as i32;
+                        // c1a (non-supply by construction)
+                        let cu = c1a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        // c2a (shield handles supply)
+                        let cu = c2a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2a;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        let c1b = ((quad >> 32) as u16) as i32;
+                        if c1b == 0 { break; }
+                        let c2b = ((quad >> 48) as u16) as i32;
+                        let cu = c1b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        let cu = c2b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2b;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        p += 4;
                     }
                 } else {
                     // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
                     loop {
-                        let c1 = *self.transistor_list.get_unchecked(p) as i32;
-                        if c1 == 0 { break; }
-                        p += 2;  // skip c2
-                        let cu1 = c1 as usize;
-                        let is_new1 = *self.recalc_hash_next.get_unchecked(cu1) ^ 1;
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1;
-                        *self.recalc_hash_next.get_unchecked_mut(cu1) = 1;
-                        self.list_next_count += is_new1 as usize;
+                        let quad = (tl.add(p) as *const u64).read_unaligned();
+                        let c1a = (quad as u16) as i32;
+                        if c1a == 0 { break; }
+                        let cu = c1a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        let c1b = ((quad >> 32) as u16) as i32;
+                        if c1b == 0 { break; }
+                        let cu = c1b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        p += 4;
                     }
                 }
             }
@@ -502,18 +518,22 @@ impl WireCore {
     }
 
     pub fn process_queue(&mut self) {
+        #[cfg(debug_assertions)]
         let mut iters = 0u32;
         while self.list_next_count != 0 {
-            iters += 1;
-            if iters > MAX_SETTLE_PASSES {
-                unsafe {
-                    for i in 0..self.list_next_count {
-                        let nn = *self.recalc_list_next.get_unchecked(i) as usize;
-                        *self.recalc_hash_next.get_unchecked_mut(nn) = 0;
+            #[cfg(debug_assertions)]
+            {
+                iters += 1;
+                if iters > MAX_SETTLE_PASSES {
+                    unsafe {
+                        for i in 0..self.list_next_count {
+                            let nn = *self.recalc_list_next.get_unchecked(i) as usize;
+                            *self.recalc_hash_next.get_unchecked_mut(nn) = 0;
+                        }
                     }
+                    self.list_next_count = 0;
+                    break;
                 }
-                self.list_next_count = 0;
-                break;
             }
             std::mem::swap(&mut self.recalc_list, &mut self.recalc_list_next);
             std::mem::swap(&mut self.recalc_hash, &mut self.recalc_hash_next);

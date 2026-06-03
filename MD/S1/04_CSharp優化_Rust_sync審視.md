@@ -24,12 +24,21 @@ Rust 量測:`wire_s1 bench snapshot/full_palette.aprsnap 300000`;A/B 用 prebuil
 | 迭代式 BFS | — | −1.3% Rust(LLVM 對遞迴 inline 好) |
 | sparse Dictionary callback | 2b54e6c | N/A(C# 是為了省 GC;Rust 無 GC,Vec<i32> 本就 OK) |
 
-## 待驗證候選(逐一實測)
-| # | 技巧 | C# 來源 / 效益 | Rust 現況 | 預判 | 結果 |
-|---|---|---|---|---|---|
-| 1 | **ulong 雙對讀取** @ `set_node_state` | 4c7e938 / +1.2% | 逐一讀 `[p]`,`[p+1]`,p+=2 | 有機會(同 #1 機制,需 transistor_list 加 padding) | _待測_ |
-| 2 | **flatten cls==2 dispatch**(去 `bool grows`) | f34b8a6 / +0.5% | 仍用 `grows` 旗標 | 可疑(LLVM 多半已最佳化) | _待測_ |
-| 3 | **settle-cap `#[cfg(debug_assertions)]`** | a01f31c | 每 pass 無條件檢查 `MAX_SETTLE_PASSES` | 有機會(in-loop break 抑制 LLVM 迴圈 codegen) | _待測_ |
-| 4 | **ulong @ cls==2 conduction check** | (新應用) | 逐一讀 transistor_list | 有機會(Rust 此處對全部 cls==2 走 tlist) | _待測_ |
+## 驗證結果(2026-06-03,interleaved-paired ≥2 批,bit-exact)
+| # | 技巧 | C# / Rust | 結果 | 判定 |
+|---|---|---|---|---|
+| 1 | **ulong 雙對讀取** @ `set_node_state` | +1.2% / **+0.6%** | 29/32 勝,兩批正 | ✅ **採用** |
+| 3 | **settle-cap `#[cfg(debug_assertions)]`** | C# 噪音(僥倖) / **+1.8%** | **32/32 勝**,+1.94/+1.67% | ✅ **採用** |
+| 2 | **flatten cls==2 dispatch** | +0.5% / +0.1% | 32/52(雜訊,擲硬幣) | ✗ 否決 |
+| 4 | **ulong @ cls==2 conduction check** | (新) / **−1.4%** | 0/32 勝 | ✗ 否決 |
 
-驗證順序:#1(最大 C# 勝)→ #3 → #4 → #2。結果回填上表。
+**合計採用 #1+#3:Rust +2.0%**(32/32 vs HEAD,+2.10/+1.93%),top-3 **79.4K → ~80.6K hc/s**。
+
+## 觀察(這次 sync 學到的)
+- **最大的勝利 #3 在 C# 是「噪音」(當初 +2.77% 是熱機僥倖、靠非效能理由採用),在 Rust 卻是 +1.8% 真勝** ——
+  **LLVM 的迴圈最佳化遠比 .NET JIT 討厭 settle 迴圈裡的 in-loop counter+break**。這是「同一改動兩引擎反向/不同幅度」
+  的又一例,印證 [[csharp-rust-parity-policy]]:不能盲目互 sync,但**值得逐一驗證**——Rust 反而吃到了 C# 沒吃到的紅利。
+- **#4 失敗、#1 成功**(同為 ulong 雙抓):差別在 **walk 長度 × 頻率**。`set_node_state` 的 fanout walk 較長(值得)、
+  cls==2 conduction check 的 walk 很短且 73% recalc 都跑(ulong 開銷蓋過)。同 C# 的 A/B 教訓([[hotpath-ceiling-and-antipatterns]])。
+- **#2 在 C# +0.5%、在 Rust 噪音**:goto/flatten 對 JIT codegen 有差,對 LLVM 無差(LLVM 早就把 `grows` 旗標最佳化掉)。
+- Rust 早就有 supply-shield(C# 兩天前才評估、且因雜訊未採)——可見兩邊**各有領先項**,不是單向落後。

@@ -349,6 +349,10 @@
   </ul>
   <p class="mut en">Each entry is backed by per-change interleaved-paired A/B numbers and checksums in the repository's optimization notes. R-1 narrowed the gap to NES real-time from ~645× to ~550× — still far off, but the ceiling moved. Run the benchmark on your own CPU and the version stamp (engine + git commit + date) is recorded with your result on the leaderboard.</p>
   <p class="mut zh">每一項都有 repo 優化筆記裡逐項的 interleaved-paired A/B 數字與 checksum 佐證。R-1 把距 NES 即時的差距從 ~645× 縮到 ~550× —— 依然很遠,但天花板移動了。在你自己的 CPU 上跑 benchmark,版本戳記(引擎 + git commit + 日期)會跟著你的結果記在排行榜上。</p>
+  <div class="big" style="margin-top:16px">
+    <p class="en"><b>New tutorial — learn the techniques.</b> The two biggest levers above — S2-A's inline layout and the hot-data shrink/SoA — are both really about <i>feeding the cache</i>. We wrote a hands-on walkthrough of the <b>L1/L2/L3 cache concepts</b> and the exact <b>C# memory tricks</b> (struct packing, narrowest element types, flattened adjacency, wide loads), each shown with the <b>real engine code</b> and its measured result — including the ones that backfired. → <a href="cache.html"><b>Memory &amp; L-cache optimization, by example</b></a></p>
+    <p class="zh"><b>新教學 —— 學會這些技巧。</b>上面兩個最大的槓桿 —— S2-A 的內聯佈局、熱資料縮減/SoA —— 本質都是<i>餵飽快取</i>。我們寫了一篇實作向導,講 <b>L1/L2/L3 快取觀念</b> 與確切的 <b>C# 記憶體技巧</b>(struct 打包、最窄元素型別、攤平鄰接、寬載入),每一招都附<b>真實引擎程式碼</b>與實測結果 —— 包含那些反效果的。→ <a href="cache.html"><b>記憶體與 L-cache 優化(用我們的 code 當例子)</b></a></p>
+  </div>
   <p class="note"><span class="en"><b>For readers from academia — term mapping:</b> what we call <b>"lowering"</b> ≈ logic-synthesis constant-folding / dead-gate elimination / structural reduction; the <b>"fast-path"</b> (and its dynamic extension R-1) ≈ common-case specialization of event-driven simulation. The switch-level model itself is Bryant's; the simulation-strategy taxonomy (event-driven vs levelized vs oblivious) is textbook. We borrow the compiler / systems vocabulary — the equivalent EDA techniques are all classic.</span><span class="zh"><b>給學術背景的讀者 —— 術語對照:</b>我們稱的 <b>"lowering"</b> ≈ 邏輯合成的 constant-folding / dead-gate elimination / 結構化簡;<b>"fast-path"</b>(及其動態延伸 R-1)≈ event-driven 模擬的 common-case 特化。開關級模型本身出自 Bryant;模擬策略分類(event-driven 對 levelized 對 oblivious)是教科書級。我們借用編譯器 / 系統的詞彙 —— 對應的 EDA 技術都是經典。</span></p>
   <p style="text-align:center; margin:12px 0 4px">
     <a class="btn primary" href="landscape.html"><span class="en">Read the full research landscape — is the algorithm ceiling reached? →</span><span class="zh">看完整研究現況 —— 演算法天花板到了嗎? →</span></a>
@@ -358,9 +362,6 @@
   </p>
   <p style="text-align:center; margin:4px 0 4px">
     <a class="btn ghost" href="ceiling.html"><span class="en">Why IR / codegen still hit the wall — the whole-NES profile data →</span><span class="zh">為什麼 IR / codegen 仍撞牆 —— 整機 profile 數據 →</span></a>
-  </p>
-  <p style="text-align:center; margin:4px 0 4px">
-    <a class="btn ghost" href="cache.html"><span class="en">Memory &amp; L-cache optimization, by example (with our C# code) →</span><span class="zh">記憶體與 L-cache 優化(用我們的 C# code 當例子) →</span></a>
   </p>
   <p style="text-align:center; margin:4px 0 4px">
     <a class="btn primary" href="study.html"><span class="en">Study paper: when does automatic abstraction beat an event-driven switch-level sim? →</span><span class="zh">研究論文:自動抽象化何時能贏過事件驅動開關級模擬? →</span></a>

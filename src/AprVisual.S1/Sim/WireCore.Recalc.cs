@@ -168,27 +168,45 @@ namespace AprVisual.Sim
                 byte* nextHash = RecalcHashNext;
                 int nextCount = RecalcListNextCount;
                 ushort* p = TransistorList + tlistGates;
+                // Read two (c1,c2) pairs per iteration as one 64-bit load (4 ushorts) — measured +~1.2%
+                // (3 interleaved-paired batches, bit-exact). Halves this walk's loop branches + load count;
+                // unlike the random NodeInfos/NodeStates gather, this sequential enqueue walk's overhead is
+                // NOT fully hidden under the memory-latency stalls, so trimming it measurably helps.
+                // 0-terminated list; TransistorList has >=4 trailing pad zeros (see Reset) so the 8-byte
+                // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
                 if (newState == 0)
                 {
                     int npwr = Npwr, ngnd = Ngnd;
-                    while (*p != 0)
+                    while (true)
                     {
-                        int c1 = *p++;
-                        int c2 = *p++;
-                        if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                        int c1a = (ushort)quad;
+                        if (c1a == 0) break;
+                        int c2a = (ushort)(quad >> 16);
+                        if (nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2 != npwr && c2 != ngnd && nextHash[c2] == 0)
-                        { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                        if (c2a != npwr && c2a != ngnd && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        int c1b = (ushort)(quad >> 32);
+                        if (c1b == 0) break;
+                        int c2b = (ushort)(quad >> 48);
+                        if (nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (c2b != npwr && c2b != ngnd && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        p += 4;
                     }
                 }
                 else
                 {
                     // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
-                    while (*p != 0)
+                    while (true)
                     {
-                        int c1 = *p++;
-                        p++;  // skip c2
-                        if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                        int c1a = (ushort)quad;
+                        if (c1a == 0) break;
+                        if (nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        int c1b = (ushort)(quad >> 32);
+                        if (c1b == 0) break;
+                        if (nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        p += 4;
                     }
                 }
                 RecalcListNextCount = nextCount;

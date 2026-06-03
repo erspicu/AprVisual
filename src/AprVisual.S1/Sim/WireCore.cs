@@ -230,6 +230,9 @@ namespace AprVisual.Sim
                     ns.TlistC1pwr = AddSubList(c1pwr);
                 }
             }
+            // >=4 trailing pad zeros so SetNodeState's 8-byte (4-ushort) ulong reads at the last sublist
+            // can't fault past the array end (pad zeros read as terminators = harmless). See SetNodeState.
+            tl.Add(0); tl.Add(0); tl.Add(0); tl.Add(0);
             TransistorList = AllocArray<ushort>(tl.Count);
             for (int i = 0; i < tl.Count; i++) TransistorList[i] = (ushort)tl[i];
             _transistorListLength = tl.Count;

@@ -31,6 +31,7 @@ Rust 量測:`wire_s1 bench snapshot/full_palette.aprsnap 300000`;A/B 用 prebuil
 | 3 | **settle-cap `#[cfg(debug_assertions)]`** | C# 噪音(僥倖) / **+1.8%** | **32/32 勝**,+1.94/+1.67% | ✅ **採用** |
 | 2 | **flatten cls==2 dispatch** | +0.5% / +0.1% | 32/52(雜訊,擲硬幣) | ✗ 否決 |
 | 4 | **ulong @ cls==2 conduction check** | (新) / **−1.4%** | 0/32 勝 | ✗ 否決 |
+| 5 | **group_buf i32→u16**(資料結構壓縮) | C# ushort 採用 / **−2.4%** | 0/32 勝 | ✗ 否決(C#/Rust sign-flip) |
 
 **合計採用 #1+#3:Rust +2.0%**(32/32 vs HEAD,+2.10/+1.93%),top-3 **79.4K → ~80.6K hc/s**。
 
@@ -42,3 +43,4 @@ Rust 量測:`wire_s1 bench snapshot/full_palette.aprsnap 300000`;A/B 用 prebuil
   cls==2 conduction check 的 walk 很短且 73% recalc 都跑(ulong 開銷蓋過)。同 C# 的 A/B 教訓([[hotpath-ceiling-and-antipatterns]])。
 - **#2 在 C# +0.5%、在 Rust 噪音**:goto/flatten 對 JIT codegen 有差,對 LLVM 無差(LLVM 早就把 `grows` 旗標最佳化掉)。
 - Rust 早就有 supply-shield(C# 兩天前才評估、且因雜訊未採)——可見兩邊**各有領先項**,不是單向落後。
+- **資料結構壓縮類已全查**(使用者 2026-06-03 提醒補測):NodeInfo 16B / TransistorList u16 / inGroup u8 / RecalcHash u8 都**早在 Rust**;唯一漏的 **`group_buf` C# ushort vs Rust i32**,實測 **−2.4%(Rust)** → 又一個 sign-flip(ushort 省的 29KB 在 group 只 1-2 entry 時無感,`as u16`/`as i32` 轉換在熱 BFS 寫 + SetNodeState 讀上反而蓋過)。C# RecalcList 的 ushort 實驗當初本就是 reverted 噪音,不移植。**結論:資料壓縮類沒有可移植的剩餘紅利。**

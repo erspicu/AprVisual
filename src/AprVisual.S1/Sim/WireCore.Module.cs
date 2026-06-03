@@ -78,8 +78,6 @@ namespace AprVisual.Sim
             _forceComputeList.Clear(); _forceComputeList.TrimExcess();
             // Parsed JSON module defs (biggest single allocator, ~20-50 MB).
             ClearLoadedDefs();
-            // chip-diag remap (chip-diag itself was removed from the S1 fork).
-            LastLowerRemap = null;
             // Hint a Gen2 collection so the cleared memory actually returns to the OS;
             // happens once at LoadSystem, has no bench-time cost.
             System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);

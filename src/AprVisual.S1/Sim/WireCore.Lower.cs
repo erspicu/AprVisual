@@ -32,7 +32,6 @@ namespace AprVisual.Sim
 
         public static bool EnableLowering = true;
         public static string LastLowerStats = "(lowering not run)";
-        public static int[]? LastLowerRemap;   // pre-lowering id → post-lowering dense id (EmptyNode for dropped); chip-diag uses this
 
         public static void LowerNetlist()
         {
@@ -137,7 +136,6 @@ namespace AprVisual.Sim
 
             _maxNodeId = _nodes.Count - 1;
             if (ClockNode != EmptyNode) ClockNode = remap[ClockNode];   // normally EmptyNode at this stage
-            LastLowerRemap = remap;   // chip-diag uses this to translate pre-lowering instance ranges → post-lowering ids
 
             int newNonNull = nNew - 1;   // slots 1,2 + 3..nNew-1 are non-null; slot 0 is null
             LastLowerStats =

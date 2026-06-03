@@ -56,8 +56,11 @@ namespace AprVisual.Sim
             AddInstance(nes001, "");
             AddInstance(cartMmu0, "cart");
 
-            // S1.5: collapse always-on shorts + drop dead transistors + compact ids (behaviour-preserving;
-            // also the canonical netlist S2 will work on). Toggle off with WireCore.EnableLowering / --no-lower.
+            // S1.5: collapse always-on shorts + drop dead transistors + compact ids (behaviour-preserving).
+            // Kept as a real S1 win: +~3.7% (interleaved-paired vs --no-lower) and it defines the golden node
+            // numbering (checksum 0x794A43ABDF169ADA / the .aprsnap snapshots). --no-lower is a diagnostic A/B
+            // toggle only (measures −3.7%). (Originally also framed as S2's canonical netlist; S2 is now a
+            // separate concluded fork — lowering stays here purely on its S1 perf merit.)
             if (EnableLowering) LowerNetlist();
             else LastLowerStats = "(lowering disabled — --no-lower)";
         }

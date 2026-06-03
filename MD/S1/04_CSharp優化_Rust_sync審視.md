@@ -44,3 +44,9 @@ Rust 量測:`wire_s1 bench snapshot/full_palette.aprsnap 300000`;A/B 用 prebuil
 - **#2 在 C# +0.5%、在 Rust 噪音**:goto/flatten 對 JIT codegen 有差,對 LLVM 無差(LLVM 早就把 `grows` 旗標最佳化掉)。
 - Rust 早就有 supply-shield(C# 兩天前才評估、且因雜訊未採)——可見兩邊**各有領先項**,不是單向落後。
 - **資料結構壓縮類已全查**(使用者 2026-06-03 提醒補測):NodeInfo 16B / TransistorList u16 / inGroup u8 / RecalcHash u8 都**早在 Rust**;唯一漏的 **`group_buf` C# ushort vs Rust i32**,實測 **−2.4%(Rust)** → 又一個 sign-flip(ushort 省的 29KB 在 group 只 1-2 entry 時無感,`as u16`/`as i32` 轉換在熱 BFS 寫 + SetNodeState 讀上反而蓋過)。C# RecalcList 的 ushort 實驗當初本就是 reverted 噪音,不移植。**結論:資料壓縮類沒有可移植的剩餘紅利。**
+
+## 反向(Rust→C#)候選:branchless-enqueue + poison-shield
+audit 中發現 **Rust 的 `set_node_state` 是 branchless 形式**(無條件寫 + `nextCount += hash^1`)+ **poison-shield**(`recalc_hash[npwr/ngnd]=1`,免 c2 supply 檢查),**C# 沒有**(C# 用 branchy `if (nextHash==0)` + `c2 != npwr/ngnd`)。把這組(含 RecalcList +8 padding 承接 blind-write)反向移植回 C# 實測:
+- **C# −1%**(14/52 勝,batch 2/3 各 −1.2%,bit-exact)→ **又一個 sign-flip,且方向相反(Rust 是預設且為勝、C# 為負)**。
+- 原因:.NET JIT 對 branchy `if (nextHash==0)` 的分支預測本來就好,且 branchless 的「無條件寫 nextList + `nextCount += n` 相依」在 JIT codegen 上反而較貴;LLVM 則相反(它的預設形式)。
+- 教訓補強:**「混搭(branchless+poison)整組測」是對的方向(單看 poison 是零增益)——但實測仍 C#-負**。poison 我前一輪判「零增益+fragile」其實低估了它(配 branchless 才有意義),但配齊後在 C# 上確實沒贏。stays Rust-only。

@@ -127,10 +127,20 @@ Package excludes runtime ``log/`` and ``screenshots/`` output.
 "@
 }
 if ($Publish) {
-    Step "6/7  gh release create $Tag (--latest)"
-    gh release create $Tag $Zip --title $Title --notes $Notes --latest
-    if ($LASTEXITCODE) { throw "gh release create failed ($LASTEXITCODE)" }
-    Write-Host "  published $Tag"
+    gh release view $Tag *> $null
+    if ($LASTEXITCODE -eq 0) {
+        # tag already exists (e.g. same-day refresh) — replace the asset + refresh title/notes
+        Step "6/7  release $Tag exists -> upload asset (--clobber) + refresh notes"
+        gh release upload $Tag $Zip --clobber
+        if ($LASTEXITCODE) { throw "gh release upload failed ($LASTEXITCODE)" }
+        gh release edit $Tag --title $Title --notes $Notes --latest | Out-Null
+        Write-Host "  refreshed $Tag asset"
+    } else {
+        Step "6/7  gh release create $Tag (--latest)"
+        gh release create $Tag $Zip --title $Title --notes $Notes --latest
+        if ($LASTEXITCODE) { throw "gh release create failed ($LASTEXITCODE)" }
+        Write-Host "  published $Tag"
+    }
 } else {
     Step "6/7  DRY RUN (no -Publish): zip built, release NOT created"
 }

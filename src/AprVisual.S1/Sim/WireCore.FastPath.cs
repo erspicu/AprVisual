@@ -94,48 +94,44 @@ namespace AprVisual.Sim
         private static void RecalcNodeFast(int nn)
         {
             NodeInfo* ns = NodeInfos + nn;
-            NodeFlags f = ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or None (floating); Pwr/Gnd excluded at classify time
+            // [T-A] keep flags as int throughout — drops the (NodeFlags)((uint)..) casts; anyG<<5==Gnd, anyP<<4==Pwr.
+            int flags = (int)ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or 0 (floating); Pwr/Gnd excluded at classify time
 
-            // OR-all (branchless): NodeStates is strictly 0/1, so `any` ∈ {0,1}; `any<<5`==Gnd, `any<<4`==Pwr.
-            // Identical result to the early-break form (flag set iff any gate ON), minus the per-gate
-            // data-dependent branch. Lists are short (pure-logic), so dropping early-break costs at most
-            // one extra sentinel load when a gate is ON. A/B candidate R4.
+            // OR-all (branchless, R4): NodeStates is 0/1, so `any` ∈ {0,1}. Same result as early-break, no per-gate branch.
             // S2-A: read gnd/pwr gates from the inline payload (one cache line) when available.
             if (ns->Inline != 0)
             {
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
-                byte anyG = 0;
+                int anyG = 0;
                 for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
-                f |= (NodeFlags)((uint)anyG << 5);
+                flags |= anyG << 5;
                 int pwrEnd = gndEnd + ns->PwrCount;
-                byte anyP = 0;
+                int anyP = 0;
                 for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
-                f |= (NodeFlags)((uint)anyP << 4);
+                flags |= anyP << 4;
             }
             else
             {
                 if (ns->TlistC1gnd != 0)
                 {
                     ushort* p = TransistorList + ns->TlistC1gnd;
-                    byte any = 0;
+                    int any = 0;
                     while (*p != 0) any |= NodeStates[*p++];                  // any ON path to GND ⇒ pulled low
-                    f |= (NodeFlags)((uint)any << 5);
+                    flags |= any << 5;
                 }
                 if (ns->TlistC1pwr != 0)
                 {
                     ushort* p = TransistorList + ns->TlistC1pwr;
-                    byte any = 0;
+                    int any = 0;
                     while (*p != 0) any |= NodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
-                    f |= (NodeFlags)((uint)any << 4);
+                    flags |= any << 4;
                 }
             }
 
-            // f == None ⇒ singleton group with nothing driving it ⇒ floating: hold previous state
-            // (matches GetNodeValue's single-node tie-break, where max-cap member == nn itself).
-            // For PullUp nodes f always carries the PullUp bit, so this is the common (non-None) path.
-            SetNodeState(nn, f != NodeFlags.None ? FlagsToState[(int)f] : NodeStates[nn]);
+            // flags == 0 ⇒ floating singleton ⇒ hold previous state (matches GetNodeValue's single-node tie-break).
+            SetNodeState(nn, flags != 0 ? FlagsToState[flags] : NodeStates[nn]);
         }
     }
 }

@@ -350,15 +350,24 @@ impl WireCore {
             self.group_flags |= ni.flags;
 
             if ni.tlist_c1c2s != 0 {
+                // ulong dual-pair: two (gate,other) pairs per 64-bit load (transistor_list has +4 pad) — +2.35%
+                // (ported from C# T2; bigger here since Rust has no inline-payload split → every walk uses this).
+                // raw ptr (no borrow) so the recursive &mut self call below is fine; transistor_list is read-only here.
+                let tl = self.transistor_list.as_ptr();
                 let mut p = ni.tlist_c1c2s as usize;
                 loop {
-                    let gate = *self.transistor_list.get_unchecked(p) as i32;
-                    if gate == 0 { break; }
-                    let other = *self.transistor_list.get_unchecked(p + 1) as i32;
-                    p += 2;
-                    if *self.node_states.get_unchecked(gate as usize) != 0 {
-                        self.add_node_to_group(other);
+                    let quad = (tl.add(p) as *const u64).read_unaligned();
+                    let g1 = quad as u16 as i32;
+                    if g1 == 0 { break; }
+                    if *self.node_states.get_unchecked(g1 as usize) != 0 {
+                        self.add_node_to_group((quad >> 16) as u16 as i32);
                     }
+                    let g2 = (quad >> 32) as u16 as i32;
+                    if g2 == 0 { break; }
+                    if *self.node_states.get_unchecked(g2 as usize) != 0 {
+                        self.add_node_to_group((quad >> 48) as u16 as i32);
+                    }
+                    p += 4;
                 }
             }
             if ni.tlist_c1gnd != 0 {

@@ -195,10 +195,38 @@
 <span class="k">int</span> c2b = (<span class="k">ushort</span>)(quad &gt;&gt; 48);   <span class="c">// pair 2 hi</span></pre>
   <p class="en">This one is subtle: it helps the <i>sequential</i> enqueue walk (whose loop/load overhead is <i>not</i> hidden under the random-gather stalls), even though the engine overall is latency-bound. Knowing <i>which</i> part of a loop is latency-bound vs overhead-bound is the whole skill.</p>
   <p class="zh">這招很微妙:它幫到的是<i>循序</i>的入列走訪(它的迴圈/載入開銷<i>沒有</i>被隨機 gather 的 stall 藏住),即使整個引擎是 latency-bound。能分辨「迴圈的哪一段是 latency-bound、哪一段是 overhead-bound」,就是全部的功力所在。</p>
+  <p class="en">The same wide load was later applied to the <i>group-walk</i>'s high-fanout channel list (the long, contiguous walks) for another <b>+1.4%</b>. Interesting twist: it <b>ported to the Rust twin bigger than C# — +2.35%</b>. Rust has no inline-payload split, so <i>every</i> group walk uses the flat transistor list and the wide load applies broadly; on C# only the ~4% high-fanout overflow case reaches the flat list (the common case is already inlined into the node record, §5). The technique is universal; <i>how much</i> it buys depends on how much of the traffic flows through the contiguous path.</p>
+  <p class="zh">同樣的寬讀取後來也用到 <i>group-walk</i> 的高 fanout channel 清單(那些長且連續的走訪)上,再賺 <b>+1.4%</b>。有趣的轉折:它<b>移植到 Rust 雙生引擎比 C# 更大 —— +2.35%</b>。Rust 沒有 inline-payload 拆分,所以<i>每次</i> group walk 都走平坦電晶體清單,寬讀取適用範圍更廣;在 C# 上只有 ~4% 的高 fanout overflow 情況會走到平坦清單(常見情況已內聯進節點記錄,§5)。技巧是通用的;<i>賺多少</i>取決於有多少流量走連續路徑。</p>
 </section>
 
 <section>
-  <h2><span class="en">7. The other half of the skill — measure, and respect the wall</span><span class="zh">7. 功力的另一半 —— 量測,並尊重那道牆</span></h2>
+  <h2><span class="en">7. Technique — keep loop-invariants in registers</span><span class="zh">7. 技巧 —— 把迴圈不變量留在暫存器</span></h2>
+  <p class="en">Once the data is cache-resident, the next cost is purely instruction-level — and the biggest single win of the latest batch (<b>+3.2%</b>) wasn't a layout change at all. The group-BFS reads several <b>static</b> base pointers every iteration (<code>NodeStates</code>, <code>TransistorList</code>, the group buffer, the node array…). A static field is a memory location: the JIT must re-load it each time it can't prove it unchanged, and a function call in the loop body can force exactly that. Hoist them into <b>locals</b> at the top of the method and the JIT keeps them in registers across the whole walk:</p>
+  <p class="zh">資料常駐 cache 之後,下一個成本純粹在指令層 —— 而最新這批最大的單一勝利(<b>+3.2%</b>)根本不是佈局改動。group-BFS 每一輪都讀好幾個<b>靜態</b>基底指標(<code>NodeStates</code>、<code>TransistorList</code>、group buffer、節點陣列…)。靜態欄位就是一個記憶體位置:JIT 只要無法證明它沒變,每次就得重讀,而迴圈體裡的函式呼叫正好會逼出這種重讀。把它們在方法開頭提升成<b>區域變數</b>,JIT 整趟走訪就能把它們放在暫存器:</p>
+<pre><span class="c">// Before: every iteration re-reads the static fields from memory.</span>
+<span class="k">while</span> (readIndex &lt; _groupCount) {
+    <span class="k">int</span> nn = _groupBuf[readIndex++];
+    <span class="k">if</span> (NodeStates[...] != 0) { ...; AddNode(o); }   <span class="c">// call can clobber the JIT's assumptions</span>
+}
+
+<span class="c">// After: hoist statics to locals + manual-inline the add. +3.2%, bit-exact.</span>
+<span class="k">byte</span>* nodeStates = NodeStates;  <span class="k">ushort</span>* groupBuf = _groupBuf;  <span class="k">ushort</span>* transList = TransistorList;
+<span class="k">int</span> gc = _groupCount;  NodeFlags gf = _groupFlags;     <span class="c">// kept in registers the whole walk</span>
+<span class="k">while</span> (readIndex &lt; gc) {
+    <span class="k">int</span> nn = groupBuf[readIndex++];
+    <span class="k">if</span> (nodeStates[...] != 0) { <span class="c">/* dedup + push + flags-OR, inlined — no call */</span> }
+}
+_groupCount = gc;  _groupFlags = gf;                     <span class="c">// write back once at the end</span></pre>
+  <p class="en">A companion trick in the O(1) fast-path resolver: keep the flag accumulation in <b>integer registers</b> instead of an <code>enum</code> / <code>byte</code>. The original cast to a flags enum and accumulated into a <code>byte</code> — both force the JIT through narrowing/widening it can't always fold. Reading the flags as <code>int</code> and OR-ing shifted 0/1 lane results (<code>flags |= anyGnd &lt;&lt; 5</code>) keeps everything in a register and indexes the 256-entry LUT directly — <b>+1.2%</b>, bit-exact.</p>
+  <p class="zh">O(1) fast-path 解析器裡有個搭配技巧:把旗標累加留在<b>整數暫存器</b>,而不是 <code>enum</code> / <code>byte</code>。原本轉成 flags enum、再累加進 <code>byte</code> —— 兩者都逼 JIT 走它不一定折得掉的窄化/寬化。把旗標當 <code>int</code> 讀、OR 進位移後的 0/1 結果(<code>flags |= anyGnd &lt;&lt; 5</code>),全程留在暫存器、直接索引 256 格 LUT —— <b>+1.2%</b>,位元完全相同。</p>
+  <div class="big">
+    <p class="en"><b>Why this is C#-shaped.</b> The hoist is structural to an <i>iterative</i> BFS — there's one stack frame whose locals live across the whole walk. The Rust twin's group walk is <i>recursive</i>, and you can't hoist an invariant across a recursive call boundary (an iterative rewrite there measured −1.3%), so this win doesn't port. The int-register fast-path is a no-op on Rust, which already used <code>u8</code> flags. Same lesson as everywhere on this project: <b>a real win on one compiler can be nothing — or negative — on the other; measure each, never sync blindly.</b></p>
+    <p class="zh"><b>為什麼這是「C# 形狀」的。</b>提升是<i>迭代式</i> BFS 的結構特性 —— 只有一個堆疊框,它的區域變數活過整趟走訪。Rust 雙生引擎的 group walk 是<i>遞迴</i>的,你沒辦法把不變量提升越過遞迴呼叫邊界(在那邊改寫成迭代量到 −1.3%),所以這個勝利無法移植。整數暫存器 fast-path 在 Rust 是 no-op,它本來就用 <code>u8</code> 旗標。和這個專案到處都一樣的教訓:<b>在一個編譯器是真勝利,在另一個可能是零、甚至是負;各自實測,絕不盲目同步。</b></p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">8. The other half of the skill — measure, and respect the wall</span><span class="zh">8. 功力的另一半 —— 量測,並尊重那道牆</span></h2>
   <p class="en">Memory optimization is dense with plausible ideas that are actually noise or worse. The only way to tell is to measure — interleaved-paired (alternate the two builds so thermal drift cancels), bit-exact (same whole-NES checksum), across multiple batches (a single batch can fluke). Things that <i>sounded</i> great and <b>failed</b> on this engine:</p>
   <p class="zh">記憶體優化充滿「聽起來很合理、實際是雜訊或更糟」的點子。唯一的判別方法就是量 —— interleaved-paired(交錯兩個 build 讓溫漂抵消)、bit-exact(整機 checksum 相同)、跨多批(單批會僥倖)。在這顆引擎上<i>聽起來</i>很棒卻<b>失敗</b>的:</p>
   <ul>
@@ -224,6 +252,8 @@
     <li class="zh"><b>為 64-byte line 打包</b>(SoA、struct union、nibble 打包、最窄型別)—— 但只在「陣列大到會溢出某層快取」時才做。</li>
     <li class="en"><b>Make access sequential</b> (flatten graphs, inline the common case) so the prefetcher can hide the latency.</li>
     <li class="zh"><b>讓存取變循序</b>(攤平圖、內聯常見情況),好讓預取器能藏延遲。</li>
+    <li class="en"><b>Hoist loop-invariants into registers</b> (static base pointers → locals; keep accumulators as <code>int</code>, not <code>enum</code>/<code>byte</code>; inline calls out of the loop body). Once data is cache-resident, the instruction stream is the next floor.</li>
+    <li class="zh"><b>把迴圈不變量提升進暫存器</b>(靜態基底指標 → 區域變數;累加器用 <code>int</code> 而非 <code>enum</code>/<code>byte</code>;把呼叫從迴圈體內聯出來)。資料常駐 cache 後,指令流就是下一道地板。</li>
     <li class="en"><b>Measure interleaved-paired, bit-exact, across batches.</b> Half of "obvious" memory wins are noise or regressions. Latency-bound ≠ throughput-bound.</li>
     <li class="zh"><b>用 interleaved-paired、bit-exact、跨批量測。</b>一半「顯而易見」的記憶體優化其實是雜訊或退步。Latency-bound ≠ throughput-bound。</li>
   </ul>

@@ -103,13 +103,13 @@
   <p class="sub en">Transistor-accurate NES (2A03 + 2C02) simulation in software. This site is an experience-sharing / research log; contributions and faster hardware results are very welcome.</p>
   <p class="sub zh">在軟體裡做電晶體精準的 NES(2A03 + 2C02)模擬。這個網站是經驗分享 / 研究筆記,歡迎一起集思廣益,也歡迎在更快的電腦上跑出你的結果。</p>
   <div class="hbtns">
-    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.03/AprVisualBenchMark.zip">
+    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.04/AprVisualBenchMark.zip">
       <span class="en">⬇ Download benchmark</span><span class="zh">⬇ 下載 benchmark 工具</span></a>
     <a class="btn ghost" href="https://github.com/erspicu/AprVisual">
       <span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
   </div>
-  <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.06.03</b> &middot; 2026-06-03 &middot; engine 4c7e938</span><span class="zh">發佈版本 <b>benchmark-2026.06.03</b> &middot; 2026-06-03 &middot; 引擎 4c7e938</span></p>
-  <p class="mut" style="font-size:12.5px; margin-top:6px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-06-03</span> (UTC)</p>
+  <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.06.04</b> &middot; 2026-06-04 &middot; engine b1699b0</span><span class="zh">發佈版本 <b>benchmark-2026.06.04</b> &middot; 2026-06-04 &middot; 引擎 b1699b0</span></p>
+  <p class="mut" style="font-size:12.5px; margin-top:6px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-06-04</span> (UTC)</p>
 </header>
 
 <main>
@@ -306,8 +306,18 @@
 <section id="breakthroughs">
   <h2><span class="kick">02·7</span><span class="en">Major algorithm breakthroughs</span><span class="zh">重大演算法突破</span></h2>
 
-  <p class="en">A short, curated list of the changes that produced the largest <i>verified</i> speedups — every one bit-identical to the reference model (same NodeStates checksum, confirmed pixel-for-pixel on a rendered PPU frame). The two newest headlines — <b>S2-A</b> (cache-conscious data layout) and <b>R-1</b> (dynamic-singleton fast-path) — each broke a ceiling we'd already written up as "reached".</p>
-  <p class="zh">這是一份精選短清單,列出帶來最大、且<i>經驗證</i>加速的改動 —— 每一項都與參考模型位元完全相同(NodeStates checksum 一致,並在實際 PPU 畫格上逐像素確認)。最新的兩個頭條 —— <b>S2-A</b>(cache 導向資料佈局)與 <b>R-1</b>(動態 singleton fast-path)—— 各自突破了我們先前已寫成「已到頂」的天花板。</p>
+  <p class="en">A short, curated list of the changes that produced the largest <i>verified</i> speedups — every one bit-identical to the reference model (same NodeStates checksum, confirmed pixel-for-pixel on a rendered PPU frame). The newest headlines — <b>M-1</b> (register-resident group walk + wide loads), <b>S2-A</b> (cache-conscious data layout) and <b>R-1</b> (dynamic-singleton fast-path) — each broke a ceiling we'd already written up as "reached". The memory-layout techniques behind M-1 and S2-A get a dedicated walk-through in the <a href="cache.html">cache &amp; memory-layout tutorial</a>.</p>
+  <p class="zh">這是一份精選短清單,列出帶來最大、且<i>經驗證</i>加速的改動 —— 每一項都與參考模型位元完全相同(NodeStates checksum 一致,並在實際 PPU 畫格上逐像素確認)。最新的頭條 —— <b>M-1</b>(暫存器常駐 group walk + 寬讀取)、<b>S2-A</b>(cache 導向資料佈局)與 <b>R-1</b>(動態 singleton fast-path)—— 各自突破了我們先前已寫成「已到頂」的天花板。M-1 與 S2-A 背後的記憶體佈局技巧,在<a href="cache.html">cache 與記憶體佈局教學</a>裡有專門的逐步說明。</p>
+
+  <div class="card">
+    <h3 style="margin-top:.6em"><span class="en">★ M-1 — Register-resident group walk + wide loads (C#)</span><span class="zh">★ M-1 —— 暫存器常駐 group walk + 寬讀取(C#)</span> <span class="mut">(2026-06-04)</span></h3>
+    <p class="en"><b>+~6% on C# → ~91K hc/s, widening C#'s lead over Rust to ~9%.</b> A batch of four memory-discipline micro-changes to the two hottest functions, each interleaved-paired and bit-exact.</p>
+    <p class="zh"><b>C# +~6% → ~91K hc/s,把 C# 對 Rust 的領先拉開到 ~9%。</b>對兩個最熱函式做的四項記憶體紀律微改,每項都經 interleaved-paired 驗證、位元完全相同。</p>
+    <p class="en">With S2-A already cache-resident, the remaining cost was instruction-level: the group-BFS re-read its static SoA base pointers (<code>NodeStates</code>, <code>TransistorList</code>, the group buffer…) from memory on every node, and the per-node "add to group" was a separate call. <b>Hoisting those pointers + the group count/flags into locals (so the JIT keeps them in registers across the whole walk) and manual-inlining the add was +3.2%</b> alone. Three more: a <b>ulong dual-pair load</b> reads two <code>(gate,other)</code> transistor entries per 64-bit fetch on the long high-fanout walks (+1.4%); the same wide load in <code>SetNodeState</code>'s fan-out (+1.2%); and keeping the fast-path's flag resolution entirely in <b>integer registers</b> — dropping the enum casts and byte accumulators the JIT couldn't fold (+1.2%).</p>
+    <p class="zh">S2-A 已讓資料常駐 cache 後,剩下的成本在指令層:group-BFS 每處理一個節點都從記憶體重讀它的靜態 SoA 基底指標(<code>NodeStates</code>、<code>TransistorList</code>、group buffer…),而逐節點的「加入 group」是一次獨立呼叫。<b>把那些指標 + group 計數/旗標提升進區域變數(讓 JIT 整趟走訪都把它們放在暫存器)、再手動內聯那個 add,單這項就 +3.2%</b>。另外三項:在長的高 fanout 走訪上用 <b>ulong 雙對讀取</b>,每次 64-bit 抓取讀兩筆 <code>(gate,other)</code> 電晶體(+1.4%);同樣的寬讀取用在 <code>SetNodeState</code> 的 fan-out(+1.2%);以及讓 fast-path 的旗標解析全程留在<b>整數暫存器</b> —— 拿掉 JIT 折不掉的 enum 轉型與 byte 累加器(+1.2%)。</p>
+    <p class="note en"><b>Cross-engine split, as usual:</b> the <b>ulong dual-pair load ported to Rust bigger than on C# (+2.35%)</b> — Rust has no inline-payload split, so <i>every</i> group walk uses the flat list and the wide load applies broadly. But the <b>register-hoist is structural to C#'s iterative BFS</b>: Rust's <code>add_node_to_group</code> is recursive, and hoisting can't span recursion (an iterative rewrite measured −1.3% there), so it doesn't port. The int-register fast-path is a no-op on Rust, which already used <code>u8</code> flags. Net: the gap widened precisely because the biggest C# win is C#-shaped.</p>
+    <p class="note zh"><b>一如往常的跨引擎分歧:</b><b>ulong 雙對讀取移植到 Rust 反而更大(+2.35%)</b> —— Rust 沒有 inline-payload 拆分,所以<i>每次</i> group walk 都走平坦清單,寬讀取適用範圍更廣。但<b>暫存器提升屬於 C# 迭代式 BFS 的結構特性</b>:Rust 的 <code>add_node_to_group</code> 是遞迴的,提升無法跨越遞迴(在那邊改寫成迭代量到 −1.3%),所以無法移植。整數暫存器 fast-path 在 Rust 是 no-op,它本來就用 <code>u8</code> 旗標。結果:差距正因為 C# 最大的勝利是「C# 形狀」的而擴大。</p>
+  </div>
 
   <div class="card">
     <h3 style="margin-top:.6em"><span class="en">★ S2-A — Inline node adjacency (C# data-layout)</span><span class="zh">★ S2-A —— 節點鄰接內聯(C# 資料佈局)</span> <span class="mut">(2026-06-01)</span></h3>
@@ -347,8 +357,8 @@
       <span class="en">+0.6% on C# by removing a per-gate branch; −3.2% on Rust, so kept C#-only — a clean example of the cross-engine divergence below.</span>
       <span class="zh">移除每個 gate 的分支,C# +0.6%;Rust −3.2%,故只在 C# 採用 —— 下方「跨引擎反號」的乾淨例子。</span></li>
   </ul>
-  <p class="mut en">Each entry is backed by per-change interleaved-paired A/B numbers and checksums in the repository's optimization notes. R-1 narrowed the gap to NES real-time from ~645× to ~550× — still far off, but the ceiling moved. Run the benchmark on your own CPU and the version stamp (engine + git commit + date) is recorded with your result on the leaderboard.</p>
-  <p class="mut zh">每一項都有 repo 優化筆記裡逐項的 interleaved-paired A/B 數字與 checksum 佐證。R-1 把距 NES 即時的差距從 ~645× 縮到 ~550× —— 依然很遠,但天花板移動了。在你自己的 CPU 上跑 benchmark,版本戳記(引擎 + git commit + 日期)會跟著你的結果記在排行榜上。</p>
+  <p class="mut en">Each entry is backed by per-change interleaved-paired A/B numbers and checksums in the repository's optimization notes. R-1 narrowed the gap to NES real-time from ~645× to ~550×, and the memory-layout wins since took C# to ~473× — still far off, but the ceiling keeps moving. Run the benchmark on your own CPU and the version stamp (engine + git commit + date) is recorded with your result on the leaderboard.</p>
+  <p class="mut zh">每一項都有 repo 優化筆記裡逐項的 interleaved-paired A/B 數字與 checksum 佐證。R-1 把距 NES 即時的差距從 ~645× 縮到 ~550×,之後一連串記憶體佈局優化再把 C# 推到 ~473× —— 依然很遠,但天花板持續在移動。在你自己的 CPU 上跑 benchmark,版本戳記(引擎 + git commit + 日期)會跟著你的結果記在排行榜上。</p>
   <div class="big" style="margin-top:16px">
     <p class="en"><b>New tutorial — learn the techniques.</b> The two biggest levers above — S2-A's inline layout and the hot-data shrink/SoA — are both really about <i>feeding the cache</i>. We wrote a hands-on walkthrough of the <b>L1/L2/L3 cache concepts</b> and the exact <b>C# memory tricks</b> (struct packing, narrowest element types, flattened adjacency, wide loads), each shown with the <b>real engine code</b> and its measured result — including the ones that backfired. → <a href="cache.html"><b>Memory &amp; L-cache optimization, by example</b></a></p>
     <p class="zh"><b>新教學 —— 學會這些技巧。</b>上面兩個最大的槓桿 —— S2-A 的內聯佈局、熱資料縮減/SoA —— 本質都是<i>餵飽快取</i>。我們寫了一篇實作向導,講 <b>L1/L2/L3 快取觀念</b> 與確切的 <b>C# 記憶體技巧</b>(struct 打包、最窄元素型別、攤平鄰接、寬載入),每一招都附<b>真實引擎程式碼</b>與實測結果 —— 包含那些反效果的。→ <a href="cache.html"><b>記憶體與 L-cache 優化(用我們的 code 當例子)</b></a></p>
@@ -376,13 +386,13 @@
   <p class="zh">從第一天就知道 realtime 達不到。但引擎快到一個程度後,它就跨進「真正可用、可驗證的工具」這個門檻了。以下是我們在開發機上的實際跑分(本節下方的截圖),測試 <code>full_palette</code> 的 300,000 個 master half-cycle:</p>
 
   <div class="stat">
-    <div class="box"><div class="n">85.2K</div><div class="l"><span class="en">C# — hc/s &middot; 8.39 s/frame</span><span class="zh">C# — hc/s &middot; 8.39 秒/frame</span></div></div>
-    <div class="box"><div class="n">79.4K</div><div class="l"><span class="en">Rust — hc/s &middot; 9.00 s/frame</span><span class="zh">Rust — hc/s &middot; 9.00 秒/frame</span></div></div>
-    <div class="box"><div class="n">504&times;</div><div class="l"><span class="en">C# gap to real-time (0.198%)</span><span class="zh">C# 離實機(占 0.198%)</span></div></div>
-    <div class="box"><div class="n">541&times;</div><div class="l"><span class="en">Rust gap to real-time (0.185%)</span><span class="zh">Rust 離實機(占 0.185%)</span></div></div>
+    <div class="box"><div class="n">90.9K</div><div class="l"><span class="en">C# — hc/s &middot; 7.86 s/frame</span><span class="zh">C# — hc/s &middot; 7.86 秒/frame</span></div></div>
+    <div class="box"><div class="n">83.3K</div><div class="l"><span class="en">Rust — hc/s &middot; 8.58 s/frame</span><span class="zh">Rust — hc/s &middot; 8.58 秒/frame</span></div></div>
+    <div class="box"><div class="n">473&times;</div><div class="l"><span class="en">C# gap to real-time (0.212%)</span><span class="zh">C# 離實機(占 0.212%)</span></div></div>
+    <div class="box"><div class="n">516&times;</div><div class="l"><span class="en">Rust gap to real-time (0.194%)</span><span class="zh">Rust 離實機(占 0.194%)</span></div></div>
   </div>
-  <p class="en">On this machine C# now renders a frame in <b>8.39 s</b> and Rust in <b>9.00 s</b> (both engines produce a bit-identical result on the same cart config — same checksum <code>0x794A43ABDF169ADA</code>). The R-1 dynamic-singleton fast-path lifted both to ~78K; <b>S2-A inline-adjacency</b> then a <b>ulong dual-pair load</b> in the enqueue walk pushed C# to <b>~85K hc/s</b>, so C# now leads by ~7% — those are C#-only (they measured neutral/negative on Rust's already-tighter LLVM codegen). NES NTSC real-time still needs 42,954,552 hc/s, so C# is ~504&times; short; that remaining gap is exactly why outside ideas and faster machines are valuable.</p>
-  <p class="zh">在這台機器上,C# 現在算一張 frame 要 <b>8.39 秒</b>、Rust 要 <b>9.00 秒</b>(兩個引擎在相同卡帶設定下輸出位元完全相同 —— checksum 同為 <code>0x794A43ABDF169ADA</code>)。R-1 動態 singleton fast-path 把兩個引擎拉到 ~78K;<b>S2-A 節點鄰接內聯</b>再加上 enqueue walk 的 <b>ulong 雙對讀取</b>把 C# 推到 <b>~85K hc/s</b>,於是 C# 現在領先約 7% —— 這些僅限 C#(在 Rust 已更緊的 LLVM codegen 上實測為持平/負)。NES NTSC 實機仍需每秒 42,954,552 個 hc,所以 C# 還差約 <b>504 倍</b>;這個剩下的差距,正是外部點子與更快機器有價值的原因。</p>
+  <p class="en">On this machine C# now renders a frame in <b>7.86 s</b> and Rust in <b>8.58 s</b> (both engines produce a bit-identical result on the same cart config — same checksum <code>0x794A43ABDF169ADA</code>). The R-1 dynamic-singleton fast-path lifted both to ~78K; <b>S2-A inline-adjacency</b> and a series of memory-layout wins — a <b>ulong dual-pair load</b> in the group walk, <b>hoisting the SoA pointers into registers + manual-inlining the per-node add</b>, and keeping the fast-path resolution in <b>integer registers</b> — pushed C# to <b>~91K hc/s</b>. Rust took the dual-pair load (it ports <i>bigger</i> there: +2.35%, since every Rust group walk uses the flat list) to <b>~83K hc/s</b>; the register-hoist win is structural to C#'s iterative BFS and doesn't carry to Rust's recursive walk, so C# now leads by <b>~9%</b>. NES NTSC real-time still needs 42,954,552 hc/s, so C# is ~473&times; short; that remaining gap is exactly why outside ideas and faster machines are valuable.</p>
+  <p class="zh">在這台機器上,C# 現在算一張 frame 要 <b>7.86 秒</b>、Rust 要 <b>8.58 秒</b>(兩個引擎在相同卡帶設定下輸出位元完全相同 —— checksum 同為 <code>0x794A43ABDF169ADA</code>)。R-1 動態 singleton fast-path 把兩個引擎拉到 ~78K;<b>S2-A 節點鄰接內聯</b>再加上一系列記憶體佈局優化 —— group walk 的 <b>ulong 雙對讀取</b>、把 SoA 指標<b>提升進暫存器並手動內聯逐節點 add</b>、以及讓 fast-path 解析全程留在<b>整數暫存器</b> —— 把 C# 推到 <b>~91K hc/s</b>。Rust 採用了雙對讀取(在它身上效益<i>更大</i>:+2.35%,因為 Rust 每次 group walk 都走平坦清單)到 <b>~83K hc/s</b>;暫存器提升那項屬於 C# 迭代式 BFS 的結構性優化,無法移植到 Rust 的遞迴走訪,所以 C# 現在領先約 <b>9%</b>。NES NTSC 實機仍需每秒 42,954,552 個 hc,所以 C# 還差約 <b>473 倍</b>;這個剩下的差距,正是外部點子與更快機器有價值的原因。</p>
 
   <div class="card">
     <h3 style="margin-top:.6em"><span class="en">The machine these numbers came from</span><span class="zh">這些數字來自的機器</span></h3>
@@ -398,9 +408,9 @@
   <div class="card" style="text-align:center;">
     <p class="en" style="margin-top:14px"><b>Have a faster CPU? Run the benchmark and share your numbers.</b> The package is portable, self-contained (no .NET install), and ships both the C# and Rust engines for Windows + macOS (Apple Silicon).</p>
     <p class="zh" style="margin-top:14px"><b>有更快的 CPU 嗎?跑跑看 benchmark,分享你的數字。</b>套件是可攜、自包含的(不用裝 .NET),同時附上 C# 與 Rust 引擎,支援 Windows + macOS(Apple Silicon)。</p>
-    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.03/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
+    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.04/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
        &nbsp; <a class="btn ghost" href="https://github.com/erspicu/AprVisual/releases"><span class="en">All releases</span><span class="zh">所有版本</span></a></p>
-    <p class="mut" style="font-size:12.5px; margin-top:2px"><span class="en">Latest release: <b>benchmark-2026.06.03</b> &middot; engine <code>4c7e938</code> &middot; released 2026-06-03 &middot; multi-file self-contained (no single .exe) &middot; C# ~85K (leads ~7%) / Rust ~79K hc/s</span><span class="zh">最新發佈:<b>benchmark-2026.06.03</b> &middot; 引擎 <code>4c7e938</code> &middot; 發佈於 2026-06-03 &middot; 多檔 self-contained(非單一 .exe)&middot; C# ~85K(領先約 7%)/ Rust ~79K hc/s</span></p>
+    <p class="mut" style="font-size:12.5px; margin-top:2px"><span class="en">Latest release: <b>benchmark-2026.06.04</b> &middot; engine <code>b1699b0</code> &middot; released 2026-06-04 &middot; multi-file self-contained (no single .exe) &middot; C# ~91K (leads ~9%) / Rust ~83K hc/s</span><span class="zh">最新發佈:<b>benchmark-2026.06.04</b> &middot; 引擎 <code>b1699b0</code> &middot; 發佈於 2026-06-04 &middot; 多檔 self-contained(非單一 .exe)&middot; C# ~91K(領先約 9%)/ Rust ~83K hc/s</span></p>
     <p style="margin-top:4px"><a href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2);font-weight:600">
        <span class="en">📊 Then upload your result to the community leaderboard ↗</span><span class="zh">📊 跑完把結果上傳到社群排行榜 ↗</span></a></p>
   </div>
@@ -424,8 +434,8 @@
     <tr><td>perfect6502</td><td><span class="en">6502 NMOS netlist (C)</span><span class="zh">6502 NMOS netlist(C)</span></td><td><span class="en">~1/30 of 1MHz 6502 on a 2025 CPU</span><span class="zh">2025 CPU 上約 1MHz 6502 的 1/30</span></td><td><span class="mut">n/a (CPU only)</span></td></tr>
     <tr><td>Visual NES</td><td><span class="en">Visual 2A03 + 2C02 (C++/C#)</span><span class="zh">Visual 2A03 + 2C02(C++/C#)</span></td><td><span class="en">~5000Hz (dual-chip), ~7500Hz after data shrink + PGO (2017, old i5)</span><span class="zh">~5000Hz(雙晶片),縮資料 + PGO 後 ~7500Hz(2017,舊 i5)</span></td><td>~30–60 s</td></tr>
     <tr><td>MetalNES</td><td><span class="en">full NES-001 board, transistor-level</span><span class="zh">完整 NES-001 主機板,電晶體級</span></td><td><span class="en">user/press reports (not a benchmark)</span><span class="zh">使用者/媒體轉述(非 benchmark)</span></td><td>~1–2 min</td></tr>
-    <tr class="me"><td><b>AprVisual S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>85.2K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>8.39 s</td></tr>
-    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>79.4K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>9.00 s</td></tr>
+    <tr class="me"><td><b>AprVisual S1 (C#)</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>90.9K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>7.86 s</td></tr>
+    <tr class="me"><td><b>AprVisual rust-s1</b></td><td><span class="en">NES switch-level, pure BFS</span><span class="zh">NES 開關級,純 BFS</span></td><td><b>83.3K hc/s</b> <span class="mut">(this machine, 300k hc)</span></td><td>8.58 s</td></tr>
   </table>
 
   <h3><span class="en">Takeaways</span><span class="zh">幾個結論</span></h3>

@@ -123,21 +123,26 @@ namespace AprVisual.Sim
             {
                 // S2-A: read the c1c2 gates from the inline payload (one cache line, no chase) when
                 // available; high-fanout nodes (Inline==0) fall back to the TransistorList scan.
+                // goto-flatten: no `bool grows` flag + merge — jump straight to the BFS on the first conducting
+                // gate, else RecalcNodeFast. Measured +~0.5% (4 interleaved-paired batches, 47/72 wins, bit-exact):
+                // dropping the flag/merge lets the JIT emit a cleaner dispatch exit. (The sibling ideas tested
+                // alongside this — unrolling the tiny inline/group loops, ulong on the rare overflow path — all
+                // measured neutral/negative; only the flatten helped.)
                 NodeInfo* ns = NodeInfos + nn;
-                bool grows = false;
                 if (ns->Inline != 0)
                 {
                     ushort* pay = ns->InlinePayload;         // [c1c2 pairs ...] — gates at even offsets
                     int n2 = ns->C1c2Count << 1;
-                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) { grows = true; break; } }
+                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) goto FallbackBFS; }
                 }
                 else
                 {
                     ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
-                    while (*p != 0) { if (NodeStates[*p] != 0) { grows = true; break; } p += 2; }
+                    while (*p != 0) { if (NodeStates[*p] != 0) goto FallbackBFS; p += 2; }
                 }
-                if (!grows) { RecalcNodeFast(nn); return; }
+                RecalcNodeFast(nn); return;
             }
+        FallbackBFS:
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 

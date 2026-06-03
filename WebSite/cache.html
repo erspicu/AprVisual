@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — C# memory &amp; L-cache optimization (with our code)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:10px; padding:14px 16px; overflow-x:auto;
+      font-size:12.5px; line-height:1.55; font-family:Consolas,"SF Mono",monospace; margin:12px 0;}
+  pre .c{color:#6f7b88;}  /* comment */  pre .k{color:#4ea1ff;} /* keyword */  pre .n{color:#ffd479;} /* number/name */
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Memory &amp; L-cache optimization, by example</span><span class="zh">記憶體與 L-cache 優化(用我們的 code 當例子)</span></h1>
+  <p class="sub en">AprVisual's switch-level engine isn't limited by how fast the CPU computes — it's limited by how fast memory feeds it. Hardware counters say the hot loop suffers <b>~805 data-cache misses for every instruction-cache miss</b>: it spends its life waiting on the cache hierarchy, not the ALU. This page is a practical tour of the <b>L1/L2/L3 cache concepts</b> that matter and the <b>concrete C# techniques</b> we used to shrink and reshape data so it fits — each one shown with the real engine code and the measured result. Including the ones that <i>didn't</i> work, and why.</p>
+  <p class="sub zh">AprVisual 的開關級引擎瓶頸不在「CPU 算多快」,而在「記憶體餵多快」。硬體計數器顯示熱迴圈<b>每 1 次指令快取 miss 就吃 ~805 次資料快取 miss</b>:它一輩子都在等快取層級,不是等 ALU。這頁用實務角度帶你看重要的 <b>L1/L2/L3 快取觀念</b>,以及我們實際用來「把資料縮小、重排到能塞進快取」的 <b>C# 技巧</b> —— 每一招都附上真實引擎程式碼與實測結果,包含那些<i>沒效</i>的,以及為什麼。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">0. Why memory, not compute</span><span class="zh">0. 為什麼是記憶體,不是運算</span></h2>
+  <p class="en">The engine walks tiny groups of connected transistors ~83,000 times a second, reading per-node records by scattered node id. We profiled it with hardware performance counters (PerfView/ETW PMU on a Ryzen 7 3700X). The hot method's miss profile:</p>
+  <p class="zh">引擎每秒走 ~83,000 次「連通電晶體小群組」,以散亂的 node id 讀取每節點記錄。我們用硬體效能計數器量它(Ryzen 7 3700X 上的 PerfView/ETW PMU)。熱方法的 miss 分布:</p>
+  <table>
+    <tr><th><span class="en">counter (hot method)</span><span class="zh">計數器(熱方法)</span></th><th>per 1000 instr</th><th><span class="en">meaning</span><span class="zh">意義</span></th></tr>
+    <tr><td><b>D-cache misses</b></td><td class="num">~50</td><td><span class="en">~1 every 20 cycles — <b>dominant</b></span><span class="zh">~每 20 cycle 一次 —— <b>主導</b></span></td></tr>
+    <tr><td>Branch mispredicts</td><td class="num">~6</td><td><span class="en">secondary</span><span class="zh">次要</span></td></tr>
+    <tr><td><b>I-cache misses</b></td><td class="num">~0.8</td><td><span class="en">noise floor (the 4.6 KB loop fits L1i)</span><span class="zh">雜訊底(4.6 KB 迴圈塞得進 L1i)</span></td></tr>
+  </table>
+  <p class="en"><b>D-cache : I-cache ≈ 805 : 1.</b> So <i>code</i> optimizations (unrolling, branchless tricks, fancy codegen) barely move the needle — the CPU is stalled on <i>data</i>. The entire game is getting the right bytes into the right cache level. That is what every technique below is about.</p>
+  <p class="zh"><b>D-cache : I-cache ≈ 805 : 1。</b>所以<i>程式碼</i>層級的優化(展開、無分支技巧、花俏 codegen)幾乎沒用 —— CPU 是卡在等<i>資料</i>。整場遊戲就是「把對的 bytes 放進對的快取層級」。下面每一招都是在做這件事。</p>
+</section>
+
+<section>
+  <h2><span class="en">1. L-cache in five minutes</span><span class="zh">1. 五分鐘看懂 L-cache</span></h2>
+  <p class="en">A modern CPU core can't reach RAM directly at speed; it has a hierarchy of small, fast caches in front of it. Rough Zen 2 numbers:</p>
+  <p class="zh">現代 CPU 核心不能全速直接碰 RAM;它前面有一層層又小又快的快取。Zen 2 的粗略數字:</p>
+  <table>
+    <tr><th>level</th><th>size</th><th><span class="en">latency</span><span class="zh">延遲</span></th><th><span class="en">scope</span><span class="zh">範圍</span></th></tr>
+    <tr><td><b>L1d</b></td><td class="num">32 KB</td><td class="num">~4–5 cyc</td><td><span class="en">per core</span><span class="zh">每核</span></td></tr>
+    <tr><td><b>L2</b></td><td class="num">512 KB</td><td class="num">~12 cyc</td><td><span class="en">per core</span><span class="zh">每核</span></td></tr>
+    <tr><td><b>L3</b></td><td class="num">~16–32 MB</td><td class="num">~40 cyc</td><td><span class="en">shared</span><span class="zh">共享</span></td></tr>
+    <tr><td><b>DRAM</b></td><td class="num">GBs</td><td class="num">~200–300 cyc</td><td>—</td></tr>
+  </table>
+  <p class="en">Five facts that drive every decision on this page:</p>
+  <p class="zh">驅動這頁所有決策的五個事實:</p>
+  <ul>
+    <li class="en"><b>Memory moves in 64-byte cache lines.</b> Touch one byte, you pay for the whole line. So <i>what sits next to your hot byte matters.</i></li>
+    <li class="zh"><b>記憶體以 64-byte cache line 為單位搬移。</b>碰一個 byte,就付一整條 line 的代價。所以<i>你的熱 byte 旁邊放了什麼,很重要。</i></li>
+    <li class="en"><b>Working set vs cache size.</b> If the data you keep re-touching fits in L1d, accesses are ~free. Once it spills to L2/L3, every random access is a stall. <b>Shrinking data only helps if it moves you across one of these thresholds.</b></li>
+    <li class="zh"><b>工作集 vs 快取大小。</b>你反覆碰的資料若塞得進 L1d,存取近乎免費;一旦溢出到 L2/L3,每次隨機存取都是 stall。<b>縮小資料只有在「讓你跨過某個門檻」時才有用。</b></li>
+    <li class="en"><b>Sequential beats random.</b> Hardware prefetchers predict <i>contiguous</i> access and fetch ahead, hiding the latency. Random pointer-chasing defeats them — every hop is a fresh miss.</li>
+    <li class="zh"><b>循序勝過隨機。</b>硬體預取器會預測<i>連續</i>存取並提前抓,藏掉延遲;隨機指標追逐則打敗它 —— 每一跳都是新的 miss。</li>
+    <li class="en"><b>Misses can overlap (MLP).</b> The out-of-order engine can keep ~10+ independent misses in flight at once. If your misses are independent, the hardware already overlaps them — you can't "prefetch" your way to more.</li>
+    <li class="zh"><b>Miss 可以重疊(MLP)。</b>亂序引擎能同時讓 ~10+ 個獨立 miss 在飛;若你的 miss 彼此獨立,硬體早就重疊了 —— 你沒辦法靠「再多 prefetch」榨出更多。</li>
+    <li class="en"><b>Fewer misses ≠ fewer cycles.</b> When you're <i>latency</i>-bound on a dependency chain, cutting miss <i>count</i> doesn't linearly cut time. (We measured exactly this — see §6.)</li>
+    <li class="zh"><b>Miss 變少 ≠ cycle 變少。</b>當你被相依鏈的<i>延遲</i>綁住,減少 miss <i>數量</i>不會等比例減少時間。(我們實測到了 —— 見 §6。)</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">2. Technique — Structure of Arrays (split hot from cold)</span><span class="zh">2. 技巧 —— SoA 結構體陣列(熱冷分離)</span></h2>
+  <p class="en">The classic mistake (Array of Structures, AoS): one fat struct per node with every field. When the hot loop reads just one field, the cache line it pulls in is mostly cold fields you won't use — wasted bandwidth, fewer useful records per line. <b>SoA</b> splits the fields into parallel arrays so a line holds only what you're touching.</p>
+  <p class="zh">經典錯誤(AoS,陣列結構體):每個節點一個塞滿所有欄位的胖結構。熱迴圈只讀其中一個欄位時,拉進來的 cache line 大半是用不到的冷欄位 —— 浪費頻寬、每條 line 裝得下的有用記錄變少。<b>SoA</b> 把欄位拆成平行陣列,讓一條 line 只裝你正在碰的東西。</p>
+  <p class="en">We keep a 16-byte hot record per node, and split the rarely-read fields into their own arrays so they never evict hot lines:</p>
+  <p class="zh">我們每節點留一個 16-byte 的熱記錄,把很少讀的欄位拆成獨立陣列,讓它們永遠不會擠掉熱的 line:</p>
+<pre><span class="c">// Hot: read on every BFS visit. 16 bytes -&gt; 4 records per 64-byte cache line.</span>
+<span class="k">public static</span> NodeInfo* NodeInfos;
+
+<span class="c">// Cold: split out. Touched only on rare paths, so they never pollute the hot lines.</span>
+<span class="k">public static int</span>* NodeConnections;  <span class="c">// only the (rare) floating tie-break reads this</span>
+<span class="k">public static int</span>* NodeTlistGates;   <span class="c">// only SetNodeState's fanout writeback reads this</span></pre>
+  <p class="en">Same data, but the bytes the BFS hammers are now dense — more useful nodes per fetched line, fewer lines, fewer misses.</p>
+  <p class="zh">同樣的資料,但 BFS 猛敲的那些 bytes 現在很密 —— 每抓一條 line 有更多有用節點、line 更少、miss 更少。</p>
+</section>
+
+<section>
+  <h2><span class="en">3. Technique — pack the hot struct (32 B → 16 B)</span><span class="zh">3. 技巧 —— 把熱結構打包(32 B → 16 B)</span></h2>
+  <p class="en">The hot record above is 16 bytes <i>on purpose</i>: a 64-byte cache line then holds exactly <b>four</b> nodes. We got there from 32 bytes with an explicit-layout <b>union</b> — overlapping two views of the same 12 bytes, plus packing two small counts into nibbles of one byte:</p>
+  <p class="zh">上面那個熱記錄<i>刻意</i>做成 16 bytes:這樣一條 64-byte cache line 剛好裝<b>四個</b>節點。我們用 explicit-layout <b>union</b> 從 32 bytes 縮下來 —— 讓同 12 bytes 有兩種疊放的 view,再把兩個小計數塞進一個 byte 的高低 nibble:</p>
+<pre>[StructLayout(LayoutKind.Explicit, <span class="n">Size = 16</span>)]   <span class="c">// 4 per 64-byte line</span>
+<span class="k">internal unsafe struct</span> NodeInfo {
+    [FieldOffset(0)] <span class="k">public</span> NodeFlags Flags;
+    [FieldOffset(1)] <span class="k">public byte</span> Inline;        <span class="c">// 1 = gates live inline (below); 0 = use the Tlist indices</span>
+    [FieldOffset(2)] <span class="k">public byte</span> C1c2Count;
+    [FieldOffset(3)] <span class="k">public byte</span> GndPwr;        <span class="c">// TWO 4-bit counts packed into one byte (nibbles)</span>
+
+    <span class="c">// 12-byte union @ offset 4: a node uses EITHER the inline gates OR the 3 list indices.</span>
+    [FieldOffset(4)]  <span class="k">public fixed ushort</span> InlinePayload[6];  <span class="c">// small-fanout: gates stored right here</span>
+    [FieldOffset(4)]  <span class="k">public int</span> TlistC1c2s;   <span class="c">// high-fanout: index into the flat TransistorList</span>
+    [FieldOffset(8)]  <span class="k">public int</span> TlistC1gnd;
+    [FieldOffset(12)] <span class="k">public int</span> TlistC1pwr;
+}</pre>
+  <div class="big">
+    <p class="en"><b>Measured:</b> 32→16 B halved the array (<span class="num">460 KB → 230 KB</span>) and cut hot-method D-cache misses by <b>~7%</b> (A/B, bit-exact). Net throughput <b>+0.75%</b>.</p>
+    <p class="zh"><b>實測:</b>32→16 B 把陣列砍半(<span class="num">460 KB → 230 KB</span>),熱方法 D-cache miss 降 <b>~7%</b>(A/B、bit-exact),吞吐量淨 <b>+0.75%</b>。</p>
+  </div>
+  <div class="note">
+    <p class="en"><b>The discipline (this is the important part):</b> shrinking only pays when it moves the array across a cache threshold. <code>NodeInfos</code> at 460 KB spilled L2, so halving it helped. When we tried the same int→ushort shrink on a <i>different</i> array that already fit in L1d, it was pure noise — there was no threshold left to cross. <b>Always measure; "smaller" is not automatically "faster."</b></p>
+    <p class="zh"><b>紀律(這才是重點):</b>縮小只有在「讓陣列跨過某個快取門檻」時才划算。<code>NodeInfos</code> 在 460 KB 會溢出 L2,所以砍半有用;但我們把同樣的 int→ushort 用在一個<i>本來就塞得進 L1d</i> 的陣列上,結果是純雜訊 —— 沒有門檻可跨了。<b>一定要量;「比較小」不等於「比較快」。</b></p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">4. Technique — pick the narrowest element type</span><span class="zh">4. 技巧 —— 選最窄的元素型別</span></h2>
+  <p class="en">A scratch array of <code>int</code> when the values are only 0/1, or only ever node ids below 65,535, is 2–4× bigger than it needs to be — and that's 2–4× more cache lines and L1d pressure. We size every hot array to its actual value range:</p>
+  <p class="zh">當值只有 0/1、或只會是小於 65,535 的 node id,卻用 <code>int</code> 開 scratch 陣列,就比需要的大 2–4 倍 —— 等於多 2–4 倍的 cache line 與 L1d 壓力。我們把每個熱陣列都壓到它真正的值域:</p>
+<pre><span class="k">public static ushort</span>* TransistorList;  <span class="c">// node ids &lt; 65K -&gt; u16 not int: 697 KB -&gt; 350 KB</span>
+<span class="k">public static byte</span>*   RecalcHash;      <span class="c">// dirty flag, 0/1 only -&gt; byte not int: 58 KB -&gt; 14 KB (now fits L1d)</span>
+<span class="k">private static ushort</span>* _groupBuf;      <span class="c">// node ids in current group -&gt; u16: 29 KB vs 58 KB</span>
+<span class="k">private static byte</span>*   _inGroup;        <span class="c">// per-node "in group?" flag, 0/1 -&gt; byte: 14 KB</span></pre>
+  <p class="en">The two byte arrays (<code>RecalcHash</code>, <code>_inGroup</code>) are touched constantly during settling; getting them down to 14 KB each means they live <i>resident in L1d</i> right alongside <code>NodeStates</code> — the difference between a 4-cycle hit and a 40-cycle L3 trip, every access.</p>
+  <p class="zh">那兩個 byte 陣列(<code>RecalcHash</code>、<code>_inGroup</code>)在收斂時被狂碰;壓到各 14 KB 表示它們能和 <code>NodeStates</code> 一起<i>常駐 L1d</i> —— 每次存取就是「4 cycle 命中」與「40 cycle 跑 L3」的差別。</p>
+  <div class="note">
+    <p class="en"><b>Caveat that bit us:</b> a narrow type can be <i>slower</i> if every access needs a widening conversion in a tight loop and the array was already cache-resident. We tried <code>u16</code> for the group buffer on the Rust twin — the per-access <code>as u16 / as i32</code> conversions cost more than the (already-zero) cache benefit: <span class="tagN">−2.4%</span>. Narrow the big spilling arrays, not the tiny resident ones.</p>
+    <p class="zh"><b>咬過我們的陷阱:</b>窄型別若在緊迴圈裡每次存取都要做擴展轉型、而且陣列本來就常駐快取,反而會<i>更慢</i>。我們在 Rust 雙生引擎上把 group buffer 改 <code>u16</code> —— 每次 <code>as u16 / as i32</code> 轉型的成本蓋過了(本來就是零的)快取好處:<span class="tagN">−2.4%</span>。要縮的是「會溢出的大陣列」,不是「已常駐的小陣列」。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">5. Technique — flatten the graph + inline the common case</span><span class="zh">5. 技巧 —— 把圖攤平 + 把常見情況內聯</span></h2>
+  <p class="en">A netlist is a graph. The naive representation — each node holding a <code>List&lt;Transistor&gt;</code> of heap objects — is a <i>pointer-chasing nightmare</i>: every neighbour is a random heap address, every hop a fresh cache miss, and the prefetcher is blind. Instead we flatten the whole adjacency into one big array of <b>0-terminated sub-lists</b>:</p>
+  <p class="zh">netlist 是一張圖。最天真的表示法 —— 每個節點持有一個 <code>List&lt;Transistor&gt;</code> 的堆物件 —— 是<i>指標追逐的惡夢</i>:每個鄰居都是隨機堆位址、每跳一次新的 cache miss、預取器完全瞎掉。我們改成把整個鄰接攤平成一個大陣列,內含<b>以 0 結尾的子清單</b>:</p>
+<pre><span class="c">// One big array; a node's neighbours are CONTIGUOUS -&gt; the prefetcher streams them.</span>
+<span class="k">var</span> tl = <span class="k">new</span> List&lt;<span class="k">int</span>&gt; { 0 };   <span class="c">// index 0 = shared sentinel/terminator</span>
+<span class="k">int</span> AddSubList(List&lt;<span class="k">int</span>&gt; sub) { <span class="k">int</span> i = tl.Count; tl.AddRange(sub); tl.Add(0); <span class="k">return</span> i; }
+<span class="c">// A node just stores an int index into `tl`; walking its neighbours is a linear scan.</span></pre>
+  <p class="en">Walking a node's channels is now a <i>sequential</i> scan of adjacent <code>ushort</code>s — exactly what hardware prefetchers love. And we go one step further: for the common small-fanout node, the gates are stored <b>inline in the 16-byte record itself</b> (the union in §3). That means the single cache line you already fetched to read the node's flags <i>also</i> contains its neighbours — zero extra misses for ~96% of nodes.</p>
+  <p class="zh">走一個節點的通道,現在是對相鄰 <code>ushort</code> 的<i>循序</i>掃描 —— 正是硬體預取器最愛的。而且我們再進一步:對常見的小扇出節點,gate 直接<b>內聯存在那個 16-byte 記錄裡</b>(§3 的 union)。意思是「你為了讀節點 flags 而已經抓進來的那一條 cache line」<i>同時</i>就含著它的鄰居 —— 約 96% 的節點完全不用多一次 miss。</p>
+</section>
+
+<section>
+  <h2><span class="en">6. Technique — unmanaged memory + wide loads</span><span class="zh">6. 技巧 —— 非託管記憶體 + 寬載入</span></h2>
+  <p class="en">All the hot arrays are <b>unmanaged</b> (<code>NativeMemory.AlignedAlloc</code>, raw <code>byte*</code>/<code>ushort*</code>/<code>int*</code>). Two wins: <b>(a)</b> zero GC — no managed object headers between our data, no gen-2 scans walking it; <b>(b)</b> raw-pointer access skips array bounds-checks in the hot loop. The data is exactly the bytes we want, nothing else in the lines.</p>
+  <p class="zh">所有熱陣列都是<b>非託管</b>(<code>NativeMemory.AlignedAlloc</code>、裸 <code>byte*</code>/<code>ushort*</code>/<code>int*</code>)。兩個好處:<b>(a)</b> 零 GC —— 資料之間沒有託管物件標頭、沒有 gen-2 掃描來爬它;<b>(b)</b> 裸指標存取省掉熱迴圈的陣列邊界檢查。line 裡就是我們要的那些 bytes,沒有別的。</p>
+  <p class="en">On top of that, when the data <i>is</i> contiguous, read it wide. The fanout walk reads two <code>(gate,other)</code> pairs — four <code>ushort</code>s — in a single 64-bit load instead of four separate ones:</p>
+  <p class="zh">在這之上,當資料<i>確實</i>連續時,就寬讀。扇出走訪一次讀兩組 <code>(gate,other)</code> —— 四個 <code>ushort</code> —— 用單一 64-bit 載入,而不是分四次:</p>
+<pre><span class="c">// Read 4 ushorts in ONE 64-bit load (x64 little-endian). +1.2%, bit-exact.</span>
+<span class="k">ulong</span> quad = Unsafe.ReadUnaligned&lt;<span class="k">ulong</span>&gt;(p);
+<span class="k">int</span> c1a = (<span class="k">ushort</span>)quad;          <span class="c">// pair 1 lo</span>
+<span class="k">int</span> c2a = (<span class="k">ushort</span>)(quad &gt;&gt; 16);   <span class="c">// pair 1 hi</span>
+<span class="k">int</span> c1b = (<span class="k">ushort</span>)(quad &gt;&gt; 32);   <span class="c">// pair 2 lo</span>
+<span class="k">int</span> c2b = (<span class="k">ushort</span>)(quad &gt;&gt; 48);   <span class="c">// pair 2 hi</span></pre>
+  <p class="en">This one is subtle: it helps the <i>sequential</i> enqueue walk (whose loop/load overhead is <i>not</i> hidden under the random-gather stalls), even though the engine overall is latency-bound. Knowing <i>which</i> part of a loop is latency-bound vs overhead-bound is the whole skill.</p>
+  <p class="zh">這招很微妙:它幫到的是<i>循序</i>的入列走訪(它的迴圈/載入開銷<i>沒有</i>被隨機 gather 的 stall 藏住),即使整個引擎是 latency-bound。能分辨「迴圈的哪一段是 latency-bound、哪一段是 overhead-bound」,就是全部的功力所在。</p>
+</section>
+
+<section>
+  <h2><span class="en">7. The other half of the skill — measure, and respect the wall</span><span class="zh">7. 功力的另一半 —— 量測,並尊重那道牆</span></h2>
+  <p class="en">Memory optimization is dense with plausible ideas that are actually noise or worse. The only way to tell is to measure — interleaved-paired (alternate the two builds so thermal drift cancels), bit-exact (same whole-NES checksum), across multiple batches (a single batch can fluke). Things that <i>sounded</i> great and <b>failed</b> on this engine:</p>
+  <p class="zh">記憶體優化充滿「聽起來很合理、實際是雜訊或更糟」的點子。唯一的判別方法就是量 —— interleaved-paired(交錯兩個 build 讓溫漂抵消)、bit-exact(整機 checksum 相同)、跨多批(單批會僥倖)。在這顆引擎上<i>聽起來</i>很棒卻<b>失敗</b>的:</p>
+  <ul>
+    <li class="en"><span class="tagN">✗ Software prefetch</span> (<code>Sse.Prefetch0</code> the next records): <b>−1% to −5%</b>. The out-of-order engine already overlaps the independent misses — the prefetch instructions just add overhead and pollute cache. <b>MLP was already saturated.</b></li>
+    <li class="zh"><span class="tagN">✗ 軟體 prefetch</span>(<code>Sse.Prefetch0</code> 預取下一筆記錄):<b>−1% 到 −5%</b>。亂序引擎早就重疊了那些獨立 miss —— prefetch 指令只是多開銷 + 污染快取。<b>MLP 早已飽和。</b></li>
+    <li class="en"><span class="tagN">✗ Narrowing an already-L1d-resident array</span>: pure noise — no threshold left to cross (and on the Rust twin, the conversion cost made it <b>−2.4%</b>).</li>
+    <li class="zh"><span class="tagN">✗ 縮一個本來就常駐 L1d 的陣列</span>:純雜訊 —— 沒門檻可跨(在 Rust 雙生引擎上,轉型成本還讓它 <b>−2.4%</b>)。</li>
+    <li class="en"><span class="tagN">✗ Baking the static topology into generated code</span> ("use the idle i-cache"): <b>84× slower</b> — turning data into code blew the 32 KB L1i and the random data loads stayed anyway.</li>
+    <li class="zh"><span class="tagN">✗ 把靜態拓樸烤進產生的程式碼</span>(「用閒置的 i-cache」):<b>慢 84×</b> —— 把資料變成程式碼撐爆 32 KB L1i,而隨機資料載入照樣還在。</li>
+  </ul>
+  <div class="big">
+    <p class="en"><b>The deepest lesson — latency-bound ≠ throughput-bound.</b> The 16-byte pack cut D-cache misses ~7%, but throughput only rose +0.75%. Why? The misses sit on a <i>serialized dependency chain</i> (read record → get neighbour ids → read their state → decide next). Time is set by the chain's latency, not the miss count. You can cut the count and barely move the clock. That's the floor: random pointer-chase over a multi-hundred-KB working set, bound by DRAM latency the silicon's memory parallelism is already maxing out. No flag, no codegen, no prefetch beats it — only changing the access pattern or the hardware does.</p>
+    <p class="zh"><b>最深的一課 —— latency-bound ≠ throughput-bound。</b>16-byte 打包把 D-cache miss 砍了 ~7%,但吞吐量只漲 +0.75%。為什麼?那些 miss 落在一條<i>序列化的相依鏈</i>上(讀記錄 → 拿到鄰居 id → 讀它們的狀態 → 決定下一步)。時間由「鏈的延遲」決定,不是「miss 數量」。你把數量砍掉,時鐘幾乎不動。這就是地板:對幾百 KB 工作集的隨機指標追逐,被 DRAM 延遲綁住,而矽晶片的記憶體平行度早已用滿。沒有任何旗標、codegen、prefetch 贏得了它 —— 只有改存取樣式或換硬體才行。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Takeaways</span><span class="zh">重點整理</span></h2>
+  <ul>
+    <li class="en"><b>Profile first.</b> We optimized data, not code, because the counters said D-cache misses outnumber I-cache misses 805:1. Don't guess the bottleneck.</li>
+    <li class="zh"><b>先 profile。</b>我們優化資料而非程式碼,是因為計數器說 D-cache miss 是 I-cache miss 的 805 倍。不要用猜的。</li>
+    <li class="en"><b>Pack for the 64-byte line</b> (SoA, struct unions, nibble-packing, narrowest types) — but only where the array is big enough to spill a cache level.</li>
+    <li class="zh"><b>為 64-byte line 打包</b>(SoA、struct union、nibble 打包、最窄型別)—— 但只在「陣列大到會溢出某層快取」時才做。</li>
+    <li class="en"><b>Make access sequential</b> (flatten graphs, inline the common case) so the prefetcher can hide the latency.</li>
+    <li class="zh"><b>讓存取變循序</b>(攤平圖、內聯常見情況),好讓預取器能藏延遲。</li>
+    <li class="en"><b>Measure interleaved-paired, bit-exact, across batches.</b> Half of "obvious" memory wins are noise or regressions. Latency-bound ≠ throughput-bound.</li>
+    <li class="zh"><b>用 interleaved-paired、bit-exact、跨批量測。</b>一半「顯而易見」的記憶體優化其實是雜訊或退步。Latency-bound ≠ throughput-bound。</li>
+  </ul>
+  <p style="margin-top:18px">
+    <a href="ceiling.html"><span class="en">Next: why IR / codegen still hit the wall (the full PMU data) →</span><span class="zh">下一篇:為什麼 IR / codegen 仍撞牆(完整 PMU 數據) →</span></a><br>
+    <a href="study.html"><span class="en">Study: when does abstraction beat switch-level? →</span><span class="zh">研究:抽象化何時贏過開關級? →</span></a>
+  </p>
+</section>
+
+</main>
+
+<footer>
+  <span class="en">AprVisual — a switch-level NES (2A03 + 2C02) simulator. Code &amp; data: </span>
+  <span class="zh">AprVisual —— 開關級 NES(2A03 + 2C02)模擬器。程式碼與資料:</span>
+  <a href="https://github.com/erspicu/AprVisual">github.com/erspicu/AprVisual</a>.
+  <span class="en"> Engine source: </span><span class="zh"> 引擎原始碼:</span><code>src/AprVisual.S1/Sim/WireCore.*.cs</code>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.getElementById('btn-en').classList.toggle('active', l==='en');
+    document.getElementById('btn-zh').classList.toggle('active', l==='zh');
+    try{ localStorage.setItem('apr-lang', l); }catch(e){}
+  }
+  try{ var s = localStorage.getItem('apr-lang'); if(s) setLang(s); }catch(e){}
+</script>
+</body>
+</html>

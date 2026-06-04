@@ -65,6 +65,11 @@ namespace AprVisual.Sim
             _pendingCallbacks.Clear();
             _processingCallbacks.Clear();
             _callbackByNode = null;
+            // free this composed system's handler-lifetime unmanaged arrays (video node-lists, palette,
+            // memory-handler node-lists, behavioral RAM/ROM Data) before the next rebuild re-creates them.
+            FreeHandlerArrays();
+            _vidHpos = _vidVpos = _vidPalPtr = null; _vidHposLen = _vidVposLen = _vidPalPtrLen = 0;
+            _vidPalRam = null; _vidPalRamOk = null; _nesPalettePtr = null;
         }
 
         /// <summary>
@@ -157,6 +162,28 @@ namespace AprVisual.Sim
             if (changed) ProcessQueue();
         }
 
+        // Unmanaged int* overloads — handler node-lists are now unmanaged (AllocHandlerArray), so the
+        // hot path indexes raw pointers (no bounds checks, no managed array object).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadBits(int* nodes, int len)
+        {
+            int v = 0;
+            for (int i = 0; i < len; i++) v |= NodeStates[nodes[i]] << i;
+            return v;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteBits(int* nodes, int len, int value)
+        {
+            bool changed = false;
+            for (int i = 0; i < len; i++)
+            {
+                if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
+                else                          changed |= SetLowQueued(nodes[i]);
+            }
+            if (changed) ProcessQueue();
+        }
+
         // Generic IReadOnlyList overloads (List<int> / arrays-as-IReadOnlyList) — used by cold
         // paths (Trace, TestRunner debug dumps, callsites that own a List<int>).
         public static int ReadBits(IReadOnlyList<int> nodes)
@@ -223,6 +250,8 @@ namespace AprVisual.Sim
 
             // Cache as int[] (suggest #06) — the lambda closure captures arrays not List<int>,
             // so ReadBits/WriteBits resolves to the int[] overload (no interface dispatch).
+            // (memory handler kept MANAGED — the unmanaged int*/byte* version needed a captured-holder
+            //  indirection that measured net-negative; see MD/suggest. Video handler is unmanaged, this isn't.)
             int[] addr = addrL.ToArray();
             int[] dataOut = dataOutL.ToArray();
 
@@ -273,6 +302,17 @@ namespace AprVisual.Sim
         /// resolve. Must be called before Reset() (AddCallback adds nodes); FrameBuffer is allocated by
         /// ResetNes(), and the callback reads the static field at call time.
         /// </summary>
+        // Video-handler node-lists, UNMANAGED (there's exactly one video handler, so these are static
+        // fields the closure reads directly — no captured-pointer-local problem). Allocated in
+        // AttachVideoHandler via AllocHandlerArray, freed by FreeHandlerArrays at rebuild.
+        private static int* _vidHpos; private static int _vidHposLen;
+        private static int* _vidVpos; private static int _vidVposLen;
+        private static int* _vidPalPtr; private static int _vidPalPtrLen;
+        private static int* _vidPalRam;     // 32 slots × 6 nodes, flattened (slot s at +s*6)
+        private static byte* _vidPalRamOk;  // [32] 1 = slot has the full 6 nodes
+        private static uint* _nesPalettePtr; // 64-entry master palette, unmanaged copy of NesPaletteSrc
+        private const int PalRamSlotW = 6;
+
         public static void AttachVideoHandler()
         {
             int pclk1 = LookupNode("ppu.pclk1");
@@ -295,19 +335,38 @@ namespace AprVisual.Sim
                 return;
             }
 
-            int[] hN = hpos.ToArray(), vN = vpos.ToArray(), pN = palPtr.ToArray();
+            // copy node-lists + master palette into unmanaged (handler-lifetime) storage.
+            _vidHposLen = hpos.Count; _vidHpos = AllocHandlerArray<int>(_vidHposLen);
+            for (int i = 0; i < _vidHposLen; i++) _vidHpos[i] = hpos[i];
+            _vidVposLen = vpos.Count; _vidVpos = AllocHandlerArray<int>(_vidVposLen);
+            for (int i = 0; i < _vidVposLen; i++) _vidVpos[i] = vpos[i];
+            _vidPalPtrLen = palPtr.Count; _vidPalPtr = AllocHandlerArray<int>(_vidPalPtrLen);
+            for (int i = 0; i < _vidPalPtrLen; i++) _vidPalPtr[i] = palPtr[i];
+            _vidPalRam = AllocHandlerArray<int>(32 * PalRamSlotW);
+            _vidPalRamOk = AllocHandlerArray<byte>(32);
+            for (int s = 0; s < 32; s++)
+            {
+                if (palRam[s].Length == PalRamSlotW)
+                {
+                    _vidPalRamOk[s] = 1;
+                    for (int k = 0; k < PalRamSlotW; k++) _vidPalRam[s * PalRamSlotW + k] = palRam[s][k];
+                }
+            }
+            _nesPalettePtr = AllocHandlerArray<uint>(NesPaletteSrc.Length);
+            for (int i = 0; i < NesPaletteSrc.Length; i++) _nesPalettePtr[i] = NesPaletteSrc[i];
+
             bool prev = false;
             AddCallback(new[] { pclk1 }, () =>
             {
                 bool now = NodeStates[pclk1] != 0;
                 if (!prev && now)                               // rising edge of the pixel clock
                 {
-                    int x = ReadBits(hN), y = ReadBits(vN);
+                    int x = ReadBits(_vidHpos, _vidHposLen), y = ReadBits(_vidVpos, _vidVposLen);
                     if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
                     {
-                        int slot = ReadBits(pN) & 31;
-                        int colour6 = palRam[slot].Length == 6 ? ReadBits(palRam[slot]) : 0;
-                        FrameBuffer[y * ScreenW + x] = NesPalette[colour6 & 0x3F];
+                        int slot = ReadBits(_vidPalPtr, _vidPalPtrLen) & 31;
+                        int colour6 = _vidPalRamOk[slot] != 0 ? ReadBits(_vidPalRam + slot * PalRamSlotW, PalRamSlotW) : 0;
+                        FrameBuffer[y * ScreenW + x] = _nesPalettePtr[colour6 & 0x3F];
                     }
                 }
                 prev = now;
@@ -316,7 +375,8 @@ namespace AprVisual.Sim
 
         // The 64-colour NES master palette (common "2C02 NTSC" RGB approximation). ARGB 0x00RRGGBB.
         // Indices 0x0D/0x0E/0x0F/0x1D-0x1F/0x2D-0x2F/0x3D-0x3F are "blacker than black" → black.
-        private static readonly uint[] NesPalette =
+        // Managed SOURCE table; AttachVideoHandler copies it into the unmanaged _nesPalettePtr for the hot read.
+        private static readonly uint[] NesPaletteSrc =
         [
             0x666666, 0x002A88, 0x1412A7, 0x3B00A4, 0x5C007E, 0x6E0040, 0x6C0600, 0x561D00,
             0x333500, 0x0B4800, 0x005200, 0x004F08, 0x00404D, 0x000000, 0x000000, 0x000000,

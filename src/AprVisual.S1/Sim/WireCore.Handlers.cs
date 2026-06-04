@@ -12,9 +12,9 @@ namespace AprVisual.Sim
         //      Wires::add_callback / invoke_callbacks / step_cycle's handler chain (wire_module.cpp)
         //    See MD/note/03_系統整合與週期推進.md.
         //
-        //    Design (kept from MetalNES):
-        //      - "handlers" run once per half-cycle, chained into one delegate (RunHandlerChain).
-        //        e.g. the clock handler toggles the master clock node.
+        //    Design (kept from MetalNES, adapted):
+        //      - the only per-half-cycle "handler" is the clock toggle; it is INLINED into StepCycle
+        //        (Recalc.cs) via the static ClockNode — no delegate (the generic chain was removed, [H1]).
         //      - "callbacks" fire when any watched node changes, *after* propagation settles.
         //        Implemented by adding a fake transistor (gate = watchedNode, c1 = fakeTargetNode,
         //        c2 = Ngnd) per watched node, plus a callback record on the fake target — so the
@@ -26,10 +26,11 @@ namespace AprVisual.Sim
         //    Ordering note: handlers must be attached (AddCallback adds fake nodes/transistors) BEFORE
         //    WireCore.Reset() — Reset() sizes the hot arrays to the node count *at that point*.
 
-        // ── per-half-cycle handler chain ──
-        private static Action? _handlerChain;
-        public static void AddHandler(Action h) => _handlerChain = _handlerChain is null ? h : _handlerChain + h;
-        private static void RunHandlerChain() => _handlerChain?.Invoke();
+        // ── per-half-cycle work is now inlined into StepCycle (Recalc.cs) ──
+        // [H1 2026-06-05] The old generic handler chain (`_handlerChain` Action + AddHandler/RunHandlerChain)
+        // only ever held ONE handler — the clock toggle — so it was removed: StepCycle toggles the static
+        // ClockNode inline (no delegate invoke / no closure capture). Add a real per-half-cycle hook back
+        // here only if a second one is ever needed.
 
         // ── callbacks (node-change watchers) ──
         internal sealed class CallbackInfo
@@ -60,7 +61,7 @@ namespace AprVisual.Sim
 
         internal static void ResetHandlers()
         {
-            _handlerChain = null;
+            ClockNode = EmptyNode;   // [H1] re-resolved by AttachClockHandler each rebuild
             _callbacks.Clear();
             _pendingCallbacks.Clear();
             _processingCallbacks.Clear();
@@ -216,12 +217,13 @@ namespace AprVisual.Sim
         //  Handler factories — call these between ComposeSystem() and Reset().
         // ───────────────────────────────────────────────────────────────────────
 
-        /// <summary>The board's master clock: toggle the "clk" node every half-cycle. Port of handler_clock.</summary>
+        /// <summary>The board's master clock: resolve the "clk" node into the static ClockNode; StepCycle
+        /// toggles it inline every half-cycle (no handler delegate — see Recalc.cs StepCycle [H1]). Port of handler_clock.</summary>
         public static void AttachClockHandler()
         {
             int clk = LookupNode("clk");
             if (clk == EmptyNode) { Console.Error.WriteLine("AttachClockHandler: no 'clk' node — skipping"); return; }
-            AddHandler(() => { if (NodeStates[clk] != 0) SetLow(clk); else SetHigh(clk); });
+            ClockNode = clk;   // [H1] StepCycle toggles ClockNode inline (was an AddHandler delegate)
         }
 
         /// <summary>Attach a behavioral RAM/ROM handler for every module that exposes a "func&lt;ram&gt;" / "func&lt;rom&gt;" hook node. Port of register_handlers&lt;handler_ram&gt;("*func&lt;ram&gt;") etc.</summary>

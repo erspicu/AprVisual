@@ -9,8 +9,8 @@ namespace AprVisual.Sim
         //      recalcNodeList / processQueue / recalcNode / setNodeState / enqueueNode (~L1519-1928)
         //      and step_cycle (~L730-751). See MD/note/01_模擬核心演算法.md §2.2-2.6.
 
-        // The master clock node ("clk") is toggled by the clock handler (WireCore.Handlers.AttachClockHandler),
-        // not by StepCycle directly — see the note there. Kept here only for reference / diagnostics.
+        // The master clock node ("clk"), resolved by AttachClockHandler. [H1] StepCycle toggles it INLINE
+        // every half-cycle (was a handler-chain delegate). EmptyNode if there's no clk node (toggle skipped).
         public static int ClockNode = EmptyNode;
 
         /// <summary>FNV-1a 64-bit hash over the whole NodeStates array — a cheap fingerprint of the
@@ -272,12 +272,21 @@ namespace AprVisual.Sim
             return nn;
         }
 
-        // ── one half-cycle: toggle the master clock node, run the per-cycle handler chain, advance time ──
+        // ── one half-cycle: toggle the master clock node, advance time ──
         public static void Step(int count) { for (int i = 0; i < count; i++) StepCycle(); }
 
         private static void StepCycle()
         {
-            RunHandlerChain();          // WireCore.Handlers.cs (clock handler toggles "clk", nes-system handler, …)
+            // [H1] clock toggle inlined here (it was the SOLE entry of the old handler-chain delegate) —
+            // drops the per-half-cycle delegate invoke + null-check and lets the toggle inline. Uses the
+            // static ClockNode (set by AttachClockHandler) instead of a captured closure local.
+            // [H4] expand SetLow/SetHigh -> SetXQueued + ProcessQueue directly (one less call layer).
+            int clk = ClockNode;
+            if (clk != EmptyNode)
+            {
+                if (NodeStates[clk] != 0) { if (SetLowQueued(clk))  ProcessQueue(); }
+                else                      { if (SetHighQueued(clk)) ProcessQueue(); }
+            }
             Time++;
         }
     }

@@ -18,6 +18,21 @@
 
 ---
 
+## 📊 測試結果記錄(2026-06-04,持續更新)
+
+逐項 interleaved-paired A/B(`tools/ab_bench.ps1`,base = HEAD `c3993e9`,full_palette 300k,各 ≥20 配對輪,warm-up 丟棄,checksum 全程 `0x794A43ABDF169ADA`)。
+
+| # | 提案 | 結果 | 判定 |
+|---|---|---|---|
+| A2 | c2 supply range check `(uint)(c2-npwr)>1u` | median **−0.32%** / tmean −0% / **8-20** | ❌ 噪音(RyuJIT 對 `x!=1&&x!=2` 本就生好 codegen),revert |
+| A1 | IsPureLogic 併入 NodeInfo.Kind | median **−0.34% / −0.40%**(2 batch)/ **18-40** | ❌ 平到略負,revert。bit-exact + 分類數一致(3929+10784),但 IsPureLogic byte 陣列本就便宜/常駐,改讀 `Kind>>1` 反而把 dispatch 綁到較大的 16B NodeInfo line + 多一個 shift。**ChatGPT 與我都看好的頭號項,實測無 signal —— 再次印證熱路徑不缺這筆 load** |
+| A3 | RecalcList/Next `int*`→`ushort*` | median **−1.51%** / tmean −1.34% / **4-20** | ❌ 明確負,revert。對應 Rust `group_buf` u16 −0.91%:`(ushort)` cast/zero-extend 成本 > queue bandwidth 省的(queue 工作集小、本就常駐) |
+| A5 | NodeConnections `int*`→`ushort*` | median **−0.11%** / tmean −0.08% / **11-20** | ❌ 純噪音,revert。冷陣列(<1% floating tie-break),省空間不影響熱工作集 |
+
+**小結(A2/A1/A3/A5 = 4 連敗)**:footprint 縮減(A3/A5)、array-merge(A1)、micro range-check(A2)在新 baseline 上全是噪音/負面 —— 與「熱路徑已在記憶體延遲天花板、減 footprint 對 latency-bound 無感」完全一致。**鐵律 1 再次成立:這條熱路徑加任何 per-call 成本(cast/shift/額外 load 耦合)都不賺。** 接著轉測「移除/重構工作」型(§B2 的 RT*)與唯一有 locality 角度的 A4。
+
+---
+
 ## §A 待測清單 — 真正沒用過的方法
 
 依「值得測的順序」排(收益期望 × 風險低 × 還沒測過)。

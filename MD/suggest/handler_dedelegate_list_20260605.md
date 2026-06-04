@@ -55,6 +55,11 @@
 
 ---
 
+## 📊 結果(2026-06-05)
+- **H1 + H4 = ✅ 採用(commit `c882575`,+~1%)** —— 時鐘 toggle 內聯進 StepCycle、用 static `ClockNode`、移除整個 `_handlerChain`/`AddHandler`/`RunHandlerChain`、時鐘路徑直接展開 `SetXQueued+ProcessQueue`。3 批 interleaved-paired **全正**:median +0.77/+0.97/+1.5%,37/60 勝,bit-exact `0x794A43ABDF169ADA`。**比預期大** —— 那個 per-half-cycle delegate invoke 不只是一次間接呼叫,它還擋住了 StepCycle 熱迴圈的 inline。(印證使用者直覺:delegate 多轉跳一層 + 擋 inline,在每半週期的路徑上是真的有感。)
+- **H2**:被 H1 涵蓋(已無 delegate),不需要。
+- **H3(callback dispatch 去 delegate)**:尚未做 —— 多實例 + 異質 context 是難點,大重構。**待先量 `cb.Callback()` 佔比**再決定值不值。
+
 ## 建議順序
 1. **H1**(時鐘內聯 + static ClockNode)—— 最直接、最符合你的偏好、低風險。實作 + interleaved-paired A/B + checksum。順帶 H4。
 2. 若 H1 有效或中性且你想保留擴充點 → 改用 **H1b**。

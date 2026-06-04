@@ -47,13 +47,16 @@ namespace AprVisual.Sim
         // returns in O(1) when pending=0 (the common case after most settles).
         private static List<CallbackInfo> _pendingCallbacks = new();
         private static List<CallbackInfo> _processingCallbacks = new();
-        // Node-id direct lookup (suggest #F4): _callbackByNode[nn] = the CallbackInfo registered
-        // on node nn. Built in Reset; lets the (rare) RecalcNode callback-enqueue path look the
-        // callback up directly instead of jumping into the managed Nodes[] Node object graph.
-        // SPARSE: only the handful of callback target nodes are present (gated by the HasCallback
-        // group flag), so this is a small Dictionary, not a NodeCount-sized reference array
-        // (which cost ~115 KB resident + a full gen2 GC scan for ~0 hot-path benefit).
-        internal static Dictionary<int, CallbackInfo>? _callbackByNode;
+        // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] = the CallbackInfo registered on
+        // node nn (null if none). Built in Reset; lets RecalcNode's HasCallback group-walk look the callback
+        // up directly instead of jumping into the managed Nodes[] Node object graph.
+        // [A6 2026-06-04] NodeCount-sized reference array, NOT a sparse Dictionary. The old code chose the
+        // Dictionary on the *assumption* that the array's ~115 KB + gen2 scan wasn't worth it "for ~0 hot-path
+        // benefit" — that was never measured and was WRONG: the HasCallback branch fires per-group-member for
+        // every group containing a watched bus node (far more often than callbacks actually *fire*), so
+        // Dictionary.TryGetValue's hash+probe was real cost. Direct array index measured **+~1.4%**
+        // (3 interleaved-paired batches, 49/60 wins, median +1.36/+1.36/+1.46%, bit-exact).
+        internal static CallbackInfo?[]? _callbackByNode;
 
         internal static void ResetHandlers()
         {

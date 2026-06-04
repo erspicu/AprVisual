@@ -33,13 +33,30 @@ namespace AprVisual.Sim
         // here only if a second one is ever needed.
 
         // ── callbacks (node-change watchers) ──
+        // [H3] CallbackInfo is now a TYPED handler descriptor: InvokeCallbacks switches on Kind and calls a
+        // static handler (no Action delegate / no closure) for the hot kinds (memory / video). The per-instance
+        // context lives directly on this object (it IS the dispatch unit — so a field read is one hop, NOT the
+        // extra hop the rejected ctx-holder added). Generic Action is kept only for rare/test watchers.
+        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video }
+
         internal sealed class CallbackInfo
         {
             public string Name = "";
             public int TargetNode;
             public int[] WatchedNodes = Array.Empty<int>();
-            public Action Callback = static () => { };
             public bool Enqueued;
+            public HandlerKind Kind;
+            public Action? Callback;                       // Generic only
+
+            // memory handler context (MemRead / MemReadWrite) — managed arrays (Stage 1)
+            public int Cs, We, Mask;
+            public int[]? Addr;
+            public int[]? DataOut;
+            public byte[]? MemData;
+
+            // video handler context (Video)
+            public int Pclk1;
+            public bool VidPrev;
         }
 
         private static readonly List<CallbackInfo> _callbacks = new();
@@ -80,10 +97,16 @@ namespace AprVisual.Sim
         /// brings the target into a group whenever a watched node flips. MUST be called before Reset().
         /// </summary>
         public static void AddCallback(IReadOnlyList<int> watchedNodes, Action cb)
+            => RegisterCallback(watchedNodes, new CallbackInfo { Kind = HandlerKind.Generic, Callback = cb });
+
+        // Shared bookkeeping: allocate the fake target node, add a (gate=watched, c1=target, c2=Ngnd) fake
+        // transistor per watched node, and record the (already-Kind-typed) CallbackInfo on the target. The
+        // caller fills info.Kind + its context fields. MUST be called before Reset().
+        private static void RegisterCallback(IReadOnlyList<int> watchedNodes, CallbackInfo info)
         {
             string name = "callback:" + string.Join(",", watchedNodes.Select(GetNodeName));
             int target = AddNamedNode(name);
-            var info = new CallbackInfo { Name = name, TargetNode = target, WatchedNodes = watchedNodes.ToArray(), Callback = cb };
+            info.Name = name; info.TargetNode = target; info.WatchedNodes = watchedNodes.ToArray();
             _callbacks.Add(info);
             foreach (int nn in watchedNodes) AddTransistor("callback", gate: nn, c1: target, c2: Ngnd);
             var node = GetOrCreateNode(target);
@@ -104,10 +127,53 @@ namespace AprVisual.Sim
                 {
                     var cb = _processingCallbacks[i];
                     cb.Enqueued = false;
-                    cb.Callback();
+                    // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
+                    switch (cb.Kind)
+                    {
+                        case HandlerKind.MemRead:      DoMemRead(cb); break;
+                        case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
+                        case HandlerKind.Video:        DoVideo(cb); break;
+                        default:                       cb.Callback!(); break;   // Generic (rare / test)
+                    }
                 }
                 _processingCallbacks.Clear();
             }
+        }
+
+        // ── typed handler bodies (were per-instance closures; now static, dispatched by Kind) ──
+        // ROM / read-only RAM: on chip-select active, drive the data-out bus with mem[addr].
+        private static void DoMemRead(CallbackInfo cb)
+        {
+            if (NodeStates[cb.Cs] != 0) return;
+            int address = ReadBits(cb.Addr!);
+            WriteBits(cb.DataOut!, cb.MemData![address & cb.Mask]);
+        }
+
+        // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
+        private static void DoMemReadWrite(CallbackInfo cb)
+        {
+            if (NodeStates[cb.Cs] != 0) return;
+            int address = ReadBits(cb.Addr!);
+            if (NodeStates[cb.We] == 0) cb.MemData![address & cb.Mask] = (byte)ReadBits(cb.DataOut!);
+            else                        WriteBits(cb.DataOut!, cb.MemData![address & cb.Mask]);
+        }
+
+        // video: on the pclk1 rising edge, write the visible pixel from palette RAM via the (static, unmanaged)
+        // video node-lists + master palette. VidPrev (the rising-edge tracker) is per-instance state on cb.
+        private static void DoVideo(CallbackInfo cb)
+        {
+            bool now = NodeStates[cb.Pclk1] != 0;
+            if (!cb.VidPrev && now)
+            {
+                int x = ReadBits(_vidHpos, _vidHposLen), y = ReadBits(_vidVpos, _vidVposLen);
+                if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
+                {
+                    int slot = ReadBits(_vidPalPtr, _vidPalPtrLen) & 31;
+                    int colour6 = _vidPalRamOk[slot] != 0 ? ReadBits(_vidPalRam + slot * PalRamSlotW, PalRamSlotW) : 0;
+                    FrameBuffer[y * ScreenW + x] = _nesPalettePtr[colour6 & 0x3F];
+                }
+            }
+            cb.VidPrev = now;
         }
 
         internal static void EnqueueCallback(CallbackInfo cb)
@@ -250,10 +316,9 @@ namespace AprVisual.Sim
             if (cs == EmptyNode || addrL.Count == 0 || dataOutL.Count == 0)
             { Console.Error.WriteLine($"memory handler '{prefix}': missing cs/a[]/_d[7:0]"); return; }
 
-            // Cache as int[] (suggest #06) — the lambda closure captures arrays not List<int>,
-            // so ReadBits/WriteBits resolves to the int[] overload (no interface dispatch).
-            // (memory handler kept MANAGED — the unmanaged int*/byte* version needed a captured-holder
-            //  indirection that measured net-negative; see MD/suggest. Video handler is unmanaged, this isn't.)
+            // [H3] typed CallbackInfo (no closure) — context lives on the CallbackInfo, dispatched by Kind in
+            // InvokeCallbacks → DoMemRead / DoMemReadWrite (static). int[] node-lists (suggest #06: int[]
+            // overload, no interface dispatch); MemData is the managed RAM/ROM buffer (Stage 1 keeps it managed).
             int[] addr = addrL.ToArray();
             int[] dataOut = dataOutL.ToArray();
 
@@ -262,32 +327,13 @@ namespace AprVisual.Sim
             trigger.AddRange(addrL);
             trigger.AddRange(dataBusL);
 
-            // Specialize callback body by ROM/RAM at attach time (suggest #F2): hoist mem.Data
-            // and mask out of the hot path, and split read-only vs read/write into separate
-            // closures so the closure body has no attach-time-known branches.
-            byte[] data = mem.Data;
-            int mask = data.Length - 1;
             bool readOnly = isRom || we == EmptyNode;
-
-            if (readOnly)
+            RegisterCallback(trigger, new CallbackInfo
             {
-                AddCallback(trigger, () =>
-                {
-                    if (NodeStates[cs] != 0) return;
-                    int address = ReadBits(addr);
-                    WriteBits(dataOut, data[address & mask]);
-                });
-            }
-            else
-            {
-                AddCallback(trigger, () =>
-                {
-                    if (NodeStates[cs] != 0) return;
-                    int address = ReadBits(addr);
-                    if (NodeStates[we] == 0) data[address & mask] = (byte)ReadBits(dataOut);
-                    else                      WriteBits(dataOut, data[address & mask]);
-                });
-            }
+                Kind = readOnly ? HandlerKind.MemRead : HandlerKind.MemReadWrite,
+                Cs = cs, We = we, Mask = mem.Data.Length - 1,
+                Addr = addr, DataOut = dataOut, MemData = mem.Data,
+            });
         }
 
         /// <summary>
@@ -357,22 +403,10 @@ namespace AprVisual.Sim
             _nesPalettePtr = AllocHandlerArray<uint>(NesPaletteSrc.Length);
             for (int i = 0; i < NesPaletteSrc.Length; i++) _nesPalettePtr[i] = NesPaletteSrc[i];
 
-            bool prev = false;
-            AddCallback(new[] { pclk1 }, () =>
-            {
-                bool now = NodeStates[pclk1] != 0;
-                if (!prev && now)                               // rising edge of the pixel clock
-                {
-                    int x = ReadBits(_vidHpos, _vidHposLen), y = ReadBits(_vidVpos, _vidVposLen);
-                    if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
-                    {
-                        int slot = ReadBits(_vidPalPtr, _vidPalPtrLen) & 31;
-                        int colour6 = _vidPalRamOk[slot] != 0 ? ReadBits(_vidPalRam + slot * PalRamSlotW, PalRamSlotW) : 0;
-                        FrameBuffer[y * ScreenW + x] = _nesPalettePtr[colour6 & 0x3F];
-                    }
-                }
-                prev = now;
-            });
+            // [H3] typed CallbackInfo (no closure) — dispatched by Kind in InvokeCallbacks → DoVideo (static).
+            // The node-lists/palette are the static unmanaged fields above; only the rising-edge tracker
+            // (VidPrev) + Pclk1 are per-instance state on the CallbackInfo.
+            RegisterCallback(new[] { pclk1 }, new CallbackInfo { Kind = HandlerKind.Video, Pclk1 = pclk1 });
         }
 
         // The 64-colour NES master palette (common "2C02 NTSC" RGB approximation). ARGB 0x00RRGGBB.

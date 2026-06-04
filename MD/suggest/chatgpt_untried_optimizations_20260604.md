@@ -29,7 +29,15 @@
 | A3 | RecalcList/Next `int*`→`ushort*` | median **−1.51%** / tmean −1.34% / **4-20** | ❌ 明確負,revert。對應 Rust `group_buf` u16 −0.91%:`(ushort)` cast/zero-extend 成本 > queue bandwidth 省的(queue 工作集小、本就常駐) |
 | A5 | NodeConnections `int*`→`ushort*` | median **−0.11%** / tmean −0.08% / **11-20** | ❌ 純噪音,revert。冷陣列(<1% floating tie-break),省空間不影響熱工作集 |
 
-**小結(A2/A1/A3/A5 = 4 連敗)**:footprint 縮減(A3/A5)、array-merge(A1)、micro range-check(A2)在新 baseline 上全是噪音/負面 —— 與「熱路徑已在記憶體延遲天花板、減 footprint 對 latency-bound 無感」完全一致。**鐵律 1 再次成立:這條熱路徑加任何 per-call 成本(cast/shift/額外 load 耦合)都不賺。** 接著轉測「移除/重構工作」型(§B2 的 RT*)與唯一有 locality 角度的 A4。
+| RT2 | SetNodeState 冷路徑 split(enqueue walk 拆 NoInlining method) | median **−4.71%** / tmean −4.49% / **0-20** | ❌ 決定性負,revert。**比舊 Q5 −1.5% 更糟** —— 假設「body 變大→冷拆會翻」**被推翻**:長大的 body(含 ulong dual-pair)更需要 inline 進 BFS writeback,拆出去斷了 inline cascade + 每次 state-change 加 call overhead。anti-pattern #4 再次成立 |
+| RT1 | branchless XOR enqueue(C#) | (未重測) | ⏸️ **2026-06-03 已 interleaved 重測 = −1%(14/52)**,非 batched-era 殘留 → 已是確認負,重測冗餘,跳過 |
+
+**小結(A2/A1/A3/A5/RT2 = 5 連敗,RT1 已確認負)**:footprint 縮減(A3/A5)、array-merge(A1)、micro range-check(A2)全噪音/負;結構重構(RT2 冷拆)−4.7% 更糟。**與「熱路徑已在記憶體延遲天花板」完全一致;鐵律 1(加 per-call 成本必輸)+ anti-pattern #4(別跟 JIT 搶 inline 決策)雙重再驗證。** 剩餘候選評估:
+- **A4(獨立 gate pool)**:唯一還有「非純 footprint」機制(pool 分離降 cache 污染)的項,但 (a) gate 走訪本就 sequential/cache-friendly,(b) footprint 角度已被 A5 證無感,(c) 是侵入性大、易踩 flattened-adjacency + pad-zero 不變量的 build 階段重構 → 期望值低、風險高。**列為長 shot,需 user 決定是否投入。**
+- **A6(callback array)**:callback ~5×/200k hc,冷到近乎一定是噪音 → 低資訊量,暫不排。
+- **A7/A8**:需先做 runtime histogram 工具(§D 前置)才能 gate,且本質仍是 per-call 取捨,在 5 連敗背景下期望值低。
+
+**判定:micro/footprint/restructure 空間在新 baseline 上已逐條驗證為空(與 2026-05-29 結論一致,且這次用更乾淨的 interleaved-paired harness + 更高 baseline 重驗)。** 真正的牆仍是 BFS 隨機 gather 的記憶體延遲,只有換存取樣式(= 換架構,已禁)或更快硬體能突破。
 
 ---
 

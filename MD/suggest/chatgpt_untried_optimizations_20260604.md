@@ -31,13 +31,19 @@
 
 | RT2 | SetNodeState 冷路徑 split(enqueue walk 拆 NoInlining method) | median **−4.71%** / tmean −4.49% / **0-20** | ❌ 決定性負,revert。**比舊 Q5 −1.5% 更糟** —— 假設「body 變大→冷拆會翻」**被推翻**:長大的 body(含 ulong dual-pair)更需要 inline 進 BFS writeback,拆出去斷了 inline cascade + 每次 state-change 加 call overhead。anti-pattern #4 再次成立 |
 | RT1 | branchless XOR enqueue(C#) | (未重測) | ⏸️ **2026-06-03 已 interleaved 重測 = −1%(14/52)**,非 batched-era 殘留 → 已是確認負,重測冗餘,跳過 |
+| **A6** | **callback `Dictionary`→`CallbackInfo?[]` 直接陣列** | median **+1.36/+1.36/+1.46%**(3 batch)/ **49-60** | ✅ **採用!(commit `1447f8b`,+~1.4%)** —— 全清單唯一 win,且推翻舊註解「array 115KB/gen2 不值得」的*未實測*假設。HasCallback group-walk 對每個含 watched bus node 的 group **逐成員**做 `Dictionary.TryGetValue`(hash+probe),遠比 callback 實際 fire 頻繁;改直接 array index 省掉 hash。bit-exact。**預期是「冷路徑噪音」—— 實測打臉,再次驗證「量,別假設」** |
+| A4 | 獨立 gate pool(pool 分離,NodeTlistGates 留 int) | 7 batch:median −0.62/+0.62/+0.62/+1.34/−0.26/+0.19/+0.10% / **76-140(54.3%)** / tmean 合計 ~+0.26% | ❌ 噪音,revert。各 batch 反覆變號(−0.62→+1.34→~0),配對勝率 54%≈1σ(p≈0.16,不顯著)。shrink TransistorList 對隨機 gather 無感、pool 分離反多一條 cache stream。**不為不可靠的 ~+0.2% 加永久結構複雜度** |
+| A7 | RecalcNodeFast gnd/pwr fanout-adaptive(≤2 OR-all,>2 early-break) | median **−0.87%** / tmean −0.82% / **6-20** | ❌ 負,revert。**histogram 預測正確**:inline fast-path 節點 gnd+pwr count **96% ≤2**(0:2660/1:8948/2:1566,≥3 僅 4.6%),threshold-branch 課稅 96% > early-break 救 4.6%;R4 OR-all 本就贏 |
+| A8 | high-fanout overflow c1c2 改 length-based | (未實作 — histogram gate 擋下) | ⏸️ **moot-by-data**:overflow fast-path 節點僅 **900 個(占 fast-path 6%)**且路徑罕見;length-based 需獨立 metadata pool = **每次存取多一筆 load 換掉一個便宜 sentinel**,正是已測 **−0.82% ulong-overflow dead-end** 的機制。為罕見路徑做大重構去確認near-certain負 = data-gate 正要擋的浪費。要實測可再投入,但預期負 |
 
-**小結(A2/A1/A3/A5/RT2 = 5 連敗,RT1 已確認負)**:footprint 縮減(A3/A5)、array-merge(A1)、micro range-check(A2)全噪音/負;結構重構(RT2 冷拆)−4.7% 更糟。**與「熱路徑已在記憶體延遲天花板」完全一致;鐵律 1(加 per-call 成本必輸)+ anti-pattern #4(別跟 JIT 搶 inline 決策)雙重再驗證。** 剩餘候選評估:
-- **A4(獨立 gate pool)**:唯一還有「非純 footprint」機制(pool 分離降 cache 污染)的項,但 (a) gate 走訪本就 sequential/cache-friendly,(b) footprint 角度已被 A5 證無感,(c) 是侵入性大、易踩 flattened-adjacency + pad-zero 不變量的 build 階段重構 → 期望值低、風險高。**列為長 shot,需 user 決定是否投入。**
-- **A6(callback array)**:callback ~5×/200k hc,冷到近乎一定是噪音 → 低資訊量,暫不排。
-- **A7/A8**:需先做 runtime histogram 工具(§D 前置)才能 gate,且本質仍是 per-call 取捨,在 5 連敗背景下期望值低。
+### 📌 最終總結(2026-06-04,清單全跑完)
+**9 項評估完畢:1 採用(A6 +1.4%)、6 實測負/噪音(A2/A1/A3/A5/RT2/A4/A7)、1 已確認負略過(RT1)、1 data-gate 擋下(A8)。**
 
-**判定:micro/footprint/restructure 空間在新 baseline 上已逐條驗證為空(與 2026-05-29 結論一致,且這次用更乾淨的 interleaved-paired harness + 更高 baseline 重驗)。** 真正的牆仍是 BFS 隨機 gather 的記憶體延遲,只有換存取樣式(= 換架構,已禁)或更快硬體能突破。
+- **唯一 win = A6**,而且它是清單裡**最不被看好的一項**(我預測「冷路徑噪音」)—— callback group-walk 的 `Dictionary.TryGetValue` 比想像中熱。**最被看好的 A1(移除隨機 load)反而無 signal。** → 本批最大教訓重申:**預測不可恃,逐項實測才算數(user 的「分開測」紀律 + 「老死路會變」直覺都再次被驗證 —— A6 等於推翻了一個*基於未實測假設*的舊決定)。**
+- 其餘全部一致指向同一面牆:**BFS 隨機 gather 的記憶體延遲**。footprint 縮減(A1/A3/A5/A4 footprint 面)對 latency-bound 無感;結構重構(RT2/A4 pool 分離)斷 inline / 加 stream 反傷;per-call 取捨(A2/A7)加成本必輸。
+- **A6 後新 baseline ≈ C# 92K hc/s**(待 top-3 複測)。real-time 仍 ~466× 外,需換架構或更快硬體。
+
+**判定:這批 micro/footprint/restructure 候選 CLOSED。** 唯一未榨的長 shot = A8(罕見路徑大重構,預期負);其餘已逐條 interleaved-paired 驗空。
 
 ---
 

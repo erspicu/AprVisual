@@ -35,6 +35,8 @@
 | A4 | 獨立 gate pool(pool 分離,NodeTlistGates 留 int) | 7 batch:median −0.62/+0.62/+0.62/+1.34/−0.26/+0.19/+0.10% / **76-140(54.3%)** / tmean 合計 ~+0.26% | ❌ 噪音,revert。各 batch 反覆變號(−0.62→+1.34→~0),配對勝率 54%≈1σ(p≈0.16,不顯著)。shrink TransistorList 對隨機 gather 無感、pool 分離反多一條 cache stream。**不為不可靠的 ~+0.2% 加永久結構複雜度** |
 | A7 | RecalcNodeFast gnd/pwr fanout-adaptive(≤2 OR-all,>2 early-break) | median **−0.87%** / tmean −0.82% / **6-20** | ❌ 負,revert。**histogram 預測正確**:inline fast-path 節點 gnd+pwr count **96% ≤2**(0:2660/1:8948/2:1566,≥3 僅 4.6%),threshold-branch 課稅 96% > early-break 救 4.6%;R4 OR-all 本就贏 |
 | A8 | high-fanout overflow c1c2 改 length-based | (未實作 — histogram gate 擋下) | ⏸️ **moot-by-data**:overflow fast-path 節點僅 **900 個(占 fast-path 6%)**且路徑罕見;length-based 需獨立 metadata pool = **每次存取多一筆 load 換掉一個便宜 sentinel**,正是已測 **−0.82% ulong-overflow dead-end** 的機制。為罕見路徑做大重構去確認near-certain負 = data-gate 正要擋的浪費。要實測可再投入,但預期負 |
+| A6→Rust | sync A6(Dict→array)到 Rust | (無事可做) | ✅/N/A **Rust 早已 array-based**(`target_to_handler: Vec<i32>`,dense、node-id 索引,從無 HashMap)→ 「a win can be already-present」(同 T-A) |
+| A6b | 反向移植:把 Rust 的 per-member `flags & HasCallback` 預檢搬進 C#(查 cbByNode 前先 gate) | median **−0.58/−0.13/+0.33%**(3 batch)/ **30-60(50%)** | ❌ 噪音,不採用。經典 sign-flip:flag-gate 是 **Rust 的 default win**,但 C# 上多一筆 Flags load+branch 抵掉省下的冷 cbByNode read。**C# 留純 A6(array,無 flag-gate);Rust 留 array+flag-gate,各取所長** |
 
 ### 📌 最終總結(2026-06-04,清單全跑完)
 **9 項評估完畢:1 採用(A6 +1.4%)、6 實測負/噪音(A2/A1/A3/A5/RT2/A4/A7)、1 已確認負略過(RT1)、1 data-gate 擋下(A8)。**

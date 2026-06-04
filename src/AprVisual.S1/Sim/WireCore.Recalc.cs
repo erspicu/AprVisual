@@ -110,7 +110,14 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void RecalcNode(int nn)
         {
+            // Supply (Npwr/Ngnd) is NEVER enqueued: EnqueueNode filters it, and SetNodeState's inline enqueue
+            // keeps c1 non-supply (Module normalises supply onto c2) + filters c2. So this guard never triggers
+            // in Release — kept only as a DEBUG tripwire (and even if it did slip through, SetNodeState's
+            // unchanged-state early-out makes it a no-op). Bit-exact with/without it.
+#if DEBUG
+            System.Diagnostics.Debug.Assert(nn != Npwr && nn != Ngnd, "RecalcNode: a supply node was enqueued — invariant broken");
             if (nn == Npwr || nn == Ngnd) return;
+#endif
             // Fast-path dispatch (IsPureLogic populated at Reset):
             //   1 = static pure-logic — group provably {nn}, O(1) RecalcNodeFast.
             //   2 = R-1 dynamic-singleton candidate — has c1c2s channels but no excluded flags; if

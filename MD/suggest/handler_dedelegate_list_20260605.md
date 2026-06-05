@@ -58,7 +58,10 @@
 ## 📊 結果(2026-06-05)
 - **H1 + H4 = ✅ 採用(commit `c882575`,+~1%)** —— 時鐘 toggle 內聯進 StepCycle、用 static `ClockNode`、移除整個 `_handlerChain`/`AddHandler`/`RunHandlerChain`、時鐘路徑直接展開 `SetXQueued+ProcessQueue`。3 批 interleaved-paired **全正**:median +0.77/+0.97/+1.5%,37/60 勝,bit-exact `0x794A43ABDF169ADA`。**比預期大** —— 那個 per-half-cycle delegate invoke 不只是一次間接呼叫,它還擋住了 StepCycle 熱迴圈的 inline。(印證使用者直覺:delegate 多轉跳一層 + 擋 inline,在每半週期的路徑上是真的有感。)
 - **H2**:被 H1 涵蓋(已無 delegate),不需要。
-- **H3(callback dispatch 去 delegate)**:尚未做 —— 多實例 + 異質 context 是難點,大重構。**待先量 `cb.Callback()` 佔比**再決定值不值。
+- **H3(callback dispatch 去 delegate)= ✅ 做了,分兩階段:**
+  - **Stage 1(typed dispatch,commit `6b5e7dc`,+~0.4%)**:`CallbackInfo` 改成帶 `Kind` 的 typed descriptor + per-instance context 欄位;`InvokeCallbacks` 用 `switch(Kind)` 呼叫 static `DoMemRead`/`DoMemReadWrite`/`DoVideo`,不再 `cb.Callback()`(Action)。泛用 Action 只留給罕用/測試路徑。3 批全正(median +0.28/+0.41/+0.54%,35/60)。
+  - **Stage 2(memory context 轉非託管,commit `4028ecc`,中性)**:`CallbackInfo` 的 `Addr/DataOut`→`int*`、`MemData`→`byte*`(`Memory.Data` 也 byte*、ROM 載入 Span)。**因為 CallbackInfo 本身就是 dispatch 單位(context 一跳,非多一跳),這次轉非託管終於是中性(52/100),不再是之前 closure/ctx 版的 −0.2~0.7%。** 為非託管一致性保留(零成本)。
+  - **關鍵教訓**:之前 memory 轉非託管會慢,根因是 **ctx-holder 多一跳**,不是非託管本身 —— 把 context 直接放在「已被載入的 dispatch 單位(CallbackInfo)」上就消除了懲罰。bit-exact + frame md5 一致全程把關。
 
 ## 建議順序
 1. **H1**(時鐘內聯 + static ClockNode)—— 最直接、最符合你的偏好、低風險。實作 + interleaved-paired A/B + checksum。順帶 H4。

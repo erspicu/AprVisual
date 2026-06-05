@@ -63,6 +63,23 @@
   - **Stage 2(memory context 轉非託管,commit `4028ecc`,中性)**:`CallbackInfo` 的 `Addr/DataOut`→`int*`、`MemData`→`byte*`(`Memory.Data` 也 byte*、ROM 載入 Span)。**因為 CallbackInfo 本身就是 dispatch 單位(context 一跳,非多一跳),這次轉非託管終於是中性(52/100),不再是之前 closure/ctx 版的 −0.2~0.7%。** 為非託管一致性保留(零成本)。
   - **關鍵教訓**:之前 memory 轉非託管會慢,根因是 **ctx-holder 多一跳**,不是非託管本身 —— 把 context 直接放在「已被載入的 dispatch 單位(CallbackInfo)」上就消除了懲罰。bit-exact + frame md5 一致全程把關。
 
+---
+
+## 📊 後續:ChatGPT 4 項「深水區」建議(2026-06-05,user 貼上評估)
+
+H1/H3 把 handler 的 **delegate 結構性成本**(間接呼叫 + 擋 inline)拿掉後,對方又提了 4 項更微的優化。逐項實測(interleaved-paired + bit-exact)。**前提共同問題:全打在 clock/callback 這些「非瓶頸」路徑;結構性成本已被 H1/H3 移除,剩下的是分支預測器/cache 早就免費處理的微成本。**
+
+| # | 建議 | 結果 | 判定 |
+|---|---|---|---|
+| ③ | `ReadBits(int*,len)` unroll-by-4(內層 immediate shift、每 4 個一次 variable shift,涵蓋所有寬度) | 5 批 **50/100**,median 噪(+1.03/−0.63/+0.73/+1.08/−0%),tmean ~+0.09% | ❌ **噪音,退回**。ReadBits 被**隨機 gather 主導**(NodeStates[node id] 散落),loads 已被 MLP 重疊,展開只省迴圈計數器 → 省不到。對方的 Read8/Read16 特化還對不上 NES 真實寬度(addr 11/15、hpos/vpos 9、palPtr 5、palRam 6) |
+| ④ | `CallbackInfo` class → unmanaged struct 連續陣列 | ⛔ **沒做** | ❌ **前提錯**:全系統只 ~5-6 個 CallbackInfo → 常駐 L1/L2 不會 miss;「連續記憶體預取」要遍歷很多項才有意義。且 `CallbackInfo` 有受管欄位(`Action`/`string`/`int[]`)不能進 unmanaged struct → 要拆 hot-struct + 冷 side-table + 把 `Enqueued`/swap-drain 改 by-ref,大重構換不存在的問題 |
+| ② | 拆分 callback 佇列(per-Kind queues,消滅 switch) | ⛔ **沒做** | ❌ **過度設計**:每次 settle 只有個位數 callback,DoD 批次化無效益;switch 是 jump table 對個位數幾乎零成本;拆三佇列只是把 switch 搬到 enqueue + 三倍 re-entrancy 複雜度。i-cache 本就非瓶頸(0.14%) |
+| ① | branchless 時鐘翻轉(`next=state^1`;`(8>>next)` → SetHigh/SetLow;直接寫 flag) | 5 批 **55/100**,median ~+0.28% / tmean ~+0.12%(**1σ,p≈0.16 不顯著**) | ✅ **採用(commit `2e03442`,依 user 選擇)** —— bit-exact、略偏正但統計不顯著。消滅的是「完美可預測=免費」的分支(交替時鐘),預期本就 ~0;機器當時已熱降頻(範圍 80–92k)測不準。程式碼略不易讀(寫死 flag 位元 `8>>next`),但 user 偏好 branchless 風格 |
+
+**小結**:4 項裡只有 ① 採用(且是邊際不顯著、依偏好留),②④ 沒做(前提錯/過度設計),③ 噪音退回。再次驗證:**delegate 拿掉後,clock/callback 路徑的剩餘微成本已在噪音地板下**;真瓶頸是 BFS settle 的隨機 gather(記憶體延遲),非這些路徑。
+
+> ⚠️ 量測品質註記:本批測試時機器已連續轟炸數小時、熱降頻嚴重(範圍從乾淨的 88–92k 掉到 78–92k),<0.5% 的效果都在噪音地板下。①③ 的「邊際/噪音」判定有此背景;若要更乾淨的結論需在涼機重測。
+
 ## 建議順序
 1. **H1**(時鐘內聯 + static ClockNode)—— 最直接、最符合你的偏好、低風險。實作 + interleaved-paired A/B + checksum。順帶 H4。
 2. 若 H1 有效或中性且你想保留擴充點 → 改用 **H1b**。

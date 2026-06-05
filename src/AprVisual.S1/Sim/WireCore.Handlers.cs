@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace AprVisual.Sim
 {
@@ -48,11 +49,14 @@ namespace AprVisual.Sim
             public HandlerKind Kind;
             public Action? Callback;                       // Generic only
 
-            // memory handler context (MemRead / MemReadWrite) — managed arrays (Stage 1)
-            public int Cs, We, Mask;
-            public int[]? Addr;
-            public int[]? DataOut;
-            public byte[]? MemData;
+            // memory handler context (MemRead / MemReadWrite) — UNMANAGED (Stage 2). These pointers are
+            // handler-lifetime (AllocHandlerArray, freed at rebuild); MemData = the Memory's byte* buffer.
+            // Read as cb.Addr/cb.MemData = ONE hop from cb (which InvokeCallbacks already loaded) — no ctx
+            // penalty — and drops the managed-array bounds check.
+            public int Cs, We, Mask, ALen, DLen;
+            public int* Addr;
+            public int* DataOut;
+            public byte* MemData;
 
             // video handler context (Video)
             public int Pclk1;
@@ -145,17 +149,17 @@ namespace AprVisual.Sim
         private static void DoMemRead(CallbackInfo cb)
         {
             if (NodeStates[cb.Cs] != 0) return;
-            int address = ReadBits(cb.Addr!);
-            WriteBits(cb.DataOut!, cb.MemData![address & cb.Mask]);
+            int address = ReadBits(cb.Addr, cb.ALen);
+            WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
         }
 
         // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
         private static void DoMemReadWrite(CallbackInfo cb)
         {
             if (NodeStates[cb.Cs] != 0) return;
-            int address = ReadBits(cb.Addr!);
-            if (NodeStates[cb.We] == 0) cb.MemData![address & cb.Mask] = (byte)ReadBits(cb.DataOut!);
-            else                        WriteBits(cb.DataOut!, cb.MemData![address & cb.Mask]);
+            int address = ReadBits(cb.Addr, cb.ALen);
+            if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
+            else                        WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
         }
 
         // video: on the pclk1 rising edge, write the visible pixel from palette RAM via the (static, unmanaged)
@@ -191,13 +195,16 @@ namespace AprVisual.Sim
         }
 
         // ── behavioral memory ──
+        // Data is UNMANAGED (byte*, AllocHandlerArray) — allocated at setupMemory, freed by FreeHandlerArrays
+        // at rebuild. Length is the power-of-2 size (mask = Length - 1).
         internal sealed class Memory
         {
             public string Name = "";
-            public byte[] Data = Array.Empty<byte>();
-            public byte Read(int addr) => Data[addr & (Data.Length - 1)];          // assumes power-of-2 size
-            public void Write(int addr, byte v) => Data[addr & (Data.Length - 1)] = v;
-            public void Clear() => Array.Clear(Data);
+            public byte* Data;
+            public int Length;
+            public byte Read(int addr) => Data[addr & (Length - 1)];               // assumes power-of-2 size
+            public void Write(int addr, byte v) => Data[addr & (Length - 1)] = v;
+            public void Clear() { if (Data != null) NativeMemory.Clear(Data, (nuint)Length); }
         }
 
         private static readonly Dictionary<string, Memory> _memories = new(StringComparer.Ordinal);
@@ -316,11 +323,15 @@ namespace AprVisual.Sim
             if (cs == EmptyNode || addrL.Count == 0 || dataOutL.Count == 0)
             { Console.Error.WriteLine($"memory handler '{prefix}': missing cs/a[]/_d[7:0]"); return; }
 
-            // [H3] typed CallbackInfo (no closure) — context lives on the CallbackInfo, dispatched by Kind in
-            // InvokeCallbacks → DoMemRead / DoMemReadWrite (static). int[] node-lists (suggest #06: int[]
-            // overload, no interface dispatch); MemData is the managed RAM/ROM buffer (Stage 1 keeps it managed).
-            int[] addr = addrL.ToArray();
-            int[] dataOut = dataOutL.ToArray();
+            // [H3 Stage 2] typed CallbackInfo (no closure) — context lives on the CallbackInfo, dispatched by
+            // Kind in InvokeCallbacks → DoMemRead / DoMemReadWrite (static). Node-lists are UNMANAGED int*
+            // (handler-lifetime); MemData is the Memory's byte* buffer. cb.Addr/cb.MemData = one hop (no ctx
+            // penalty), no managed-array bounds check.
+            int alen = addrL.Count, dlen = dataOutL.Count;
+            int* addr = AllocHandlerArray<int>(alen);
+            for (int i = 0; i < alen; i++) addr[i] = addrL[i];
+            int* dataOut = AllocHandlerArray<int>(dlen);
+            for (int i = 0; i < dlen; i++) dataOut[i] = dataOutL[i];
 
             var trigger = new List<int> { cs };
             if (we != EmptyNode) trigger.Add(we);
@@ -331,8 +342,8 @@ namespace AprVisual.Sim
             RegisterCallback(trigger, new CallbackInfo
             {
                 Kind = readOnly ? HandlerKind.MemRead : HandlerKind.MemReadWrite,
-                Cs = cs, We = we, Mask = mem.Data.Length - 1,
-                Addr = addr, DataOut = dataOut, MemData = mem.Data,
+                Cs = cs, We = we, Mask = mem.Length - 1,
+                Addr = addr, ALen = alen, DataOut = dataOut, DLen = dlen, MemData = mem.Data,
             });
         }
 

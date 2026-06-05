@@ -270,7 +270,9 @@ namespace AprVisual.Sim
                 foreach (var (mname, msize) in def.Memories)
                 {
                     string full = CombinePrefix(prefix, mname);
-                    _memories[full] = new Memory { Name = full, Data = new byte[msize] };
+                    // Data is unmanaged (handler-lifetime): freed by FreeHandlerArrays() at the next rebuild
+                    // (ResetHandlers runs right after _memories.Clear()). AllocHandlerArray zeroes it.
+                    _memories[full] = new Memory { Name = full, Data = AllocHandlerArray<byte>(msize), Length = msize };
                 }
 
                 // setupSegments — pull-ups (we don't keep the polygons)

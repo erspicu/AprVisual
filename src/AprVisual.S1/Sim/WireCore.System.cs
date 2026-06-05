@@ -107,22 +107,28 @@ namespace AprVisual.Sim
 
         private static void CopyRomBytes(NesRom rom)
         {
+            // prg/chr.Data are unmanaged (byte*) — copy via Span instead of Array.Copy.
             var prg = ResolveMemory("cart.prg.rom");
             if (prg != null && rom.PrgRom.Length > 0)
             {
-                if (rom.PrgRom.Length == 16 * 1024 && prg.Data.Length >= 32 * 1024)
+                var prgDst = new Span<byte>(prg.Data, prg.Length);
+                if (rom.PrgRom.Length == 16 * 1024 && prg.Length >= 32 * 1024)
                 {
-                    Array.Copy(rom.PrgRom, 0, prg.Data, 0, 16 * 1024);
-                    Array.Copy(rom.PrgRom, 0, prg.Data, 16 * 1024, 16 * 1024);   // NROM-128: mirror the 16 KB bank
+                    rom.PrgRom.AsSpan(0, 16 * 1024).CopyTo(prgDst);
+                    rom.PrgRom.AsSpan(0, 16 * 1024).CopyTo(prgDst.Slice(16 * 1024));   // NROM-128: mirror the 16 KB bank
                 }
                 else
                 {
-                    Array.Copy(rom.PrgRom, 0, prg.Data, 0, Math.Min(rom.PrgRom.Length, prg.Data.Length));
+                    int n = Math.Min(rom.PrgRom.Length, prg.Length);
+                    rom.PrgRom.AsSpan(0, n).CopyTo(prgDst);
                 }
             }
             var chr = ResolveMemory("cart.chr.rom");
             if (chr != null && rom.ChrRom.Length > 0)
-                Array.Copy(rom.ChrRom, 0, chr.Data, 0, Math.Min(rom.ChrRom.Length, chr.Data.Length));
+            {
+                int n = Math.Min(rom.ChrRom.Length, chr.Length);
+                rom.ChrRom.AsSpan(0, n).CopyTo(new Span<byte>(chr.Data, chr.Length));
+            }
         }
 
         private static void ResolveCachedNodes()

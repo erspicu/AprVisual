@@ -40,8 +40,9 @@ namespace AprVisual.Sim
         public static UnitTestResult CheckUnitTest()
         {
             var eram = M_EramRam;
-            if (eram == null || eram.Data.Length < 5) return default;
-            byte[] d = eram.Data;
+            if (eram == null || eram.Length < 5) return default;
+            byte* d = eram.Data;
+            int dlen = eram.Length;
             if (d[1] != 0xDE || d[2] != 0xB0 || d[3] != 0x61) return default;   // signature not yet written
 
             int code = d[0];
@@ -49,7 +50,7 @@ namespace AprVisual.Sim
                 return new UnitTestResult(found: true, complete: false, code, "");   // 0x80 running, 0x81 needs reset
 
             var sb = new StringBuilder();
-            for (int i = 4; i < d.Length; i++)
+            for (int i = 4; i < dlen; i++)
             {
                 char c = (char)d[i];
                 if (c == '\0') break;

@@ -736,15 +736,15 @@ namespace AprVisual.Test
                 Console.WriteLine(sb);
 
                 var vram = WireCore.ResolveMemory("u4.ram");
-                if (vram != null && vram.Data.Length >= 64)
+                if (vram != null && vram.Length >= 64)
                 {
                     sb = new StringBuilder("VRAM[0000..003F]:");
-                    for (int i = 0; i < 64; i++) { if ((i & 15) == 0) sb.Append("  "); sb.Append(' ').Append(vram.Data[i].ToString("X2")); }
+                    for (int i = 0; i < 64; i++) { if ((i & 15) == 0) sb.Append("  "); sb.Append(' ').Append(vram.Read(i).ToString("X2")); }
                     Console.WriteLine(sb);
                     int nzNt = 0, nzAt = 0;
-                    int ntLen = Math.Min(0x3C0, vram.Data.Length);
-                    for (int i = 0; i < ntLen; i++) if (vram.Data[i] != 0) nzNt++;
-                    for (int i = 0x3C0; i < 0x400 && i < vram.Data.Length; i++) if (vram.Data[i] != 0) nzAt++;
+                    int ntLen = Math.Min(0x3C0, vram.Length);
+                    for (int i = 0; i < ntLen; i++) if (vram.Read(i) != 0) nzNt++;
+                    for (int i = 0x3C0; i < 0x400 && i < vram.Length; i++) if (vram.Read(i) != 0) nzAt++;
                     Console.WriteLine($"# nametable 0: {nzNt}/{ntLen} nonzero tile bytes, {nzAt}/64 nonzero attr bytes");
                 }
                 else Console.WriteLine("# (no u4.ram memory)");

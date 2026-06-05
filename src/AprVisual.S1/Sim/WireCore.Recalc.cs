@@ -280,12 +280,17 @@ namespace AprVisual.Sim
             // [H1] clock toggle inlined here (it was the SOLE entry of the old handler-chain delegate) —
             // drops the per-half-cycle delegate invoke + null-check and lets the toggle inline. Uses the
             // static ClockNode (set by AttachClockHandler) instead of a captured closure local.
-            // [H4] expand SetLow/SetHigh -> SetXQueued + ProcessQueue directly (one less call layer).
+            // [#1 test] branchless toggle: clock always flips, so the state-direction branch + the
+            // SetXQueued changed-check are both removable. next = state^1; (8>>next) maps 1->SetHigh(4),
+            // 0->SetLow(8); clear both drive flags then OR the new one — bit-identical to SetHigh/LowQueued.
             int clk = ClockNode;
             if (clk != EmptyNode)
             {
-                if (NodeStates[clk] != 0) { if (SetLowQueued(clk))  ProcessQueue(); }
-                else                      { if (SetHighQueued(clk)) ProcessQueue(); }
+                ref NodeInfo ns = ref NodeInfos[clk];
+                int next = NodeStates[clk] ^ 1;
+                ns.Flags = (ns.Flags & ~(NodeFlags.SetHigh | NodeFlags.SetLow)) | (NodeFlags)(8 >> next);
+                EnqueueNode(clk);
+                ProcessQueue();
             }
             Time++;
         }

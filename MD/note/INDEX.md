@@ -22,7 +22,8 @@
 | 文件 | 內容 |
 |------|------|
 | [06_S1引擎演算法_資料結構與程式碼對照.md](./06_S1引擎演算法_資料結構與程式碼對照.md) | **目前實際在跑的** S1 開關級演算法逐段拆解:SoA 熱資料結構、`NodeInfo` 內聯/外溢兩種佈局、半週期主迴圈、雙緩衝 settle、三類 fast-path 派發、群組 BFS 與 LUT 解析,全程對照 `WireCore.*` 程式碼位置 |
-| [2026-06-07_同態免入隊剪枝_為何破壞正確性.md](./2026-06-07_同態免入隊剪枝_為何破壞正確性.md) | 死路筆記:「兩端同值就免入隊」的剪枝為何在 NES 上破 bit-exact —— 群組解析單調性被 `ForceCompute`(唯一會抵消旗標的機制)破壞;含精確安全條件、數值例子、為何補不了、全黑畫面實證 |
+| [2026-06-07_同態免入隊剪枝_為何破壞正確性.md](./2026-06-07_同態免入隊剪枝_為何破壞正確性.md) | same-state turn-on prune:天真版破 bit-exact(真因=無 PullUp 動態/儲存節點走浮接 hold-previous,**非** ForceCompute)→ 用 PullUp 守衛後 **bit-exact 且 +11.85%**(14/14),已併入 main。含逐節點 diff 找根因的方法論 |
+| [golden-checksums.md](./golden-checksums.md) | bit-exact 驗證基準表:full_palette 300k = `0x794A43ABDF169ADA`、1M = `0x6D4CCBCE2E9CD599`,跑法與注意事項 |
 
 ## 與既有文件的關係
 

@@ -65,6 +65,7 @@ fn framedump(args: &[String]) {
     let vblank_node = snap.ppu_vblank_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
+    eprintln!("# prune-taint: {} prune-unsafe (no-PullUp/dynamic or ForceCompute) — same-state turn-on prune on the rest", wc.prune_unsafe_count);
     println!("# rendering {frames} frame(s) -> {out_dir}");
 
     let mut total = 0.0f64;
@@ -97,6 +98,7 @@ fn bench(args: &[String]) {
     let clock_node = snap.clock_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
+    eprintln!("# prune-taint: {} prune-unsafe (no-PullUp/dynamic or ForceCompute) — same-state turn-on prune on the rest", wc.prune_unsafe_count);
 
     let t = Instant::now();
     wc.step(n, clock_node);
@@ -320,6 +322,7 @@ fn shot(args: &[String]) {
     let vblank_node = snap.ppu_vblank_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
+    eprintln!("# prune-taint: {} prune-unsafe (no-PullUp/dynamic or ForceCompute) — same-state turn-on prune on the rest", wc.prune_unsafe_count);
 
     let t = Instant::now();
     let mut total_hc = 0i64;

@@ -87,6 +87,11 @@ pub struct WireCore {
     // fast-path: pre-classified pure-logic-gnd nodes that resolve in O(1)
     pub is_pure_logic: Vec<u8>,
     pub fast_path_count: usize,
+
+    // same-state turn-on prune safety mask (parity with C# ClassifyPruneTaint): 1 = UNSAFE to prune
+    // (no-PullUp floating/hold-previous dynamic+storage cell, or in a ForceCompute channel-component).
+    pub prune_unsafe: Vec<u8>,
+    pub prune_unsafe_count: usize,
 }
 
 // 2026-05-25: 128 = ~2.8x safety margin over observed max (full_palette 45 iter, SMB 41 iter).
@@ -129,6 +134,43 @@ impl WireCore {
             if (ni.flags & FLAG_PULLUP) == 0 { continue; }
             is_pure_logic[nn] = 1;
             fast_path_count += 1;
+        }
+
+        // ── same-state turn-on prune safety mask (parity with C# ClassifyPruneTaint) ──
+        // union-find over c1c2 channels; taint a node iff it has no PullUp (can float → charge/cap
+        // hold-previous tie-break: dynamic logic + storage cells) OR its channel-component holds a
+        // ForceCompute node (Gnd+Pwr cancel → non-monotone). Pruning the untainted (PullUp-static) rest
+        // is bit-exact. One-off at construction (not hot path); uses snap.* before they're moved below.
+        let mut prune_unsafe = vec![0u8; nc];
+        let mut prune_unsafe_count = 0usize;
+        {
+            fn find(p: &mut [usize], mut x: usize) -> usize { while p[x] != x { p[x] = p[p[x]]; x = p[x]; } x }
+            fn union(p: &mut [usize], a: usize, b: usize) { let ra = find(p, a); let rb = find(p, b); if ra != rb { p[ra] = rb; } }
+            let mut parent: Vec<usize> = (0..nc).collect();
+            for nn in 0..nc {
+                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
+                let t = snap.node_infos[nn].tlist_c1c2s;
+                if t != 0 {
+                    let mut p = t as usize;
+                    while snap.transistor_list[p] != 0 {
+                        union(&mut parent, nn, snap.transistor_list[p + 1] as usize);
+                        p += 2;
+                    }
+                }
+            }
+            let mut tainted_root = vec![false; nc];
+            for nn in 0..nc {
+                if (snap.node_infos[nn].flags & FLAG_FORCE_COMPUTE) != 0 {
+                    let r = find(&mut parent, nn);
+                    tainted_root[r] = true;
+                }
+            }
+            for nn in 0..nc {
+                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
+                let dynamic = (snap.node_infos[nn].flags & FLAG_PULLUP) == 0;
+                let fc = tainted_root[find(&mut parent, nn)];
+                if dynamic || fc { prune_unsafe[nn] = 1; prune_unsafe_count += 1; }
+            }
         }
 
         // R1: split snapshot NodeInfo into hot NodeHot[] + cold parallel arrays. Hot path
@@ -194,6 +236,8 @@ impl WireCore {
             framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
             is_pure_logic,
             fast_path_count,
+            prune_unsafe,
+            prune_unsafe_count,
         }
     }
 
@@ -461,19 +505,30 @@ impl WireCore {
                         p += 4;
                     }
                 } else {
-                    // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
+                    // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of c1.
+                    // [same-state turn-on prune] skip the enqueue when c1==c2 state AND c1 is prune-safe
+                    // (PullUp-static, non-FC). `want` folds that into the branchless XOR-shielded enqueue;
+                    // `|= n` sets the hash only when we actually add (else a pruned node would look queued).
                     loop {
                         let quad = (tl.add(p) as *const u64).read_unaligned();
                         let c1a = (quad as u16) as i32;
                         if c1a == 0 { break; }
-                        let cu = c1a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        let c2a = ((quad >> 16) as u16) as i32;
+                        let cu = c1a as usize;
+                        let want = (*self.prune_unsafe.get_unchecked(cu) != 0)
+                                 | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2a as usize));
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         let c1b = ((quad >> 32) as u16) as i32;
                         if c1b == 0 { break; }
-                        let cu = c1b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        let c2b = ((quad >> 48) as u16) as i32;
+                        let cu = c1b as usize;
+                        let want = (*self.prune_unsafe.get_unchecked(cu) != 0)
+                                 | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2b as usize));
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         p += 4;
                     }
                 }

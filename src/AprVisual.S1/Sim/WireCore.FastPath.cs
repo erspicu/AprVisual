@@ -194,8 +194,9 @@ namespace AprVisual.Sim
                 }
             }
 
-            // flags == 0 ⇒ floating singleton ⇒ hold previous state (matches GetNodeValue's single-node tie-break).
-            SetNodeState(nn, flags != 0 ? FlagsToState[flags] : NodeStates[nn]);
+            // flags == 0 ⇒ floating singleton ⇒ hold previous (NodeStates[nn] unchanged) ⇒ SetNodeState would
+            // be a pure no-op, so skip the call entirely (saves the operand read + the call). Bit-exact.
+            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
         }
 
         // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──

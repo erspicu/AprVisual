@@ -165,6 +165,37 @@
 </section>
 
 <section>
+  <h2><span class="en">Will this gap ever close? — what the research found</span><span class="zh">這個差距補得起來嗎? —— 我們研究的心得</span></h2>
+
+  <h3><span class="en">The chip is the obstacle, not the code</span><span class="zh">難的是晶片,不是程式</span></h3>
+  <p class="en">The 2A03 and 2C02 are early-1980s NMOS designs. Unlike a modern chip — clean synchronous digital logic that maps neatly onto Boolean gates and registers — these are dense, irregular <b>switch-level</b> networks, where a signal propagates as conduction ripples through small clusters of transistors. The engine already runs at that network's natural minimum granularity: each event settles an average conducting group of only <b>~1.4 nodes</b>. There is simply no large, regular block of computation to batch, vectorize, or hand off to a GPU.</p>
+  <p class="zh">2A03 與 2C02 是 1980 年代初的 NMOS 設計。跟現代晶片那種「乾淨的同步數位邏輯、能整齊對應到布林閘與暫存器」不同,它們是密集又不規則的<b>開關級</b>網路 —— 訊號是靠一小群電晶體的導通彼此牽動而傳播的。我們的引擎已經跑在這個網路天生的最小顆粒度上:每個事件平均只穩定一個約 <b>1.4 個節點</b>的導通群。根本沒有一塊又大又規則的運算,可以拿去批次化、向量化、或丟給 GPU。</p>
+
+  <h3><span class="en">The rule: fully automatic, no manual abstraction</span><span class="zh">規則:全自動,不靠人工抽象</span></h3>
+  <p class="en">A deliberate constraint of this project is <b>no hand-written abstraction</b>. We don't author a faster behavioral model of the CPU by hand; the speed has to come purely from the program <b>automatically shedding work</b> — detecting what cannot change and skipping it — on a single CPU core. Under that rule, almost every acceleration strategy we tried <b>lost</b> to the plain event-driven interpreter:</p>
+  <p class="zh">這個專案刻意立了一條規則:<b>不做人工抽象</b>。我們不靠手寫去做一個更快的 CPU 行為模型;速度必須完全來自「程式<b>自動削掉計算</b>」 —— 自動判斷哪些不會變、就跳過 —— 而且只用單一 CPU 核心。在這條規則下,我們試過的加速策略幾乎全部<b>輸給</b>最樸素的事件驅動直譯器:</p>
+  <table>
+    <tr><th><span class="en">Strategy tried</span><span class="zh">試過的策略</span></th><th><span class="en">Measured result</span><span class="zh">實測結果</span></th></tr>
+    <tr><td><span class="en">IR interpreter</span><span class="zh">IR 直譯器</span></td><td>&minus;2.5% <span class="mut">(<span class="en">slower</span><span class="zh">更慢</span>)</span></td></tr>
+    <tr><td><span class="en">Ahead-of-time codegen</span><span class="zh">預先編譯 codegen</span></td><td><span class="en">3–6× slower</span><span class="zh">慢 3–6 倍</span></td></tr>
+    <tr><td><span class="en">GPU kernel (single instance)</span><span class="zh">GPU kernel(單一實例)</span></td><td><span class="en">~10.7× slower</span><span class="zh">慢約 10.7 倍</span></td></tr>
+    <tr><td><span class="en">Bit-parallel BFS</span><span class="zh">位元平行 BFS</span></td><td><span class="en">~156× slower</span><span class="zh">慢約 156 倍</span></td></tr>
+    <tr><td><span class="en">Per-chip multithreading</span><span class="zh">每晶片多執行緒</span></td><td><span class="en">~15× slower</span><span class="zh">慢約 15 倍</span></td></tr>
+  </table>
+  <p class="en">We even proved that <b>~98.9%</b> of the chip's activity is reducible to logic + registers — yet that reduction <i>still</i> didn't beat the interpreter on one core, because the interpreter was already doing the minimum work per event. The full account is in <a href="ceiling.html">why IR / codegen hit the wall</a> and the <a href="study.html">study paper</a>.</p>
+  <p class="zh">我們甚至證明了這顆晶片約 <b>98.9%</b> 的活動可以化簡成邏輯 + 暫存器 —— 但這個化簡在單核上<i>仍然</i>贏不了直譯器,因為直譯器本來就已經把每個事件的工作做到最少了。完整說明見<a href="ceiling.html">為什麼 IR / codegen 撞牆</a>與<a href="study.html">研究論文</a>。</p>
+
+  <h3><span class="en">Today's wall is memory movement, not arithmetic</span><span class="zh">今天的牆是記憶體搬運,不是算術</span></h3>
+  <p class="en">So the bottleneck now isn't how many operations the ALU can do — it's <b>getting the data to the ALU</b>. The hot loop chases pointers through node and transistor tables that don't fit in the fast caches, so it's gated by <b>L1/L2 cache latency</b> and memory movement, not compute. That's why throughput tracks CPU clock and cache latency far more than core count, and why any micro-optimization that doesn't shrink the data or cut cache misses tends to do nothing at all. We are sitting squarely on the <b>memory-latency floor</b>.</p>
+  <p class="zh">所以現在的瓶頸不是「ALU 一秒能算幾次」,而是「<b>怎麼把資料餵到 ALU</b>」。熱迴圈要在放不進高速快取的節點/電晶體表裡一路追指標,被卡住的是 <b>L1/L2 快取延遲</b>與記憶體搬運,而不是運算量。這就是為什麼吞吐量主要看 CPU 時脈與快取延遲、而不是核心數;也是為什麼那些不能縮小資料、或減少快取失誤的微優化,通常做了等於沒做。我們現在就穩穩卡在<b>記憶體延遲這塊地板</b>上。</p>
+
+  <div class="big">
+    <p class="en"><b>But that floor isn't fixed forever.</b> It moves down with hardware — faster memory, larger and lower-latency caches, higher per-core IPC — and with continued, patient squeezing of the data layout. The current #1 already does ~0.16 frames/second; reaching <b>1 frame/second and beyond is only about a 6× climb</b>, well within reach of better hardware plus incremental wins. Full real-time is much further (the multiplier shown above), and software cleverness alone won't close it on one core — but because the limit is a <i>memory-latency floor</i> rather than a fundamental compute wall, it keeps inching down as machines improve. Overcoming real NES speed may not be as far off as the raw multiplier makes it look.</p>
+    <p class="zh"><b>但這塊地板不是永遠固定的。</b>它會隨硬體往下移 —— 更快的記憶體、更大且更低延遲的快取、更高的單核 IPC —— 也會隨著我們持續、耐心地壓榨資料佈局而下降。目前的第一名已經到約每秒 0.16 張;要做到<b>每秒 1 張起跳,大約只差 6 倍</b>,靠更好的硬體再加上一點一滴的改進,並非遙不可及。完整的實機即時還遠得多(就是上面那個倍數),光靠軟體的小聰明在單核上補不起來 —— 但因為極限是一塊<i>記憶體延遲地板</i>、而不是某個基本的運算天花板,它會隨著機器進步一直往下挪。克服真實 NES 速度的那天,也許沒有那個倍數看起來的那麼遙遠。</p>
+  </div>
+</section>
+
+<section>
   <h2><span class="en">Notes &amp; caveats</span><span class="zh">說明與注意事項</span></h2>
   <ul>
     <li class="en">The <b>#1 default</b> is fetched live from the community leaderboard — the fastest <b>recorded</b> result so far (anyone with a faster CPU can take the top spot by <a href="https://github.com/erspicu/AprVisual/releases">running the benchmark</a>). If the leaderboard can't be reached, the calculator falls back to the dev machine's ~91K example.</li>

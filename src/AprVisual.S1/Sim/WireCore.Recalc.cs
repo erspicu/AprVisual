@@ -218,6 +218,11 @@ namespace AprVisual.Sim
                     // the monotone driven-priority LUT. PruneUnsafe[c1]!=0 forces the enqueue for nodes that
                     // can resolve non-monotonically (no-PullUp floating/hold-previous, or ForceCompute
                     // Gnd+Pwr cancel). Bit-exact (golden checksum); +11.85% (14/14 paired). See ClassifyPruneTaint.
+                    // Micro-form: test nextHash==0 FIRST (short-circuits the keep-condition for the common
+                    // already-queued case) and fold the keep-condition branchlessly —
+                    // pruneUnsafe | (state^state) != 0  ==  pruneUnsafe!=0 || state!=state. +~0.4-0.5% C#,
+                    // bit-exact (2 interleaved-paired batches: 11/16 + 13/22). The `if` stays — a pruned node
+                    // must NOT have nextHash set, or it would look queued without being in the list.
                     byte* nodeStates = NodeStates;
                     byte* pruneUnsafe = PruneUnsafe;
                     while (true)
@@ -226,11 +231,11 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-                        if ((pruneUnsafe[c1a] != 0 || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if (nextHash[c1a] == 0 && (pruneUnsafe[c1a] | (nodeStates[c1a] ^ nodeStates[c2a])) != 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-                        if ((pruneUnsafe[c1b] != 0 || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (nextHash[c1b] == 0 && (pruneUnsafe[c1b] | (nodeStates[c1b] ^ nodeStates[c2b])) != 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
                 }

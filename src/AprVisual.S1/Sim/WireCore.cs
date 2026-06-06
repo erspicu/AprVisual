@@ -249,6 +249,7 @@ namespace AprVisual.Sim
             //    Pure-logic-gnd nodes (pull-up + only GND channels + no normal channel + no callback)
             //    resolve in O(1) via RecalcNodeFast, bypassing the group DFS. See WireCore.FastPath.cs.
             ClassifyPureLogicNodes();
+            ClassifyPruneTaint();   // safety mask for the same-state turn-on prune (no-PullUp / ForceCompute)
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).

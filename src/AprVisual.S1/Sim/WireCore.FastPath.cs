@@ -38,6 +38,20 @@ namespace AprVisual.Sim
         public static int PureLogicNodeCount;
         public static string LastFastPathStats = "(fast-path disabled — default; --fast-path to enable)";
 
+        // [same-state turn-on prune — safety mask] 1 = this node is UNSAFE to prune; 0 = safe.
+        // The same-state turn-on prune (WireCore.Recalc.cs SetNodeState) skips re-enqueuing a node when
+        // a conducting transistor merges two equal-state groups. That is bit-exact ONLY when the merged
+        // group resolves through the monotone driven-priority LUT. Two cases break monotonicity, so we
+        // taint (never prune) those nodes:
+        //   (a) NO PullUp  — the node can sit in a purely-FLOATING group resolved by the charge/capacitance
+        //       hold-previous tie-break (dynamic logic + storage cells: OAM/palette RAM, dynamic CPU nodes).
+        //   (b) in a ForceCompute channel-component — the FC Gnd+Pwr cancel removes drivers (non-monotone).
+        // Built once at Reset by ClassifyPruneTaint(); read by SetNodeState's turn-on enqueue.
+        // Measured (full_palette): ~58.7% tainted (8,331 no-PullUp + 709 FC-component); pruning the rest is
+        // bit-exact (golden checksum) and +11.85% interleaved-paired (14/14 wins).
+        internal static byte* PruneUnsafe;
+        public static string LastPruneTaintStats = "(prune-taint not classified)";
+
         /// <summary>
         /// Flag the nodes eligible for the O(1) RecalcNodeFast path. Must run after Reset() has built
         /// the per-node Tlist* sub-lists and set the static flags (pull-up / forceCompute / supply).
@@ -82,6 +96,56 @@ namespace AprVisual.Sim
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             double dpct = NonNullNodeCount > 0 ? 100.0 * dynCount / NonNullNodeCount : 0;
             LastFastPathStats = $"fast-path: {count:N0} static pure-logic ({pct:F1}%) + {dynCount:N0} dyn-singleton candidates ({dpct:F1}%) of {NonNullNodeCount:N0} live nodes";
+        }
+
+        /// <summary>
+        /// Build the same-state-turn-on-prune safety mask <see cref="PruneUnsafe"/>: taint a node iff it has
+        /// no PullUp (can float → hold-previous tie-break) OR its c1c2 channel-component contains a
+        /// ForceCompute node (Gnd+Pwr cancel → non-monotone). Run once at end of Reset(), after channel
+        /// sub-lists + flags are set. Not hot path. Pruning the untainted nodes is bit-exact.
+        /// </summary>
+        internal static unsafe void ClassifyPruneTaint()
+        {
+            int n = NodeCount;
+            PruneUnsafe = AllocArray<byte>(n);   // tracked + zeroed; freed in FreeUnmanagedMemory
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                NodeInfo* ns = NodeInfos + nn;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int n2 = ns->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) FcuUnion(parent, nn, pay[k + 1]);
+                }
+                else if (ns->TlistC1c2s != 0)
+                {
+                    ushort* p = TransistorList + ns->TlistC1c2s;
+                    while (*p != 0) { FcuUnion(parent, nn, *(p + 1)); p += 2; }
+                }
+            }
+            bool[] taintedRoot = new bool[n];
+            int fcNodes = 0;
+            for (int nn = 0; nn < n; nn++)
+                if (Nodes[nn] != null && (NodeInfos[nn].Flags & NodeFlags.ForceCompute) != 0) { fcNodes++; taintedRoot[FcuFind(parent, nn)] = true; }
+            int live = 0, tainted = 0, noPull = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                live++;
+                bool fc = taintedRoot[FcuFind(parent, nn)];
+                // [hold-previous guard] a node WITHOUT a PullUp can sit in a purely-floating group whose
+                // value is the charge-held / capacitance tie-break (dynamic + storage cells: OAM/palette RAM,
+                // dynamic CPU nodes). The same-state prune is only proven for driven (monotone-LUT) groups,
+                // so prune ONLY on PullUp nodes; taint the rest.
+                bool dynamic = (NodeInfos[nn].Flags & NodeFlags.PullUp) == 0;
+                if (dynamic) noPull++;
+                if (fc || dynamic) { PruneUnsafe[nn] = 1; tainted++; }
+            }
+            double pct = live > 0 ? 100.0 * tainted / live : 0;
+            LastPruneTaintStats = $"prune-taint: {tainted:N0} unsafe ({pct:F1}%) of {live:N0} live  [{fcNodes} ForceCompute, {noPull:N0} no-PullUp/dynamic] — same-state turn-on prune active on the rest";
         }
 
         /// <summary>
@@ -133,5 +197,75 @@ namespace AprVisual.Sim
             // flags == 0 ⇒ floating singleton ⇒ hold previous state (matches GetNodeValue's single-node tie-break).
             SetNodeState(nn, flags != 0 ? FlagsToState[flags] : NodeStates[nn]);
         }
+
+        // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──
+        // "same-state turn-on prune" eligibility study. Union-find over c1c2 (normal-to-normal)
+        // channels = the maximal possible conducting group (all channels ON). A node is SAFE for the
+        // prune iff its channel-component contains NO ForceCompute node (then the FC Gnd+Pwr cancel can
+        // never fire for any group it joins, so the resolver stays monotone). Reports safe vs tainted.
+        internal static unsafe string FcTaintStats()
+        {
+            int n = NodeCount;
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+
+            // edges = c1c2 channels (the ones that grow a group's node membership)
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                NodeInfo* ns = NodeInfos + nn;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int n2 = ns->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) FcuUnion(parent, nn, pay[k + 1]);
+                }
+                else if (ns->TlistC1c2s != 0)
+                {
+                    ushort* p = TransistorList + ns->TlistC1c2s;
+                    while (*p != 0) { FcuUnion(parent, nn, *(p + 1)); p += 2; }
+                }
+            }
+
+            // FC nodes: read the flag off NodeInfos (the ForceComputeList is freed after compose).
+            bool[] taintedRoot = new bool[n];
+            int fcNodes = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null) continue;
+                if ((NodeInfos[nn].Flags & NodeFlags.ForceCompute) != 0) { fcNodes++; taintedRoot[FcuFind(parent, nn)] = true; }
+            }
+
+            var compSize = new System.Collections.Generic.Dictionary<int, int>();
+            int live = 0, safe = 0, tainted = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                live++;
+                int r = FcuFind(parent, nn);
+                compSize.TryGetValue(r, out int c); compSize[r] = c + 1;
+                if (taintedRoot[r]) tainted++; else safe++;
+            }
+
+            int comps = compSize.Count, taintedComps = 0, biggest = 0; bool biggestTainted = false;
+            foreach (var kv in compSize)
+            {
+                if (taintedRoot[kv.Key]) taintedComps++;
+                if (kv.Value > biggest) { biggest = kv.Value; biggestTainted = taintedRoot[kv.Key]; }
+            }
+
+            double P(int x) => live == 0 ? 0 : 100.0 * x / live;
+            return
+                "# ===== same-state turn-on prune eligibility (FC-taint over c1c2 channel graph) =====\n" +
+                $"#  live nodes:          {live:N0}\n" +
+                $"#  ForceCompute nodes:  {fcNodes:N0}\n" +
+                $"#  channel components:  {comps:N0}  (FC-tainted: {taintedComps:N0})\n" +
+                $"#  biggest component:   {biggest:N0} nodes ({P(biggest):F1}% of live){(biggestTainted ? "  [FC-TAINTED]" : "")}\n" +
+                $"#  SAFE to prune (FC-free component):    {safe:N0}  ({P(safe):F1}%)\n" +
+                $"#  CANNOT prune (FC-tainted component):  {tainted:N0}  ({P(tainted):F1}%)\n" +
+                "# ================================================================================";
+        }
+        private static int FcuFind(int[] p, int x) { while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; } return x; }
+        private static void FcuUnion(int[] p, int a, int b) { int ra = FcuFind(p, a), rb = FcuFind(p, b); if (ra != rb) p[ra] = rb; }
     }
 }

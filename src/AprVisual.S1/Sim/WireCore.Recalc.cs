@@ -211,16 +211,26 @@ namespace AprVisual.Sim
                 }
                 else
                 {
-                    // gate going high: c2 stays connected via the now-ON channel; only c1 needs enqueue
+                    // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
+                    // c1 suffices (BFS traverses the ON channel to c2).
+                    // [same-state turn-on prune] if c1 and c2 already hold the same state, merging two
+                    // equal-state groups can't change any value — PROVIDED the merged group resolves through
+                    // the monotone driven-priority LUT. PruneUnsafe[c1]!=0 forces the enqueue for nodes that
+                    // can resolve non-monotonically (no-PullUp floating/hold-previous, or ForceCompute
+                    // Gnd+Pwr cancel). Bit-exact (golden checksum); +11.85% (14/14 paired). See ClassifyPruneTaint.
+                    byte* nodeStates = NodeStates;
+                    byte* pruneUnsafe = PruneUnsafe;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
-                        if (nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        int c2a = (ushort)(quad >> 16);
+                        if ((pruneUnsafe[c1a] != 0 || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
-                        if (nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        int c2b = (ushort)(quad >> 48);
+                        if ((pruneUnsafe[c1b] != 0 || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
                 }

@@ -13,12 +13,15 @@ namespace AprVisual.Test
     //    Diagnostic flags: --no-lower (lowering A/B compare). --fast-path accepted as no-op.
     internal static class TestRunner
     {
+        private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
+
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
-            string? frameDumpPath = null, payloadHistPath = null;
+            string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             string frameOutDir = "frames";
@@ -53,6 +56,9 @@ namespace AprVisual.Test
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
+                    case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
+                    case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
+                    case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
@@ -81,6 +87,8 @@ namespace AprVisual.Test
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);
+            if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
+            if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
@@ -141,6 +149,36 @@ namespace AprVisual.Test
                 for (int p = 0; p <= 8 && p < hist.Length; p++)
                     Console.WriteLine($"#   payload={p,2}: {hist[p],6:N0}  ({P(hist[p], inlineN):F1}% of inline)");
                 Console.WriteLine("# ============================================================");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --names: map a comma-separated list of node ids to names (diagnostic) ──
+        private static int NamesLookup(string ids)
+        {
+            // needs the netlist + name map; use ComposeSystem (LoadSystem path keeps _nameByNode).
+            var rom = NesRom.LoadFromFile("AprVisualBenchMark/roms/full_palette.nes");
+            if (rom is null) { Console.Error.WriteLine("failed to load ROM for name lookup"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                foreach (var s in ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (int.TryParse(s, out int id)) Console.WriteLine($"{id}\t{WireCore.GetNodeName(id)}");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --fc-taint-stats: same-state-prune eligibility (FC-free vs FC-tainted channel components) ──
+        private static int FcTaintStats(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                Console.WriteLine(WireCore.FcTaintStats());
                 return 0;
             }
             finally { WireCore.Shutdown(); }
@@ -505,6 +543,7 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
+                Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
@@ -513,9 +552,21 @@ namespace AprVisual.Test
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
+                if (_dumpStatesPath != null) DumpStates(_dumpStatesPath);
             }
             finally { WireCore.Shutdown(); }
             return 0;
+        }
+
+        // ── DIAGNOSTIC (--dump-states): write per-node state for A/B node-level diffing ──
+        // (Nodes[] shells are freed by ReleaseBenchResidualState before the run; NodeStates is unmanaged
+        //  and valid until Shutdown, so dump all NodeCount slots — empty slots read 0 on both sides.)
+        private static unsafe void DumpStates(string path)
+        {
+            using var w = new StreamWriter(path);
+            for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                w.WriteLine($"{nn} {WireCore.NodeStates[nn]}");
+            Console.WriteLine($"# dumped {WireCore.NodeCount} node slots to {path}");
         }
 
         // NES NTSC runs at 1.789773 MHz CPU * 24 master-half-cycles/CPU-cycle = 42,954,552 hc/s,

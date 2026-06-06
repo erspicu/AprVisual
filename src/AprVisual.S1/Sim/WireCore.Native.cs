@@ -83,6 +83,7 @@ namespace AprVisual.Sim
             _groupBuf = null;
             _inGroup = null;
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
+            PruneUnsafe = null;   // same-state-prune safety mask (always re-built by Reset)
             FrameBuffer = null;
         }
     }

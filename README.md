@@ -37,12 +37,12 @@ On an AMD Ryzen 7 3700X (at boost clock), benchmarking `full_palette` (300k mast
 
 | Engine | Rate | Per frame | vs NES NTSC real-time |
 |---|---|---|---|
-| C# (`AprVisual.S1`) | ~91K hc/s | ~7.9 s | ~472× too slow |
-| Rust (`rust-s1`) | ~83K hc/s | ~8.6 s | ~517× too slow |
+| C# (`AprVisual.S1`) | ~99K hc/s | ~7.2 s | ~434× too slow |
+| Rust (`rust-s1`) | ~91K hc/s | ~7.9 s | ~473× too slow |
 
-(top-3 mean; C# now leads ~9%, from C#-only data-layout/dispatch wins that measured net-negative on Rust's LLVM codegen — see the optimization notes.) Both produce **bit-identical** output — same checksum `0x794A43ABDF169ADA`. NES NTSC real time needs **42,954,552 hc/s**.
+(peak boost; C# leads ~9% from C#-only data-layout/dispatch wins that measured net-negative on Rust's LLVM codegen.) The latest win — the **same-state turn-on prune** (P-1) — added **+11.85% on C# / +11.36% on Rust**, the first big speedup to land on both engines at once: skip the settle re-evaluation when a transistor merges two equal-state groups, applied only to statically-driven (pull-up) nodes so the chip's dynamic/storage cells stay bit-exact. Both produce **bit-identical** output — same checksum `0x794A43ABDF169ADA` (@300k) / `0x6D4CCBCE2E9CD599` (@1M). NES NTSC real time needs **42,954,552 hc/s**.
 
-> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine reads ~91K at boost but a rock-steady ~76.5K pinned at base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
+> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine reads ~99K at boost and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
 
 ## Run the benchmark
 

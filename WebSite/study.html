@@ -246,8 +246,8 @@
 <section id="concl">
   <h2><span class="n">8.</span><span class="en">Conclusions &amp; contributions</span><span class="zh">結論與貢獻</span></h2>
   <div class="big">
-    <p class="en"><b>Main conclusion.</b> For a flat, bidirectional, two-phase pass-transistor netlist of this scale, <b>no fully-automatic abstraction beats a well-tuned event-driven switch-level engine on a single CPU core</b> — because that engine already runs at the netlist's natural minimum granularity (the ~1.4-node conducting group), the per-event cost is at the memory-latency floor, and the static dataflow graph that dense evaluation needs cannot be auto-derived without clock-phase/RTL hints. Real-time (~516&times; faster) is unreachable by this route.</p>
-    <p class="zh"><b>主結論。</b>對這種規模、扁平、雙向、兩相的 pass-transistor 網表,<b>沒有任何全自動抽象能在單核 CPU 上贏過調校良好的事件驅動開關級引擎</b> —— 因為該引擎已運作在網表的天然最小粒度(~1.4 節點的導通群)、per-event 成本在記憶體延遲地板、而稠密評估所需的靜態資料流圖在沒有時脈/RTL 提示下無法自動導出。即時(快 ~516&times;)在這條路上不可達。</p>
+    <p class="en"><b>Main conclusion.</b> For a flat, bidirectional, two-phase pass-transistor netlist of this scale, <b>no fully-automatic abstraction beats a well-tuned event-driven switch-level engine on a single CPU core</b> — because that engine already runs at the netlist's natural minimum granularity (the ~1.4-node conducting group), the per-event cost is at the memory-latency floor, and the static dataflow graph that dense evaluation needs cannot be auto-derived without clock-phase/RTL hints. Real-time (hundreds of × faster — ~434× C# / ~473× Rust at boost today) is unreachable by this route.</p>
+    <p class="zh"><b>主結論。</b>對這種規模、扁平、雙向、兩相的 pass-transistor 網表,<b>沒有任何全自動抽象能在單核 CPU 上贏過調校良好的事件驅動開關級引擎</b> —— 因為該引擎已運作在網表的天然最小粒度(~1.4 節點的導通群)、per-event 成本在記憶體延遲地板、而稠密評估所需的靜態資料流圖在沒有時脈/RTL 提示下無法自動導出。即時(快數百倍 —— 今天 boost 下約 C# 434× / Rust 473×)在這條路上不可達。</p>
   </div>
   <p class="en">What the project nonetheless contributes:</p>
   <p class="zh">儘管如此,本專案的貢獻:</p>

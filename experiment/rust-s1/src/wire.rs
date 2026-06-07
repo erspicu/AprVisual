@@ -41,6 +41,10 @@ pub const NES_PALETTE: [u32; 64] = [
     0xE4E594, 0xCFEF96, 0xBDF4AB, 0xB3F3CC, 0xB5EBF2, 0xB8B8B8, 0x000000, 0x000000,
 ];
 
+// enqueue-prune mask bits (see WireCore.prune_mask)
+pub const PRUNE_TURN_ON_UNSAFE: u8 = 1;
+pub const PRUNE_TURN_OFF_SKIP: u8 = 2;
+
 pub struct WireCore {
     pub npwr: i32,
     pub ngnd: i32,
@@ -88,10 +92,16 @@ pub struct WireCore {
     pub is_pure_logic: Vec<u8>,
     pub fast_path_count: usize,
 
-    // same-state turn-on prune safety mask (parity with C# ClassifyPruneTaint): 1 = UNSAFE to prune
-    // (no-PullUp floating/hold-previous dynamic+storage cell, or in a ForceCompute channel-component).
-    pub prune_unsafe: Vec<u8>,
+    // enqueue-prune safety mask (parity with C# PruneMask, bit-packed): one byte per node.
+    //   bit 0 (PRUNE_TURN_ON_UNSAFE) = UNSAFE for the same-state turn-ON prune (P-1): no-PullUp
+    //       floating/hold-previous dynamic+storage cell, or in a ForceCompute channel-component;
+    //       CLEARED again by P-3/P-4 for the cap<all-neighbours subset that can't win a tie-break.
+    //   bit 1 (PRUNE_TURN_OFF_SKIP) = single-channel no-driver leaf that isolates→float-holds on
+    //       turn-OFF (P-2): skip enqueuing it when its channel opens.
+    pub prune_mask: Vec<u8>,
     pub prune_unsafe_count: usize,
+    pub turn_off_skip_count: usize,
+    pub p34_untaint_count: usize,
 }
 
 // 2026-05-25: 128 = ~2.8x safety margin over observed max (full_palette 45 iter, SMB 41 iter).
@@ -141,8 +151,10 @@ impl WireCore {
         // hold-previous tie-break: dynamic logic + storage cells) OR its channel-component holds a
         // ForceCompute node (Gnd+Pwr cancel → non-monotone). Pruning the untainted (PullUp-static) rest
         // is bit-exact. One-off at construction (not hot path); uses snap.* before they're moved below.
-        let mut prune_unsafe = vec![0u8; nc];
+        let mut prune_mask = vec![0u8; nc];
         let mut prune_unsafe_count = 0usize;
+        let mut turn_off_skip_count = 0usize;
+        let mut p34_untaint_count = 0usize;
         {
             fn find(p: &mut [usize], mut x: usize) -> usize { while p[x] != x { p[x] = p[p[x]]; x = p[x]; } x }
             fn union(p: &mut [usize], a: usize, b: usize) { let ra = find(p, a); let rb = find(p, b); if ra != rb { p[ra] = rb; } }
@@ -165,11 +177,43 @@ impl WireCore {
                     tainted_root[r] = true;
                 }
             }
+            // bit 0: P-1 turn-on-unsafe (no-PullUp dynamic/storage, or ForceCompute component)
             for nn in 0..nc {
                 if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
                 let dynamic = (snap.node_infos[nn].flags & FLAG_PULLUP) == 0;
                 let fc = tainted_root[find(&mut parent, nn)];
-                if dynamic || fc { prune_unsafe[nn] = 1; prune_unsafe_count += 1; }
+                if dynamic || fc { prune_mask[nn] |= PRUNE_TURN_ON_UNSAFE; prune_unsafe_count += 1; }
+            }
+
+            // handler-driven data-bus pins (e.g. u1._d*): driven via SetHigh/SetLow → NOT float-hold; exclude
+            // from both P-2 and P-3/4 (parity with C# ClassifyTurnOffSkip's `driven` set from _callbacks.DataOut).
+            let mut driven = vec![false; nc];
+            for h in &snap.handlers {
+                for &d in &h.data_out { if d >= 0 && (d as usize) < nc { driven[d as usize] = true; } }
+            }
+            let excl = FLAG_PULLUP | FLAG_FORCE_COMPUTE | FLAG_HAS_CALLBACK | FLAG_PWR | FLAG_GND;
+            for nn in 0..nc {
+                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd || driven[nn] { continue; }
+                let ni = &snap.node_infos[nn];
+                if (ni.flags & excl) != 0 { continue; }
+                if ni.tlist_c1gnd != 0 || ni.tlist_c1pwr != 0 { continue; }   // has a supply driver ⇒ not a pure float node
+                if ni.tlist_c1c2s == 0 { continue; }
+                // walk c1c2 channels: count pairs + test cap < ALL neighbours
+                let mut p = ni.tlist_c1c2s as usize;
+                let my_cap = ni.connections;
+                let mut npairs = 0usize;
+                let mut cap_lt_all = true;
+                while snap.transistor_list[p] != 0 {
+                    let other = snap.transistor_list[p + 1] as usize;
+                    if my_cap >= snap.node_infos[other].connections { cap_lt_all = false; }
+                    npairs += 1;
+                    p += 2;
+                }
+                // P-2: single-channel no-driver leaf → isolates→float-holds on turn-OFF → skip its turn-off enqueue
+                if npairs == 1 { prune_mask[nn] |= PRUNE_TURN_OFF_SKIP; turn_off_skip_count += 1; }
+                // P-3/P-4: cap < ALL neighbours ⇒ can never win a floating tie-break ⇒ same-state turn-ON prune
+                // is bit-exact ⇒ un-taint bit 0 (P-1's endpoint same-state check blocks cross-state bridging).
+                if cap_lt_all { prune_mask[nn] &= !PRUNE_TURN_ON_UNSAFE; p34_untaint_count += 1; }
             }
         }
 
@@ -236,8 +280,10 @@ impl WireCore {
             framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
             is_pure_logic,
             fast_path_count,
-            prune_unsafe,
+            prune_mask,
             prune_unsafe_count,
+            turn_off_skip_count,
+            p34_untaint_count,
         }
     }
 
@@ -480,28 +526,34 @@ impl WireCore {
                 let tl = self.transistor_list.as_ptr();
                 let mut p = tlist_gates as usize;
                 if new_state == 0 {
+                    // [P-2 turn-off enqueue prune] gate each enqueue with `want = (mask & TURN_OFF_SKIP)==0`:
+                    // a single-channel no-driver leaf isolates→float-holds when its channel opens, so re-eval
+                    // is a no-op — skip it. `hash |= n` (was `=1`) so a skipped/already-queued node's hash is
+                    // untouched; supply shield preserved (supply hash is permanently 1 ⇒ n=0).
                     loop {
                         let quad = (tl.add(p) as *const u64).read_unaligned();
                         let c1a = (quad as u16) as i32;
                         if c1a == 0 { break; }
                         let c2a = ((quad >> 16) as u16) as i32;
-                        // c1a (non-supply by construction)
-                        let cu = c1a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        let cu = c1a as usize;
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
-                        // c2a (shield handles supply)
-                        let cu = c2a as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
+                        let cu = c2a as usize;
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2a;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         let c1b = ((quad >> 32) as u16) as i32;
                         if c1b == 0 { break; }
                         let c2b = ((quad >> 48) as u16) as i32;
-                        let cu = c1b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        let cu = c1b as usize;
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
-                        let cu = c2b as usize; let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
+                        let cu = c2b as usize;
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2b;
-                        *self.recalc_hash_next.get_unchecked_mut(cu) = 1; self.list_next_count += n as usize;
+                        *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         p += 4;
                     }
                 } else {
@@ -515,7 +567,7 @@ impl WireCore {
                         if c1a == 0 { break; }
                         let c2a = ((quad >> 16) as u16) as i32;
                         let cu = c1a as usize;
-                        let want = (*self.prune_unsafe.get_unchecked(cu) != 0)
+                        let want = ((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_ON_UNSAFE) != 0)
                                  | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2a as usize));
                         let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
@@ -524,7 +576,7 @@ impl WireCore {
                         if c1b == 0 { break; }
                         let c2b = ((quad >> 48) as u16) as i32;
                         let cu = c1b as usize;
-                        let want = (*self.prune_unsafe.get_unchecked(cu) != 0)
+                        let want = ((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_ON_UNSAFE) != 0)
                                  | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2b as usize));
                         let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;

@@ -43,6 +43,43 @@ namespace AprVisual.Sim
             }
         }
 
+#if DEBUG
+        // ── Wasted-pop profiler (DEBUG ONLY — compiled out of Release; zero hot-path cost there) ──
+        // A "no-change pop" = a node popped from RecalcList whose RecalcNode caused ZERO state change =
+        // wasted work that an enqueue-prune could eliminate (this is how P-2/P-3/P-4 were found). Run:
+        //   dotnet run -c Debug --project src/AprVisual.S1 -- --benchmark <rom> --bench-hc N --extra-ram \
+        //              --system-def-dir <dir>
+        // and read the [waste-profile] line. Event COUNTS are identical in Debug and Release (same
+        // algorithm) — only wall-clock differs — so the categorisation is valid for Release tuning.
+        // Categories of no-change pop: FloatSingle/Multi (no-driver float-hold), PullUp/Supply (driven,
+        // recompute-same — the structural turn-off "hidden-driver" residue), Other.
+        internal static long DiagPops, DiagNoChange, DiagStateChanges,
+                             DiagNCFloatSingle, DiagNCFloatMulti, DiagNCFloatMultiCapLT,
+                             DiagNCPullUp, DiagNCSupply, DiagNCOther;
+
+        private static unsafe void WasteProfileTally(int nn, bool noChange)
+        {
+            DiagPops++;
+            if (!noChange) return;
+            DiagNoChange++;
+            NodeInfo* d = NodeInfos + nn;
+            bool floatOnly = (d->Flags & (NodeFlags.PullUp | NodeFlags.ForceCompute | NodeFlags.HasCallback)) == 0
+                          && (d->Inline != 0 ? (d->GndCount == 0 && d->PwrCount == 0) : (d->TlistC1gnd == 0 && d->TlistC1pwr == 0));
+            if (floatOnly && d->Inline != 0 && d->C1c2Count == 1) DiagNCFloatSingle++;
+            else if (floatOnly && d->Inline != 0 && d->C1c2Count > 1)
+            {
+                DiagNCFloatMulti++;
+                ushort* pay = d->InlinePayload; int nc = d->C1c2Count; bool capLt = true;
+                for (int k = 0; k < nc; k++) if (NodeConnections[nn] >= NodeConnections[pay[k * 2 + 1]]) { capLt = false; break; }
+                if (capLt) DiagNCFloatMultiCapLT++;
+            }
+            else if (floatOnly) DiagNCOther++;
+            else if ((d->Flags & NodeFlags.PullUp) != 0) DiagNCPullUp++;
+            else if (d->Inline != 0 ? (d->GndCount != 0 || d->PwrCount != 0) : (d->TlistC1gnd != 0 || d->TlistC1pwr != 0)) DiagNCSupply++;
+            else DiagNCOther++;
+        }
+#endif
+
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueueInterp:
         // the in-loop guard cost +2.77%). MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
         // The cap catches a non-converging region during development; the state is a heuristic anyway
@@ -98,8 +135,14 @@ namespace AprVisual.Sim
                     int nn = RecalcList[i];
                     if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
                     {
+#if DEBUG
+                        long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
+#endif
                         RecalcNode(nn);
                         RecalcHash[nn] = 0;
+#if DEBUG
+                        WasteProfileTally(nn, DiagStateChanges == _dchg);
+#endif
                     }
                 }
                 RecalcListCount = 0;
@@ -170,6 +213,9 @@ namespace AprVisual.Sim
         {
             if (NodeStates[nn] == newState) return;
             NodeStates[nn] = newState;
+#if DEBUG
+            DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
+#endif
             int tlistGates = NodeTlistGates[nn];
             if (tlistGates != 0)
             {

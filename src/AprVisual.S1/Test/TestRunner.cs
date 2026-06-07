@@ -551,6 +551,14 @@ namespace AprVisual.Test
                 var (bv, bd) = BuildVersion();
                 Console.WriteLine($"# engine: csharp  version: {bv} ({bd})");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
+#if DEBUG
+                {
+                    // wasted-pop profiler (DEBUG only; counts identical to Release). See WireCore.Recalc.cs.
+                    double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;
+                    Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");
+                    Console.WriteLine($"#   FloatSingle={WireCore.DiagNCFloatSingle:N0}({W(WireCore.DiagNCFloatSingle):F1}%) FloatMulti={WireCore.DiagNCFloatMulti:N0}({W(WireCore.DiagNCFloatMulti):F1}%,capLTall={WireCore.DiagNCFloatMultiCapLT:N0}) PullUp={WireCore.DiagNCPullUp:N0}({W(WireCore.DiagNCPullUp):F1}%) Supply={WireCore.DiagNCSupply:N0}({W(WireCore.DiagNCSupply):F1}%) Other={WireCore.DiagNCOther:N0}({W(WireCore.DiagNCOther):F1}%)");
+                }
+#endif
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
                 if (_dumpStatesPath != null) DumpStates(_dumpStatesPath);

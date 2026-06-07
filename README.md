@@ -37,12 +37,12 @@ On an AMD Ryzen 7 3700X (at boost clock), benchmarking `full_palette` (300k mast
 
 | Engine | Rate | Per frame | vs NES NTSC real-time |
 |---|---|---|---|
-| C# (`AprVisual.S1`) | ~99K hc/s | ~7.2 s | ~434× too slow |
-| Rust (`rust-s1`) | ~91K hc/s | ~7.9 s | ~473× too slow |
+| C# (`AprVisual.S1`) | ~101.6K hc/s | ~7.0 s | ~423× too slow |
+| Rust (`rust-s1`) | ~91.9K hc/s | ~7.8 s | ~467× too slow |
 
-(peak boost; C# leads ~9% from C#-only data-layout/dispatch wins that measured net-negative on Rust's LLVM codegen.) The latest win — the **same-state turn-on prune** (P-1) — added **+11.85% on C# / +11.36% on Rust**, the first big speedup to land on both engines at once: skip the settle re-evaluation when a transistor merges two equal-state groups, applied only to statically-driven (pull-up) nodes so the chip's dynamic/storage cells stay bit-exact. Both produce **bit-identical** output — same checksum `0x794A43ABDF169ADA` (@300k) / `0x6D4CCBCE2E9CD599` (@1M). NES NTSC real time needs **42,954,552 hc/s**.
+(best of 20 at boost; C# leads ~10% from C#-only data-layout/dispatch wins that measured net-negative on Rust's LLVM codegen.) The big win — the **same-state turn-on prune** (P-1) — added **+11.85% on C# / +11.36% on Rust**, the first big speedup to land on both engines at once: skip the settle re-evaluation when a transistor merges two equal-state groups, applied only to statically-driven (pull-up) nodes so the chip's dynamic/storage cells stay bit-exact. Small post-prune fast-path micro-opts then took the C# peak past 100K. Both produce **bit-identical** output — same checksum `0x794A43ABDF169ADA` (@300k) / `0x6D4CCBCE2E9CD599` (@1M). NES NTSC real time needs **42,954,552 hc/s**.
 
-> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine reads ~99K at boost and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
+> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine peaks ~101.6K at boost — ~99K typical — and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
 
 ## Run the benchmark
 

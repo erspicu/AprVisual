@@ -169,6 +169,35 @@
   <p class="zh">每個數字都是這個引擎上的實測(<code>full_palette</code>、30 萬半週期),不是估計。no-change profiler 是留在 repo 裡的 <code>#if DEBUG</code> 儀器 —— 它數每次 pop、把浪費的分類,Release 下零成本。每個剪枝在計時前都驗過 bit-exact(整機 checksum,30 萬與 100 萬);增益為 interleaved-paired 中位數,每一輪都有 checksum 守門。延伸閱讀:<a href="ceiling.html">為什麼 IR / codegen 仍然撞牆</a>、<a href="design.html">S1 比 MetalNES 多了什麼</a>、以及<a href="study.html">研究論文</a>(抽象化何時贏過 switch-level)。</p>
 </section>
 
+<section>
+  <h2><span class="en">Lineage &amp; sources</span><span class="zh">淵源與來源</span></h2>
+  <p class="en">Honest attribution — what is a standard principle vs. what is derived in this work. The engine's <b>foundations</b> are established literature; the four <b>prunes</b> are this project's own derivations <i>from</i> those principles (not lifted from a specific paper), and the <b>memory/register detection</b> is a derived heuristic standing on a published concept.</p>
+  <p class="zh">誠實標註 —— 哪些是標準原理、哪些是本專案衍生。引擎的<b>基礎</b>是既有文獻;四個<b>剪枝</b>是本專案<i>從</i>那些原理自行推導出來的(不是抄自某篇論文);而<b>記憶體/暫存器偵測</b>是一個站在已發表概念上的衍生啟發法。</p>
+  <table>
+    <tr><th><span class="en">Element</span><span class="zh">元素</span></th><th><span class="en">Status</span><span class="zh">性質</span></th><th><span class="en">Source</span><span class="zh">來源</span></th></tr>
+    <tr><td><span class="en">Switch-level model — signal-strength ordering, the "largest-capacitance member holds the value" floating/charge-share rule, X handling (our priority LUT is a standard implementation of it)</span><span class="zh">Switch-level 模型 —— 訊號強度排序、「最大電容成員保持值」的浮接/電荷分享規則、X 處理(我們的 priority LUT 是它的標準實作)</span></td>
+        <td><span class="tagY"><span class="en">standard</span><span class="zh">標準原理</span></span></td>
+        <td>R. E. Bryant, <i>MOSSIM: A Switch-Level Simulator for MOS LSI</i>, Proc. 18th DAC, 1981 · R. E. Bryant, <i>A Switch-Level Model and Simulator for MOS Digital Systems</i>, IEEE Trans. Computers, C-33(2), 1984</td></tr>
+    <tr><td><span class="en">Event-driven settle — only re-evaluate the sub-network whose inputs changed (selective trace)</span><span class="zh">事件驅動收斂 —— 只重算輸入有變的子網路(selective trace)</span></td>
+        <td><span class="tagY"><span class="en">standard</span><span class="zh">標準原理</span></span></td>
+        <td>E. G. Ulrich, <i>Exclusive simulation of activity in digital networks</i>, Comm. ACM, 12(2), 1969</td></tr>
+    <tr><td><span class="en">Event filtering — not scheduling a successor when the change provably can't alter its value. The four prunes (P-1 → P-4) are specific, derived applications of this on the Bryant model.</span><span class="zh">事件過濾 —— 當變化可證明不會改變後繼節點的值時就不排程它。四個剪枝(P-1 → P-4)是這個原理在 Bryant 模型上的具體、衍生應用。</span></td>
+        <td><span class="en">standard principle + <b>derived here</b></span><span class="zh">標準原理 + <b>本專案衍生</b></span></td>
+        <td><span class="en">principle: a standard optimization of selective-trace (textbook: M. Abramovici, M. Breuer, A. Friedman, <i>Digital Systems Testing and Testable Design</i>, IEEE Press, 1990). The specific P-1 → P-4 conditions: derived in this work.</span><span class="zh">原理:selective-trace 的標準最佳化(教科書:M. Abramovici、M. Breuer、A. Friedman,<i>Digital Systems Testing and Testable Design</i>,IEEE Press,1990)。P-1 → P-4 的具體條件:本專案推導。</span></td></tr>
+    <tr><td><span class="en"><b>Memory / register / dynamic-node detection</b> — distinguishing charge-storage (no-pull-up, capacitance-held latch / dynamic cell) from static combinational logic, so the prunes exclude storage</span><span class="zh"><b>記憶體/暫存器/動態節點偵測</b> —— 區分電荷儲存(無 pull-up、靠電容保持的 latch / 動態 cell)與靜態組合邏輯,讓剪枝排除儲存節點</span></td>
+        <td><span class="en">concept published + <b>heuristic derived here</b></span><span class="zh">概念已發表 + <b>啟發法本專案衍生</b></span></td>
+        <td><span class="en">concept (state-retaining vs combinational MOS nodes): R. E. Bryant, <i>Boolean Analysis of MOS Circuits</i>, IEEE Trans. CAD, CAD-6(4), 1987 · node-capacitance analysis: J. K. Ousterhout, <i>Crystal: A Timing Analyzer for nMOS VLSI Circuits</i>, 3rd Caltech Conf. on VLSI, 1983. Our specific test (no-PullUp + connection-count capacitance + ForceCompute flag, and the <code>cap &lt; neighbours</code> tie-break guard): derived in this work.</span><span class="zh">概念(MOS 的狀態保持 vs 組合節點):R. E. Bryant,<i>Boolean Analysis of MOS Circuits</i>,IEEE Trans. CAD,CAD-6(4),1987 · 節點電容分析:J. K. Ousterhout,<i>Crystal: A Timing Analyzer for nMOS VLSI Circuits</i>,3rd Caltech Conf. on VLSI,1983。我們的具體判據(無 PullUp + 連線數電容 + ForceCompute 旗標,以及 <code>cap &lt; 鄰居</code> 的 tie-break 護欄):本專案推導。</span></td></tr>
+    <tr><td><span class="en"><b>Netlist data</b> — the 2A03 / 2C02 transistor netlists (polygon-extracted from die photos)</span><span class="zh"><b>網表資料</b> —— 2A03 / 2C02 電晶體網表(從晶片照片多邊形提取)</span></td>
+        <td><span class="en">data source</span><span class="zh">資料來源</span></td>
+        <td>Visual6502 / Visual 2A03 / Visual 2C02 — G. James, B. Silverman, B. Silverman, <i>Visualizing a Classic CPU in Action: The 6502</i>, ACM SIGGRAPH 2010 Talks (visual6502.org). Netlist data is <b>CC-BY-NC-SA</b>.</td></tr>
+    <tr><td><span class="en"><b>Per-node metadata + board model</b> — pull-up / weak-depletion / ForceCompute flags, module/memory handlers</span><span class="zh"><b>每節點 metadata + 板級模型</b> —— pull-up / weak-depletion / ForceCompute 旗標、模組/記憶體 handler</span></td>
+        <td><span class="en">data source</span><span class="zh">資料來源</span></td>
+        <td>MetalNES — Ian Addis (iaddis), <a href="https://github.com/iaddis/metalnes">github.com/iaddis/metalnes</a> (the S1 reference implementation)</td></tr>
+  </table>
+  <p class="mut en">In short: the model is Bryant's and the event-driven settle is Ulrich's; the prunes apply standard event-filtering with conditions derived here; and the storage-node exclusion is a derived heuristic resting on Bryant's state-retaining-node concept and Ousterhout-style node-capacitance analysis — never a profiled/learned mask (which would not be bit-exact; see <a href="frontier.html">the frontier</a>).</p>
+  <p class="mut zh">一句話:模型是 Bryant 的、事件驅動收斂是 Ulrich 的;剪枝是套用標準的事件過濾、條件由本專案推導;而儲存節點的排除是一個衍生啟發法,立基於 Bryant 的「狀態保持節點」概念與 Ousterhout 式的節點電容分析 —— 絕非剖析/學習來的 mask(那不會 bit-exact,見<a href="frontier.html">前緣</a>一文)。</p>
+</section>
+
 </main>
 
 <footer>

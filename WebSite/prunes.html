@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — doing less, exactly: the event-count prunes (P-1 → P-4)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; color:var(--acc2); font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Doing less, exactly — the event-count prunes</span><span class="zh">精準地少做事 —— 事件數剪枝</span></h1>
+  <p class="sub en">The hot loop is memory-latency bound: every node re-evaluation is a random gather that stalls on cache. You can't make a stall faster — so the only lever left is to do <b>fewer</b> of them, without changing a single output bit. A profiler showed that <b>84.4%</b> of all node re-evaluations recompute to the <b>same value</b> — pure waste. This is the story of four prunes (P-1 → P-4) that delete the provably-redundant ones at the source, the trick that makes them safe (telling a logic node from a bus / memory / register cell <i>by its physics</i>), and the whole-NES numbers that prove it stayed bit-exact.</p>
+  <p class="sub zh">熱迴圈受記憶體延遲限制:每次節點重算都是一個隨機 gather、卡在 cache miss 上。你沒辦法讓一次 stall 變快 —— 所以唯一剩的槓桿,是<b>少做幾次</b>,而且一個輸出位元都不能變。一支 profiler 顯示:全部節點重算裡有 <b>84.4%</b> 重算出來跟原值<b>一模一樣</b> —— 純粹浪費。這篇講四個剪枝(P-1 → P-4)如何從源頭刪掉「可被證明是多餘」的那些、讓它們安全的關鍵(用<i>物理特性</i>分辨邏輯節點與匯流排/記憶體/暫存器 cell),以及證明全程 bit-exact 的整機數據。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The finding: 84% of the work changes nothing</span><span class="zh">發現:84% 的工是白做的</span></h2>
+  <p class="en">The engine settles each half-cycle by popping "dirty" nodes off a queue and re-resolving each one's conducting group. We instrumented that loop to count, per pop, whether <i>any</i> state actually changed. Over <code>full_palette</code> at 300k half-cycles:</p>
+  <p class="zh">引擎每半週期透過「從佇列彈出 dirty 節點、重新解析它的導通群組」來收斂。我們在那個迴圈裡量測每次 pop 是否<i>真的</i>改變了任何狀態。在 <code>full_palette</code>、30 萬半週期下:</p>
+  <div class="boxes">
+    <div class="box"><div class="n">159.6M</div><div class="l"><span class="en">node re-evaluations</span><span class="zh">節點重算次數</span></div></div>
+    <div class="box"><div class="n">84.4%</div><div class="l"><span class="en">recompute to the SAME value (wasted)</span><span class="zh">重算成同值(浪費)</span></div></div>
+    <div class="box"><div class="n">~88%</div><div class="l"><span class="en">of that waste = dynamic-singleton nodes</span><span class="zh">浪費中是動態 singleton</span></div></div>
+  </div>
+  <p class="en">A node gets re-queued whenever a neighbouring transistor's gate flips — but its resolved value usually doesn't move (a node held low by three parallel paths doesn't change when one of them opens). That redundancy is inherent to level-triggered event propagation. The win is to recognise the redundant cases <b>at the moment we would enqueue them</b>, with a check cheap enough to beat the stall it avoids — and a static safety mask so we never prune a case that could actually change.</p>
+  <p class="zh">每當某個鄰接電晶體的閘極翻轉,節點就被重新入隊 —— 但它解析出的值通常沒動(一個被三條並聯路徑拉低的節點,其中一條斷開時不會變)。這種冗餘是 level-triggered 事件傳播的本質。要贏,就要<b>在準備入隊的那一刻</b>認出冗餘的情況,而且檢查要便宜到划得過它省下的 stall —— 再加一個靜態安全 mask,確保絕不剪掉「真的可能會變」的情況。</p>
+</section>
+
+<section>
+  <h2><span class="en">The four prunes</span><span class="zh">四個剪枝</span></h2>
+  <p class="en">Each is a transformation in <code>SetNodeState</code>'s enqueue walk, guarded by a per-node static mask built once at load. All are <b>bit-exact</b> — verified against the golden whole-NES checksum at 300k <i>and</i> 1M half-cycles — and validated visually (a pixel-perfect Super Mario Bros. title frame). Gains are interleaved-paired medians on an AMD Ryzen 7 3700X.</p>
+  <p class="zh">每一個都是 <code>SetNodeState</code> 入隊走訪裡的一個變換,由載入時建好的「每節點靜態 mask」把關。全部 <b>bit-exact</b> —— 對照 golden 整機 checksum,在 30 萬<i>與</i> 100 萬半週期都驗過 —— 並做了視覺驗證(像素完全正確的 Super Mario Bros. 標題畫面)。增益為 AMD Ryzen 7 3700X 上的 interleaved-paired 中位數。</p>
+  <table>
+    <tr><th></th><th><span class="en">Mechanism</span><span class="zh">機制</span></th><th>C#</th><th>Rust</th></tr>
+    <tr><td><b>P-1</b><br><span class="mut"><span class="en">same-state turn-on</span><span class="zh">同態 turn-on</span></span></td>
+        <td><span class="en">A transistor turns ON and merges two groups. If both ends already hold the same value, the merge can't change anything — skip the re-evaluation. (Earlier work.)</span><span class="zh">電晶體導通、合併兩個群組。若兩端已是同值,合併不會改變任何東西 —— 跳過重算。(先前的成果。)</span></td>
+        <td class="num">+11.85%</td><td class="num">+11.36%</td></tr>
+    <tr><td><b>P-2</b><br><span class="mut"><span class="en">turn-off isolate</span><span class="zh">turn-off 孤立</span></span></td>
+        <td><span class="en">A transistor turns OFF. If the endpoint's <i>only</i> channel was that transistor (and it has no driver), it becomes an isolated floating node — it holds its previous value, so re-evaluating it is provably a no-op. Skip it.</span><span class="zh">電晶體斷開。若該端點<i>唯一</i>的通道就是這顆電晶體(且無驅動源),它就變成孤立浮接節點 —— 維持原值,所以重算可證明是 no-op。跳過。</span></td>
+        <td class="num">+1.4%</td><td rowspan="3" class="num" style="vertical-align:middle">+10.0%<br><span class="mut" style="font-size:12px">(P-2+3+4<br><span class="en">combined</span><span class="zh">合計</span>)</span></td></tr>
+    <tr><td><b>P-3</b><br><span class="mut"><span class="en">turn-on un-taint</span><span class="zh">turn-on 放行</span></span></td>
+        <td><span class="en">Re-admit a node to P-1's prune even though it has no pull-up — provided its capacitance is strictly less than its single neighbour's, so it can never win a floating tie-break. Then a same-state turn-on merge is still a no-op for it.</span><span class="zh">即使節點沒有 pull-up,也讓它重新適用 P-1 剪枝 —— 條件是它的電容嚴格小於唯一鄰居,使它永遠不可能贏得浮接 tie-break。如此同態 turn-on 合併對它仍是 no-op。</span></td>
+        <td class="num">+5.96%</td></tr>
+    <tr><td><b>P-4</b><br><span class="mut"><span class="en">multi-channel</span><span class="zh">多通道推廣</span></span></td>
+        <td><span class="en">The same un-taint generalised to multi-channel nodes whose capacitance is less than <i>every</i> neighbour's (P-1's endpoint same-state check already blocks the cross-state bridging case).</span><span class="zh">把上面的放行推廣到「電容小於<i>每一個</i>鄰居」的多通道節點(P-1 的端點同態檢查已擋掉跨態 bridging 的情況)。</span></td>
+        <td class="num">+1.71%</td></tr>
+  </table>
+  <p class="mut en">P-2/3/4 land entirely in the load-time classifier (they only set static mask bits) — <b>zero</b> added work in the hot loop. The two masks were later packed into one byte (bit 0 = turn-on-unsafe, bit 1 = turn-off-skip) so future prunes add a bit, not an array.</p>
+  <p class="mut zh">P-2/3/4 全部落在載入期的分類器(只設靜態 mask 位元)—— 熱迴圈裡<b>零</b>新增工作。兩個 mask 後來合併成一個 byte(bit 0 = turn-on 不安全、bit 1 = turn-off 可跳),日後新剪枝只要加一個 bit、不必再加一個陣列。</p>
+</section>
+
+<section>
+  <h2><span class="en">The hard part: a logic node vs a bus / memory / register cell</span><span class="zh">難的地方:邏輯節點 vs 匯流排/記憶體/暫存器 cell</span></h2>
+  <p class="en">A prune is only bit-exact if it never fires on a node whose value could actually change. The dangerous nodes are exactly the chip's <b>stateful</b> ones — and the trick is that we identify them <i>statically, by their structure and physics</i>, never by a hand-maintained list:</p>
+  <p class="zh">剪枝要 bit-exact,前提是它絕不在「值真的可能會變」的節點上觸發。危險的節點正是晶片裡<b>有狀態</b>的那些 —— 而關鍵在於我們是<i>靜態地、用結構與物理特性</i>辨識它們,從不靠手維護的名單:</p>
+  <table>
+    <tr><th><span class="en">Node kind</span><span class="zh">節點種類</span></th><th><span class="en">How we detect it</span><span class="zh">我們怎麼偵測</span></th><th><span class="en">Why it's dangerous</span><span class="zh">為何危險</span></th></tr>
+    <tr><td><b><span class="en">Data bus pins</span><span class="zh">資料匯流排腳</span></b><br><span class="mut">u1._d*, ROM/RAM data</span></td>
+        <td><span class="en">They appear in a memory handler's <code>DataOut</code> set — the pins the behavioural RAM/ROM drives via SetHigh/SetLow. We build that set at load and exclude every node in it.</span><span class="zh">它們出現在某個記憶體 handler 的 <code>DataOut</code> 集合 —— 行為層 RAM/ROM 用 SetHigh/SetLow 驅動的腳。我們在載入時建好這個集合,把裡面每個節點排除。</span></td>
+        <td><span class="en">When driven, an isolated pin resolves to the <i>driven</i> value, not a float-hold — pruning it would freeze a stale value.</span><span class="zh">被驅動時,孤立的腳會解析成<i>被驅動</i>的值,而非浮接保持 —— 剪掉它會凍結成過時的值。</span></td></tr>
+    <tr><td><b><span class="en">Precharged bus</span><span class="zh">預充匯流排</span></b><br><span class="mut">PPU data bus</span></td>
+        <td><span class="en">Carries the <code>ForceCompute</code> flag (the "Gnd + Pwr cancel" nodes that model NMOS precharge-vs-pulldown). Excluded by flag.</span><span class="zh">帶 <code>ForceCompute</code> 旗標(用「Gnd + Pwr 互相抵消」模擬 NMOS 預充 vs 下拉的節點)。用旗標排除。</span></td>
+        <td><span class="en">Its resolution is non-monotone (cancelling drivers), so an equal-state merge can still flip it.</span><span class="zh">它的解析非單調(會抵消驅動源),所以同態合併仍可能翻轉它。</span></td></tr>
+    <tr><td><b><span class="en">Memory / register cells</span><span class="zh">記憶體/暫存器 cell</span></b><br><span class="mut">OAM, palette RAM, dynamic CPU/ALU</span></td>
+        <td><span class="en">No pull-up (they store charge), <b>and</b> a high capacitance — specifically, capacitance ≥ a neighbour's. The capacitance test <i>automatically</i> separates a heavy storage cell (which wins the floating tie-break and is kept) from a passive pass-transistor leaf (which can't, and is safe to prune).</span><span class="zh">沒有 pull-up(它們靠電荷儲存),<b>而且</b>電容大 —— 具體說,電容 ≥ 某個鄰居。這個電容測試<i>自動</i>把「重儲存 cell(會贏浮接 tie-break,保留)」和「被動的 pass-transistor 葉節點(贏不了,可安全剪)」分開。</span></td>
+        <td><span class="en">A storage cell <i>is</i> the chip's memory: its value, transferred by charge-sharing when its access transistor turns on, must propagate. Prune it and the latch loses its bit.</span><span class="zh">儲存 cell <i>就是</i>晶片的記憶體:存取電晶體導通時靠電荷分享傳遞的值,必須要傳出去。剪掉它,latch 就掉了那個 bit。</span></td></tr>
+  </table>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>The key idea:</b> we never enumerate "which nodes are registers." We let the <b>capacitance</b> sort them — a node that is strictly lighter than its neighbours can never be the one that decides a floating group's held value, so merging it (when both sides already agree) is provably free. That single inequality, <code>cap(X) &lt; cap(neighbours)</code>, is what made P-3/P-4 safe — and it generalises to the PPU without a single hand-listed node.</p>
+    <p class="zh" style="margin:.2em 0"><b>關鍵想法:</b>我們從不列舉「哪些節點是暫存器」。我們讓<b>電容</b>去分類 —— 一個比所有鄰居都嚴格更輕的節點,永遠不可能是決定浮接群組保持值的那個,所以(在兩邊已一致時)合併它可證明是免費的。就是這條不等式 <code>cap(X) &lt; cap(鄰居)</code> 讓 P-3/P-4 安全 —— 而且它能泛化到 PPU,完全不需要手列任何一個節點。</p>
+  </div>
+  <p class="en"><b>Why turn-off is easier than turn-on.</b> Turn-OFF <i>isolates</i> a node (its group shrinks to just itself → it trivially holds) — unconditionally safe for a driverless single-channel leaf. Turn-ON <i>merges</i> it into a bigger group, where the floating capacitance tie-break can pick a different winner — which is exactly why turn-on needs the capacitance guard. An early, un-guarded turn-on attempt diverged on exactly <b>two</b> charge-share ALU/status-register nodes; tracing them is what surfaced the capacitance condition.</p>
+  <p class="zh"><b>為什麼 turn-off 比 turn-on 容易。</b>turn-OFF 把節點<i>孤立</i>(群組縮成自己 → 自然保持)—— 對無驅動的單通道葉節點無條件安全。turn-ON 把它<i>併入</i>更大的群組,浮接電容 tie-break 可能選到不同的勝者 —— 這正是 turn-on 需要電容護欄的原因。早期一個沒加護欄的 turn-on 嘗試,剛好在<b>兩個</b>電荷分享的 ALU/狀態暫存器節點上發散;追這兩個節點,才逼出了電容條件。</p>
+</section>
+
+<section>
+  <h2><span class="en">By the numbers</span><span class="zh">數字總整理</span></h2>
+  <p class="en">What the prunes remove, per <code>full_palette</code> 300k half-cycles:</p>
+  <p class="zh">這些剪枝實際刪掉的量,以 <code>full_palette</code> 30 萬半週期計:</p>
+  <div class="boxes">
+    <div class="box"><div class="n">33.6M</div><div class="l"><span class="en">fewer node re-evaluations / 300k hc</span><span class="zh">每 30 萬 hc 少算的節點次數</span></div></div>
+    <div class="box"><div class="n">&minus;21%</div><div class="l"><span class="en">of all RecalcNode pops, deleted</span><span class="zh">所有 RecalcNode pop 被刪掉的比例</span></div></div>
+    <div class="box"><div class="n">2,258</div><div class="l"><span class="en">nodes carry a prune bit (1,272 + 986)</span><span class="zh">帶剪枝位元的節點(1,272 + 986)</span></div></div>
+  </div>
+  <table>
+    <tr><th><span class="en">Metric (full_palette, 300k hc)</span><span class="zh">指標(full_palette、30 萬 hc)</span></th><th><span class="en">before P-2</span><span class="zh">P-2 之前</span></th><th><span class="en">after P-2/3/4</span><span class="zh">P-2/3/4 之後</span></th></tr>
+    <tr><td><span class="en">RecalcNode pops (node re-evaluations)</span><span class="zh">RecalcNode pop(節點重算次數)</span></td><td class="num">159,646,522</td><td class="num">126,086,860</td></tr>
+    <tr><td><span class="en">of which recompute to no change</span><span class="zh">其中重算成同值</span></td><td class="num">84.4%</td><td class="num">80.3%</td></tr>
+    <tr><td><span class="en">nodes masked turn-off-skip (P-2)</span><span class="zh">turn-off-skip 標記節點 (P-2)</span></td><td>—</td><td class="num">1,272</td></tr>
+    <tr><td><span class="en">nodes turn-on-un-tainted (P-3/4)</span><span class="zh">turn-on 放行節點 (P-3/4)</span></td><td>—</td><td class="num">986</td></tr>
+  </table>
+  <p class="mut en">The remaining ~80% no-change pops are <b>structurally</b> irreducible: pull-up / supply-driven combinational nodes that recompute the same value after an input opens (one pull-down path closes but another still holds the node) — predicting that requires scanning the other pull-downs, i.e. exactly the work we'd be trying to avoid. An external model, asked to be brutally honest, agreed there is no cheap predictor. This is the natural floor of "doing less" on this model.</p>
+  <p class="mut zh">剩下約 80% 的 no-change pop 是<b>結構性</b>不可削減的:pull-up / 供電驅動的組合邏輯節點,在某個輸入斷開後重算出同值(一條下拉關了、但另一條還拉著)—— 要預測得掃它其他的下拉路,正是想省的那份工。一個被要求殘酷誠實的外部模型也同意:沒有便宜的預測子。這就是這個模型上「少做事」的自然底線。</p>
+</section>
+
+<section>
+  <h2><span class="en">Result</span><span class="zh">結果</span></h2>
+  <p class="en">P-2/3/4 lifted the engine across both back-ends, and — unlike many micro-optimisations that flip sign between RyuJIT and LLVM — this one landed positive on <b>both</b>, with bit-identical output:</p>
+  <p class="zh">P-2/3/4 把兩個後端都拉高,而且 —— 不像許多在 RyuJIT 與 LLVM 之間反號的微優化 —— 這次在<b>兩邊</b>都是正的,輸出位元完全相同:</p>
+  <div class="boxes">
+    <div class="box"><div class="n">109.4K</div><div class="l"><span class="en">C# hc/s &middot; was 101.6K (+7.7%)</span><span class="zh">C# hc/s &middot; 原 101.6K(+7.7%)</span></div></div>
+    <div class="box"><div class="n">101.0K</div><div class="l"><span class="en">Rust hc/s &middot; was 91.9K (+9.9%)</span><span class="zh">Rust hc/s &middot; 原 91.9K(+9.9%)</span></div></div>
+    <div class="box"><div class="n">~393&times;</div><div class="l"><span class="en">C# gap to NES real-time</span><span class="zh">C# 離 NES 實機</span></div></div>
+  </div>
+  <p class="en">Both engines still produce the same checksum <code>0x794A43ABDF169ADA</code> (@300k) / <code>0x6D4CCBCE2E9CD599</code> (@1M). NES NTSC real-time needs 42,954,552 hc/s, so C# is still ~393× short — but the ceiling we once called final keeps moving, one provably-redundant event at a time. <b>Got a faster CPU?</b> <a href="https://baxermux.org/myemu/AprVisual/">Run the benchmark and share your numbers →</a></p>
+  <p class="zh">兩個引擎仍輸出相同 checksum <code>0x794A43ABDF169ADA</code>(@30 萬)/ <code>0x6D4CCBCE2E9CD599</code>(@100 萬)。NES NTSC 實機需要每秒 42,954,552 個 hc,所以 C# 還差約 393 倍 —— 但我們一度認定是終點的天花板,正一次一個「可證明多餘的事件」地往前移。<b>有更快的 CPU 嗎?</b><a href="https://baxermux.org/myemu/AprVisual/">跑 benchmark 分享你的數據 →</a></p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">Every figure is measured on this engine (<code>full_palette</code>, 300k half-cycles), not estimated. The no-change profiler is a <code>#if DEBUG</code> instrument kept in the tree — it counts every pop and categorises the wasted ones, with zero cost in Release. Each prune was validated bit-exact (whole-NES checksum at 300k and 1M) before timing; gains are interleaved-paired medians with a checksum guard on every round. Companion reading: <a href="ceiling.html">why IR / codegen still hit the wall</a>, <a href="design.html">what S1 added over MetalNES</a>, and the <a href="study.html">study paper</a> on when abstraction beats switch-level.</p>
+  <p class="zh">每個數字都是這個引擎上的實測(<code>full_palette</code>、30 萬半週期),不是估計。no-change profiler 是留在 repo 裡的 <code>#if DEBUG</code> 儀器 —— 它數每次 pop、把浪費的分類,Release 下零成本。每個剪枝在計時前都驗過 bit-exact(整機 checksum,30 萬與 100 萬);增益為 interleaved-paired 中位數,每一輪都有 checksum 守門。延伸閱讀:<a href="ceiling.html">為什麼 IR / codegen 仍然撞牆</a>、<a href="design.html">S1 比 MetalNES 多了什麼</a>、以及<a href="study.html">研究論文</a>(抽象化何時贏過 switch-level)。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html">&larr; <span class="en">Back to AprVisual home</span><span class="zh">回 AprVisual 首頁</span></a></p>
+  <p class="mut"><span class="en">Four bit-exact event-count prunes (P-1 → P-4) that delete provably-redundant node re-evaluations at the source — and the capacitance test that tells a logic node from a memory cell without a hand-listed node. 2026-06-07.</span><span class="zh">四個 bit-exact 的事件數剪枝(P-1 → P-4),從源頭刪掉可證明多餘的節點重算 —— 以及那條「不靠手列名單、用電容分辨邏輯節點與記憶體 cell」的測試。2026-06-07。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

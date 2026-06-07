@@ -146,8 +146,8 @@
     <tr><td><span class="en">nodes masked turn-off-skip (P-2)</span><span class="zh">turn-off-skip 標記節點 (P-2)</span></td><td>—</td><td class="num">1,272</td></tr>
     <tr><td><span class="en">nodes turn-on-un-tainted (P-3/4)</span><span class="zh">turn-on 放行節點 (P-3/4)</span></td><td>—</td><td class="num">986</td></tr>
   </table>
-  <p class="mut en">The remaining ~80% no-change pops are <b>structurally</b> irreducible: pull-up / supply-driven combinational nodes that recompute the same value after an input opens (one pull-down path closes but another still holds the node) — predicting that requires scanning the other pull-downs, i.e. exactly the work we'd be trying to avoid. An external model, asked to be brutally honest, agreed there is no cheap predictor. This is the natural floor of "doing less" on this model.</p>
-  <p class="mut zh">剩下約 80% 的 no-change pop 是<b>結構性</b>不可削減的:pull-up / 供電驅動的組合邏輯節點,在某個輸入斷開後重算出同值(一條下拉關了、但另一條還拉著)—— 要預測得掃它其他的下拉路,正是想省的那份工。一個被要求殘酷誠實的外部模型也同意:沒有便宜的預測子。這就是這個模型上「少做事」的自然底線。</p>
+  <p class="mut en">The remaining ~80% no-change pops are <b>structurally</b> irreducible: pull-up / supply-driven combinational nodes that recompute the same value after an input opens (one pull-down path closes but another still holds the node) — predicting that requires scanning the other pull-downs, i.e. exactly the work we'd be trying to avoid. An external model, asked to be brutally honest, agreed there is no cheap predictor. This is the natural floor of "doing less" on this model — <a href="frontier.html"><b>why the last 80% won't prune →</b></a></p>
+  <p class="mut zh">剩下約 80% 的 no-change pop 是<b>結構性</b>不可削減的:pull-up / 供電驅動的組合邏輯節點,在某個輸入斷開後重算出同值(一條下拉關了、但另一條還拉著)—— 要預測得掃它其他的下拉路,正是想省的那份工。一個被要求殘酷誠實的外部模型也同意:沒有便宜的預測子。這就是這個模型上「少做事」的自然底線 —— <a href="frontier.html"><b>為什麼最後 80% 剪不掉 →</b></a></p>
 </section>
 
 <section>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — the frontier: why the last 80% won't prune</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  h3 .mut{font-weight:400;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; color:var(--acc2); font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">The frontier — why the last 80% won't prune</span><span class="zh">前緣 —— 為什麼最後 80% 剪不掉</span></h1>
+  <p class="sub en">The <a href="prunes.html">event-count prunes</a> deleted ~21% of all node re-evaluations — the part we could <b>prove</b> redundant. A profiler says another <b>~80%</b> of the remaining work still recomputes to the same value. So: can we get the rest? We chased two natural ideas — a profile-guided skip mask, and a static logic-equivalence reduction — and <b>both fail</b>, for different and instructive reasons. The punchline is the interesting part: <i>the last 80% of waste is the price of the very thing that makes the engine fast.</i> This is the honest account of where the bit-exact, single-core, event-driven route hits its Pareto frontier.</p>
+  <p class="sub zh"><a href="prunes.html">事件數剪枝</a>刪掉了約 21% 的節點重算 —— 那是我們能<b>證明</b>多餘的部分。Profiler 顯示,剩下的工裡還有 <b>~80%</b> 重算出來是同值。那麼:剩下的拿得到嗎?我們追了兩個很自然的想法 —— 剖析導向的 skip mask、以及靜態邏輯等價縮減 —— 結果<b>兩個都失敗</b>,原因不同、但都很有啟發。重點在結局:<i>最後這 80% 的浪費,正是讓引擎變快的那個東西的代價。</i>這是一篇誠實的記錄,說明 bit-exact、單核、事件驅動這條路在哪裡碰到它的 Pareto 前緣。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The remaining waste, precisely</span><span class="zh">剩下的浪費,精確地說</span></h2>
+  <p class="en">After the prunes, ~80% of the still-wasted re-evaluations are <b>pull-up / supply-driven combinational nodes</b> that recompute the same value after an input gate turns off. Picture a node held low by two parallel pull-down paths, A and B. When the gate of A opens, the engine re-queues the node and re-resolves it — but B still holds it at 0, so nothing changed. The re-evaluation was wasted.</p>
+  <p class="zh">剪枝之後,仍被浪費的重算裡有 ~80% 是 <b>pull-up / 供電驅動的組合邏輯節點</b>,在某個輸入 gate 關閉後重算成同值。想像一個被兩條並聯下拉路 A、B 拉低的節點。當 A 的 gate 打開,引擎把節點重新入隊、重新解析 —— 但 B 還拉著它在 0,所以什麼都沒變。這次重算是白做的。</p>
+  <div class="note">
+    <p class="en" style="margin:.2em 0">The catch, in one sentence: <b>whether that event actually changes the node is runtime / data-dependent</b> — it depends on the live state of the <i>other</i> pull-down. That single fact is what kills both of the ideas below.</p>
+    <p class="zh" style="margin:.2em 0">關鍵一句話:<b>那次事件到底會不會改變節點,是執行期 / 資料相依的</b> —— 它取決於<i>另一條</i>下拉路當下的狀態。就是這一件事,讓底下兩個想法都成立不了。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Idea A — learn the waste from a trace (and skip it)</span><span class="zh">想法 A —— 從一條 trace 學出浪費(然後跳過)</span></h2>
+  <p class="en">Tempting and simple: in a DEBUG build, run 1,000,000 half-cycles, record every node that never changed, write it to a file. In Release, load the file and mark those nodes "skip" before the hot loop. It's profile-guided optimisation for a simulator.</p>
+  <p class="zh">很誘人、很簡單:在 DEBUG build 跑 100 萬半週期,記下每個從沒變過的節點、寫成檔。Release 時載入,進熱迴圈前把那些節點標成「跳過」。這就是給模擬器用的 profile-guided optimisation。</p>
+  <p class="en"><span class="tagN">Why it fails:</span> it is <b>not bit-exact</b>. "Never changed in this 1M trace" is a <i>sample</i>, not a <i>proof</i>. The whole point of a switch-level sim is to be exact for <b>any</b> program — and a learned mask is exact only for the one trace it learned:</p>
+  <p class="zh"><span class="tagN">為什麼失敗:</span>它<b>不是 bit-exact</b>。「這 1M trace 裡從沒變」是<i>取樣</i>,不是<i>證明</i>。switch-level 模擬的全部意義就是對<b>任何</b>程式都精確 —— 而學來的 mask 只對它學的那條 trace 精確:</p>
+  <ul>
+    <li class="en"><b>Program difference.</b> <code>full_palette</code> is a static test pattern with no controller input, exercising one small code path. Run Super Mario Bros., or press a button, and a whole datapath / ALU / control region that "never moved" during profiling comes alive — those nodes are now changing, and we'd be skipping them.</li>
+    <li class="zh"><b>程式差異。</b><code>full_palette</code> 是靜態測試圖、不按搖桿、只走一小段程式。換成 Super Mario Bros.、或按一個鍵,一整塊在 profile 時「從沒動」的資料路徑 / ALU / 控制邏輯就活了 —— 那些節點現在會變,而我們卻在跳過它們。</li>
+    <li class="en"><b>Step-count difference.</b> A node tied to a counter, a timer, a rare carry/overflow, or a late branch can be unchanged for 1M half-cycles and flip at 1.5M. A finite observation can't prove an infinite property — you can't tell "never changes" apart from "hasn't changed yet."</li>
+    <li class="zh"><b>步數差異。</b>綁在計數器、計時器、罕見進位/溢位、或很後面才走到的分支上的節點,可能在 100 萬半週期內不變、卻在 150 萬時翻。有限的觀察證明不了無限的性質 —— 你分不出「永不變」和「只是還沒變到」。</li>
+  </ul>
+  <p class="en">Skip a node that should have changed and the simulation silently diverges — it stops being the golden model. (This is, in spirit, the <a href="study.html">behavioural-abstraction route (S2 / "Escape-1")</a> the project already explored: trade exactness for speed. It concluded the abstraction is real but doesn't beat the event-driven engine single-core.)</p>
+  <p class="zh">跳過一個該變的節點,模擬就靜默發散 —— 它不再是 golden 模型。(本質上這就是專案早已探索過的<a href="study.html">行為抽象路線(S2 /「Escape-1」)</a>:用精確換速度。結論是抽象確實存在,但單核打不過事件驅動引擎。)</p>
+</section>
+
+<section>
+  <h2><span class="en">Idea B — reduce the logic, statically (the better idea)</span><span class="zh">想法 B —— 靜態地縮減邏輯(更高明的想法)</span></h2>
+  <p class="en">A sharper instinct: those nodes mostly exist to express <b>logic-layer computation</b>. Any logic has an equivalence-reduction space — and crucially that reduction is <b>invariant</b> (a property of the Boolean function, not of any input trace). So, unlike a profiled mask, a logic-equivalence reduction <i>would</i> be bit-exact. Merge two nodes that compute the same function; remove a transistor that's logically redundant. How much is there?</p>
+  <p class="zh">一個更敏銳的直覺:那些節點大多是為了表現<b>邏輯層的計算</b>。任何邏輯都有等價縮減空間 —— 而且關鍵是,那個縮減是<b>不變的</b>(它是 Boolean 函數的性質,跟任何輸入 trace 無關)。所以,不像剖析來的 mask,邏輯等價縮減<i>會</i>是 bit-exact。把算出同一個函數的兩個節點合併;移除邏輯上多餘的電晶體。到底有多少?</p>
+  <p class="en">In <i>pure logic</i> the instinct is correct, and the space is even huge — an earlier investigation measured that <b>~98.9%</b> of the chip is reducible to logic + registers. But it <b>does not transfer to the switch level</b>, for one deep reason:</p>
+  <p class="zh">在<i>純邏輯</i>裡這個直覺是對的,空間甚至很大 —— 早先的研究量過,晶片有 <b>~98.9%</b> 可化簡成邏輯 + 暫存器。但它<b>無法轉移到 switch-level</b>,原因只有一個、但很深:</p>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>Logically-equivalent &ne; switch-level-equivalent.</b> A switch-level node isn't a Boolean value — it carries <b>capacitance</b>. Two nodes can settle to the same logic value yet behave differently while floating (charge-sharing) or in a tie-break (the largest-capacitance member wins). Merge them, or delete a "redundant" pull-down, and you change a connected group's total/maximum capacitance — which can flip the floating tie-break and break bit-exactness. The physics carries information that the logic doesn't.</p>
+    <p class="zh" style="margin:.2em 0"><b>邏輯等價 &ne; switch-level 等價。</b>switch-level 的節點不是一個 Boolean 值 —— 它帶著<b>電容</b>。兩個節點可以穩態解析成同一個邏輯值,卻在浮接時(charge-sharing)或 tie-break 時(最大電容的成員勝出)行為不同。把它們合併、或刪掉一個「多餘的」下拉,你就改了某個連通群組的總/最大電容 —— 可能翻轉 floating tie-break、破壞 bit-exact。物理帶著邏輯沒有的資訊。</p>
+  </div>
+  <p class="en">On top of that, the structure is hostile: <b>~94% of nodes sit in one bidirectional pass-transistor SCC</b>, where "a Boolean function of fixed inputs" isn't even well-defined; only ~6% is feed-forward. And that 6% — a hand-laid 1970s NMOS layout — has almost no functional duplicates, because the few repeated bits of logic (fan-out buffers) were given <i>different</i> capacitance on purpose. The verdict, from a logic-synthesis/EDA review asked to be brutally honest: a realistic node reduction of <b>&lt; 0.1%</b> and <b>0% measurable single-core speedup</b>. The structural merges that <i>are</i> safe (always-on shorts, dead transistors) are already done by the offline lowering pass.</p>
+  <p class="zh">更糟的是結構不利:<b>~94% 的節點在同一個雙向 pass-transistor SCC 裡</b>,那裡「固定輸入的 Boolean 函數」根本沒定義;只有 ~6% 是 feed-forward。而那 6% —— 一張 1970 年代手工 layout 的 NMOS —— 幾乎沒有功能性重複,因為少數重複的邏輯(fan-out buffer)是<i>刻意</i>給了不同的電容。一份被要求殘酷誠實的 logic-synthesis/EDA 評估給的判定:實際節點縮減 <b>&lt; 0.1%</b>、單核加速 <b>0%</b>。真正安全的結構性合併(always-on short、死電晶體)離線 lowering 早就做完了。</p>
+</section>
+
+<section>
+  <h2><span class="en">The punchline: the waste is the price of the speed</span><span class="zh">結局:浪費就是速度的代價</span></h2>
+  <p class="en">Here is why both ideas had to fail, and it's the most useful thing on this page. The ~80% of re-evaluations that "change nothing" are not a flaw — they are the <b>cost of the event-driven engine's sparsity</b>. The engine is fast precisely because it only touches the few hundred nodes that <i>might</i> have changed each half-cycle, and it touches each one in <b>local ignorance</b>: a node re-checks itself because it cannot cheaply know that a sibling pull-down still holds it. That ignorance is what lets it skip the other ~14,000 nodes.</p>
+  <p class="zh">這裡說明為什麼兩個想法都注定失敗,而這是整頁最有用的一點。那 ~80% 「什麼都沒改」的重算不是缺陷 —— 它們是<b>事件驅動引擎稀疏性的代價</b>。引擎之所以快,正是因為它每半週期只碰那幾百個<i>可能</i>變了的節點,而且是在<b>局部無知</b>中碰每一個:一個節點重新檢查自己,是因為它沒辦法便宜地知道某條兄弟下拉路還拉著它。正是那個無知,讓它能跳過其他約 14,000 個節點。</p>
+  <p class="en">To remove the ignorance you must add knowledge — and there are only two ways, both already measured, both losses:</p>
+  <p class="zh">要消除無知,就得加上知識 —— 而方法只有兩種,都已實測,都是負的:</p>
+  <table>
+    <tr><th><span class="en">Add knowledge by…</span><span class="zh">加上知識的方法…</span></th><th><span class="en">What it costs</span><span class="zh">代價</span></th></tr>
+    <tr><td><b><span class="en">Global state</span><span class="zh">全域狀態</span></b><br><span class="mut"><span class="en">maintain an "active pull-down count" per node</span><span class="zh">每節點維護「ON 下拉數」計數器</span></span></td>
+        <td><span class="en">The counter must be updated on <i>every</i> gate flip — the write path runs ~10&times; more often than the read it saves. Measured <span class="tagN">&minus;6%</span> (the state-caching fallacy).</span><span class="zh">計數器得在<i>每次</i> gate 翻轉時更新 —— 寫路徑比它省下的讀路徑熱約 10 倍。實測 <span class="tagN">&minus;6%</span>(state-caching 謬誤)。</span></td></tr>
+    <tr><td><b><span class="en">Bigger cones</span><span class="zh">更大的 cone</span></b><br><span class="mut"><span class="en">fold logic into composite gates / IR / compiled</span><span class="zh">把邏輯折成複合閘 / IR / 編譯</span></span></td>
+        <td><span class="en">A node now covers a whole logic cone — which <i>loses</i> the sparsity (you re-evaluate more) and pays i-cache + dispatch. Measured <span class="tagN">3&times; to 84&times; slower</span>.</span><span class="zh">一個節點現在覆蓋整個邏輯 cone —— 這<i>失去</i>稀疏性(你重算更多)、付 i-cache + dispatch。實測 <span class="tagN">慢 3 到 84 倍</span>。</span></td></tr>
+  </table>
+  <p class="en">Small cones can't have the masking effect (so they can't be pruned away); large cones lose the sparsity (so they're slower). <b>They are two sides of one coin.</b> The 80% waste and the engine's speed are the same phenomenon seen from two directions.</p>
+  <p class="zh">小 cone 沒有 masking 效應(所以剪不掉);大 cone 失去稀疏性(所以更慢)。<b>這是同一枚硬幣的兩面。</b>那 80% 的浪費,和引擎的速度,是同一個現象的兩個方向。</p>
+</section>
+
+<section>
+  <h2><span class="en">The Pareto frontier</span><span class="zh">Pareto 前緣</span></h2>
+  <p class="en">Under all three constraints together — <b>event-driven</b>, <b>bit-exact</b> (full Bryant switch-level semantics, per-node), and <b>single CPU core</b> — the engine is now at its Pareto frontier. The provably-redundant work has been removed (P-1 → P-4, lowering, the fast-path); what remains is irreducible without paying somewhere else. Going faster means relaxing exactly one of the three constraints:</p>
+  <p class="zh">在三個約束同時成立下 —— <b>事件驅動</b>、<b>bit-exact</b>(完整 Bryant switch-level 語意、逐節點)、<b>單核 CPU</b> —— 引擎現在就在它的 Pareto 前緣。可證明多餘的工已經移除(P-1 → P-4、lowering、fast-path);剩下的,不在別處付代價就降不下來。要更快,就得放寬三個約束中的剛好一個:</p>
+  <div class="boxes">
+    <div class="box"><div class="n" style="font-size:18px"><span class="en">faster core</span><span class="zh">更快的核</span></div><div class="l"><span class="en">relax "single core" → a higher-IPC / lower-latency CPU. The leaderboard's #1 is exactly this.</span><span class="zh">放寬「單核」→ 更高 IPC / 更低延遲的 CPU。排行榜第一名正是如此。</span></div></div>
+    <div class="box"><div class="n" style="font-size:18px"><span class="en">approximate</span><span class="zh">近似</span></div><div class="l"><span class="en">relax "bit-exact" → behavioural abstraction (S2). Real, but a different artifact, not the golden model.</span><span class="zh">放寬「bit-exact」→ 行為抽象(S2)。可行,但是另一個產物,不是 golden 模型。</span></div></div>
+    <div class="box"><div class="n" style="font-size:18px"><span class="en">re-architect</span><span class="zh">換架構</span></div><div class="l"><span class="en">relax "event-driven" → batch / GPU. Measured slower for one instance; only many-instance throughput could win, which was never the goal.</span><span class="zh">放寬「事件驅動」→ 批次 / GPU。單實例實測更慢;只有多實例吞吐可能贏,而那從不是目標。</span></div></div>
+  </div>
+  <p class="en">None of those makes the existing artifact faster; each builds a <i>different</i> one. So for the golden, bit-exact, single-core switch-level engine, this is the floor — reached not by giving up, but by proving, twice, that the floor is real.</p>
+  <p class="zh">那些都不會讓現有的產物變快;每一個都是在建造<i>另一個</i>產物。所以對 golden、bit-exact、單核的 switch-level 引擎來說,這就是底 —— 不是放棄而到的底,而是兩次證明「這個底是真的」之後到的底。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the conclusions come from</span><span class="zh">結論的出處</span></h2>
+  <p class="en">The waste profile (84% no-change, the PullUp/Supply breakdown) is from a <code>#if DEBUG</code> instrument kept in the engine. The counter (&minus;6%) and IR/codegen (3–84&times;) figures are this project's own measured results. The logic-synthesis review of Ideas A and B was an external EDA model asked, explicitly, to be brutally honest about whether the invariant logic-reduction space is exploitable under these constraints — its verdict was "&lt; 0.1% nodes, 0% speedup, not worth pursuing." Companion pages: <a href="prunes.html">the prunes that did work (P-1 → P-4)</a>, <a href="ceiling.html">why IR / codegen hit the wall</a>, and the <a href="study.html">study paper</a> on when abstraction beats switch-level.</p>
+  <p class="zh">浪費 profile(84% no-change、PullUp/Supply 拆解)來自留在引擎裡的 <code>#if DEBUG</code> 儀器。計數器(&minus;6%)與 IR/codegen(3–84&times;)的數字是本專案自己的實測。想法 A、B 的 logic-synthesis 評估,是一個被明確要求「殘酷誠實」的外部 EDA 模型,評估在這些約束下不變邏輯縮減空間是否可利用 —— 它的判定是「&lt; 0.1% 節點、0% 加速、不值得追」。延伸頁面:<a href="prunes.html">真的有效的剪枝(P-1 → P-4)</a>、<a href="ceiling.html">為什麼 IR / codegen 撞牆</a>、以及<a href="study.html">研究論文</a>(抽象化何時贏過 switch-level)。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="prunes.html">&larr; <span class="en">The prunes that worked (P-1 → P-4)</span><span class="zh">真的有效的剪枝(P-1 → P-4)</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">Why the last ~80% of "wasted" node re-evaluations can't be pruned bit-exactly — a profile-guided mask isn't a proof, and logic-equivalence doesn't survive switch-level capacitance. The waste is the price of the event-driven sparsity. 2026-06-07.</span><span class="zh">為什麼最後 ~80% 的「浪費」節點重算無法 bit-exact 地剪掉 —— 剖析來的 mask 不是證明,而邏輯等價過不了 switch-level 的電容這關。那份浪費就是事件驅動稀疏性的代價。2026-06-07。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

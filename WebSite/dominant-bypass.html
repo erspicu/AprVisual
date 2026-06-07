@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — a correct optimization that still lost: the dominant-driver bypass (P-5)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">A correct optimization that still lost</span><span class="zh">一個正確、卻仍然輸的優化</span></h1>
+  <p class="sub en">A special case worth recording. Most failed ideas here are wrong, slow, or both. This one — the <b>dominant-driver turn-off bypass (P-5)</b> — was <b>provably correct</b> (bit-exact at 300k <i>and</i> 1M half-cycles), and it <b>genuinely worked</b>: it pruned real events for a measured <b>+3.4%</b>. And it was still a <b>−12% net loss</b>, because keeping the information it needed cost <b>−15.4%</b>. It's the cleanest illustration of a rule the whole project keeps meeting: <i>a correct, firing optimization can still lose to its own bookkeeping — and the deciding factor is whether the safety check is a cheap static fact or a maintained runtime state.</i></p>
+  <p class="sub zh">一個值得記錄的特殊案例。這裡多數失敗的點子是錯的、慢的、或兩者皆是。但這一個 —— <b>dominant-driver turn-off 旁路(P-5)</b> —— 是<b>可證明正確</b>的(30 萬<i>與</i> 100 萬半週期都 bit-exact),而且<b>真的有效</b>:它剪掉了真實事件,實測 <b>+3.4%</b>。但它仍然是 <b>−12% 的淨虧</b>,因為維護它所需的資訊要花 <b>−15.4%</b>。這是整個專案不斷遇到的一條規則最乾淨的例子:<i>一個正確、且真的會觸發的優化,仍可能輸給自己的簿記 —— 而決勝點在於那個安全判準是「便宜的靜態事實」還是「要維護的執行期狀態」。</i></p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The idea</span><span class="zh">想法</span></h2>
+  <p class="en">The engine's biggest open cost is re-evaluating a node after an input opens, only to find it unchanged because another driver still holds it (see <a href="frontier.html">the frontier</a>). The idea: store, per node, the single transistor whose conduction currently <b>determines</b> its value — its <code>DominantGate</code>. Then on any turn-off of gate <code>g</code>, an endpoint <code>c</code> can be skipped if <code>DominantGate[c] != 0 &amp;&amp; DominantGate[c] != g</code>: <i>c is held by a different single driver, so g opening can't change it.</i> One <code>uint16</code> compare to delete a whole re-evaluation.</p>
+  <p class="zh">引擎最大的未解成本,是「某個輸入斷開後重算一個節點、卻發現它沒變(因為另一個驅動源還拉著它)」(見<a href="frontier.html">前緣</a>一文)。想法:替每個節點存下「此刻<b>決定</b>它的值的那一顆電晶體」—— 它的 <code>DominantGate</code>。然後任何閘 <code>g</code> 關斷時,端點 <code>c</code> 若滿足 <code>DominantGate[c] != 0 &amp;&amp; DominantGate[c] != g</code> 就能跳過:<i>c 由另一個單一驅動源拉住,所以 g 開路改變不了它。</i>一個 <code>uint16</code> 比對,刪掉一整次重算。</p>
+</section>
+
+<section>
+  <h2><span class="en">It was provably correct — and it fired</span><span class="zh">它可證明正確 —— 而且真的會觸發</span></h2>
+  <p class="en">The soundness is subtle but holds. For a <b>pull-down</b> turn-off the condition can never be true — if <code>g</code> was conducting and a <i>different</i> single driver also held <code>c</code>, that's two conductors, so <code>DominantGate</code> would already be <code>0</code> (a contradiction). Where it <i>does</i> fire is a <b>pass-transistor disconnect</b>: a node with its own single supply driver, momentarily wired to a neighbour, when that wire opens — the node keeps its own driver's value, unchanged. Verified the hard way: the whole-NES checksum stayed <code>0x794A43ABDF169ADA</code> (@300k) and <code>0x6D4CCBCE2E9CD599</code> (@1M), bit-for-bit. This was <b>not</b> an approximation — it was a real, sound prune.</p>
+  <p class="zh">健全性很微妙但成立。對<b>下拉</b>關斷,這個條件永遠不可能為真 —— 若 <code>g</code> 在導通、又有<i>另一個</i>單一驅動源也拉住 <code>c</code>,那就是兩個導通源,<code>DominantGate</code> 早就會是 <code>0</code>(矛盾)。它<i>真正</i>會觸發的是 <b>pass-transistor 斷開</b>:一個有自己單一供電驅動的節點,一時被接到鄰居,當那條線開路時 —— 節點保持自己驅動源的值、不變。用最硬的方式驗過:整機 checksum 維持 <code>0x794A43ABDF169ADA</code>(@30 萬)與 <code>0x6D4CCBCE2E9CD599</code>(@100 萬),位元完全相同。這<b>不是</b>近似 —— 是真實、健全的剪枝。</p>
+</section>
+
+<section>
+  <h2><span class="en">Then the measurement</span><span class="zh">然後是量測</span></h2>
+  <p class="en">Interleaved-paired A/B, full_palette 300k, vs the P-4 baseline. The decisive trick was to measure the <i>maintenance</i> alone (keep the bookkeeping, disable the skip) and subtract:</p>
+  <p class="zh">interleaved-paired A/B,full_palette 30 萬,對 P-4 baseline。決定性的做法是<i>單獨</i>量「維護」(留簿記、關掉跳過)再相減:</p>
+  <table>
+    <tr><th><span class="en">Variant</span><span class="zh">變體</span></th><th>vs baseline</th><th><span class="en">means</span><span class="zh">代表</span></th></tr>
+    <tr><td><span class="en">Full P-5 (maintain + bypass)</span><span class="zh">完整 P-5(維護 + 旁路)</span></td><td class="num" style="color:#ff7676">−12.05%</td><td>= −(maintenance) + (bypass)</td></tr>
+    <tr><td><span class="en">Maintenance only (bypass disabled)</span><span class="zh">只維護(關掉旁路)</span></td><td class="num" style="color:#ff7676">−15.41%</td><td>= −(maintenance)</td></tr>
+    <tr><td><b><span class="en">⇒ the bypass itself</span><span class="zh">⇒ 旁路本身</span></b></td><td class="num" style="color:#7ee0a8"><b>+3.4%</b></td><td><span class="en">it works — it really prunes</span><span class="zh">有效 —— 真的剪掉事件</span></td></tr>
+    <tr><td><b><span class="en">⇒ the maintenance</span><span class="zh">⇒ 維護</span></b></td><td class="num" style="color:#ff7676"><b>−15.4%</b></td><td><span class="en">the killer — ~4.5× the benefit</span><span class="zh">殺手 —— 約是收益的 4.5 倍</span></td></tr>
+  </table>
+  <p class="en">The bypass earns <b>+3.4%</b> of real pruning. But to know <i>who the current dominant driver is</i>, every node resolution must (a) turn the deliberately <b>branchless</b> driver scan (a prior measured win) into a <b>branchy count-and-capture</b>, and (b) write the result into a new ~29 KB <code>DominantGate</code> array — ~117M writes per frame, a fresh random-access stream on a memory-latency-bound loop. That maintenance is <b>−15.4%</b>, ~4.5× the +3.4% it enables. 0 of 16 paired rounds won.</p>
+  <p class="zh">旁路賺到 <b>+3.4%</b> 的真實剪枝。但要知道<i>當下的 dominant driver 是誰</i>,每次節點解析都得 (a) 把刻意 <b>branchless</b> 的驅動掃描(先前量到的勝利)改成 <b>branchy 的 count-and-capture</b>,並 (b) 把結果寫進一條新的 ~29 KB <code>DominantGate</code> array —— 每張畫面 ~117M 次寫入,在 memory-latency-bound 迴圈上多一條隨機存取 stream。那份維護是 <b>−15.4%</b>,約是它換來的 +3.4% 的 4.5 倍。16 輪配對 0 勝。</p>
+</section>
+
+<section>
+  <h2><span class="en">The lesson: static fact vs maintained state</span><span class="zh">教訓:靜態事實 vs 要維護的狀態</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>Why P-1 → P-4 won and P-5 lost is the same one thing.</b> The <a href="prunes.html">prunes that shipped</a> guard their skip with a <b>static fact computed once at load</b> (a pull-up flag, a capacitance comparison) — free in the hot loop. P-5's skip needs a <b>runtime fact that changes every cycle</b> — "which driver holds this node right now" — and the only way to have it is to maintain it, which costs more than the skip saves. A correct optimization is necessary but not sufficient; it also has to be <i>cheap to know it's safe to apply.</i></p>
+    <p class="zh" style="margin:.2em 0"><b>P-1 → P-4 為何贏、P-5 為何輸,是同一件事。</b><a href="prunes.html">上線的剪枝</a>用「<b>載入時算一次的靜態事實</b>」(上拉旗標、電容比較)守住它的跳過 —— 熱迴圈裡免費。P-5 的跳過需要一個「<b>每個 cycle 都在變的執行期事實</b>」——「此刻是哪個驅動源拉住這個節點」—— 而要擁有它,只能去維護它,維護成本超過跳過省下的。一個優化「正確」是必要、但不充分;它還得「<i>判斷它能安全套用」這件事本身夠便宜</i>。</p>
+  </div>
+  <p class="en">This is the third time the same wall appears, each from a different angle: a maintained "active driver count" (−6%), this maintained "dominant driver id" (−15.4% maintenance), and the irreducible structural waste (<a href="frontier.html">the frontier</a>). All three say: <b>knowing which driver currently holds a node is runtime state, and on this latency-bound engine, maintaining that state costs more than the work it would save.</b> P-5's value is that it puts a precise, bit-exact, <i>positive</i> number (+3.4%) on the prize behind that wall — and an equally precise number (−15.4%) on the toll to reach it.</p>
+  <p class="zh">這是同一道牆第三次出現,每次角度不同:一個維護的「active driver 計數」(−6%)、這個維護的「dominant driver id」(維護 −15.4%)、以及不可削減的結構性浪費(<a href="frontier.html">前緣</a>)。三者都在說:<b>「某節點此刻被哪個驅動源拉住」是執行期狀態,而在這個 latency-bound 引擎上,維護那個狀態的成本超過它能省下的工。</b>P-5 的價值在於:它替那道牆後的獎賞釘上了一個精確、bit-exact、<i>正</i>的數字(+3.4%),也替抵達它的過路費釘上了一個同樣精確的數字(−15.4%)。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">Idea proposed in a deliberately adversarial consult with an external EDA model (it surfaces the most useful ideas only under pressure — the same consult that earlier produced the capacitance condition behind P-3). The +3.4% / −15.4% split is interleaved-paired (alternating builds, median of 12–16 rounds, checksum-guarded every round) on an AMD Ryzen 7 3700X. The bypass was reverted; the engine stays at the P-4 baseline. Companion pages: <a href="prunes.html">the prunes that won (P-1 → P-4)</a>, <a href="frontier.html">the frontier (why the last 80% won't prune)</a>, <a href="ceiling.html">why IR / codegen hit the wall</a>.</p>
+  <p class="zh">想法來自一次刻意對抗式的外部 EDA 模型諮詢(它只在被逼問時才吐出最有用的點子 —— 就是先前產出 P-3 電容條件的同一次諮詢)。+3.4% / −15.4% 的拆分是 interleaved-paired(輪流換 build、12–16 輪取中位數、每輪 checksum 守門),在 AMD Ryzen 7 3700X 上量測。旁路已退回;引擎維持在 P-4 baseline。延伸頁面:<a href="prunes.html">真的贏的剪枝(P-1 → P-4)</a>、<a href="frontier.html">前緣(為何最後 80% 剪不掉)</a>、<a href="ceiling.html">為什麼 IR / codegen 撞牆</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="prunes.html">&larr; <span class="en">The prunes that won (P-1 → P-4)</span><span class="zh">真的贏的剪枝(P-1 → P-4)</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">P-5: a bit-exact turn-off bypass that genuinely pruned (+3.4%) but lost −12% net to the −15.4% cost of maintaining the runtime "dominant driver" it needed. Correct ≠ cheap-to-know-it's-safe. 2026-06-07.</span><span class="zh">P-5:一個 bit-exact 的 turn-off 旁路,真的有剪枝(+3.4%),卻因維護它所需的執行期「dominant driver」要 −15.4% 而淨虧 −12%。正確 ≠ 判斷它安全的成本便宜。2026-06-07。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

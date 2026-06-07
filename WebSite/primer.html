@@ -200,8 +200,8 @@
 
 <section>
   <h2><span class="en">Why this is the whole story</span><span class="zh">為什麼這就是全貌</span></h2>
-  <p class="en">Everything else on this site is an engineering refinement of these four steps. The cost is brutal because step A–C runs for <i>every</i> changed node, <i>every</i> half cycle — the average group is tiny (~1.4 nodes), but there are millions of them per frame. So the entire optimization story is about doing A–C with less work, smaller data, and tighter code — not about a cleverer algorithm.</p>
-  <p class="zh">本站其他一切,都是這四個步驟的工程精修。代價之所以殘酷,是因為 A–C 對<i>每個</i>變動節點、<i>每個</i>半週期都要跑一次 —— 平均一個 group 很小(~1.4 個節點),但一張畫面有數百萬個。所以整個優化故事,講的是「用更少工作、更小資料、更緊的程式碼去做 A–C」—— 而不是更聰明的演算法。</p>
+  <p class="en">Everything else on this site is an engineering refinement of these four steps. The cost is brutal because step A–C runs for <i>every</i> changed node, <i>every</i> half cycle — the average group is tiny (~1.4 nodes), but there are millions of them per frame. So the entire optimization story is about doing A–C with less work, smaller data, and tighter code — not a cleverer data structure. (The single biggest lever is doing A–C <i>fewer times</i>: the <a href="prunes.html">event-count prunes</a> prove that ~21% of those re-evaluations can't change anything, and skip them outright.)</p>
+  <p class="zh">本站其他一切,都是這四個步驟的工程精修。代價之所以殘酷,是因為 A–C 對<i>每個</i>變動節點、<i>每個</i>半週期都要跑一次 —— 平均一個 group 很小(~1.4 個節點),但一張畫面有數百萬個。所以整個優化故事,講的是「用更少工作、更小資料、更緊的程式碼去做 A–C」—— 而不是更聰明的資料結構。(最大的單一槓桿是「<i>少做幾次</i> A–C」:<a href="prunes.html">事件數剪枝</a>證明其中約 21% 的重算不可能改變任何東西,直接跳過。)</p>
   <div class="card" style="text-align:center">
     <p><a class="home" href="metalnes.html" style="font-size:15px"><span class="en">→ Next: Visual6502 → what MetalNES added → what AprVisual S1 added</span><span class="zh">→ 接著看:Visual6502 → MetalNES 加了什麼 → AprVisual S1 加了什麼</span></a></p>
   </div>

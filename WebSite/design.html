@@ -129,8 +129,8 @@
 
 <section>
   <h2><span class="en">In one sentence</span><span class="zh">一句話總結</span></h2>
-  <p class="en">The eight performance-effective extensions cluster in three places — <b>skip work</b> (fast-path, lowering, build-prune), <b>shrink the hot data</b> (hot/cold split, ushort/byte, unmanaged SoA), and <b>tighten the hot loop</b> (setNodeState rework, iterative-BFS-for-JIT). This independently matches what the Visual NES author found in 2017: the wins come from less work + smaller data + tighter codegen, <i>not</i> from higher-level data structures or cleverer algorithms.</p>
-  <p class="zh">八項對效能有效的延伸集中在三處 —— <b>省工</b>(fast-path、lowering、build 剪枝)、<b>縮熱資料</b>(hot/cold 拆分、ushort/byte、unmanaged SoA)、<b>收緊熱迴圈</b>(setNodeState 重寫、iterative-BFS 解鎖 JIT)。這獨立印證了 Visual NES 作者 2017 年的結論:勝利來自更少工作 + 更小資料 + 更緊 codegen,<i>不是</i>更高階的資料結構或更聰明的演算法。</p>
+  <p class="en">The eight performance-effective extensions cluster in three places — <b>skip work</b> (fast-path, lowering, build-prune), <b>shrink the hot data</b> (hot/cold split, ushort/byte, unmanaged SoA), and <b>tighten the hot loop</b> (setNodeState rework, iterative-BFS-for-JIT). This independently matches what the Visual NES author found in 2017: the wins come from less work + smaller data + tighter codegen, <i>not</i> from higher-level data structures. The biggest "less work" wins since — R-1 and the <a href="prunes.html">P-1 → P-4 event-count prunes</a> — sharpen rather than contradict that: they <i>are</i> algorithmic (graph-level), but in the same spirit — provably doing <b>less</b>, never a cleverer data structure.</p>
+  <p class="zh">八項對效能有效的延伸集中在三處 —— <b>省工</b>(fast-path、lowering、build 剪枝)、<b>縮熱資料</b>(hot/cold 拆分、ushort/byte、unmanaged SoA)、<b>收緊熱迴圈</b>(setNodeState 重寫、iterative-BFS 解鎖 JIT)。這獨立印證了 Visual NES 作者 2017 年的結論:勝利來自更少工作 + 更小資料 + 更緊 codegen,<i>不是</i>更高階的資料結構。之後最大的幾個「少做事」勝利 —— R-1 與 <a href="prunes.html">P-1 → P-4 事件數剪枝</a> —— 是強化而非推翻這點:它們<i>確實</i>是演算法層(圖層級)的,但精神一致 —— 可證明地<b>少做</b>,而非更聰明的資料結構。</p>
 </section>
 
 <section>

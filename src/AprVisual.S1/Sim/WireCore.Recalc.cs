@@ -192,20 +192,25 @@ namespace AprVisual.Sim
                 if (newState == 0)
                 {
                     int npwr = Npwr, ngnd = Ngnd;
+                    // [P-2 turn-off enqueue prune] skip endpoints that become a driverless isolated singleton
+                    // the instant this (their only) channel opens — they float and HOLD their previous value, so
+                    // re-evaluating them is a guaranteed no-op. TurnOffSkip is the precomputed static safety mask
+                    // (C1c2Count==1, no supply/PullUp/FC/callback — see ClassifyTurnOffSkip). Bit-exact.
+                    byte* turnOffSkip = TurnOffSkip;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-                        if (nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if (nextHash[c1a] == 0 && turnOffSkip[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a != npwr && c2a != ngnd && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        if (c2a != npwr && c2a != ngnd && nextHash[c2a] == 0 && turnOffSkip[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-                        if (nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b != npwr && c2b != ngnd && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if (nextHash[c1b] == 0 && turnOffSkip[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (c2b != npwr && c2b != ngnd && nextHash[c2b] == 0 && turnOffSkip[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }

@@ -544,6 +544,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
+                Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");

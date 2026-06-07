@@ -250,6 +250,7 @@ namespace AprVisual.Sim
             //    resolve in O(1) via RecalcNodeFast, bypassing the group DFS. See WireCore.FastPath.cs.
             ClassifyPureLogicNodes();
             ClassifyPruneTaint();   // safety mask for the same-state turn-on prune (no-PullUp / ForceCompute)
+            ClassifyTurnOffSkip();  // P-2: safety mask for the turn-off enqueue prune (isolated-on-disconnect float-hold)
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).

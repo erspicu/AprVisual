@@ -148,6 +148,51 @@ namespace AprVisual.Sim
             LastPruneTaintStats = $"prune-taint: {tainted:N0} unsafe ({pct:F1}%) of {live:N0} live  [{fcNodes} ForceCompute, {noPull:N0} no-PullUp/dynamic] — same-state turn-on prune active on the rest";
         }
 
+        // [P-2 turn-off enqueue prune — safety mask] 1 = skip enqueuing this node when the gate of its channel
+        // goes LOW (turn-off). Eligible ⇔ the node is provably ISOLATED the instant its single channel opens,
+        // so its group becomes {nn} with no driver ⇒ it floats and HOLDS its previous value ⇒ re-evaluating it
+        // is a guaranteed no-op (RecalcNodeFast's flags==0 branch). Condition (all static, set once at Reset):
+        //   • C1c2Count == 1   — exactly one channel transistor, so turning it off leaves NO conducting channel
+        //   • GndCount == PwrCount == 0 — no supply path ⇒ nothing drives it once isolated
+        //   • no PullUp / ForceCompute / HasCallback — would give it a non-floating resolution or a side effect
+        //   • Inline — needed to read the counts reliably (overflow nodes are high-fanout, never C1c2Count==1)
+        // The turn-ON path is unaffected (single-sided enqueue + P-1 already handle it). Measured: this safe
+        // subset is ~25.9% of ALL RecalcNode pops (no-change, full_palette 300k). Bit-exact — golden checksum.
+        internal static byte* TurnOffSkip;
+        public static string LastTurnOffSkipStats = "(turn-off-skip not classified)";
+
+        internal static unsafe void ClassifyTurnOffSkip()
+        {
+            int n = NodeCount;
+            TurnOffSkip = AllocArray<byte>(n);   // tracked + zeroed; freed in FreeUnmanagedMemory
+
+            // [exclude handler-DRIVEN nodes] the RAM/ROM data-bus pins (e.g. u1._d*) are driven by the memory
+            // handlers via WriteBits → SetHigh/SetLow, so once their channel opens they resolve to the DRIVEN
+            // value (SetHigh/SetLow flag), NOT a pure float-hold — skipping their turn-off re-eval diverges
+            // (measured: u1._d0/_d2/_d5 broke at full_palette 20k). Handlers are attached before Reset(), so
+            // _callbacks is populated here; DataOut is exactly the set of externally-driven pins. Static table.
+            var driven = new System.Collections.Generic.HashSet<int>();
+            foreach (var cb in _callbacks)
+                if (cb.DataOut != null)
+                    for (int i = 0; i < cb.DLen; i++) driven.Add(cb.DataOut[i]);
+
+            const NodeFlags exclude = NodeFlags.PullUp | NodeFlags.ForceCompute | NodeFlags.HasCallback | NodeFlags.Pwr | NodeFlags.Gnd;
+            int count = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                if (driven.Contains(nn)) continue;                  // externally driven (SetHigh/SetLow) — not float-hold
+                NodeInfo* ns = NodeInfos + nn;
+                if ((ns->Flags & exclude) != 0) continue;
+                if (ns->Inline == 0) continue;
+                if (ns->C1c2Count != 1 || ns->GndCount != 0 || ns->PwrCount != 0) continue;
+                TurnOffSkip[nn] = 1;
+                count++;
+            }
+            double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
+            LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven) — isolated-on-disconnect float-hold, bit-exact turn-off enqueue prune";
+        }
+
         /// <summary>
         /// O(1)-resolution RecalcNode for a classified pure-logic node (group is provably {nn}).
         /// Behaviourally identical to: ComputeNodeGroup(nn) → SetNodeState(nn, value) for the

@@ -177,7 +177,7 @@ namespace AprVisual.Sim
                     for (int i = 0; i < cb.DLen; i++) driven.Add(cb.DataOut[i]);
 
             const NodeFlags exclude = NodeFlags.PullUp | NodeFlags.ForceCompute | NodeFlags.HasCallback | NodeFlags.Pwr | NodeFlags.Gnd;
-            int count = 0;
+            int count = 0, p3 = 0;
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
@@ -188,9 +188,21 @@ namespace AprVisual.Sim
                 if (ns->C1c2Count != 1 || ns->GndCount != 0 || ns->PwrCount != 0) continue;
                 TurnOffSkip[nn] = 1;
                 count++;
+
+                // [P-3 — extend P-1's same-state turn-ON prune to this node, IFF it can never win a
+                //  floating-group capacitance tie-break] P-1 blanket-taints every no-PullUp node because a
+                //  turn-ON MERGE can pick a different largest-cap winner / charge-share value that the
+                //  endpoint-only same-state check can't see. But if X's capacitance is STRICTLY LESS than
+                //  its single neighbour Y's, X can never be the merged group's largest-cap member, and X
+                //  carries no driven flag — so merging an equal-state X into Y's group is a provable no-op
+                //  for the group's resolution. Un-taint exactly that subset. This auto-excludes the heavy
+                //  dynamic register / bus nodes (large capacitance) — they keep P-1's taint. (Gemini-
+                //  derived condition; without it the un-gated P-3 diverged on charge-share ALU/reg nodes.)
+                int y = ns->InlinePayload[1];                       // other end of X's single c1c2 channel (payload: gate, other)
+                if (NodeConnections[nn] < NodeConnections[y]) { PruneUnsafe[nn] = 0; p3++; }
             }
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
-            LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven) — isolated-on-disconnect float-hold, bit-exact turn-off enqueue prune";
+            LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3 turn-on un-taint: {p3:N0} (cap<neighbour) — bit-exact enqueue prunes";
         }
 
         /// <summary>

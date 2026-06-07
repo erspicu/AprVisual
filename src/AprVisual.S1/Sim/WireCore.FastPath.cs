@@ -38,18 +38,19 @@ namespace AprVisual.Sim
         public static int PureLogicNodeCount;
         public static string LastFastPathStats = "(fast-path disabled — default; --fast-path to enable)";
 
-        // [same-state turn-on prune — safety mask] 1 = this node is UNSAFE to prune; 0 = safe.
-        // The same-state turn-on prune (WireCore.Recalc.cs SetNodeState) skips re-enqueuing a node when
-        // a conducting transistor merges two equal-state groups. That is bit-exact ONLY when the merged
-        // group resolves through the monotone driven-priority LUT. Two cases break monotonicity, so we
-        // taint (never prune) those nodes:
-        //   (a) NO PullUp  — the node can sit in a purely-FLOATING group resolved by the charge/capacitance
-        //       hold-previous tie-break (dynamic logic + storage cells: OAM/palette RAM, dynamic CPU nodes).
-        //   (b) in a ForceCompute channel-component — the FC Gnd+Pwr cancel removes drivers (non-monotone).
-        // Built once at Reset by ClassifyPruneTaint(); read by SetNodeState's turn-on enqueue.
-        // Measured (full_palette): ~58.7% tainted (8,331 no-PullUp + 709 FC-component); pruning the rest is
-        // bit-exact (golden checksum) and +11.85% interleaved-paired (14/14 wins).
-        internal static byte* PruneUnsafe;
+        // [enqueue-prune safety mask — one byte per node, BIT-PACKED so both prune paths read one array]
+        //   bit 0 (PruneTurnOnUnsafe = 1): node is UNSAFE for the same-state turn-ON prune (P-1). Set for
+        //       no-PullUp / ForceCompute nodes (their merge can resolve non-monotonically via the floating
+        //       capacitance tie-break); CLEARED again by P-3/P-4 for the cap<all-neighbours subset that
+        //       provably can't win a tie-break. Read by SetNodeState's turn-on enqueue.
+        //   bit 1 (PruneTurnOffSkip = 2): node is a single-channel no-driver leaf that ISOLATES → float-holds
+        //       when its channel opens (P-2); skip enqueuing it on turn-OFF. Read by the turn-off enqueue.
+        // One array (was two: PruneUnsafe + TurnOffSkip) → half the L1 footprint for the masks and both bits
+        // for a node live in the same cache line; the per-read `& bit` is ~free. Built at Reset by
+        // ClassifyPruneTaint() (bit 0) then ClassifyTurnOffSkip() (bit 1 + the P-3/4 bit-0 clears).
+        internal const byte PruneTurnOnUnsafe = 1;
+        internal const byte PruneTurnOffSkip  = 2;
+        internal static byte* PruneMask;
         public static string LastPruneTaintStats = "(prune-taint not classified)";
 
         /// <summary>
@@ -99,15 +100,15 @@ namespace AprVisual.Sim
         }
 
         /// <summary>
-        /// Build the same-state-turn-on-prune safety mask <see cref="PruneUnsafe"/>: taint a node iff it has
-        /// no PullUp (can float → hold-previous tie-break) OR its c1c2 channel-component contains a
-        /// ForceCompute node (Gnd+Pwr cancel → non-monotone). Run once at end of Reset(), after channel
-        /// sub-lists + flags are set. Not hot path. Pruning the untainted nodes is bit-exact.
+        /// Build the enqueue-prune safety mask <see cref="PruneMask"/> (allocates it) and set bit 0
+        /// (PruneTurnOnUnsafe): taint a node iff it has no PullUp (can float → hold-previous tie-break) OR
+        /// its c1c2 channel-component contains a ForceCompute node (Gnd+Pwr cancel → non-monotone). Runs
+        /// before ClassifyTurnOffSkip (which adds bit 1 and clears bit 0 for the P-3/4 subset). Not hot path.
         /// </summary>
         internal static unsafe void ClassifyPruneTaint()
         {
             int n = NodeCount;
-            PruneUnsafe = AllocArray<byte>(n);   // tracked + zeroed; freed in FreeUnmanagedMemory
+            PruneMask = AllocArray<byte>(n);   // tracked + zeroed; freed in FreeUnmanagedMemory
             int[] parent = new int[n];
             for (int i = 0; i < n; i++) parent[i] = i;
             for (int nn = 0; nn < n; nn++)
@@ -142,7 +143,7 @@ namespace AprVisual.Sim
                 // so prune ONLY on PullUp nodes; taint the rest.
                 bool dynamic = (NodeInfos[nn].Flags & NodeFlags.PullUp) == 0;
                 if (dynamic) noPull++;
-                if (fc || dynamic) { PruneUnsafe[nn] = 1; tainted++; }
+                if (fc || dynamic) { PruneMask[nn] |= PruneTurnOnUnsafe; tainted++; }
             }
             double pct = live > 0 ? 100.0 * tainted / live : 0;
             LastPruneTaintStats = $"prune-taint: {tainted:N0} unsafe ({pct:F1}%) of {live:N0} live  [{fcNodes} ForceCompute, {noPull:N0} no-PullUp/dynamic] — same-state turn-on prune active on the rest";
@@ -158,13 +159,14 @@ namespace AprVisual.Sim
         //   • Inline — needed to read the counts reliably (overflow nodes are high-fanout, never C1c2Count==1)
         // The turn-ON path is unaffected (single-sided enqueue + P-1 already handle it). Measured: this safe
         // subset is ~25.9% of ALL RecalcNode pops (no-change, full_palette 300k). Bit-exact — golden checksum.
-        internal static byte* TurnOffSkip;
+        // Sets bit 1 (PruneTurnOffSkip) of the shared PruneMask; PruneMask is allocated by ClassifyPruneTaint.
         public static string LastTurnOffSkipStats = "(turn-off-skip not classified)";
 
         internal static unsafe void ClassifyTurnOffSkip()
         {
             int n = NodeCount;
-            TurnOffSkip = AllocArray<byte>(n);   // tracked + zeroed; freed in FreeUnmanagedMemory
+            // PruneMask already allocated + bit-0-populated by ClassifyPruneTaint (runs first). We OR in bit 1
+            // here, and below clear bit 0 for the P-3/4 turn-on-safe subset.
 
             // [exclude handler-DRIVEN nodes] the RAM/ROM data-bus pins (e.g. u1._d*) are driven by the memory
             // handlers via WriteBits → SetHigh/SetLow, so once their channel opens they resolve to the DRIVEN
@@ -186,7 +188,7 @@ namespace AprVisual.Sim
                 if ((ns->Flags & exclude) != 0) continue;
                 if (ns->Inline == 0) continue;
                 if (ns->C1c2Count != 1 || ns->GndCount != 0 || ns->PwrCount != 0) continue;
-                TurnOffSkip[nn] = 1;
+                PruneMask[nn] |= PruneTurnOffSkip;
                 count++;
             }
 
@@ -212,7 +214,7 @@ namespace AprVisual.Sim
                 int myCap = NodeConnections[nn];
                 bool capLtAll = true;
                 for (int k = 0; k < nc; k++) if (myCap >= NodeConnections[pay[k * 2 + 1]]) { capLtAll = false; break; }
-                if (capLtAll) { PruneUnsafe[nn] = 0; p34++; }
+                if (capLtAll) { PruneMask[nn] &= unchecked((byte)~PruneTurnOnUnsafe); p34++; }   // clear bit 0
             }
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3/4 turn-on un-taint: {p34:N0} (cap<all-neighbours) — bit-exact enqueue prunes";

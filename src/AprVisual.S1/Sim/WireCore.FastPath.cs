@@ -177,7 +177,7 @@ namespace AprVisual.Sim
                     for (int i = 0; i < cb.DLen; i++) driven.Add(cb.DataOut[i]);
 
             const NodeFlags exclude = NodeFlags.PullUp | NodeFlags.ForceCompute | NodeFlags.HasCallback | NodeFlags.Pwr | NodeFlags.Gnd;
-            int count = 0, p3 = 0;
+            int count = 0;
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
@@ -188,21 +188,34 @@ namespace AprVisual.Sim
                 if (ns->C1c2Count != 1 || ns->GndCount != 0 || ns->PwrCount != 0) continue;
                 TurnOffSkip[nn] = 1;
                 count++;
+            }
 
-                // [P-3 — extend P-1's same-state turn-ON prune to this node, IFF it can never win a
-                //  floating-group capacitance tie-break] P-1 blanket-taints every no-PullUp node because a
-                //  turn-ON MERGE can pick a different largest-cap winner / charge-share value that the
-                //  endpoint-only same-state check can't see. But if X's capacitance is STRICTLY LESS than
-                //  its single neighbour Y's, X can never be the merged group's largest-cap member, and X
-                //  carries no driven flag — so merging an equal-state X into Y's group is a provable no-op
-                //  for the group's resolution. Un-taint exactly that subset. This auto-excludes the heavy
-                //  dynamic register / bus nodes (large capacitance) — they keep P-1's taint. (Gemini-
-                //  derived condition; without it the un-gated P-3 diverged on charge-share ALU/reg nodes.)
-                int y = ns->InlinePayload[1];                       // other end of X's single c1c2 channel (payload: gate, other)
-                if (NodeConnections[nn] < NodeConnections[y]) { PruneUnsafe[nn] = 0; p3++; }
+            // [P-3 / P-4 — extend P-1's same-state turn-ON prune to nodes that can never win a floating
+            //  tie-break] P-1 blanket-taints every no-PullUp node because a turn-ON MERGE can pick a
+            //  different largest-cap winner / charge-share value the endpoint-only same-state check can't
+            //  see. But a no-driver node X whose capacitance is STRICTLY LESS than EVERY one of its c1c2
+            //  neighbours can never be the merged group's largest-cap member, and carries no driven flag,
+            //  so merging an equal-state X into a neighbour's group is a provable no-op (and P-1's endpoint
+            //  same-state check already blocks cross-state bridging). Un-taint that subset. Auto-excludes
+            //  the heavy dynamic register / bus nodes (large capacitance keep P-1's taint) — no hand-list.
+            //  P-3 = single-channel; P-4 = the multi-channel generalisation (cap < ALL neighbours).
+            int p34 = 0;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd || driven.Contains(nn)) continue;
+                NodeInfo* ns = NodeInfos + nn;
+                if ((ns->Flags & exclude) != 0 || ns->Inline == 0) continue;
+                if (ns->GndCount != 0 || ns->PwrCount != 0) continue;   // has a supply driver ⇒ not a pure float node
+                int nc = ns->C1c2Count;
+                if (nc == 0) continue;
+                ushort* pay = ns->InlinePayload;                        // [gate,other, gate,other, ...]
+                int myCap = NodeConnections[nn];
+                bool capLtAll = true;
+                for (int k = 0; k < nc; k++) if (myCap >= NodeConnections[pay[k * 2 + 1]]) { capLtAll = false; break; }
+                if (capLtAll) { PruneUnsafe[nn] = 0; p34++; }
             }
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
-            LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3 turn-on un-taint: {p3:N0} (cap<neighbour) — bit-exact enqueue prunes";
+            LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3/4 turn-on un-taint: {p34:N0} (cap<all-neighbours) — bit-exact enqueue prunes";
         }
 
         /// <summary>

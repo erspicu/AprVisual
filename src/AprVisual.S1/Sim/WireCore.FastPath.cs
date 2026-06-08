@@ -216,6 +216,14 @@ namespace AprVisual.Sim
                 for (int k = 0; k < nc; k++) if (myCap >= NodeConnections[pay[k * 2 + 1]]) { capLtAll = false; break; }
                 if (capLtAll) { PruneMask[nn] &= unchecked((byte)~PruneTurnOnUnsafe); p34++; }   // clear bit 0
             }
+            // [supply-skip fold, 2026-06-09] mark supply as turn-off-skip so SetNodeState's c2 enqueue no
+            // longer needs an explicit `c2 != ngnd && c2 != npwr` guard — c2 becomes IDENTICAL to c1, so the
+            // unrolled turn-off loop is 4 uniform checks (tighter JIT codegen). Supply is never recomputed /
+            // enqueued, so skip=1 on it is correct + bit-exact. Only bit 1; turn-on reads bit 0 and never sees
+            // supply as c1 (AddTransistor normalises supply onto c2). Measured +~1.5-2% C# (42/50 paired,
+            // golden 0x794A43ABDF169ADA). The 2 extra pruneMask[supply] reads are L1-hot (2 fixed bytes).
+            PruneMask[Npwr] |= PruneTurnOffSkip;
+            PruneMask[Ngnd] |= PruneTurnOffSkip;
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3/4 turn-on un-taint: {p34:N0} (cap<all-neighbours) — bit-exact enqueue prunes";
         }

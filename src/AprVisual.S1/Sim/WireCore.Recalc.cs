@@ -325,15 +325,16 @@ namespace AprVisual.Sim
                 // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
                 if (newState == 0)
                 {
-                    int npwr = Npwr, ngnd = Ngnd;
+#if DEBUG
+                    int npwr = Npwr, ngnd = Ngnd;   // supply-skip is folded into pruneMask now — only the [cond-profile] needs these
+#endif
                     // [P-2 turn-off enqueue prune] skip endpoints that become a driverless isolated singleton
                     // the instant this (their only) channel opens — they float and HOLD their previous value, so
                     // re-evaluating them is a guaranteed no-op. Bit 1 (PruneTurnOffSkip) of the shared PruneMask
                     // is the precomputed static safety mask (C1c2Count==1, no supply/PullUp/FC/callback — see
-                    // ClassifyTurnOffSkip). Bit-exact.
-                    // Clause ORDER (2026-06-08, from DEBUG [cond-profile]): cheap register compares (c2!=gnd,
-                    // c2!=pwr) lead the c2 form; among the two byte-loads, the more-selective maskOff (≈20% false)
-                    // precedes nextHash==0 (≈1-4% true-false split, a weak gate). Part of the +~1% reorder.
+                    // ClassifyTurnOffSkip). Bit-exact. [exp supply-skip fold] supply (ngnd/npwr) is ALSO marked
+                    // skip in ClassifyTurnOffSkip, so c2 needs NO explicit `c2!=ngnd && c2!=npwr` guard — it is
+                    // now identical to c1. Clause order: more-selective maskOff (≈20% false) before nextHash==0.
                     byte* pruneMask = PruneMask;
                     while (true)
                     {
@@ -349,7 +350,7 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
 #endif
-                        if (c2a != ngnd && c2a != npwr && (pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // identical to c1 (supply-skip folded into pruneMask)
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
@@ -360,7 +361,7 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
 #endif
-                        if (c2b != ngnd && c2b != npwr && (pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }

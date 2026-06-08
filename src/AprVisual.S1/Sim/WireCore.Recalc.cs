@@ -290,6 +290,9 @@ namespace AprVisual.Sim
                     // re-evaluating them is a guaranteed no-op. Bit 1 (PruneTurnOffSkip) of the shared PruneMask
                     // is the precomputed static safety mask (C1c2Count==1, no supply/PullUp/FC/callback — see
                     // ClassifyTurnOffSkip). Bit-exact.
+                    // Clause ORDER (2026-06-08, from DEBUG [cond-profile]): cheap register compares (c2!=gnd,
+                    // c2!=pwr) lead the c2 form; among the two byte-loads, the more-selective maskOff (≈20% false)
+                    // precedes nextHash==0 (≈1-4% true-false split, a weak gate). Part of the +~1% reorder.
                     byte* pruneMask = PruneMask;
                     while (true)
                     {
@@ -300,23 +303,23 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff1(c1a);
 #endif
-                        if (nextHash[c1a] == 0 && (pruneMask[c1a] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
 #endif
-                        if (c2a != npwr && c2a != ngnd && nextHash[c2a] == 0 && (pruneMask[c2a] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        if (c2a != ngnd && c2a != npwr && (pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
 #endif
-                        if (nextHash[c1b] == 0 && (pruneMask[c1b] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
 #endif
-                        if (c2b != npwr && c2b != ngnd && nextHash[c2b] == 0 && (pruneMask[c2b] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if (c2b != ngnd && c2b != npwr && (pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }
@@ -330,10 +333,16 @@ namespace AprVisual.Sim
                     // the enqueue for nodes that can resolve non-monotonically (no-PullUp floating/hold-previous,
                     // or ForceCompute Gnd+Pwr cancel; cleared by P-3/4 for the cap<all-neighbours subset).
                     // Bit-exact (golden checksum); +11.85% (14/14 paired). See ClassifyPruneTaint.
-                    // Micro-form: test nextHash==0 FIRST (short-circuits the keep-condition for the common
-                    // already-queued case) and fold the keep-condition branchlessly —
+                    // Micro-form: the keep-condition is folded branchlessly —
                     // (mask&bit0) | (state^state) != 0  ==  unsafe || state!=state. The `if` stays — a pruned
                     // node must NOT have nextHash set, or it would look queued without being in the list.
+                    // Clause ORDER (2026-06-08): the combined keep-term is tested FIRST, nextHash==0 LAST.
+                    // The DEBUG [cond-profile] (CondTallyOn) measured nextHash==0 ≈97.7% true here — a near-
+                    // useless lead gate — while the combined term is ≈41.8% false, so leading with it short-
+                    // circuits the (cheaper, single-load) nextHash check more often. +~1% (29/40 paired over
+                    // two 20-round runs, bit-exact). The earlier "nextHash==0 first" assumed already-queued was
+                    // common; the profile disproved that for full_palette. (Re-check on a busier ROM if ordering
+                    // is ever revisited — already-queued rate is workload-dependent.)
                     byte* nodeStates = NodeStates;
                     byte* pruneMask = PruneMask;
                     while (true)
@@ -345,14 +354,14 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOn(c1a, c2a);
 #endif
-                        if (nextHash[c1a] == 0 && ((pruneMask[c1a] & PruneTurnOnUnsafe) | (nodeStates[c1a] ^ nodeStates[c2a])) != 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if (((pruneMask[c1a] & PruneTurnOnUnsafe) | (nodeStates[c1a] ^ nodeStates[c2a])) != 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOn(c1b, c2b);
 #endif
-                        if (nextHash[c1b] == 0 && ((pruneMask[c1b] & PruneTurnOnUnsafe) | (nodeStates[c1b] ^ nodeStates[c2b])) != 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (((pruneMask[c1b] & PruneTurnOnUnsafe) | (nodeStates[c1b] ^ nodeStates[c2b])) != 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
                 }

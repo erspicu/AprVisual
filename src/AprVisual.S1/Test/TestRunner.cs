@@ -68,6 +68,11 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
+#if DEBUG
+                    case "--settle-cap":      // DEBUG experiment: ABANDON each settle past N waves (study under-settle divergence)
+                        if (i + 1 < args.Length && int.TryParse(args[++i], out int _scap)) { WireCore.MaxSettlePasses = _scap; WireCore.SettleCapSilent = true; }
+                        break;
+#endif
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];

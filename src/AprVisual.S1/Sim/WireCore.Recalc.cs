@@ -153,7 +153,13 @@ namespace AprVisual.Sim
         //   Super Mario Bros. / 71M hc:  max 41 iter, p99 in [17-32]
         // 128 = ~2.8× safety margin over observed max — so in practice it never trips.
 #if DEBUG
-        private const int MaxSettlePasses = 128;
+        // DEBUG-only. Normally 128 (pure non-convergence tripwire). The --settle-cap experiment
+        // (TestRunner) lowers it to deliberately ABANDON settles past N passes, to study how an
+        // under-settled (timing-violation) chip diverges. SettleCapSilent suppresses the per-trip
+        // abort message (a low cap trips ~every settle). Both are DEBUG-only — Release has neither
+        // the field nor the cap block (this whole region is #if DEBUG).
+        internal static int MaxSettlePasses = 128;
+        internal static bool SettleCapSilent = false;
 #endif
 
         // Per-node FIFO double-buffer settle. The hot loop of the engine. (Was a thin ProcessQueue()
@@ -179,7 +185,8 @@ namespace AprVisual.Sim
                     Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
                 {
-                    Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
+                    if (!SettleCapSilent)
+                        Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
                     for (int i = 0; i < RecalcListNextCount; i++) RecalcHashNext[RecalcListNext[i]] = 0;
                     RecalcListNextCount = 0;
                     break;

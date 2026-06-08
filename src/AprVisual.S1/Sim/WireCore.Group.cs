@@ -76,7 +76,7 @@ namespace AprVisual.Sim
         // Iterative BFS over ON transistors. _groupBuf is both the group list and the work queue
         // (readIndex reads, gc writes); drained when readIndex == gc. Non-recursive → JIT inlines it,
         // and with ComputeNodeGroup's [AggressiveInlining] the whole BFS chain folds into the
-        // ProcessQueueInterp inner loop.
+        // ProcessQueue inner loop.
         //
         // Perf shape (measured, interleaved-paired, bit-exact):
         //   • hoist the static SoA pointers + group state into LOCALS and manual-inline the per-node

@@ -127,7 +127,7 @@ namespace AprVisual.Sim
         }
 #endif
 
-        // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueueInterp:
+        // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueue:
         // the in-loop guard cost +2.77%). MetalNES's JS chipsim uses 100; the C++ has none (just a warning).
         // The cap catches a non-converging region during development; the state is a heuristic anyway
         // (see MD/struct/01 §11.2). If it ever trips it's a bug.
@@ -140,14 +140,13 @@ namespace AprVisual.Sim
         private const int MaxSettlePasses = 128;
 #endif
 
+        // Per-node FIFO double-buffer settle. The hot loop of the engine. (Was a thin ProcessQueue()
+        // wrapper around ProcessQueueInterp() for the old Oblivious/Levelize/Codegen dispatch; those
+        // paths were removed in the S1 fork, so the wrapper is gone and the two are one method.)
+        // NOT [AggressiveInlining]: this method is huge (RecalcNode/RecalcNodeFast/ComputeNodeGroup/
+        // AddNodeToGroup/SetNodeState all inline INTO it) and is called from many sites (StepCycle,
+        // SetHigh/Low/Float, handlers); forcing it inline measured -1.4% (code bloat). [exp 2026-06-08]
         private static void ProcessQueue()
-        {
-            // S1 fork: single fixed settle path. Oblivious/Levelize/Codegen dispatchers removed.
-            ProcessQueueInterp();
-        }
-
-        // Per-node FIFO double-buffer settle. The hot loop of the engine.
-        private static void ProcessQueueInterp()
         {
 #if DEBUG
             int iteration = 0;

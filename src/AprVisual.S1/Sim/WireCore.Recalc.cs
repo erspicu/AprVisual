@@ -78,6 +78,53 @@ namespace AprVisual.Sim
             else if (d->Inline != 0 ? (d->GndCount != 0 || d->PwrCount != 0) : (d->TlistC1gnd != 0 || d->TlistC1pwr != 0)) DiagNCSupply++;
             else DiagNCOther++;
         }
+
+        // ── SetNodeState compound-`if` condition profiler (DEBUG ONLY) ──
+        // Measures, for each of the 3 enqueue `if` templates, the INDEPENDENT true-rate of every &&-clause
+        // (evaluated unconditionally here — defeats short-circuit, so each rate is unconditional, not the
+        // biased "only-when-earlier-passed" rate the live && would show). Goal: reorder the && clauses so the
+        // cheapest + most-often-FALSE clause runs first (more short-circuits ⇒ fewer ops in the hot loop).
+        // Counts are deterministic ⇒ identical to Release. a/b unroll copies are aggregated per template.
+        // Reordering pure (side-effect-free) && clauses is bit-exact; still gate the chosen order on checksum.
+        internal static long
+            CpOff1_N, CpOff1_NextHash0, CpOff1_MaskOff, CpOff1_Whole,                          // TurnOff c1: nextHash0 && maskOff
+            CpOff2_N, CpOff2_NotPwr, CpOff2_NotGnd, CpOff2_NextHash0, CpOff2_MaskOff, CpOff2_Whole, // TurnOff c2: !pwr && !gnd && nextHash0 && maskOff
+            CpOn_N, CpOn_NextHash0, CpOn_MaskUnsafe, CpOn_Xor, CpOn_Combined, CpOn_Whole;       // TurnOn c1: nextHash0 && (maskUnsafe | xor)
+
+        private static unsafe void CondTallyOff1(int c)
+        {
+            CpOff1_N++;
+            bool h = RecalcHashNext[c] == 0;
+            bool m = (PruneMask[c] & PruneTurnOffSkip) == 0;
+            if (h) CpOff1_NextHash0++;
+            if (m) CpOff1_MaskOff++;
+            if (h && m) CpOff1_Whole++;
+        }
+        private static unsafe void CondTallyOff2(int c2, int npwr, int ngnd)
+        {
+            CpOff2_N++;
+            bool p = c2 != npwr, g = c2 != ngnd;
+            bool h = RecalcHashNext[c2] == 0;
+            bool m = (PruneMask[c2] & PruneTurnOffSkip) == 0;
+            if (p) CpOff2_NotPwr++;
+            if (g) CpOff2_NotGnd++;
+            if (h) CpOff2_NextHash0++;
+            if (m) CpOff2_MaskOff++;
+            if (p && g && h && m) CpOff2_Whole++;
+        }
+        private static unsafe void CondTallyOn(int c1, int c2)
+        {
+            CpOn_N++;
+            bool h = RecalcHashNext[c1] == 0;
+            bool mu = (PruneMask[c1] & PruneTurnOnUnsafe) != 0;
+            bool x = (NodeStates[c1] ^ NodeStates[c2]) != 0;
+            bool comb = mu || x;
+            if (h) CpOn_NextHash0++;
+            if (mu) CpOn_MaskUnsafe++;
+            if (x) CpOn_Xor++;
+            if (comb) CpOn_Combined++;
+            if (h && comb) CpOn_Whole++;
+        }
 #endif
 
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueueInterp:
@@ -250,13 +297,25 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
+#if DEBUG
+                        CondTallyOff1(c1a);
+#endif
                         if (nextHash[c1a] == 0 && (pruneMask[c1a] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
+#if DEBUG
+                        CondTallyOff2(c2a, npwr, ngnd);
+#endif
                         if (c2a != npwr && c2a != ngnd && nextHash[c2a] == 0 && (pruneMask[c2a] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
+#if DEBUG
+                        CondTallyOff1(c1b);
+#endif
                         if (nextHash[c1b] == 0 && (pruneMask[c1b] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+#if DEBUG
+                        CondTallyOff2(c2b, npwr, ngnd);
+#endif
                         if (c2b != npwr && c2b != ngnd && nextHash[c2b] == 0 && (pruneMask[c2b] & PruneTurnOffSkip) == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
@@ -283,10 +342,16 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
+#if DEBUG
+                        CondTallyOn(c1a, c2a);
+#endif
                         if (nextHash[c1a] == 0 && ((pruneMask[c1a] & PruneTurnOnUnsafe) | (nodeStates[c1a] ^ nodeStates[c2a])) != 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
+#if DEBUG
+                        CondTallyOn(c1b, c2b);
+#endif
                         if (nextHash[c1b] == 0 && ((pruneMask[c1b] & PruneTurnOnUnsafe) | (nodeStates[c1b] ^ nodeStates[c2b])) != 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }

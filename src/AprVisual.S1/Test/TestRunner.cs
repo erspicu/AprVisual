@@ -558,6 +558,17 @@ namespace AprVisual.Test
                     Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");
                     Console.WriteLine($"#   FloatSingle={WireCore.DiagNCFloatSingle:N0}({W(WireCore.DiagNCFloatSingle):F1}%) FloatMulti={WireCore.DiagNCFloatMulti:N0}({W(WireCore.DiagNCFloatMulti):F1}%,capLTall={WireCore.DiagNCFloatMultiCapLT:N0}) PullUp={WireCore.DiagNCPullUp:N0}({W(WireCore.DiagNCPullUp):F1}%) Supply={WireCore.DiagNCSupply:N0}({W(WireCore.DiagNCSupply):F1}%) Other={WireCore.DiagNCOther:N0}({W(WireCore.DiagNCOther):F1}%)");
                 }
+                {
+                    // SetNodeState compound-`if` condition profiler (DEBUG only). Independent (short-circuit-defeated)
+                    // true-rate of each && clause, per template. Reorder so the cheapest + most-often-FALSE clause
+                    // leads. % is of that template's N. See WireCore.Recalc.cs CondTally*.
+                    static double P(long x, long n) => n == 0 ? 0 : 100.0 * x / n;
+                    long o1 = WireCore.CpOff1_N, o2 = WireCore.CpOff2_N, on = WireCore.CpOn_N;
+                    Console.WriteLine("# [cond-profile] SetNodeState &&-clause independent true-rates (for reordering):");
+                    Console.WriteLine($"#   TurnOff-c1 N={o1:N0}: nextHash0={P(WireCore.CpOff1_NextHash0, o1):F1}% maskOff={P(WireCore.CpOff1_MaskOff, o1):F1}% | whole={P(WireCore.CpOff1_Whole, o1):F1}%");
+                    Console.WriteLine($"#   TurnOff-c2 N={o2:N0}: c2!=pwr={P(WireCore.CpOff2_NotPwr, o2):F1}% c2!=gnd={P(WireCore.CpOff2_NotGnd, o2):F1}% nextHash0={P(WireCore.CpOff2_NextHash0, o2):F1}% maskOff={P(WireCore.CpOff2_MaskOff, o2):F1}% | whole={P(WireCore.CpOff2_Whole, o2):F1}%");
+                    Console.WriteLine($"#   TurnOn-c1  N={on:N0}: nextHash0={P(WireCore.CpOn_NextHash0, on):F1}% maskUnsafe={P(WireCore.CpOn_MaskUnsafe, on):F1}% xor!=0={P(WireCore.CpOn_Xor, on):F1}% combined={P(WireCore.CpOn_Combined, on):F1}% | whole={P(WireCore.CpOn_Whole, on):F1}%");
+                }
 #endif
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);

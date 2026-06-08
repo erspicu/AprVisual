@@ -125,6 +125,22 @@ namespace AprVisual.Sim
             if (comb) CpOn_Combined++;
             if (h && comb) CpOn_Whole++;
         }
+
+        // ── settle-pass distribution profiler (DEBUG ONLY) ──
+        // Histogram of how many settle waves each ProcessQueue() call takes to reach quiescence
+        // (the `iteration` count). Counts ALL ProcessQueue calls — the per-half-cycle clk settle
+        // plus the smaller handler-triggered settles (memory writes via WriteBits). Bucketed by exact
+        // pass count [0..255]; 255 = overflow. Deterministic ⇒ identical to Release. Use it to revisit
+        // the MaxSettlePasses safety cap (Release omits the cap; this shows the real tail).
+        internal static readonly long[] SettlePassHist = new long[256];
+        internal static long SettleCalls;
+
+        private static void SettlePassTally(int iter)
+        {
+            SettleCalls++;
+            if (iter < 0) iter = 0; else if (iter > 255) iter = 255;
+            SettlePassHist[iter]++;
+        }
 #endif
 
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueue:
@@ -193,6 +209,9 @@ namespace AprVisual.Sim
                 }
                 RecalcListCount = 0;
             }
+#if DEBUG
+            SettlePassTally(iteration);   // settle-pass distribution profiler (DEBUG only)
+#endif
             InvokeCallbacks();   // WireCore.Handlers.cs
         }
 

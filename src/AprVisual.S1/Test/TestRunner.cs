@@ -569,6 +569,28 @@ namespace AprVisual.Test
                     Console.WriteLine($"#   TurnOff-c2 N={o2:N0}: c2!=pwr={P(WireCore.CpOff2_NotPwr, o2):F1}% c2!=gnd={P(WireCore.CpOff2_NotGnd, o2):F1}% nextHash0={P(WireCore.CpOff2_NextHash0, o2):F1}% maskOff={P(WireCore.CpOff2_MaskOff, o2):F1}% | whole={P(WireCore.CpOff2_Whole, o2):F1}%");
                     Console.WriteLine($"#   TurnOn-c1  N={on:N0}: nextHash0={P(WireCore.CpOn_NextHash0, on):F1}% maskUnsafe={P(WireCore.CpOn_MaskUnsafe, on):F1}% xor!=0={P(WireCore.CpOn_Xor, on):F1}% combined={P(WireCore.CpOn_Combined, on):F1}% | whole={P(WireCore.CpOn_Whole, on):F1}%");
                 }
+                {
+                    // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call
+                    // took. Used to revisit the MaxSettlePasses safety cap (Release omits the cap). See
+                    // WireCore.Recalc.cs SettlePassTally. Counts all ProcessQueue calls (clk + handler settles).
+                    var h = WireCore.SettlePassHist;
+                    long calls = WireCore.SettleCalls;
+                    long total = 0, sum = 0; int maxIter = 0;
+                    for (int i = 0; i < h.Length; i++) { total += h[i]; sum += h[i] * i; if (h[i] != 0) maxIter = i; }
+                    double mean = total == 0 ? 0 : (double)sum / total;
+                    // percentile helper: smallest pass-count whose cumulative share >= q
+                    int Pct(double q) { long need = (long)System.Math.Ceiling(q * total); long cum = 0; for (int i = 0; i < h.Length; i++) { cum += h[i]; if (cum >= need) return i; } return maxIter; }
+                    Console.WriteLine($"# [settle-pass-dist] ProcessQueue calls={calls:N0}  passes: mean={mean:F2} max={maxIter} | p50={Pct(0.50)} p90={Pct(0.90)} p99={Pct(0.99)} p99.9={Pct(0.999)} p99.99={Pct(0.9999)}");
+                    Console.WriteLine("#   histogram (passes: count, %, cum%):");
+                    double cumPct = 0;
+                    for (int i = 0; i <= maxIter; i++)
+                    {
+                        if (h[i] == 0) continue;
+                        double pct = total == 0 ? 0 : 100.0 * h[i] / total;
+                        cumPct += pct;
+                        Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
+                    }
+                }
 #endif
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);

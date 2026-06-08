@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — is BFS actually faster than DFS? (a measured non-result)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Is BFS actually faster than DFS?</span><span class="zh">BFS 真的比 DFS 快嗎?</span></h1>
+  <p class="sub en">A common instinct says "breadth-first is the fast one." It isn't — not inherently. BFS and DFS both visit every node and edge of a component exactly once: both are <code>O(V+E)</code>. So we measured it on the engine's group walk. DFS came out <b>−2.2% slower</b> — and the reason is the punchline: the win isn't the traversal <i>order</i>, it's a data-structure trick that makes BFS's work-queue <b>completely free</b>, which DFS can't share.</p>
+  <p class="sub zh">很多人的直覺是「廣度優先比較快」。並不是 —— 至少不是天生如此。BFS 和 DFS 都把一個連通元件裡的每個節點與每條邊各走一次:都是 <code>O(V+E)</code>。所以我們在引擎的群組走訪上實測。DFS 結果<b>慢了 2.2%</b> —— 而原因正是重點:贏的不是走訪的<i>順序</i>,而是一個讓 BFS 的工作佇列<b>完全免費</b>的資料結構技巧,DFS 共享不到。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">What the walk actually does</span><span class="zh">這個走訪實際在做什麼</span></h2>
+  <p class="en">Every dirty node may trigger a <b>group walk</b> (<code>AddNodeToGroup</code>): follow the pass-transistors that are currently <i>on</i> to collect the connected <b>conducting group</b>, OR all members' flags together, and resolve the group's 0/1 from the complete set (a 256-entry LUT, or the largest-capacitance member for a floating group). Two facts decide everything here:</p>
+  <p class="zh">每個 dirty 節點都可能觸發一次<b>群組走訪</b>(<code>AddNodeToGroup</code>):沿著當下<i>導通</i>的 pass-transistor 收集相連的<b>導通群組</b>,把所有成員的 flags 一起 OR 起來,再從完整集合解析出群組的 0/1(一張 256-entry LUT,或浮接時取電容最大的成員)。這裡有兩個決定一切的事實:</p>
+  <ul>
+    <li class="en"><b>The group is a SET.</b> Flags are OR'd; the resolve reads the whole set. So the <i>order</i> you discover members in is irrelevant — BFS and DFS produce a <b>bit-identical</b> result.</li>
+    <li class="zh"><b>群組是一個集合。</b>flags 是 OR、解析讀整個集合。所以你以什麼<i>順序</i>發現成員完全無關 —— BFS 與 DFS 產生<b>位元完全相同</b>的結果。</li>
+    <li class="en"><b>The group is tiny — ~1.4 nodes on average.</b> There is barely any frontier. At that size the dominant cost is the random memory latency of touching each node's data, not the traversal bookkeeping.</li>
+    <li class="zh"><b>群組很小 —— 平均 ~1.4 個節點。</b>幾乎沒有 frontier。在這個尺寸下,主成本是「碰每個節點資料」的隨機記憶體延遲,不是走訪的簿記。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">Why BFS's queue is free (and DFS's isn't)</span><span class="zh">為什麼 BFS 的佇列免費(DFS 不是)</span></h2>
+  <p class="en">The result we need afterward is the <b>full member list</b> (to write every node and to resolve the group). The BFS implementation gets its work-queue for nothing by reusing that very list:</p>
+  <p class="zh">我們事後需要的結果是<b>完整成員清單</b>(用來寫每個節點、解析群組)。BFS 的實作直接「重用這份清單」當佇列,等於佇列不用錢:</p>
+  <pre>// BFS — one array is BOTH the result list AND the queue
+groupBuf[gc++] = seed;            // append a member (we must do this anyway)
+int readIndex = 0;
+while (readIndex &lt; gc) {          // unexpanded = the contiguous suffix [readIndex, gc)
+    int nn = groupBuf[readIndex++];   // read cursor — costs nothing extra
+    // ...expand nn, append new members at gc...
+}</pre>
+  <p class="en">The trick is the invariant <b>"unexpanded = a contiguous suffix <code>[readIndex, gc)</code>"</b>: because BFS expands in discovery order (FIFO), a single advancing cursor is the entire queue. The append (<code>gc++</code>) is something we do anyway for the result list, so the queue costs <b>zero</b> extra memory and zero extra writes.</p>
+  <p class="zh">關鍵是那個不變式 <b>「未展開 = 連續後綴 <code>[readIndex, gc)</code>」</b>:因為 BFS 以發現順序(FIFO)展開,一個往前推的游標就是整個佇列。而 append(<code>gc++</code>)本來就要為了結果清單做,所以佇列多花了<b>零</b>記憶體、零額外寫入。</p>
+  <p class="en">DFS (LIFO) <b>breaks that invariant</b>: it must expand the most-recently-discovered node first, so the unexpanded set is no longer a contiguous suffix you can track with one cursor. DFS therefore needs a <b>separate explicit stack</b> — the member list stays append-only, plus a stack you push every discovered node onto and pop every expansion from:</p>
+  <p class="zh">DFS(LIFO)<b>打破這個不變式</b>:它得先展開最近發現的節點,於是「未展開」不再是能用單一游標追蹤的連續後綴。因此 DFS 必須另開一個<b>獨立的顯式 stack</b> —— 成員清單照樣 append-only,外加一個 stack:每發現一個節點 push 一次、每展開 pop 一次:</p>
+  <pre>// DFS — needs a SEPARATE stack on top of the member list
+groupBuf[gc++] = seed;  stack[sp++] = seed;   // member list AND a stack
+while (sp &gt; 0) {
+    int nn = stack[--sp];                     // LIFO pop = depth-first
+    // ...expand nn; for each new member: groupBuf[gc++]=o;  stack[sp++]=o;  // extra push
+}</pre>
+  <p class="en">That extra <code>stack[sp++]</code> per discovered node + <code>stack[--sp]</code> per expansion is a whole second random-access stream on a memory-latency-bound loop — pure overhead, since the order it buys is worthless for an order-independent set.</p>
+  <p class="zh">每發現一個節點多一次 <code>stack[sp++]</code>、每展開多一次 <code>stack[--sp]</code>,在 memory-latency-bound 的迴圈上等於多一條隨機存取 stream —— 純開銷,因為它換來的「順序」對一個順序無關的集合毫無價值。</p>
+</section>
+
+<section>
+  <h2><span class="en">The measurement</span><span class="zh">量測</span></h2>
+  <p class="en">Interleaved-paired A/B (alternating builds, checksum-guarded every round), full_palette 300k half-cycles, AMD Ryzen 7 3700X. The only change is BFS → DFS in the group walk.</p>
+  <p class="zh">interleaved-paired A/B(輪流換 build、每輪 checksum 守門),full_palette 30 萬半週期,AMD Ryzen 7 3700X。唯一的改動就是群組走訪 BFS → DFS。</p>
+  <table>
+    <tr><th><span class="en">Variant</span><span class="zh">變體</span></th><th>hc/s (median)</th><th>vs BFS</th><th>checksum</th></tr>
+    <tr><td><b>BFS</b> <span class="mut"><span class="en">(shipped — free queue)</span><span class="zh">(現用 —— 免費佇列)</span></span></td><td class="num">108,194</td><td>—</td><td class="num">0x794A…golden</td></tr>
+    <tr><td><b>DFS</b> <span class="mut"><span class="en">(separate stack)</span><span class="zh">(另開 stack)</span></span></td><td class="num">105,723</td><td class="num" style="color:#ff7676"><b>−2.28%</b></td><td class="num" style="color:#7ee0a8">0x794A…golden</td></tr>
+  </table>
+  <p class="en">DFS lost on <b>17 of 20</b> paired rounds (−2.28% median, −2.23% trimmed mean). The checksum stayed <b>bit-identical</b> in every DFS run — the clean experimental proof that the group really is order-independent, so this was a pure performance comparison, not a correctness one.</p>
+  <p class="zh">DFS 在 <b>20 輪中輸了 17 輪</b>(median −2.28%、trimmed mean −2.23%)。每一次 DFS run 的 checksum 都<b>位元完全相同</b> —— 這是「群組確實順序無關」的乾淨實驗證明,所以這是純效能比較,不是正確性比較。</p>
+</section>
+
+<section>
+  <h2><span class="en">The lesson</span><span class="zh">教訓</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>BFS is not intrinsically faster than DFS — they're the same complexity.</b> What won here was not "breadth-first"; it was a <i>data-structure</i> choice: making the work-queue piggyback for free on the result list you have to build anyway. DFS forfeits that and pays for a second structure whose ordering buys nothing on an order-independent, ~1.4-node set. The right mental model for "which traversal is faster" is never the textbook name — it's <b>which one's frontier bookkeeping is cheapest for this exact data and access pattern.</b></p>
+    <p class="zh" style="margin:.2em 0"><b>BFS 並非天生比 DFS 快 —— 兩者同階。</b>這裡贏的不是「廣度優先」,而是一個<i>資料結構</i>選擇:讓工作佇列免費地搭在「反正都要建的結果清單」上。DFS 放棄了這個,又為了一個「順序在順序無關的 ~1.4 節點集合上毫無價值」的第二結構付費。判斷「哪種走訪比較快」的正確心智模型,從來不是課本上的名字,而是 <b>「對這份資料與存取模式,哪一種的 frontier 簿記最便宜」</b>。</p>
+  </div>
+  <p class="en">It also reinforces the engine's recurring theme: this is a <b>memory-latency-bound</b> simulator, so wins and losses are decided by <i>how many random memory streams a hot loop touches</i>, not by asymptotic cleverness. The same theme killed the <a href="dominant-bypass.html">P-5 dominant-driver bypass</a> (a second maintained array) and bounds the prunes at <a href="frontier.html">the frontier</a>.</p>
+  <p class="zh">它也呼應引擎反覆出現的主題:這是一台 <b>memory-latency-bound</b> 的模擬器,所以勝負取決於<i>熱迴圈碰了幾條隨機記憶體 stream</i>,而不是漸進複雜度上的小聰明。同一個主題終結了 <a href="dominant-bypass.html">P-5 dominant-driver 旁路</a>(多一條維護的 array),也在<a href="frontier.html">前緣</a>界定了剪枝的上限。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">The DFS variant is a true iterative depth-first traversal (separate LIFO stack, member list kept append-only), built only for this experiment and then reverted — the engine stays on BFS. Numbers are interleaved-paired, median of 20 rounds, checksum-guarded each round, on an AMD Ryzen 7 3700X (full_palette 300k <code>--extra-ram</code>). Companion pages: <a href="prunes.html">the event-count prunes (P-1 → P-4)</a>, <a href="frontier.html">the frontier</a>, <a href="dominant-bypass.html">a correct optimization that still lost (P-5)</a>.</p>
+  <p class="zh">DFS 變體是真正的迭代深度優先(獨立 LIFO stack、成員清單維持 append-only),只為這次實驗而建、之後已退回 —— 引擎維持 BFS。數字為 interleaved-paired、20 輪取中位數、每輪 checksum 守門,在 AMD Ryzen 7 3700X 上(full_palette 30 萬 <code>--extra-ram</code>)。延伸頁面:<a href="prunes.html">事件數剪枝(P-1 → P-4)</a>、<a href="frontier.html">前緣</a>、<a href="dominant-bypass.html">一個正確卻仍然輸的優化(P-5)</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="dominant-bypass.html">&larr; <span class="en">A correct optimization that still lost (P-5)</span><span class="zh">一個正確卻仍然輸的優化(P-5)</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">BFS vs DFS on the group walk: bit-identical (the group is an order-independent set), DFS −2.28% — because BFS's queue is free (one array = result + queue), while DFS needs a separate stack. Same complexity; the data structure decides. 2026-06-09.</span><span class="zh">群組走訪 BFS vs DFS:位元完全相同(群組是順序無關的集合),DFS −2.28% —— 因為 BFS 的佇列免費(單一陣列 = 結果 + 佇列),DFS 卻要另開 stack。同階;資料結構才是勝負手。2026-06-09。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

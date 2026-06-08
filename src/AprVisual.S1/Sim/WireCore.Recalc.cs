@@ -141,6 +141,22 @@ namespace AprVisual.Sim
             if (iter < 0) iter = 0; else if (iter > 255) iter = 255;
             SettlePassHist[iter]++;
         }
+
+        // ── BFS group-walk DEPTH distribution profiler (DEBUG ONLY) ──
+        // Histogram of the max BFS level reached by each AddNodeToGroup walk = how many hops, through
+        // currently-ON transistors, from the seed to the farthest conducting member. Depth 0 = singleton
+        // group (no conducting neighbour). Only counts walks that actually reach the BFS (cls 0 + the
+        // cls-2 nodes that grow); fast-path singletons never enter here. Answers "what's the deepest the
+        // conducting BFS ever goes?" Deterministic ⇒ identical to Release.
+        internal static readonly long[] BfsDepthHist = new long[256];
+        internal static long BfsWalks;
+
+        private static void BfsDepthTally(int depth)
+        {
+            BfsWalks++;
+            if (depth < 0) depth = 0; else if (depth > 255) depth = 255;
+            BfsDepthHist[depth]++;
+        }
 #endif
 
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueue:

@@ -99,9 +99,16 @@ namespace AprVisual.Sim
 
             if (inGroup[seed] == 0) { inGroup[seed] = 1; groupBuf[gc++] = (ushort)seed; recalcHash[seed] = 0; gf |= nodeInfos[seed].Flags; }
 
+#if DEBUG
+            int dbgLevelEnd = gc;   // end of BFS level 0 (the seed) — for the depth profiler
+            int dbgDepth = 0;
+#endif
             int readIndex = 0;
             while (readIndex < gc)
             {
+#if DEBUG
+                if (readIndex == dbgLevelEnd) { dbgDepth++; dbgLevelEnd = gc; }   // crossed into the next BFS level
+#endif
                 int nn = groupBuf[readIndex++];
                 NodeInfo* ns = nodeInfos + nn;
 
@@ -144,6 +151,9 @@ namespace AprVisual.Sim
                 }
             }
 
+#if DEBUG
+            BfsDepthTally(dbgDepth);   // BFS-depth distribution profiler (DEBUG only)
+#endif
             _groupCount = gc;
             _groupFlags = gf;
         }

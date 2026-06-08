@@ -596,6 +596,27 @@ namespace AprVisual.Test
                         Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
                     }
                 }
+                {
+                    // BFS group-walk DEPTH distribution (DEBUG only): max BFS level each AddNodeToGroup walk
+                    // reached = hops through ON transistors from seed to the farthest conducting member.
+                    // Depth 0 = singleton (no conducting neighbour). See WireCore.Group.cs / BfsDepthTally.
+                    var h = WireCore.BfsDepthHist;
+                    long walks = WireCore.BfsWalks;
+                    long total = 0, sum = 0; int maxD = 0;
+                    for (int i = 0; i < h.Length; i++) { total += h[i]; sum += h[i] * i; if (h[i] != 0) maxD = i; }
+                    double mean = total == 0 ? 0 : (double)sum / total;
+                    int Pct(double q) { long need = (long)System.Math.Ceiling(q * total); long cum = 0; for (int i = 0; i < h.Length; i++) { cum += h[i]; if (cum >= need) return i; } return maxD; }
+                    Console.WriteLine($"# [bfs-depth-dist] AddNodeToGroup walks={walks:N0}  depth: mean={mean:F2} MAX={maxD} | p50={Pct(0.50)} p90={Pct(0.90)} p99={Pct(0.99)} p99.9={Pct(0.999)} p99.99={Pct(0.9999)}");
+                    Console.WriteLine("#   histogram (depth: count, %, cum%):");
+                    double cumPct = 0;
+                    for (int i = 0; i <= maxD; i++)
+                    {
+                        if (h[i] == 0) continue;
+                        double pct = total == 0 ? 0 : 100.0 * h[i] / total;
+                        cumPct += pct;
+                        Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
+                    }
+                }
 #endif
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);

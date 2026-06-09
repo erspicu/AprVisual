@@ -5,6 +5,7 @@
 //   wire_s1 shot      <snapshot.aprsnap> <frames>   <out.png>
 //   wire_s1 framedump <snapshot.aprsnap> <frames>   <out_dir>
 
+mod perf;
 mod snapshot;
 mod wire;
 
@@ -25,11 +26,13 @@ fn main() {
 }
 
 fn usage() {
-    eprintln!("usage: wire_s1 bench     <snapshot.aprsnap> <hc_count>");
+    eprintln!("usage: wire_s1 bench     <snapshot.aprsnap> <hc_count> [log_dir] [--pin [N]]");
     eprintln!("       wire_s1 shot      <snapshot.aprsnap> <frames>   <out.png>");
     eprintln!("       wire_s1 framedump <snapshot.aprsnap> <frames>   <out_dir>");
     eprintln!();
     eprintln!("Fast-path is always on in the S1 fork (no flag).");
+    eprintln!("--pin [N]: (Windows) pin the hot thread + High priority + EcoQoS-off to cut bench");
+    eprintln!("           variance. No arg = auto-pick the quietest P-core; N = force logical core N.");
 }
 
 // Write the current framebuffer to <path> as an RGBA PNG.
@@ -87,10 +90,27 @@ fn framedump(args: &[String]) {
 }
 
 fn bench(args: &[String]) {
-    if args.len() < 4 { usage(); std::process::exit(2); }
-    let path = &args[2];
-    let n: i64 = args[3].parse().expect("hc_count must be int");
-    let log_dir = args.get(4).map(|s| s.as_str()).unwrap_or("log");
+    // Separate the optional `--pin [N]` flag from the positional args
+    // (<snapshot> <hc_count> [log_dir]) so it can appear anywhere after the subcommand.
+    let mut pos: Vec<&String> = Vec::new();
+    let mut pin = false;
+    let mut pin_core: i32 = -1;
+    let mut i = 2;
+    while i < args.len() {
+        if args[i] == "--pin" {
+            pin = true;
+            if i + 1 < args.len() {
+                if let Ok(c) = args[i + 1].parse::<i32>() { pin_core = c; i += 1; }
+            }
+        } else {
+            pos.push(&args[i]);
+        }
+        i += 1;
+    }
+    if pos.len() < 2 { usage(); std::process::exit(2); }
+    let path = pos[0];
+    let n: i64 = pos[1].parse().expect("hc_count must be int");
+    let log_dir = pos.get(2).map(|s| s.as_str()).unwrap_or("log");
 
     eprintln!("# wire_s1 (Rust S1 fork): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
@@ -99,6 +119,10 @@ fn bench(args: &[String]) {
     let mut wc = wire::WireCore::from_snapshot(snap);
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
     eprintln!("# prune-taint: {} turn-on-unsafe; P-2 turn-off-skip {}; P-3/4 cap<all un-taint {}", wc.prune_unsafe_count, wc.turn_off_skip_count, wc.p34_untaint_count);
+
+    // Opt-in --pin: thread affinity + High priority + EcoQoS-off (cuts run-to-run variance).
+    // Pure scheduling, so the checksum is unchanged. Recorded in the bench JSON as "pinned".
+    if pin { eprintln!("# [perf] {}", perf::apply(pin_core)); }
 
     let t = Instant::now();
     wc.step(n, clock_node);
@@ -114,7 +138,7 @@ fn bench(args: &[String]) {
     println!("# NodeStates checksum @ t={}: 0x{checksum:016X}  (A/B equivalence: must match the C# baseline run)",
              wc.time);
     print_realtime_gap(hcps);
-    write_bench_log(log_dir, path, n, secs, hcps, checksum, wc.fast_path_count, node_count);
+    write_bench_log(log_dir, path, n, secs, hcps, checksum, wc.fast_path_count, node_count, pin);
 }
 
 // NES NTSC: 1.789773 MHz CPU * 24 master-half-cycles/CPU-cycle = 42,954,552 hc/s,
@@ -140,7 +164,7 @@ fn print_realtime_gap(hcps: f64) {
 // Writes <log_dir>/<machineGuid>-<user>-<UTCstamp>-rust.log so a future
 // "upload your result" mechanism can aggregate runs. Console output unchanged.
 fn write_bench_log(log_dir: &str, snap_path: &str, n: i64, secs: f64, hcps: f64,
-                   checksum: u64, fast_path: usize, node_count: usize) {
+                   checksum: u64, fast_path: usize, node_count: usize, pinned: bool) {
     let dir = Path::new(log_dir);
     if std::fs::create_dir_all(dir).is_err() { eprintln!("# (bench log dir create failed)"); return; }
     let guid = machine_guid(dir);
@@ -175,13 +199,14 @@ fn write_bench_log(log_dir: &str, snap_path: &str, n: i64, secs: f64, hcps: f64,
   \"slowdownFactor\": {gap:.1},
   \"checksum\": \"0x{checksum:016X}\",
   \"fastPathNodes\": {fast_path},
-  \"liveNodes\": {node_count}
+  \"liveNodes\": {node_count},
+  \"pinned\": {pinned}
 }}
 ",
         guid = esc(&guid), user = esc(&user), os = std::env::consts::OS, arch = std::env::consts::ARCH,
         cpu = esc(&cpu), cpus = cpus, rom = esc(&rom), n = n, secs = secs, hcps = hcps,
         sec_per_fr = sec_per_fr, pct = pct, gap = gap, checksum = checksum,
-        fast_path = fast_path, node_count = node_count, iso = iso,
+        fast_path = fast_path, node_count = node_count, iso = iso, pinned = pinned,
         version = env!("APR_VERSION"), cdate = env!("APR_COMMIT_DATE"));
     // <engine>-<stamp>-… so logs sort by engine, then chronologically.
     let fname = format!("rust-{}-{}-{}.log", stamp, sanitize(&guid), sanitize(&user));

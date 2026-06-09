@@ -42,7 +42,7 @@ On an AMD Ryzen 7 3700X (at boost clock), benchmarking `full_palette` (300k mast
 
 (best of 20 at boost.) The big wins are a family of **event-count prunes** — delete a node re-evaluation at the source when it provably can't change the result, bit-exact. **P-1** (same-state turn-on prune) added +11.85% / +11.36%; then **P-2 → P-4** (turn-off isolation + a capacitance-guarded turn-on extension) added another **+7.7% on C# / +10.0% on Rust** — landing positive on *both* back-ends — and together they delete **~21% of all node re-evaluations** per frame. The trick that keeps them exact: a node is identified as a bus / memory / register cell **by its physics** (handler-driven pins, ForceCompute, and a `cap(X) < cap(neighbours)` test that auto-excludes heavy storage cells) — never a hand-listed node. Full write-up: **[WebSite/prunes.html](https://erspicu.github.io/AprVisual/prunes.html)**. Both engines produce **bit-identical** output — checksum `0x794A43ABDF169ADA` (@300k) / `0x6D4CCBCE2E9CD599` (@1M). NES NTSC real time needs **42,954,552 hc/s**.
 
-> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine peaks ~109.4K at boost — ~107K typical — and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
+> **Measurement note.** The hot loop is **memory-latency-bound**, so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine peaks ~109.4K at boost — ~107K typical — and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B of a sub-1% change, **lock the CPU to a fixed frequency and use interleaved-paired runs with the median** — absolute single-run numbers drift too much to compare. Both engines also accept an opt-in **`--pin [N]`** flag (Windows) that pins the hot thread to one quiet physical P-core, raises priority, and disables Win11 EcoQoS throttling to further cut run-to-run variance — bit-exact (pure scheduling) and **off by default** so leaderboard runs stay comparable. **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
 
 ## Run the benchmark
 
@@ -54,7 +54,7 @@ The easiest path is the prebuilt, self-contained package (no .NET install needed
 
 ## Build from source
 
-Requires the **.NET 10 SDK** (and **Rust/cargo** for the Rust engine).
+Requires the **.NET 11 SDK** (and **Rust/cargo** for the Rust engine).
 
 ```sh
 dotnet build AprVisual.sln                 # C# engines

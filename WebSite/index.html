@@ -108,12 +108,12 @@
   <p class="sub en">Transistor-accurate NES (2A03 + 2C02) simulation in software. This site is an experience-sharing / research log; contributions and faster hardware results are very welcome.</p>
   <p class="sub zh">在軟體裡做電晶體精準的 NES(2A03 + 2C02)模擬。這個網站是經驗分享 / 研究筆記,歡迎一起集思廣益,也歡迎在更快的電腦上跑出你的結果。</p>
   <div class="hbtns">
-    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.09b/AprVisualBenchMark.zip">
+    <a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.09c/AprVisualBenchMark.zip">
       <span class="en">⬇ Download benchmark</span><span class="zh">⬇ 下載 benchmark 工具</span></a>
     <a class="btn ghost" href="https://github.com/erspicu/AprVisual">
       <span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
   </div>
-  <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.06.09b</b> &middot; 2026-06-09 &middot; engine 0bd9174 &middot; .NET 11</span><span class="zh">發佈版本 <b>benchmark-2026.06.09b</b> &middot; 2026-06-09 &middot; 引擎 0bd9174 &middot; .NET 11</span></p>
+  <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.06.09c</b> &middot; 2026-06-09 &middot; engine 6e6e534 &middot; .NET 11</span><span class="zh">發佈版本 <b>benchmark-2026.06.09c</b> &middot; 2026-06-09 &middot; 引擎 6e6e534 &middot; .NET 11</span></p>
   <p class="mut" style="font-size:12.5px; margin-top:6px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-06-09</span> (UTC)</p>
 </header>
 
@@ -442,9 +442,9 @@
   <div class="card" style="text-align:center;">
     <p class="en" style="margin-top:14px"><b>Have a faster CPU? Run the benchmark and share your numbers.</b> The package is portable, self-contained (no .NET install), and ships both the C# and Rust engines for Windows + macOS (Apple Silicon).</p>
     <p class="zh" style="margin-top:14px"><b>有更快的 CPU 嗎?跑跑看 benchmark,分享你的數字。</b>套件是可攜、自包含的(不用裝 .NET),同時附上 C# 與 Rust 引擎,支援 Windows + macOS(Apple Silicon)。</p>
-    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.09b/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
+    <p><a class="btn primary" href="https://github.com/erspicu/AprVisual/releases/download/benchmark-2026.06.09c/AprVisualBenchMark.zip"><span class="en">⬇ Download AprVisualBenchMark.zip</span><span class="zh">⬇ 下載 AprVisualBenchMark.zip</span></a>
        &nbsp; <a class="btn ghost" href="https://github.com/erspicu/AprVisual/releases"><span class="en">All releases</span><span class="zh">所有版本</span></a></p>
-    <p class="mut" style="font-size:12.5px; margin-top:2px"><span class="en">Latest release: <b>benchmark-2026.06.09b</b> &middot; engine <code>0bd9174</code> &middot; released 2026-06-09 &middot; multi-file self-contained (no single .exe) &middot; <b>now built on .NET 11</b> (+~1% runtime/JIT, bit-exact) &middot; C# up to ~112.1K / Rust ~101.2K hc/s (boost clock) &middot; on top of the supply-skip fold, the &amp;&amp;-clause reorder and the P-2 → P-4 event-count prunes (<a href="prunes.html">how they work</a>)</span><span class="zh">最新發佈:<b>benchmark-2026.06.09b</b> &middot; 引擎 <code>0bd9174</code> &middot; 發佈於 2026-06-09 &middot; 多檔 self-contained(非單一 .exe)&middot; <b>改用 .NET 11 編譯</b>(runtime/JIT +~1%,bit-exact)&middot; C# 最高 ~112.1K / Rust ~101.2K hc/s(boost 時脈)&middot; 在供電跳過折入遮罩、&amp;&amp; 條件重排、P-2 → P-4 事件數剪枝之上(<a href="prunes.html">運作原理</a>)</span></p>
+    <p class="mut" style="font-size:12.5px; margin-top:2px"><span class="en">Latest release: <b>benchmark-2026.06.09c</b> &middot; engine <code>6e6e534</code> &middot; released 2026-06-09 &middot; multi-file self-contained (no single .exe) &middot; built on .NET 11 &middot; <b>new: opt-in <code>--pin [N]</code> flag</b> (Windows — pin the hot thread to a quiet P-core + High priority + EcoQoS-off to cut bench variance; bit-exact, <b>off by default</b> so leaderboard runs stay comparable) &middot; C# up to ~112.1K / Rust ~101.2K hc/s (boost clock) &middot; on top of .NET 11, the supply-skip fold, the &amp;&amp;-clause reorder and the P-2 → P-4 event-count prunes (<a href="prunes.html">how they work</a>)</span><span class="zh">最新發佈:<b>benchmark-2026.06.09c</b> &middot; 引擎 <code>6e6e534</code> &middot; 發佈於 2026-06-09 &middot; 多檔 self-contained(非單一 .exe)&middot; 以 .NET 11 編譯 &middot; <b>新增:可選的 <code>--pin [N]</code> 旗標</b>(Windows —— 把熱執行緒釘到安靜的 P-core + 拉高優先權 + 關閉 EcoQoS 節流以降低量測變異;位元相同、<b>預設關閉</b>讓排行榜可公平比較)&middot; C# 最高 ~112.1K / Rust ~101.2K hc/s(boost 時脈)&middot; 在 .NET 11、供電跳過折入遮罩、&amp;&amp; 條件重排、P-2 → P-4 事件數剪枝之上(<a href="prunes.html">運作原理</a>)</span></p>
     <p style="margin-top:4px"><a href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2);font-weight:600">
        <span class="en">📊 Then upload your result to the community leaderboard ↗</span><span class="zh">📊 跑完把結果上傳到社群排行榜 ↗</span></a></p>
     <p style="margin-top:2px"><a href="calculator.html" style="color:var(--acc);font-weight:600">

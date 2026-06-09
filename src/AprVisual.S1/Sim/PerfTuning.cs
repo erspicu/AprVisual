@@ -60,12 +60,21 @@ namespace AprVisual.Sim
         private const uint PROCESS_POWER_THROTTLING_CURRENT_VERSION = 1;
         private const uint PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1;
 
+        // libSystem (macOS): request a QoS class for the calling thread. Apple Silicon has no hard
+        // per-core affinity API, so the macOS-correct way to "use the best cores" is to raise QoS to
+        // USER_INTERACTIVE, which biases the scheduler onto the performance (P) cores.
+        [DllImport("libSystem.dylib")]
+        private static extern int pthread_set_qos_class_self_np(int qosClass, int relativePriority);
+        private const int QOS_CLASS_USER_INTERACTIVE = 0x21;
+
         // Apply pinning + priority + throttling-opt-out. coreOverride: -1 = auto-pick best P-core,
         // >=0 = force that logical processor. Returns a human-readable status for the bench log/console.
         public static string Apply(int coreOverride)
         {
+            if (OperatingSystem.IsMacOS())
+                return ApplyMacOs();
             if (!OperatingSystem.IsWindows())
-                return "pin: requested but not applied (non-Windows; affinity is Windows-only here)";
+                return "pin: requested but not applied (this OS has no thread-pinning hook here; OS scheduling)";
 
             var notes = new System.Text.StringBuilder();
 
@@ -119,6 +128,22 @@ namespace AprVisual.Sim
                 return $"pin: SetThreadAffinityMask(0x{mask:X}) FAILED (err {Marshal.GetLastWin32Error()}) | {notes.ToString().TrimEnd()}";
 
             return $"pinned to logical core {coreIdx} of {total} ({mode}; affinity mask 0x{mask:X}) | {notes.ToString().TrimEnd()}";
+        }
+
+        // macOS best-effort: there is NO hard per-core affinity on Apple Silicon, so --pin can't pin a
+        // specific core. Instead request USER_INTERACTIVE QoS for this thread, which biases the scheduler
+        // onto the performance (P) cores — the macOS-idiomatic "give me the fast cores". coreOverride is
+        // ignored (the OS chooses which P-core). Bit-exact: this only changes scheduling.
+        private static string ApplyMacOs()
+        {
+            try
+            {
+                int rc = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+                return rc == 0
+                    ? "pin: macOS has no hard core-pinning (Apple Silicon) — requested USER_INTERACTIVE QoS instead (biases scheduler to P-cores)"
+                    : $"pin: macOS QoS request failed (rc={rc}); OS scheduling";
+            }
+            catch (Exception ex) { return $"pin: macOS QoS not applied ({ex.GetType().Name}); OS scheduling"; }
         }
 
         // Highest-EfficiencyClass physical core, its highest-numbered instance, first logical proc.

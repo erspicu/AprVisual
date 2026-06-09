@@ -163,10 +163,31 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+// macOS / Apple Silicon has NO hard per-core affinity API, so --pin can't pin a specific core.
+// The macOS-idiomatic "use the fast cores" is to raise the thread's QoS class to USER_INTERACTIVE,
+// which biases the scheduler onto the performance (P) cores. pthread_set_qos_class_self_np lives in
+// libSystem (always linked on macOS). core_override is ignored (the OS picks the P-core). Bit-exact.
+#[cfg(target_os = "macos")]
+mod imp {
+    extern "C" {
+        fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
+    }
+    const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+
+    pub fn apply(_core_override: i32) -> String {
+        let rc = unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+        if rc == 0 {
+            String::from("pin: macOS has no hard core-pinning (Apple Silicon) — requested USER_INTERACTIVE QoS instead (biases scheduler to P-cores)")
+        } else {
+            format!("pin: macOS QoS request failed (rc={rc}); OS scheduling")
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     pub fn apply(_core_override: i32) -> String {
-        String::from("pin: requested but not applied (non-Windows; affinity is Windows-only here)")
+        String::from("pin: requested but not applied (this OS has no thread-pinning hook here; OS scheduling)")
     }
 }
 

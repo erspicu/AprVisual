@@ -238,6 +238,11 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static void RecalcNodeFast(int nn)
         {
+            // [P-5] when the dominant-bypass is enabled, take the FUSED variant that computes the value and
+            // the dominant-supply gate in one pass (no re-scan). Default off ⇒ one predictable branch, then
+            // the pristine branchless path below. See WireCore.DominantBypass.cs.
+            if (EnableDominantBypass) { RecalcNodeFastDom(nn); return; }
+
             NodeInfo* ns = NodeInfos + nn;
             // [T-A] keep flags as int throughout — drops the (NodeFlags)((uint)..) casts; anyG<<5==Gnd, anyP<<4==Pwr.
             int flags = (int)ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or 0 (floating); Pwr/Gnd excluded at classify time
@@ -277,12 +282,7 @@ namespace AprVisual.Sim
 
             // flags == 0 ⇒ floating singleton ⇒ hold previous (NodeStates[nn] unchanged) ⇒ SetNodeState would
             // be a pure no-op, so skip the call entirely (saves the operand read + the call). Bit-exact.
-            byte resolved = flags != 0 ? FlagsToState[flags] : NodeStates[nn];
-            if (flags != 0) SetNodeState(nn, resolved);
-
-            // [P-5] maintain the dominant-driver record for this singleton resolution (opt-in). flags==0
-            // (floating) ⇒ no supply on ⇒ ComputeDominantGate returns 0, correctly clearing any stale id.
-            if (EnableDominantBypass) DominantGate[nn] = ComputeDominantGate(nn, resolved);
+            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
         }
 
         // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──

@@ -92,5 +92,42 @@ namespace AprVisual.Sim
             }
             return count == 1 ? (ushort)last : (ushort)0;
         }
+
+        // [P-5 — fused singleton resolve + capture] the count-and-capture twin of RecalcNodeFast, taken
+        // when EnableDominantBypass. Computes the value flags AND the dominant-supply gate in ONE pass
+        // over the gnd/pwr channels (the prior cut re-scanned via ComputeDominantGate — this is the "fuse
+        // the maintenance into the existing scan" lever). The branchless OR-scan becomes a branchy
+        // count-and-capture (gndCount/gndLast, pwrCount/pwrLast); the resolved value is unchanged, and the
+        // dominant gate is identical to ComputeDominantGate(nn, resolved): gnd wins (value 0) then pwr
+        // (value 1), a single ON channel of the winning supply names the gate, parallel/none ⇒ 0. Bit-exact.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void RecalcNodeFastDom(int nn)
+        {
+            NodeInfo* ns = NodeInfos + nn;
+            int flags = (int)ns->Flags;   // Pwr/Gnd excluded at classify time; anyG<<5==Gnd, anyP<<4==Pwr
+            int gndCount = 0, gndLast = 0, pwrCount = 0, pwrLast = 0;
+            if (ns->Inline != 0)
+            {
+                ushort* pay = ns->InlinePayload;
+                int gndStart = ns->C1c2Count << 1;
+                int gndEnd = gndStart + ns->GndCount;
+                for (int k = gndStart; k < gndEnd; k++) { int g = pay[k]; if (NodeStates[g] != 0) { gndCount++; gndLast = g; } }
+                int pwrEnd = gndEnd + ns->PwrCount;
+                for (int k = gndEnd; k < pwrEnd; k++) { int g = pay[k]; if (NodeStates[g] != 0) { pwrCount++; pwrLast = g; } }
+            }
+            else
+            {
+                if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; int g; while ((g = *p++) != 0) if (NodeStates[g] != 0) { gndCount++; gndLast = g; } }
+                if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; int g; while ((g = *p++) != 0) if (NodeStates[g] != 0) { pwrCount++; pwrLast = g; } }
+            }
+            if (gndCount != 0) flags |= 1 << 5;   // Gnd
+            if (pwrCount != 0) flags |= 1 << 4;   // Pwr
+
+            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
+
+            DominantGate[nn] = gndCount != 0 ? (gndCount == 1 ? (ushort)gndLast : (ushort)0)
+                             : pwrCount != 0 ? (pwrCount == 1 ? (ushort)pwrLast : (ushort)0)
+                             : (ushort)0;
+        }
     }
 }

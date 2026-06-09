@@ -68,35 +68,43 @@ mod imp {
             }
 
             let cpus = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(1);
-            let (mask, how) = if core_override >= 0 {
+            let (mask, core_idx, mode) = if core_override >= 0 {
                 if core_override as usize >= cpus {
                     return format!(
-                        "{} | pin: core {} out of range (0..{}); affinity NOT set",
-                        notes.trim_end(), core_override, cpus - 1
+                        "pin: core {} out of range (0..{}); affinity NOT set | {}",
+                        core_override, cpus - 1, notes.trim_end()
                     );
                 }
-                (1usize << core_override, format!("forced core {core_override}"))
+                (1usize << core_override, core_override as u32, String::from("forced"))
             } else {
                 match auto_best_core_mask() {
-                    Some((m, idx)) => (m, format!("auto P-core {idx} (highest-class, first-of-pair, quiet)")),
-                    None => return format!("{} | pin: topology query failed; affinity NOT set", notes.trim_end()),
+                    Some((m, idx, top)) => {
+                        let mode = if top > 1 {
+                            format!("auto-detected best core: 1 of {top} top-class physical cores, first-of-pair")
+                        } else {
+                            String::from("auto-detected best core")
+                        };
+                        (m, idx, mode)
+                    }
+                    None => return format!("pin: topology query failed; affinity NOT set (OS scheduling) | {}", notes.trim_end()),
                 }
             };
 
             let prev = SetThreadAffinityMask(GetCurrentThread(), mask);
             if prev == 0 {
                 return format!(
-                    "{} | pin: SetThreadAffinityMask(0x{mask:X}) FAILED (err {})",
-                    notes.trim_end(), GetLastError()
+                    "pin: SetThreadAffinityMask(0x{mask:X}) FAILED (err {}) | {}",
+                    GetLastError(), notes.trim_end()
                 );
             }
-            format!("{} | pin: hot thread -> mask 0x{mask:X} ({how})", notes.trim_end())
+            format!("pinned to logical core {core_idx} of {cpus} ({mode}; affinity mask 0x{mask:X}) | {}", notes.trim_end())
         }
     }
 
     // Highest-EfficiencyClass physical core, its highest-numbered instance, first logical proc.
-    // Returns (single-bit affinity mask, logical-proc index). Processor group 0 only.
-    unsafe fn auto_best_core_mask() -> Option<(usize, u32)> {
+    // Returns (single-bit affinity mask, logical-proc index, count of physical cores sharing the top
+    // EfficiencyClass). Processor group 0 only.
+    unsafe fn auto_best_core_mask() -> Option<(usize, u32, u32)> {
         let mut len: u32 = 0;
         GetLogicalProcessorInformationEx(RELATION_PROCESSOR_CORE, std::ptr::null_mut(), &mut len);
         if len == 0 {
@@ -110,6 +118,7 @@ mod imp {
         let mut max_eff: u8 = 0;
         let mut best_mask: usize = 0;
         let mut best_bit: i32 = -1;
+        let mut count: u32 = 0;
         let base = buf.as_ptr();
         let end = len as usize;
         let mut p: usize = 0;
@@ -134,9 +143,13 @@ mod imp {
                         max_eff = eff;
                         best_mask = first;
                         best_bit = idx;
-                    } else if eff == max_eff && idx > best_bit {
-                        best_mask = first;
-                        best_bit = idx;
+                        count = 1;
+                    } else if eff == max_eff {
+                        count += 1;
+                        if idx > best_bit {
+                            best_mask = first;
+                            best_bit = idx;
+                        }
                     }
                 }
             }
@@ -145,7 +158,7 @@ mod imp {
         if best_mask == 0 {
             None
         } else {
-            Some((best_mask, best_bit as u32))
+            Some((best_mask, best_bit as u32, count))
         }
     }
 }

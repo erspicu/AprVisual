@@ -89,37 +89,45 @@ namespace AprVisual.Sim
             }
             catch { /* older Windows lacks the class; ignore */ }
 
-            // Resolve the affinity mask.
+            // Resolve the affinity mask + build a clear core-info string (shown on every --pin run).
+            int total = Environment.ProcessorCount;
             nuint mask;
-            string how;
+            int coreIdx;
+            string mode;
             if (coreOverride >= 0)
             {
-                if (coreOverride >= Environment.ProcessorCount)
-                    return notes.ToString().TrimEnd() + $" | pin: core {coreOverride} out of range (0..{Environment.ProcessorCount - 1}); affinity NOT set";
+                if (coreOverride >= total)
+                    return $"pin: core {coreOverride} out of range (0..{total - 1}); affinity NOT set | {notes.ToString().TrimEnd()}";
                 mask = (nuint)1 << coreOverride;
-                how = $"forced core {coreOverride}";
+                coreIdx = coreOverride;
+                mode = "forced";
             }
             else
             {
-                mask = AutoBestCoreMask(out int idx);
+                mask = AutoBestCoreMask(out coreIdx, out int topClassCount);
                 if (mask == 0)
-                    return notes.ToString().TrimEnd() + " | pin: topology query failed; affinity NOT set (OS scheduling)";
-                how = $"auto P-core {idx} (highest-class, first-of-pair, quiet)";
+                    return $"pin: topology query failed; affinity NOT set (OS scheduling) | {notes.ToString().TrimEnd()}";
+                mode = topClassCount > 1
+                    ? $"auto-detected best core: 1 of {topClassCount} top-class physical cores, first-of-pair"
+                    : "auto-detected best core";
             }
 
             // Forbid the CLR from migrating this managed thread to another OS thread, then pin.
             Thread.BeginThreadAffinity();
             nuint prev = SetThreadAffinityMask(GetCurrentThread(), mask);
             if (prev == 0)
-                return notes.ToString().TrimEnd() + $" | pin: SetThreadAffinityMask(0x{mask:X}) FAILED (err {Marshal.GetLastWin32Error()})";
+                return $"pin: SetThreadAffinityMask(0x{mask:X}) FAILED (err {Marshal.GetLastWin32Error()}) | {notes.ToString().TrimEnd()}";
 
-            return notes.ToString().TrimEnd() + $" | pin: hot thread -> mask 0x{mask:X} ({how})";
+            return $"pinned to logical core {coreIdx} of {total} ({mode}; affinity mask 0x{mask:X}) | {notes.ToString().TrimEnd()}";
         }
 
         // Highest-EfficiencyClass physical core, its highest-numbered instance, first logical proc.
-        private static nuint AutoBestCoreMask(out int bitIndex)
+        // Also reports topClassCount = how many physical cores share that top EfficiencyClass (so the
+        // status line can say "1 of N" — N == all physical cores on a uniform CPU, == P-core count on hybrid).
+        private static nuint AutoBestCoreMask(out int bitIndex, out int topClassCount)
         {
             bitIndex = -1;
+            topClassCount = 0;
             uint len = 0;
             GetLogicalProcessorInformationEx(RelationProcessorCore, IntPtr.Zero, ref len);  // probe size
             if (len == 0) return 0;
@@ -132,6 +140,7 @@ namespace AprVisual.Sim
                 byte maxEff = 0;
                 nuint bestMask = 0;
                 int bestBit = -1;
+                int count = 0;
 
                 byte* ptr = (byte*)buf;
                 byte* end = ptr + len;
@@ -153,13 +162,14 @@ namespace AprVisual.Sim
                             int idx = System.Numerics.BitOperations.TrailingZeroCount((ulong)first);
                             // Prefer higher EfficiencyClass; within the top class prefer the highest-numbered
                             // core (quiet, away from core 0 / its interrupt-heavy neighbours).
-                            if (eff > maxEff) { maxEff = eff; bestMask = first; bestBit = idx; }
-                            else if (eff == maxEff && idx > bestBit) { bestMask = first; bestBit = idx; }
+                            if (eff > maxEff) { maxEff = eff; bestMask = first; bestBit = idx; count = 1; }
+                            else if (eff == maxEff) { count++; if (idx > bestBit) { bestMask = first; bestBit = idx; } }
                         }
                     }
                     ptr += size;
                 }
                 bitIndex = bestBit;
+                topClassCount = count;
                 return bestMask;
             }
             finally { Marshal.FreeHGlobal(buf); }

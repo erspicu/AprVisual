@@ -14,6 +14,7 @@ namespace AprVisual.Test
     internal static class TestRunner
     {
         private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
+        private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
 
         public static int Run(string[] args)
         {
@@ -33,6 +34,7 @@ namespace AprVisual.Test
             int benchHcCount = 0;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
+            bool pin = false; int pinCore = -1;   // --pin [N]: pin hot thread (N = force logical core; absent = auto best P-core)
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -68,6 +70,10 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
+                    case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
+                        pin = true;
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _pc)) { pinCore = _pc; i++; }
+                        break;
 #if DEBUG
                     case "--settle-cap":      // DEBUG experiment: ABANDON each settle past N waves (study under-settle divergence)
                         if (i + 1 < args.Length && int.TryParse(args[++i], out int _scap)) { WireCore.MaxSettlePasses = _scap; WireCore.SettleCapSilent = true; }
@@ -88,6 +94,15 @@ namespace AprVisual.Test
             }
 
             WireCore.SystemDefDir = systemDefDir;
+
+            if (pin)
+            {
+                // Thread-pin (not process) + High priority + EcoQoS-off. Cuts run-to-run variance for the
+                // memory-latency-bound hot loop by stopping core migration from trashing L1/L2. Opt-in only;
+                // status is printed and recorded in the bench JSON ("pinned"). See Sim/PerfTuning.cs.
+                _pinned = true;
+                Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
+            }
 
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
@@ -716,7 +731,8 @@ namespace AprVisual.Test
                 sb.Append($"  \"slowdownFactor\": {gap:F1},\n");
                 sb.Append($"  \"checksum\": \"0x{checksum:X16}\",\n");
                 sb.Append($"  \"fastPathNodes\": {WireCore.PureLogicNodeCount},\n");
-                sb.Append($"  \"liveNodes\": {WireCore.NonNullNodeCount}\n");
+                sb.Append($"  \"liveNodes\": {WireCore.NonNullNodeCount},\n");
+                sb.Append($"  \"pinned\": {(_pinned ? "true" : "false")}\n");
                 sb.Append("}\n");
                 File.WriteAllText(file, sb.ToString());
                 Console.WriteLine($"# log written: {file}");
@@ -1099,6 +1115,8 @@ namespace AprVisual.Test
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
                     [--fast-path]                          no-op (fast-path is always on in S1)
+                    [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
+                                                           (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
 
                   (no args)                                open an empty window
                 """);

@@ -10,16 +10,20 @@
    - checksum match guard (ABORTS-style WARN if any run != golden)
 
  Usage:
-   pwsh tools/ab_bench.ps1 -BaseDir temp/bench_base -ExpDir src/AprVisual.S1/bin/Release/net10.0 -Rounds 20
+   pwsh tools/ab_bench.ps1 -BaseDir temp/bench_base -ExpDir src/AprVisual.S1/bin/Release/net11.0 -Rounds 20
+   pwsh tools/ab_bench.ps1 ... -Pin            # pin BOTH runs to a quiet P-core + High priority (lower variance)
+   pwsh tools/ab_bench.ps1 ... -Pin -PinCore 14   # force a specific logical core for both
 ================================================================================
 #>
 [CmdletBinding()]
 param(
     [string]$BaseDir = 'temp/bench_base',
-    [string]$ExpDir  = 'src/AprVisual.S1/bin/Release/net10.0',
+    [string]$ExpDir  = 'src/AprVisual.S1/bin/Release/net11.0',
     [int]$Rounds = 20,
     [int]$Hc = 300000,
-    [string]$Golden = '0x794A43ABDF169ADA'
+    [string]$Golden = '0x794A43ABDF169ADA',
+    [switch]$Pin,          # pin BOTH runs to a quiet P-core + High priority (fair, lower variance)
+    [int]$PinCore = -1     # with -Pin: force this logical core (default -1 = auto-pick best P-core)
 )
 $ErrorActionPreference = 'Stop'
 $Root   = Split-Path -Parent $PSScriptRoot
@@ -27,9 +31,12 @@ $Rom    = Join-Path $Root 'AprVisualBenchMark\roms\full_palette.nes'
 $SysDef = Join-Path $Root 'AprVisualBenchMark\data\system-def'
 $baseDll = Join-Path $Root "$BaseDir\AprVisual.S1.dll"
 $expDll  = Join-Path $Root "$ExpDir\AprVisual.S1.dll"
+# Both A and B get the SAME pin treatment so the comparison stays fair (we measure the
+# code delta, not the pinning). --pin alone = auto core; -PinCore N forces a logical core.
+$PinArgs = @(); if ($Pin) { $PinArgs += '--pin'; if ($PinCore -ge 0) { $PinArgs += "$PinCore" } }
 
 function Run-One($dll) {
-    $out = & dotnet $dll --benchmark $Rom --bench-hc $Hc --extra-ram --system-def-dir $SysDef 2>&1
+    $out = & dotnet $dll --benchmark $Rom --bench-hc $Hc --extra-ram --system-def-dir $SysDef @PinArgs 2>&1
     $joined = $out -join "`n"
     $rate = $null; $cksum = $null
     if ($joined -match '\(([\d,]+) hc/s\)') { $rate = [int]($Matches[1] -replace ',', '') }

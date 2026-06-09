@@ -85,6 +85,7 @@ namespace AprVisual.Sim
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
             PruneMask = null;   // enqueue-prune safety mask (bit0 turn-on / bit1 turn-off; always re-built by Reset)
             IsBypassCandidate = null;   // P-5 Escape B skip-candidate mask (always re-built by Reset)
+            IsPinned = null;            // P-5 Stage 1 pinned flag, separate array (always re-built by Reset)
             FrameBuffer = null;
         }
     }

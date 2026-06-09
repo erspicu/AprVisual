@@ -203,11 +203,11 @@ namespace AprVisual.Sim
                 Step((int)Math.Min(maxHalfCycles, 714_736));
                 return Time - start;
             }
-            bool prev = (NodeStates[N_PpuInVblank] & StateBit) != 0;
+            bool prev = NodeStates[N_PpuInVblank] != 0;
             for (long i = 0; i < maxHalfCycles; i++)
             {
                 Step(1);
-                bool now = (NodeStates[N_PpuInVblank] & StateBit) != 0;
+                bool now = NodeStates[N_PpuInVblank] != 0;
                 if (!prev && now) break;                  // rising edge → frame boundary
                 prev = now;
             }

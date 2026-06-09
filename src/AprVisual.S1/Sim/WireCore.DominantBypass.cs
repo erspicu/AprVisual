@@ -56,8 +56,13 @@ namespace AprVisual.Sim
         // PullUp)). Turn-off skip: a PASS-transistor endpoint c with PinnedBit set can't change when this
         // (non-supply) gate opens — skip it (a supply-transistor endpoint is NOT skipped: that gate may BE
         // c's pin; the same walk's supply entry re-enqueues c, so it stays sound).
-        internal const byte StateBit  = 1;
-        internal const byte PinnedBit = 2;
+        // [Stage 1 / option (ii)] pinned moved OUT of NodeStates into its own 1-byte array — so NodeStates
+        // is pure 0/1 again and the hot reads drop the `& StateBit` mask tax (-4.98%). The trade is a
+        // separate 1-byte write stream (vs riding the state write). StateBit/PinnedBit kept only as the
+        // 0/1 sentinels for IsPinned; the NodeStates packing is gone.
+        internal const byte StateBit  = 1;   // (legacy) NodeStates is pure 0/1; masks removed in Stage 1
+        internal const byte PinnedBit = 2;   // (legacy) pinned now lives in IsPinned[], not NodeStates
+        internal static byte* IsPinned;      // 1 = node is pinned by its OWN driver (Stage 1: separate array)
 
         // [Escape B — domain shrink] 1 = this node can EVER trigger a P-5 skip, so its DominantGate is
         // worth maintaining; 0 = it can't, so we never compute/write it (it stays 0 ⇒ never skipped ⇒
@@ -100,28 +105,25 @@ namespace AprVisual.Sim
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]] & StateBit;
+                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]];
                 int pwrEnd = gndEnd + ns->PwrCount;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]] & StateBit;
+                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]];
             }
             else
             {
-                if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++] & StateBit; }
-                if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++] & StateBit; }
+                if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++]; }
+                if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++]; }
             }
             flags |= anyG << 5;   // Gnd
             flags |= anyP << 4;   // Pwr
 
-            byte resolved = flags != 0 ? FlagsToState[flags] : (byte)(NodeStates[nn] & StateBit);
+            byte resolved = flags != 0 ? FlagsToState[flags] : NodeStates[nn];
             if (flags != 0) SetNodeState(nn, resolved);
 
             // pinned ⇔ the resolved value is held by nn's OWN driver, independent of pass connections.
             bool pinned = resolved == 0 ? anyG != 0
                                         : (anyP != 0 || (flags & (int)NodeFlags.PullUp) != 0);
-            // set/clear bit 1 on nn's NodeStates byte (state bit already written by SetNodeState above; if
-            // the state was unchanged SetNodeState returned early, but bit 0 is intact either way).
-            byte cur = NodeStates[nn];
-            NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
+            IsPinned[nn] = pinned ? (byte)1 : (byte)0;   // [Stage 1] separate array, not a NodeStates bit
 #if DEBUG
             DiagPinFastCalls++;   // scan here is SHARED with value resolution; extra cost is just this RMW
             if (pinned) DiagPinSet++; else DiagPinClear++;
@@ -143,12 +145,12 @@ namespace AprVisual.Sim
                 {
                     ushort* pay = ns->InlinePayload;
                     int s = ns->C1c2Count << 1, e = s + ns->GndCount;
-                    for (int k = s; k < e; k++) anyG |= NodeStates[pay[k]] & StateBit;
+                    for (int k = s; k < e; k++) anyG |= NodeStates[pay[k]];
 #if DEBUG
                     DiagPinBfsScans += ns->GndCount;
 #endif
                 }
-                else if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++] & StateBit; }
+                else if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++]; }
                 pinned = anyG != 0;
             }
             else              // pinned-high iff ≥1 OWN ON pwr channel OR PullUp (value==1 ⇒ no gnd reachable)
@@ -161,17 +163,16 @@ namespace AprVisual.Sim
                     {
                         ushort* pay = ns->InlinePayload;
                         int s = (ns->C1c2Count << 1) + ns->GndCount, e = s + ns->PwrCount;
-                        for (int k = s; k < e; k++) anyP |= NodeStates[pay[k]] & StateBit;
+                        for (int k = s; k < e; k++) anyP |= NodeStates[pay[k]];
 #if DEBUG
                         DiagPinBfsScans += ns->PwrCount;
 #endif
                     }
-                    else if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++] & StateBit; }
+                    else if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++]; }
                     pinned = anyP != 0;
                 }
             }
-            byte cur = NodeStates[nn];
-            NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
+            IsPinned[nn] = pinned ? (byte)1 : (byte)0;   // [Stage 1] separate array, not a NodeStates bit
 #if DEBUG
             DiagPinBfsCalls++;
             if (pinned) DiagPinSet++; else DiagPinClear++;

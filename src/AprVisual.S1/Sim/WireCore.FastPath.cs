@@ -66,6 +66,7 @@ namespace AprVisual.Sim
         {
             IsPureLogic = AllocArray<byte>(NodeCount);   // tracked + zeroed; freed in FreeUnmanagedMemory
             IsBypassCandidate = AllocArray<byte>(NodeCount); // [Escape B] 1 = maintain the pinned bit for this node (can ever trigger a skip)
+            IsPinned = AllocArray<byte>(NodeCount);           // [Stage 1] P-5 pinned flag, separate 1-byte array (NodeStates stays pure)
             const NodeFlags exclude = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
             int count = 0, dynCount = 0, bypassCand = 0;
             for (int nn = 0; nn < NodeCount; nn++)
@@ -265,11 +266,11 @@ namespace AprVisual.Sim
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
                 int anyG = 0;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]] & StateBit;   // any ON path to GND ⇒ pulled low
+                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
                 flags |= anyG << 5;
                 int pwrEnd = gndEnd + ns->PwrCount;
                 int anyP = 0;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]] & StateBit;      // any ON path to VCC ⇒ pulled high
+                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
                 flags |= anyP << 4;
             }
             else
@@ -278,14 +279,14 @@ namespace AprVisual.Sim
                 {
                     ushort* p = TransistorList + ns->TlistC1gnd;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++] & StateBit;       // any ON path to GND ⇒ pulled low
+                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to GND ⇒ pulled low
                     flags |= any << 5;
                 }
                 if (ns->TlistC1pwr != 0)
                 {
                     ushort* p = TransistorList + ns->TlistC1pwr;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++] & StateBit;       // any ON path to VCC ⇒ pulled high
+                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
                     flags |= any << 4;
                 }
             }

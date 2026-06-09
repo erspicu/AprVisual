@@ -112,11 +112,42 @@
   <p class="zh">想法來自一次刻意對抗式的外部 EDA 模型諮詢(它只在被逼問時才吐出最有用的點子 —— 就是先前產出 P-3 電容條件的同一次諮詢)。+3.4% / −15.4% 的拆分是 interleaved-paired(輪流換 build、12–16 輪取中位數、每輪 checksum 守門),在 AMD Ryzen 7 3700X 上量測。旁路已退回;引擎維持在 P-4 baseline。延伸頁面:<a href="prunes.html">真的贏的剪枝(P-1 → P-4)</a>、<a href="frontier.html">前緣(為何最後 80% 剪不掉)</a>、<a href="ceiling.html">為什麼 IR / codegen 撞牆</a>。</p>
 </section>
 
+<section>
+  <h2><span class="en">Update (2026-06-10): a from-scratch reconstruction — the prize was bigger, and it <em>still</em> lost</span><span class="zh">更新(2026-06-10):從頭重建一次 —— 獎賞其實更大,但<em>仍然</em>輸</span></h2>
+  <p class="en">The original prototype above was never committed, so the technique was rebuilt from spec on a research branch and pushed to its limit. Three findings sharpen the story.</p>
+  <p class="zh">上面那個原型從沒進過版控,所以在一條研究分支上從規格重建、並推到極限。三個發現讓故事更清楚。</p>
+
+  <h3><span class="en">1. The prize is far bigger than +3.4%: <span class="num">+13.76%</span></span><span class="zh">1. 獎賞遠大於 +3.4%:<span class="num">+13.76%</span></span></h3>
+  <p class="en">The original stored a 16-bit <em>dominant-gate id</em> and only skipped when a node was held by <em>exactly one</em> driver. A cheaper, sounder rule replaces it with a <b>1-bit "pinned by my own supply"</b> flag: a node is pinned iff its current value is held by its <em>own</em> gnd/pwr/pull-up regardless of any pass connection ((state 0 &amp; ≥1 own ON gnd) ∨ (state 1 &amp; (≥1 own ON pwr ∨ pull-up))). That pins <em>more</em> nodes and, measured by disabling only the skip (maintenance kept), the bypass alone is worth <b><span class="num">+13.76%</span></b> — it suppresses ~40% of all node re-evaluations. The +3.4% was an artefact of the over-restrictive "exactly one" form, not the ceiling.</p>
+  <p class="zh">原版存一個 16-bit 的<em>支配閘 id</em>,只在節點由<em>恰好一個</em>驅動源拉住時才跳。一個更便宜、也更健全的規則改用 <b>1-bit「被自己的供電拉住」</b>旗標:節點 pinned ⇔ 它當前的值是由<em>自身</em>的 gnd/pwr/上拉決定、與任何 pass 連接無關((state 0 且自身 ≥1 個 ON gnd)∨(state 1 且(自身 ≥1 個 ON pwr ∨ 上拉)))。這會 pin <em>更多</em>節點;用「只關掉 skip、維護照留」量出來,旁路本身值 <b><span class="num">+13.76%</span></b> —— 抑制了約 40% 的節點重算。+3.4% 是「恰好一個」那個過嚴版本的產物,不是天花板。</p>
+
+  <h3><span class="en">2. The full cost decomposition</span><span class="zh">2. 完整成本拆解</span></h3>
+  <table>
+    <tr><th><span class="en">Term</span><span class="zh">項目</span></th><th>vs P-4</th><th><span class="en">what it is</span><span class="zh">是什麼</span></th></tr>
+    <tr><td><b><span class="en">skip benefit</span><span class="zh">skip 收益</span></b></td><td class="num" style="color:#7ee0a8"><b>+13.76%</b></td><td><span class="en">re-evaluations the bypass deletes</span><span class="zh">旁路刪掉的重算</span></td></tr>
+    <tr><td><span class="en">maintenance</span><span class="zh">維護</span></td><td class="num" style="color:#ff7676">−15.6%</td><td><span class="en">computing + writing the pinned flag every resolution (the killer)</span><span class="zh">每次解析算+寫 pinned(殺手)</span></td></tr>
+    <tr><td><span class="en">storage tax</span><span class="zh">儲存稅</span></td><td class="num" style="color:#ff7676">−4.98% <span class="en">or</span><span class="zh">或</span></td><td><span class="en">where the bit lives — see below</span><span class="zh">這個 bit 放哪 —— 見下</span></td></tr>
+  </table>
+
+  <h3><span class="en">3. There is no free place to keep the bit (the i-vs-ii trade)</span><span class="zh">3. 這個 bit 沒有免費的家(i 對 ii 的取捨)</span></h3>
+  <p class="en"><b>Option (i)</b> packs the pinned bit into the (1-byte) <code>NodeStates</code> array so its write rides the mandatory state store (free) — but then <em>every</em> hot conduction read must mask <code>&amp; StateBit</code> to ignore it, and that mask, on the engine's hottest random gather, costs a measured <b>−4.98%</b> floor. <b>Option (ii)</b> keeps the bit in its own 1-byte array so <code>NodeStates</code> stays pure and no mask is needed — but now the flag is its own ~50M-writes/run random stream. Net: (i) = −8.36%, (ii) = <b>−6.84%</b> (the best result). They are within a few points of each other because you are trading a read-side mask tax for a write-side stream — the per-resolution runtime fact has to be paid for one way or the other.</p>
+  <p class="zh"><b>選項 (i)</b> 把 pinned bit 塞進(1-byte 的)<code>NodeStates</code>,寫入就搭上那筆必做的 state store(免費)—— 但接著<em>每一次</em>熱導通讀取都得遮 <code>&amp; StateBit</code> 才能忽略它,而這個遮罩在引擎最熱的隨機 gather 上量到 <b>−4.98%</b> 的地板。<b>選項 (ii)</b> 把 bit 放自己的 1-byte 陣列,<code>NodeStates</code> 保持純淨、不需遮罩 —— 但這旗標就成了一條每次約 5000 萬筆寫入的隨機 stream。淨值:(i) = −8.36%,(ii) = <b>−6.84%</b>(最佳)。兩者只差幾個百分點,因為你只是把「讀側遮罩稅」換成「寫側 stream」—— 那個「每次解析的執行期事實」總得有人付帳。</p>
+  <p class="en">A last attempt fused the maintenance into the group walk (which already scans each member's supply for the group flag, so the per-member bits look free) — but it was <b>neutral</b>: the walk visits far more members than the small candidate set that benefits, so capturing for all of them costs as much as the targeted re-scan it replaced.</p>
+  <p class="zh">最後一招把維護融進 group walk(它本來就為了 group flag 逐成員掃供電,所以逐成員的 bit 看似免費)—— 但結果<b>中性</b>:walk 走訪的成員遠多於受益的那一小撮候選,替全部成員 capture 的成本 ≈ 它取代掉的針對性重掃。</p>
+
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>The fuller verdict.</b> The bypass is a genuine, large win (+13.76%) — much bigger than the original number suggested. It still loses, best case <b>−6.84%</b>, because keeping the one runtime fact it needs — "is this node held by its own driver right now" — costs a ~7% floor (maintenance + storage) on a memory-latency-bound engine, however cheaply you encode it (16-bit id, 1 bit packed, or 1 bit in its own array; scan separate or fused). It is the same wall as the <a href="frontier.html">frontier</a> and the active-driver-count attempt, now mapped with a precise prize (+13.76%) <em>and</em> a precise, irreducible toll (≈−20% combined). Correct, and the prize is real — but a maintained per-resolution fact can't be cheaper than the cheap work it deletes here.</p>
+    <p class="zh" style="margin:.2em 0"><b>更完整的判決。</b>這個旁路是真實、且很大的勝利(+13.76%)—— 遠比原本的數字大。它仍然輸,最佳 <b>−6.84%</b>,因為維護它需要的那個執行期事實 ——「此刻這個節點是不是被自己的驅動源拉住」—— 在 memory-latency-bound 引擎上構成 ~7% 的地板(維護 + 儲存),無論你編碼得多便宜(16-bit id、塞 1 bit、或獨立 1 byte;掃描分開或融合)。這跟<a href="frontier.html">前緣</a>、跟 active-driver 計數那次是同一道牆,只是現在連精確的獎賞(+13.76%)<em>和</em>精確、不可削減的過路費(合計約 −20%)都標出來了。正確、獎賞也真實 —— 但在這裡,一個「每次解析都要維護的事實」不可能比它刪掉的那些便宜工還便宜。</p>
+  </div>
+  <p class="mut en">Reconstruction + measurements: AMD Ryzen 7 3700X, full_palette 300k/1M, interleaved-paired, every variant bit-exact (golden <code>0x794A43ABDF169ADA</code> / <code>0x6D4CCBCE2E9CD599</code>). Code lives on the <code>dominant-bypass</code> branch as a complete negative-result record.</p>
+  <p class="mut zh">重建 + 量測:AMD Ryzen 7 3700X、full_palette 30 萬/100 萬、interleaved-paired,每個變體都 bit-exact(golden <code>0x794A43ABDF169ADA</code> / <code>0x6D4CCBCE2E9CD599</code>)。程式碼留在 <code>dominant-bypass</code> 分支,作為完整的負結果紀錄。</p>
+</section>
+
 </main>
 
 <footer>
   <p><a href="prunes.html">&larr; <span class="en">The prunes that won (P-1 → P-4)</span><span class="zh">真的贏的剪枝(P-1 → P-4)</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
-  <p class="mut"><span class="en">P-5: a bit-exact turn-off bypass that genuinely pruned (+3.4%) but lost −12% net to the −15.4% cost of maintaining the runtime "dominant driver" it needed. Correct ≠ cheap-to-know-it's-safe. 2026-06-07.</span><span class="zh">P-5:一個 bit-exact 的 turn-off 旁路,真的有剪枝(+3.4%),卻因維護它所需的執行期「dominant driver」要 −15.4% 而淨虧 −12%。正確 ≠ 判斷它安全的成本便宜。2026-06-07。</span></p>
+  <p class="mut"><span class="en">P-5: a bit-exact turn-off bypass. The 2026-06-10 from-scratch rebuild showed the skip is a large real win (<b>+13.76%</b>), but maintaining the one runtime fact it needs costs a ~7% floor (maintenance + storage), so the best net is <b>−6.84%</b> — still a loss. Correct, the prize is real, but a maintained per-resolution fact can't beat the cheap work it deletes on a latency-bound engine. 2026-06-07 / updated 2026-06-10.</span><span class="zh">P-5:一個 bit-exact 的 turn-off 旁路。2026-06-10 從頭重建顯示 skip 是真實的大勝(<b>+13.76%</b>),但維護它需要的那個執行期事實有 ~7% 的地板(維護 + 儲存),所以最佳淨值是 <b>−6.84%</b> —— 仍是虧。正確、獎賞也真,但在 latency-bound 引擎上,一個每次解析都要維護的事實贏不過它刪掉的便宜工。2026-06-07 / 2026-06-10 更新。</span></p>
 </footer>
 
 <script>

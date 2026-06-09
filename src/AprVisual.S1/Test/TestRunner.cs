@@ -70,6 +70,7 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
+                    case "--dominant-bypass": WireCore.EnableDominantBypass = true; break;   // RESEARCH (dominant-bypass branch): P-5 dominant-driver turn-off bypass; default off
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
                         pin = true;
                         if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _pc)) { pinCore = _pc; i++; }

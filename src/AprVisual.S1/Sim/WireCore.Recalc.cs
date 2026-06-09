@@ -284,6 +284,12 @@ namespace AprVisual.Sim
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
+            // [P-5] maintain the dominant-driver record for every member of the just-resolved group
+            // (opt-in). Each member's id is from its OWN single supply matching the group value, or 0 —
+            // so a member pinned by its own gnd/pwr can be skipped when an unrelated incident gate opens.
+            if (EnableDominantBypass)
+                for (int i = 0; i < _groupCount; i++) { int m = _groupBuf[i]; DominantGate[m] = ComputeDominantGate(m, newState); }
+
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
                 // [A6] direct array index (was Dictionary.TryGetValue), bypass Nodes[] managed Node object graph
@@ -336,6 +342,11 @@ namespace AprVisual.Sim
                     // skip in ClassifyTurnOffSkip, so c2 needs NO explicit `c2!=ngnd && c2!=npwr` guard — it is
                     // now identical to c1. Clause order: more-selective maskOff (≈20% false) before nextHash==0.
                     byte* pruneMask = PruneMask;
+                    // [P-5 dominant-driver bypass] opt-in extra skip: an endpoint c held by a single supply
+                    // driver whose gate is NOT this gate (nn) can't change when nn opens. domOn==false (default)
+                    // short-circuits before any domGate read ⇒ byte-for-byte the P-4 baseline. See WireCore.DominantBypass.cs.
+                    bool domOn = EnableDominantBypass;
+                    ushort* domGate = DominantGate;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
@@ -345,23 +356,23 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff1(c1a);
 #endif
-                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c1a] != 0 && domGate[c1a] != nn) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // identical to c1 (supply-skip folded into pruneMask)
+                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c2a] != 0 && domGate[c2a] != nn) && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // identical to c1 (supply-skip folded into pruneMask)
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
 #endif
-                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c1b] != 0 && domGate[c1b] != nn) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c2b] != 0 && domGate[c2b] != nn) && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }

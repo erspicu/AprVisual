@@ -65,6 +65,7 @@ namespace AprVisual.Sim
         internal static void ClassifyPureLogicNodes()
         {
             IsPureLogic = AllocArray<byte>(NodeCount);   // tracked + zeroed; freed in FreeUnmanagedMemory
+            DominantGate = AllocArray<ushort>(NodeCount); // P-5 dominant-driver bypass (used only when EnableDominantBypass); zeroed = "no dominant"
             const NodeFlags exclude = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
             int count = 0, dynCount = 0;
             for (int nn = 0; nn < NodeCount; nn++)
@@ -276,7 +277,12 @@ namespace AprVisual.Sim
 
             // flags == 0 ⇒ floating singleton ⇒ hold previous (NodeStates[nn] unchanged) ⇒ SetNodeState would
             // be a pure no-op, so skip the call entirely (saves the operand read + the call). Bit-exact.
-            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
+            byte resolved = flags != 0 ? FlagsToState[flags] : NodeStates[nn];
+            if (flags != 0) SetNodeState(nn, resolved);
+
+            // [P-5] maintain the dominant-driver record for this singleton resolution (opt-in). flags==0
+            // (floating) ⇒ no supply on ⇒ ComputeDominantGate returns 0, correctly clearing any stale id.
+            if (EnableDominantBypass) DominantGate[nn] = ComputeDominantGate(nn, resolved);
         }
 
         // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──

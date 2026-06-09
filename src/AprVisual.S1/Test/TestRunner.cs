@@ -575,6 +575,17 @@ namespace AprVisual.Test
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
 #if DEBUG
                 {
+                    // P-5 pinned-bit cost/benefit profiler (DEBUG only; counts identical to Release).
+                    long fast = WireCore.DiagPinFastCalls, bfs = WireCore.DiagPinBfsCalls;
+                    long skipC1 = WireCore.DiagPinSkipC1, skipC2 = WireCore.DiagPinSkipC2;
+                    long pops = WireCore.DiagPops;
+                    double pctPops(long x) => pops == 0 ? 0 : 100.0 * x / pops;
+                    Console.WriteLine("# [pin-profile] P-5 maintenance vs benefit:");
+                    Console.WriteLine($"#   maintain calls: fast-path={fast:N0} (scan SHARED w/ value resolve) + BFS={bfs:N0} (EXTRA scan={WireCore.DiagPinBfsScans:N0} gates)");
+                    Console.WriteLine($"#   pinned-bit writes: set={WireCore.DiagPinSet:N0} clear={WireCore.DiagPinClear:N0}");
+                    Console.WriteLine($"#   BENEFIT — enqueues P-5 suppressed: c1={skipC1:N0} c2={skipC2:N0} total={skipC1 + skipC2:N0}  ({pctPops(skipC1 + skipC2):F1}% of all RecalcNode pops={pops:N0})");
+                }
+                {
                     // wasted-pop profiler (DEBUG only; counts identical to Release). See WireCore.Recalc.cs.
                     double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;
                     Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");

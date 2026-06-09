@@ -71,6 +71,18 @@ namespace AprVisual.Sim
 
         public static string LastDominantBypassStats = "(dominant-bypass off)";
 
+#if DEBUG
+        // ── P-5 cost/benefit profiler (DEBUG ONLY; event counts identical to Release) ──
+        // Decomposes the maintenance cost vs the skip benefit:
+        //   FastCalls  = RecalcNodeFastDom resolutions (the gnd/pwr scan there is SHARED with the value
+        //                resolution — P-5's only extra cost on this path is the pinned bool + the bit RMW).
+        //   BfsCalls   = UpdatePinnedBit calls (BFS members) — this scan is EXTRA (not shared) = the real
+        //                maintenance cost; BfsScans = gates it scanned (inline nodes; overflow uncounted).
+        //   Set/Clear  = pinned-bit transitions written.
+        //   SkipC1/C2  = enqueues P-5 actually suppressed in the turn-off walk (the BENEFIT, beyond P-2).
+        internal static long DiagPinFastCalls, DiagPinBfsCalls, DiagPinBfsScans, DiagPinSet, DiagPinClear, DiagPinSkipC1, DiagPinSkipC2;
+#endif
+
         // [P-5 — fused singleton resolve + pinned-bit maintenance] the count-and-capture twin of
         // RecalcNodeFast, taken only for skip-CANDIDATE nodes. Resolves the value AND sets/clears the pinned
         // bit in NodeStates in one pass over the gnd/pwr channels (anyG/anyP). The pinned rule (sound + value-
@@ -110,6 +122,10 @@ namespace AprVisual.Sim
             // the state was unchanged SetNodeState returned early, but bit 0 is intact either way).
             byte cur = NodeStates[nn];
             NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
+#if DEBUG
+            DiagPinFastCalls++;   // scan here is SHARED with value resolution; extra cost is just this RMW
+            if (pinned) DiagPinSet++; else DiagPinClear++;
+#endif
         }
 
         // [P-5] BFS-path twin: a candidate member `nn` of a just-resolved group got value `value`; set/clear
@@ -128,6 +144,9 @@ namespace AprVisual.Sim
                     ushort* pay = ns->InlinePayload;
                     int s = ns->C1c2Count << 1, e = s + ns->GndCount;
                     for (int k = s; k < e; k++) anyG |= NodeStates[pay[k]] & StateBit;
+#if DEBUG
+                    DiagPinBfsScans += ns->GndCount;
+#endif
                 }
                 else if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++] & StateBit; }
                 pinned = anyG != 0;
@@ -143,6 +162,9 @@ namespace AprVisual.Sim
                         ushort* pay = ns->InlinePayload;
                         int s = (ns->C1c2Count << 1) + ns->GndCount, e = s + ns->PwrCount;
                         for (int k = s; k < e; k++) anyP |= NodeStates[pay[k]] & StateBit;
+#if DEBUG
+                        DiagPinBfsScans += ns->PwrCount;
+#endif
                     }
                     else if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++] & StateBit; }
                     pinned = anyP != 0;
@@ -150,6 +172,10 @@ namespace AprVisual.Sim
             }
             byte cur = NodeStates[nn];
             NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
+#if DEBUG
+            DiagPinBfsCalls++;
+            if (pinned) DiagPinSet++; else DiagPinClear++;
+#endif
         }
     }
 }

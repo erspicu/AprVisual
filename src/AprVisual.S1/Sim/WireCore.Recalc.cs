@@ -359,11 +359,13 @@ namespace AprVisual.Sim
                         int c2a = (ushort)(quad >> 16);
 #if DEBUG
                         CondTallyOff1(c1a);
+                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0 && (nodeStates[c1a] & PinnedBit) != 0 && c2a != npwr && c2a != ngnd) DiagPinSkipC1++;
 #endif
                         if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && !((nodeStates[c1a] & PinnedBit) != 0 && c2a != npwr && c2a != ngnd) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
+                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0 && (nodeStates[c2a] & PinnedBit) != 0) DiagPinSkipC2++;
 #endif
                         if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && (nodeStates[c2a] & PinnedBit) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // c2's other side (c1) is always regular ⇒ pass edge
                         int c1b = (ushort)(quad >> 32);
@@ -371,10 +373,12 @@ namespace AprVisual.Sim
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
+                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0 && (nodeStates[c1b] & PinnedBit) != 0 && c2b != npwr && c2b != ngnd) DiagPinSkipC1++;
 #endif
                         if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && !((nodeStates[c1b] & PinnedBit) != 0 && c2b != npwr && c2b != ngnd) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
+                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0 && (nodeStates[c2b] & PinnedBit) != 0) DiagPinSkipC2++;
 #endif
                         if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && (nodeStates[c2b] & PinnedBit) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;

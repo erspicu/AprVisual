@@ -117,11 +117,11 @@ namespace AprVisual.Sim
                     ushort* pay = ns->InlinePayload;
                     int n2 = ns->C1c2Count << 1;
                     for (int k = 0; k < n2; k += 2)
-                        if (nodeStates[pay[k]] != 0) { int o = pay[k + 1]; if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
+                        if ((nodeStates[pay[k]] & StateBit) != 0) { int o = pay[k + 1]; if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
                     int gndEnd = n2 + ns->GndCount;
-                    for (int k = n2; k < gndEnd; k++) { if (nodeStates[pay[k]] != 0) { gf |= NodeFlags.Gnd; break; } }
+                    for (int k = n2; k < gndEnd; k++) { if ((nodeStates[pay[k]] & StateBit) != 0) { gf |= NodeFlags.Gnd; break; } }
                     int pwrEnd = gndEnd + ns->PwrCount;
-                    for (int k = gndEnd; k < pwrEnd; k++) { if (nodeStates[pay[k]] != 0) { gf |= NodeFlags.Pwr; break; } }
+                    for (int k = gndEnd; k < pwrEnd; k++) { if ((nodeStates[pay[k]] & StateBit) != 0) { gf |= NodeFlags.Pwr; break; } }
                 }
                 else
                 {
@@ -132,21 +132,21 @@ namespace AprVisual.Sim
                         {
                             ulong quad = System.Runtime.CompilerServices.Unsafe.ReadUnaligned<ulong>(p);
                             int g1 = (ushort)quad; if (g1 == 0) break;
-                            if (nodeStates[g1] != 0) { int o = (ushort)(quad >> 16); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
+                            if ((nodeStates[g1] & StateBit) != 0) { int o = (ushort)(quad >> 16); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
                             int g2 = (ushort)(quad >> 32); if (g2 == 0) break;
-                            if (nodeStates[g2] != 0) { int o = (ushort)(quad >> 48); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
+                            if ((nodeStates[g2] & StateBit) != 0) { int o = (ushort)(quad >> 48); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
                             p += 4;
                         }
                     }
                     if (ns->TlistC1gnd != 0)
                     {
                         ushort* p = transList + ns->TlistC1gnd;
-                        while (*p != 0) { int gate = *p++; if (nodeStates[gate] != 0) { gf |= NodeFlags.Gnd; break; } }
+                        while (*p != 0) { int gate = *p++; if ((nodeStates[gate] & StateBit) != 0) { gf |= NodeFlags.Gnd; break; } }
                     }
                     if (ns->TlistC1pwr != 0)
                     {
                         ushort* p = transList + ns->TlistC1pwr;
-                        while (*p != 0) { int gate = *p++; if (nodeStates[gate] != 0) { gf |= NodeFlags.Pwr; break; } }
+                        while (*p != 0) { int gate = *p++; if ((nodeStates[gate] & StateBit) != 0) { gf |= NodeFlags.Pwr; break; } }
                     }
                 }
             }
@@ -175,7 +175,7 @@ namespace AprVisual.Sim
             {
                 int nn = _groupBuf[i];
                 int conn = NodeConnections[nn];
-                if (conn > maxConn) { maxState = NodeStates[nn]; maxConn = conn; }
+                if (conn > maxConn) { maxState = (byte)(NodeStates[nn] & StateBit); maxConn = conn; }
             }
             return maxState;
         }

@@ -43,91 +43,113 @@ namespace AprVisual.Sim
     // keeps the capture in a clearly-isolated helper so the maintenance can be profiled and attacked.
     internal static unsafe partial class WireCore
     {
-        // Opt-in (TestRunner --dominant-bypass). When false, the capture + skip are short-circuited and
-        // the engine is byte-for-byte the P-4 baseline.
-        internal static bool EnableDominantBypass;
+        // [P-5 is HARDCODED ON on this branch] — the capture + skip run unconditionally (no flag branch in
+        // the hot loop). A/B is now this branch's binary vs a baseline binary, not a runtime toggle.
 
-        // Per-node: gate node of c's single determining supply transistor, or 0 (= no single dominant
-        // driver ⇒ never skip). ushort (node ids < 65536). Allocated in ClassifyPureLogicNodes, zeroed
-        // (0 is safe — node 0 is the list sentinel, never a real node), freed in FreeUnmanagedMemory.
-        internal static ushort* DominantGate;
+        // [P-5 final form — 1-bit pinned, packed into NodeStates] The dominant gate ID (16 bits, separate
+        // array) is GONE — its random write stream was the irreducible cost. Instead each NodeStates byte
+        // now carries: bit 0 = the logic state (StateBit), bit 1 = "this node is pinned by its OWN driver"
+        // (PinnedBit). The pinned bit rides the mandatory state write (no new array, no new write stream,
+        // zero cache bloat). EVERY NodeStates read that wants the state must mask `& StateBit` (bit 1 is
+        // metadata). A node is "pinned" iff its current value is held by its own supply/pull-up regardless
+        // of pass connections: (state==0 && it has ≥1 ON gnd channel) || (state==1 && (≥1 ON pwr channel ||
+        // PullUp)). Turn-off skip: a PASS-transistor endpoint c with PinnedBit set can't change when this
+        // (non-supply) gate opens — skip it (a supply-transistor endpoint is NOT skipped: that gate may BE
+        // c's pin; the same walk's supply entry re-enqueues c, so it stays sound).
+        internal const byte StateBit  = 1;
+        internal const byte PinnedBit = 2;
+
+        // [Escape B — domain shrink] 1 = this node can EVER trigger a P-5 skip, so its DominantGate is
+        // worth maintaining; 0 = it can't, so we never compute/write it (it stays 0 ⇒ never skipped ⇒
+        // identical behaviour). A node is a candidate iff it has BOTH a pass (c1c2) channel — so a
+        // turn-off walk can reach it — AND its own supply (gnd/pwr) channel — so it can have a single
+        // dominant driver; and it carries none of Gnd/Pwr/ForceCompute/HasCallback (special resolution).
+        // Every NON-candidate's DominantGate is provably always 0 (ComputeDominantGate would return 0:
+        // no supply ⇒ count 0; no pass channel ⇒ only its supply gate ever turns off at it ⇒ id==nn ⇒
+        // no skip), so dropping their maintenance is BIT-EXACT, not an approximation. Static (load-time).
+        internal static byte* IsBypassCandidate;
 
         public static string LastDominantBypassStats = "(dominant-bypass off)";
 
-        // Resolve c's dominant SUPPLY gate for a just-computed value, or 0 if there isn't exactly one.
-        // Scans only c's OWN gnd/pwr channels (inline payload or the overflow Tlist sub-lists). Cheap-ish
-        // (those lists are short) but it is the per-resolution maintenance the whole technique pays for.
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ushort ComputeDominantGate(int nn, byte value)
-        {
-            NodeInfo* ns = NodeInfos + nn;
-            // Special-resolution nodes never name a single supply gate — stay conservative (0 = no skip).
-            if ((ns->Flags & (NodeFlags.ForceCompute | NodeFlags.HasCallback)) != 0) return 0;
-
-            int count = 0, last = 0;
-            if (ns->Inline != 0)
-            {
-                ushort* pay = ns->InlinePayload;
-                int c1c2x2 = ns->C1c2Count << 1;
-                if (value == 0)   // low ⇒ determined by an ON gnd channel
-                {
-                    int s = c1c2x2, e = s + ns->GndCount;
-                    for (int k = s; k < e; k++) { int g = pay[k]; if (NodeStates[g] != 0) { count++; last = g; } }
-                }
-                else              // high ⇒ determined by an ON pwr channel (no gnd reachable, else value'd be 0)
-                {
-                    int s = c1c2x2 + ns->GndCount, e = s + ns->PwrCount;
-                    for (int k = s; k < e; k++) { int g = pay[k]; if (NodeStates[g] != 0) { count++; last = g; } }
-                }
-            }
-            else
-            {
-                int off = (value == 0) ? ns->TlistC1gnd : ns->TlistC1pwr;
-                if (off != 0)
-                {
-                    ushort* p = TransistorList + off;
-                    int g;
-                    while ((g = *p++) != 0) if (NodeStates[g] != 0) { count++; last = g; }
-                }
-            }
-            return count == 1 ? (ushort)last : (ushort)0;
-        }
-
-        // [P-5 — fused singleton resolve + capture] the count-and-capture twin of RecalcNodeFast, taken
-        // when EnableDominantBypass. Computes the value flags AND the dominant-supply gate in ONE pass
-        // over the gnd/pwr channels (the prior cut re-scanned via ComputeDominantGate — this is the "fuse
-        // the maintenance into the existing scan" lever). The branchless OR-scan becomes a branchy
-        // count-and-capture (gndCount/gndLast, pwrCount/pwrLast); the resolved value is unchanged, and the
-        // dominant gate is identical to ComputeDominantGate(nn, resolved): gnd wins (value 0) then pwr
-        // (value 1), a single ON channel of the winning supply names the gate, parallel/none ⇒ 0. Bit-exact.
+        // [P-5 — fused singleton resolve + pinned-bit maintenance] the count-and-capture twin of
+        // RecalcNodeFast, taken only for skip-CANDIDATE nodes. Resolves the value AND sets/clears the pinned
+        // bit in NodeStates in one pass over the gnd/pwr channels (anyG/anyP). The pinned rule (sound + value-
+        // matched): low ⇒ pinned iff it has ≥1 OWN ON gnd channel; high ⇒ pinned iff ≥1 OWN ON pwr channel OR
+        // it has a PullUp (value==1 implies no gnd is reachable, so an own pull-up/pwr holds it high when any
+        // pass channel opens). The pinned bit rides the SetNodeState write — no separate array/stream.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void RecalcNodeFastDom(int nn)
         {
             NodeInfo* ns = NodeInfos + nn;
             int flags = (int)ns->Flags;   // Pwr/Gnd excluded at classify time; anyG<<5==Gnd, anyP<<4==Pwr
-            int gndCount = 0, gndLast = 0, pwrCount = 0, pwrLast = 0;
+            int anyG = 0, anyP = 0;
             if (ns->Inline != 0)
             {
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
-                for (int k = gndStart; k < gndEnd; k++) { int g = pay[k]; if (NodeStates[g] != 0) { gndCount++; gndLast = g; } }
+                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]] & StateBit;
                 int pwrEnd = gndEnd + ns->PwrCount;
-                for (int k = gndEnd; k < pwrEnd; k++) { int g = pay[k]; if (NodeStates[g] != 0) { pwrCount++; pwrLast = g; } }
+                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]] & StateBit;
             }
             else
             {
-                if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; int g; while ((g = *p++) != 0) if (NodeStates[g] != 0) { gndCount++; gndLast = g; } }
-                if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; int g; while ((g = *p++) != 0) if (NodeStates[g] != 0) { pwrCount++; pwrLast = g; } }
+                if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++] & StateBit; }
+                if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++] & StateBit; }
             }
-            if (gndCount != 0) flags |= 1 << 5;   // Gnd
-            if (pwrCount != 0) flags |= 1 << 4;   // Pwr
+            flags |= anyG << 5;   // Gnd
+            flags |= anyP << 4;   // Pwr
 
-            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
+            byte resolved = flags != 0 ? FlagsToState[flags] : (byte)(NodeStates[nn] & StateBit);
+            if (flags != 0) SetNodeState(nn, resolved);
 
-            DominantGate[nn] = gndCount != 0 ? (gndCount == 1 ? (ushort)gndLast : (ushort)0)
-                             : pwrCount != 0 ? (pwrCount == 1 ? (ushort)pwrLast : (ushort)0)
-                             : (ushort)0;
+            // pinned ⇔ the resolved value is held by nn's OWN driver, independent of pass connections.
+            bool pinned = resolved == 0 ? anyG != 0
+                                        : (anyP != 0 || (flags & (int)NodeFlags.PullUp) != 0);
+            // set/clear bit 1 on nn's NodeStates byte (state bit already written by SetNodeState above; if
+            // the state was unchanged SetNodeState returned early, but bit 0 is intact either way).
+            byte cur = NodeStates[nn];
+            NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
+        }
+
+        // [P-5] BFS-path twin: a candidate member `nn` of a just-resolved group got value `value`; set/clear
+        // its pinned bit from its OWN gnd/pwr channels (same rule as RecalcNodeFastDom). Separate scan here
+        // (group members aren't individually supply-scanned in AddNodeToGroup). Reads mask `& StateBit`.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void UpdatePinnedBit(int nn, byte value)
+        {
+            NodeInfo* ns = NodeInfos + nn;
+            bool pinned;
+            if (value == 0)   // pinned-low iff ≥1 OWN ON gnd channel
+            {
+                int anyG = 0;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int s = ns->C1c2Count << 1, e = s + ns->GndCount;
+                    for (int k = s; k < e; k++) anyG |= NodeStates[pay[k]] & StateBit;
+                }
+                else if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) anyG |= NodeStates[*p++] & StateBit; }
+                pinned = anyG != 0;
+            }
+            else              // pinned-high iff ≥1 OWN ON pwr channel OR PullUp (value==1 ⇒ no gnd reachable)
+            {
+                if ((ns->Flags & NodeFlags.PullUp) != 0) pinned = true;
+                else
+                {
+                    int anyP = 0;
+                    if (ns->Inline != 0)
+                    {
+                        ushort* pay = ns->InlinePayload;
+                        int s = (ns->C1c2Count << 1) + ns->GndCount, e = s + ns->PwrCount;
+                        for (int k = s; k < e; k++) anyP |= NodeStates[pay[k]] & StateBit;
+                    }
+                    else if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) anyP |= NodeStates[*p++] & StateBit; }
+                    pinned = anyP != 0;
+                }
+            }
+            byte cur = NodeStates[nn];
+            NodeStates[nn] = pinned ? (byte)(cur | PinnedBit) : (byte)(cur & ~PinnedBit);
         }
     }
 }

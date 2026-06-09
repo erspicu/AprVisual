@@ -20,7 +20,7 @@ namespace AprVisual.Sim
             int pcl = ReadReg(R_CpuPcl), pch = ReadReg(R_CpuPch);
             int pc = (pcl >= 0 && pch >= 0) ? (pch << 8) | pcl : -1;
             int ab = ReadReg(R_CpuAb), db = ReadReg(R_CpuDb);
-            bool sync = N_CpuSync != EmptyNode && NodeStates[N_CpuSync] != 0;
+            bool sync = N_CpuSync != EmptyNode && (NodeStates[N_CpuSync] & StateBit) != 0;
             string H2(int v) => v < 0 ? "--" : v.ToString("X2");
             string H4(int v) => v < 0 ? "----" : v.ToString("X4");
             return $"t={Time,8}  PC={H4(pc)}  A={H2(a)} X={H2(x)} Y={H2(y)} P={H2(p)} S={H2(s)}  IR={H2(ir)}  AB={H4(ab)} DB={H2(db)}{(sync ? "  (fetch)" : "")}";

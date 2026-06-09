@@ -65,14 +65,20 @@ namespace AprVisual.Sim
         internal static void ClassifyPureLogicNodes()
         {
             IsPureLogic = AllocArray<byte>(NodeCount);   // tracked + zeroed; freed in FreeUnmanagedMemory
-            DominantGate = AllocArray<ushort>(NodeCount); // P-5 dominant-driver bypass (used only when EnableDominantBypass); zeroed = "no dominant"
+            IsBypassCandidate = AllocArray<byte>(NodeCount); // [Escape B] 1 = maintain the pinned bit for this node (can ever trigger a skip)
             const NodeFlags exclude = NodeFlags.HasCallback | NodeFlags.ForceCompute | NodeFlags.Pwr | NodeFlags.Gnd;
-            int count = 0, dynCount = 0;
+            int count = 0, dynCount = 0, bypassCand = 0;
             for (int nn = 0; nn < NodeCount; nn++)
             {
                 if (nn == Npwr || nn == Ngnd || Nodes[nn] == null) continue;
                 ref NodeInfo ns = ref NodeInfos[nn];
                 if ((ns.Flags & exclude) != 0) continue;            // class 0 — must go through the BFS (callback / forceCompute resolution)
+                // [Escape B] P-5 maintenance is worth it only for nodes that can ACTUALLY be skipped:
+                // a pass (c1c2) channel (so a turn-off walk reaches them) AND a supply (gnd/pwr) channel
+                // (so they can have a single dominant driver). All others keep DominantGate==0 ⇒ bit-exact.
+                bool hasSupply = ns.Inline != 0 ? (ns.GndCount != 0 || ns.PwrCount != 0) : (ns.TlistC1gnd != 0 || ns.TlistC1pwr != 0);
+                bool hasPass   = ns.Inline != 0 ? (ns.C1c2Count != 0) : (ns.TlistC1c2s != 0);
+                if (hasSupply && hasPass) { IsBypassCandidate[nn] = 1; bypassCand++; }
                 // S2-A2: inline nodes no longer set TlistC1c2s (their channel sublist isn't emitted into
                 // TransistorList), so "has a normal-node channel?" is read from C1c2Count for them.
                 bool hasC1c2 = ns.Inline != 0 ? ns.C1c2Count != 0 : ns.TlistC1c2s != 0;
@@ -98,6 +104,8 @@ namespace AprVisual.Sim
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             double dpct = NonNullNodeCount > 0 ? 100.0 * dynCount / NonNullNodeCount : 0;
             LastFastPathStats = $"fast-path: {count:N0} static pure-logic ({pct:F1}%) + {dynCount:N0} dyn-singleton candidates ({dpct:F1}%) of {NonNullNodeCount:N0} live nodes";
+            double bpct = NonNullNodeCount > 0 ? 100.0 * bypassCand / NonNullNodeCount : 0;
+            LastDominantBypassStats = $"dominant-bypass (P-5, Escape B): {bypassCand:N0} skip-candidate nodes ({bpct:F1}%) maintained, of {NonNullNodeCount:N0} live";
         }
 
         /// <summary>
@@ -238,28 +246,30 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static void RecalcNodeFast(int nn)
         {
-            // [P-5] when the dominant-bypass is enabled, take the FUSED variant that computes the value and
-            // the dominant-supply gate in one pass (no re-scan). Default off ⇒ one predictable branch, then
-            // the pristine branchless path below. See WireCore.DominantBypass.cs.
-            if (EnableDominantBypass) { RecalcNodeFastDom(nn); return; }
+            // [P-5, hardcoded on] if nn is a skip-candidate (Escape B), take the FUSED variant that computes
+            // the value AND the dominant-supply gate in one pass. Non-candidates fall through to the pristine
+            // branchless path below — they keep Bypass[].Dom==0 (never skipped), so paying maintenance only
+            // where it can ever fire. See WireCore.DominantBypass.cs.
+            if (IsBypassCandidate[nn] != 0) { RecalcNodeFastDom(nn); return; }
 
             NodeInfo* ns = NodeInfos + nn;
             // [T-A] keep flags as int throughout — drops the (NodeFlags)((uint)..) casts; anyG<<5==Gnd, anyP<<4==Pwr.
             int flags = (int)ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or 0 (floating); Pwr/Gnd excluded at classify time
 
             // OR-all (branchless, R4): NodeStates is 0/1, so `any` ∈ {0,1}. Same result as early-break, no per-gate branch.
-            // S2-A: read gnd/pwr gates from the inline payload (one cache line) when available.
+            // [P-5 pinned-bit] gate states carry the pinned bit (0x02) in bit 1, so mask `& StateBit` to read
+            // the conduction state only (free under the load latency). S2-A: read from the inline payload.
             if (ns->Inline != 0)
             {
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
                 int anyG = 0;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
+                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]] & StateBit;   // any ON path to GND ⇒ pulled low
                 flags |= anyG << 5;
                 int pwrEnd = gndEnd + ns->PwrCount;
                 int anyP = 0;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
+                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]] & StateBit;      // any ON path to VCC ⇒ pulled high
                 flags |= anyP << 4;
             }
             else
@@ -268,14 +278,14 @@ namespace AprVisual.Sim
                 {
                     ushort* p = TransistorList + ns->TlistC1gnd;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to GND ⇒ pulled low
+                    while (*p != 0) any |= NodeStates[*p++] & StateBit;       // any ON path to GND ⇒ pulled low
                     flags |= any << 5;
                 }
                 if (ns->TlistC1pwr != 0)
                 {
                     ushort* p = TransistorList + ns->TlistC1pwr;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
+                    while (*p != 0) any |= NodeStates[*p++] & StateBit;       // any ON path to VCC ⇒ pulled high
                     flags |= any << 4;
                 }
             }

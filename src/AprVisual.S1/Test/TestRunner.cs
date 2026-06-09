@@ -70,7 +70,7 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
-                    case "--dominant-bypass": WireCore.EnableDominantBypass = true; break;   // RESEARCH (dominant-bypass branch): P-5 dominant-driver turn-off bypass; default off
+                    case "--dominant-bypass": /* no-op: P-5 is hardcoded ON on the dominant-bypass branch */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
                         pin = true;
                         if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _pc)) { pinCore = _pc; i++; }
@@ -566,6 +566,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
                 Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
+                Console.WriteLine($"# {WireCore.LastDominantBypassStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");

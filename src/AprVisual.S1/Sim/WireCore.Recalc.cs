@@ -20,7 +20,9 @@ namespace AprVisual.Sim
         public static ulong NodeStatesChecksum()
         {
             ulong h = 14695981039346656037UL;
-            for (int i = 0; i < NodeCount; i++) { h ^= NodeStates[i]; h *= 1099511628211UL; }
+            // [P-5 pinned-bit] hash only the logic state (bit 0); bit 1 is the pinned metadata and must NOT
+            // enter the checksum, or it would never match the golden value.
+            for (int i = 0; i < NodeCount; i++) { h ^= (ulong)(NodeStates[i] & StateBit); h *= 1099511628211UL; }
             return h;
         }
 
@@ -117,7 +119,7 @@ namespace AprVisual.Sim
             CpOn_N++;
             bool h = RecalcHashNext[c1] == 0;
             bool mu = (PruneMask[c1] & PruneTurnOnUnsafe) != 0;
-            bool x = (NodeStates[c1] ^ NodeStates[c2]) != 0;
+            bool x = ((NodeStates[c1] ^ NodeStates[c2]) & StateBit) != 0;
             bool comb = mu || x;
             if (h) CpOn_NextHash0++;
             if (mu) CpOn_MaskUnsafe++;
@@ -271,12 +273,12 @@ namespace AprVisual.Sim
                 {
                     ushort* pay = ns->InlinePayload;         // [c1c2 pairs ...] — gates at even offsets
                     int n2 = ns->C1c2Count << 1;
-                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) goto FallbackBFS; }
+                    for (int k = 0; k < n2; k += 2) { if ((NodeStates[pay[k]] & StateBit) != 0) goto FallbackBFS; }
                 }
                 else
                 {
                     ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
-                    while (*p != 0) { if (NodeStates[*p] != 0) goto FallbackBFS; p += 2; }
+                    while (*p != 0) { if ((NodeStates[*p] & StateBit) != 0) goto FallbackBFS; p += 2; }
                 }
                 RecalcNodeFast(nn); return;
             }
@@ -284,11 +286,11 @@ namespace AprVisual.Sim
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
-            // [P-5] maintain the dominant-driver record for every member of the just-resolved group
-            // (opt-in). Each member's id is from its OWN single supply matching the group value, or 0 —
-            // so a member pinned by its own gnd/pwr can be skipped when an unrelated incident gate opens.
-            if (EnableDominantBypass)
-                for (int i = 0; i < _groupCount; i++) { int m = _groupBuf[i]; DominantGate[m] = ComputeDominantGate(m, newState); }
+            // [P-5, hardcoded on] maintain the pinned bit for every skip-CANDIDATE member of the just-resolved
+            // group (Escape B candidate gate). Pinned ⇔ the member's value (newState) is held by its OWN
+            // supply/pull-up, independent of pass connections (see UpdatePinnedBit). Non-candidates keep
+            // PinnedBit==0 (never skipped) — bit-exact.
+            for (int i = 0; i < _groupCount; i++) { int m = _groupBuf[i]; if (IsBypassCandidate[m] != 0) UpdatePinnedBit(m, newState); }
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
@@ -305,8 +307,11 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
-            if (NodeStates[nn] == newState) return;
-            NodeStates[nn] = newState;
+            // [P-5 pinned-bit] compare/write only the state bit (bit 0); PRESERVE the pinned bit (bit 1),
+            // which RecalcNodeFastDom / UpdatePinnedBit maintain separately.
+            byte _old = NodeStates[nn];
+            if ((_old & StateBit) == newState) return;
+            NodeStates[nn] = (byte)(newState | (_old & PinnedBit));
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
 #endif
@@ -331,22 +336,21 @@ namespace AprVisual.Sim
                 // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
                 if (newState == 0)
                 {
-#if DEBUG
-                    int npwr = Npwr, ngnd = Ngnd;   // supply-skip is folded into pruneMask now — only the [cond-profile] needs these
-#endif
+                    int npwr = Npwr, ngnd = Ngnd;   // for the P-5 c1 supply guard (and the DEBUG cond-profile)
                     // [P-2 turn-off enqueue prune] skip endpoints that become a driverless isolated singleton
                     // the instant this (their only) channel opens — they float and HOLD their previous value, so
                     // re-evaluating them is a guaranteed no-op. Bit 1 (PruneTurnOffSkip) of the shared PruneMask
                     // is the precomputed static safety mask (C1c2Count==1, no supply/PullUp/FC/callback — see
-                    // ClassifyTurnOffSkip). Bit-exact. [exp supply-skip fold] supply (ngnd/npwr) is ALSO marked
-                    // skip in ClassifyTurnOffSkip, so c2 needs NO explicit `c2!=ngnd && c2!=npwr` guard — it is
-                    // now identical to c1. Clause order: more-selective maskOff (≈20% false) before nextHash==0.
+                    // ClassifyTurnOffSkip). Bit-exact. supply (ngnd/npwr) is ALSO marked skip, so c2 needs no
+                    // explicit supply guard for the P-2 mask. Clause order: maskOff (≈20% false) before nextHash.
+                    // [P-5 pinned-bit skip, hardcoded on] extra skip: a PASS-transistor endpoint c whose
+                    // PinnedBit is set (held by its OWN supply/pull-up) can't change when this non-supply gate
+                    // opens. For a c1 endpoint the other side is c2 — skip only when c2 is NOT supply (else this
+                    // is c1's own supply transistor, whose gate MAY be the pin → enqueue). A c2 endpoint's other
+                    // side (c1) is always a regular node (supply normalised to c2), so a pinned c2 is always a
+                    // pass edge → skip. Supply nodes are never pinned.
                     byte* pruneMask = PruneMask;
-                    // [P-5 dominant-driver bypass] opt-in extra skip: an endpoint c held by a single supply
-                    // driver whose gate is NOT this gate (nn) can't change when nn opens. domOn==false (default)
-                    // short-circuits before any domGate read ⇒ byte-for-byte the P-4 baseline. See WireCore.DominantBypass.cs.
-                    bool domOn = EnableDominantBypass;
-                    ushort* domGate = DominantGate;
+                    byte* nodeStates = NodeStates;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
@@ -356,23 +360,23 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff1(c1a);
 #endif
-                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c1a] != 0 && domGate[c1a] != nn) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && !((nodeStates[c1a] & PinnedBit) != 0 && c2a != npwr && c2a != ngnd) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c2a] != 0 && domGate[c2a] != nn) && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // identical to c1 (supply-skip folded into pruneMask)
+                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && (nodeStates[c2a] & PinnedBit) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // c2's other side (c1) is always regular ⇒ pass edge
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
 #endif
-                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c1b] != 0 && domGate[c1b] != nn) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && !((nodeStates[c1b] & PinnedBit) != 0 && c2b != npwr && c2b != ngnd) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && !(domOn && domGate[c2b] != 0 && domGate[c2b] != nn) && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && (nodeStates[c2b] & PinnedBit) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }
@@ -407,14 +411,15 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOn(c1a, c2a);
 #endif
-                        if (((pruneMask[c1a] & PruneTurnOnUnsafe) | (nodeStates[c1a] ^ nodeStates[c2a])) != 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        // [P-5 pinned-bit] mask the state XOR `& StateBit` so the pinned bit (bit 1) can't make two same-state nodes look different.
+                        if (((pruneMask[c1a] & PruneTurnOnUnsafe) | ((nodeStates[c1a] ^ nodeStates[c2a]) & StateBit)) != 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOn(c1b, c2b);
 #endif
-                        if (((pruneMask[c1b] & PruneTurnOnUnsafe) | (nodeStates[c1b] ^ nodeStates[c2b])) != 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (((pruneMask[c1b] & PruneTurnOnUnsafe) | ((nodeStates[c1b] ^ nodeStates[c2b]) & StateBit)) != 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
                 }
@@ -455,8 +460,8 @@ namespace AprVisual.Sim
         public static void SetLow (string name)  => SetLow (RequireNode(name));
         public static void SetFloat(string name) => SetFloat(RequireNode(name));
 
-        public static bool IsNodeHigh(int nn) => NodeStates[nn] != 0;
-        public static bool IsNodeHigh(string name) => NodeStates[RequireNode(name)] != 0;
+        public static bool IsNodeHigh(int nn) => (NodeStates[nn] & StateBit) != 0;
+        public static bool IsNodeHigh(string name) => (NodeStates[RequireNode(name)] & StateBit) != 0;
         public static int GetNodeFlags(int nn) => (int)NodeInfos[nn].Flags;
 
         private static int RequireNode(string name)
@@ -481,7 +486,7 @@ namespace AprVisual.Sim
             if (clk != EmptyNode)
             {
                 ref NodeInfo ns = ref NodeInfos[clk];
-                int next = NodeStates[clk] ^ 1;
+                int next = (NodeStates[clk] & StateBit) ^ 1;
                 ns.Flags = (ns.Flags & ~(NodeFlags.SetHigh | NodeFlags.SetLow)) | (NodeFlags)(8 >> next);
                 EnqueueNode(clk);
                 ProcessQueue();

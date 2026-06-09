@@ -148,7 +148,7 @@ namespace AprVisual.Sim
         // ROM / read-only RAM: on chip-select active, drive the data-out bus with mem[addr].
         private static void DoMemRead(CallbackInfo cb)
         {
-            if (NodeStates[cb.Cs] != 0) return;
+            if ((NodeStates[cb.Cs] & StateBit) != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
         }
@@ -156,9 +156,9 @@ namespace AprVisual.Sim
         // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
         private static void DoMemReadWrite(CallbackInfo cb)
         {
-            if (NodeStates[cb.Cs] != 0) return;
+            if ((NodeStates[cb.Cs] & StateBit) != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
-            if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
+            if ((NodeStates[cb.We] & StateBit) == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
             else                        WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
         }
 
@@ -166,7 +166,7 @@ namespace AprVisual.Sim
         // video node-lists + master palette. VidPrev (the rising-edge tracker) is per-instance state on cb.
         private static void DoVideo(CallbackInfo cb)
         {
-            bool now = NodeStates[cb.Pclk1] != 0;
+            bool now = (NodeStates[cb.Pclk1] & StateBit) != 0;
             if (!cb.VidPrev && now)
             {
                 int x = ReadBits(_vidHpos, _vidHposLen), y = ReadBits(_vidVpos, _vidVposLen);
@@ -220,7 +220,7 @@ namespace AprVisual.Sim
             // #G1 branchless gather: NodeStates ∈ {0,1} (FlagsToState guarantees), so
             // `v |= state << i` matches `if (state != 0) v |= 1 << i` exactly.
             int v = 0;
-            for (int i = 0; i < nodes.Length; i++) v |= NodeStates[nodes[i]] << i;
+            for (int i = 0; i < nodes.Length; i++) v |= (NodeStates[nodes[i]] & StateBit) << i;   // [P-5] mask the pinned bit
             return v;
         }
 
@@ -242,7 +242,7 @@ namespace AprVisual.Sim
         public static int ReadBits(int* nodes, int len)
         {
             int v = 0;
-            for (int i = 0; i < len; i++) v |= NodeStates[nodes[i]] << i;
+            for (int i = 0; i < len; i++) v |= (NodeStates[nodes[i]] & StateBit) << i;   // [P-5] mask the pinned bit
             return v;
         }
 
@@ -264,7 +264,7 @@ namespace AprVisual.Sim
         {
             // #G1 branchless gather (matches int[] overload).
             int v = 0;
-            for (int i = 0; i < nodes.Count; i++) v |= NodeStates[nodes[i]] << i;
+            for (int i = 0; i < nodes.Count; i++) v |= (NodeStates[nodes[i]] & StateBit) << i;   // [P-5] mask the pinned bit
             return v;
         }
 

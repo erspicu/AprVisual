@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — S2, the second attempt: why abstraction still can't beat the switch-level engine</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  figure{margin:16px 0; text-align:center;}
+  figure img{max-width:100%; border:1px solid var(--bd); border-radius:8px; background:#fff;}
+  figcaption{color:var(--mut); font-size:13px; margin-top:8px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">S2, the second attempt</span><span class="zh">S2,第二次嘗試</span></h1>
+  <p class="sub en">A year-old conclusion, re-run with sharper tools. The first time we tried to abstract the switch-level netlist into logic — the <a href="study.html">Escape-1 study</a> — we found it couldn't beat the S1 engine, but the <i>why</i> stayed shallow. This second pass built three measurement tools, classified every node, exported the whole chip as gates, and asked a strong external model (Gemini) for the cleverest remaining trick. The result is an airtight negative: <b>single-core, event-driven switch-level is exhausted at ~15-20%; real-time is unreachable on this paradigm.</b> Along the way the AI made four confident, specific predictions of where big speedups live. The measurements refuted all four. This is the record of both.</p>
+  <p class="sub zh">一個一年前的結論,用更利的工具重跑一次。第一次嘗試把開關級網表抽象成邏輯 —— <a href="study.html">Escape-1 研究</a> —— 我們發現它贏不過 S1 引擎,但<i>為什麼</i>分析得不夠深。這第二輪做了三個量測工具、替每個節點分類、把整顆晶片匯出成閘級、並請一個強力外部模型(Gemini)給出剩下最妙的招。結論滴水不漏:<b>單核、事件驅動的開關級已在 ~15-20% 見頂;這個範式達不到實機速度。</b>過程中 AI 提出了四個自信、具體的「大加速在哪」預測,而量測把四個全打臉。這是兩者的完整紀錄。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The one number that decides everything</span><span class="zh">決定一切的那一個數字</span></h2>
+  <p class="en">Every abstraction idea — IR, codegen, gate-folding, latch-collapse, bus-merge — is a bet that the engine is doing <i>redundant</i> work that a smarter representation can skip. So before anything else, we measured how much work a single state change actually triggers. The S1 engine resolves a change by walking, through currently-conducting transistors, the <b>group</b> of nodes that share a voltage. We instrumented that walk and ran a full frame:</p>
+  <p class="zh">每一個抽象化想法 —— IR、codegen、閘折疊、閂鎖塌縮、匯流排合併 —— 都是在賭引擎做了<i>多餘</i>的工,而更聰明的表示法能跳過。所以在做任何事之前,我們先量「一次狀態改變到底觸發多少工」。S1 引擎解析一次改變的方式,是沿著當下導通的電晶體,走訪共享同一電壓的那一<b>群</b>節點。我們替這個走訪加了計數器,跑了一整張 frame:</p>
+  <div class="boxes">
+    <div class="box"><div class="n" style="color:#7ee0a8">1.13</div><div class="l"><span class="en">mean BFS group-walk depth</span><span class="zh">BFS 群走訪平均深度</span></div></div>
+    <div class="box"><div class="n">3</div><div class="l">p99 <span class="en">depth</span><span class="zh">深度</span></div></div>
+    <div class="box"><div class="n">14</div><div class="l"><span class="en">max depth (whole frame)</span><span class="zh">整張 frame 最大深度</span></div></div>
+  </div>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>The average conducting group is 1.13 nodes.</b> That is the whole story. The engine already operates at the netlist's <i>natural minimum granularity</i> — when a node flips, it almost never drags anyone else along. There is no fat 1,000-node cascade hiding in there to compress. A pure-logic node is resolved in O(1) by a fast-path that reads a handful of bytes and a lookup-table; ~70% of all re-evaluations are exactly this. <b>An abstraction can only ever remove work that exists.</b> The measured work per change is already ~one node — there is almost nothing to remove.</p>
+    <p class="zh" style="margin:.2em 0"><b>平均導通群是 1.13 個節點。</b>這就是全部的故事。引擎早已運作在網表的<i>天然最小顆粒度</i> —— 一個節點翻動時,幾乎不會把別人一起拖下水。裡面沒有藏著什麼肥大的千節點串連等著被壓縮。一個純邏輯節點由 fast-path 以 O(1) 解掉(讀幾個 byte + 一張查表);所有重算裡約 70% 正是這種。<b>抽象化只能拿掉「存在的工」。</b>而每次改變實測的工已經是「約一個節點」—— 幾乎沒有東西可拿。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Why IR / gate-abstraction can't beat S1 — the mechanism</span><span class="zh">為何 IR / 閘抽象贏不過 S1 —— 機制</span></h2>
+  <p class="en">There are only two ways an abstraction could be faster, and the 1.13 number kills both:</p>
+  <p class="zh">抽象化只有兩種可能變快的途徑,而 1.13 這個數字把兩條都掐死:</p>
+  <h3><span class="en">(a) Cheaper per-node evaluation — swallowed by memory latency</span><span class="zh">(a) 每節點評估更便宜 —— 被記憶體延遲吞掉</span></h3>
+  <p class="en">An S1 pure-logic eval is "read the pull-down gate states, OR them, index a 256-entry LUT." An IR/gate eval replaces the LUT read with a bitwise <code>~(A|B)</code>. In a memory-bound, branch-unpredictable event loop the ALU difference is <b>nothing</b> — the cost is the cache-latency of fetching the inputs, which both pay identically. We measured the floor: ~84 million node re-evaluations per 200k half-cycles = <b>~420 events per half-cycle</b>, ~20 ns each. At ~1-2 ns L1 latency plus dependent pointer-chasing, <b>~20 ns is the CPU's speed-of-light for "resolve one node and propagate it."</b> A cheaper boolean doesn't move it.</p>
+  <p class="zh">S1 的純邏輯評估是「讀下拉閘的狀態、OR 起來、查 256 格 LUT」。IR/閘評估把 LUT 讀換成位元運算 <code>~(A|B)</code>。在 memory-bound、分支難預測的事件迴圈裡,這點 ALU 差異<b>等於零</b> —— 成本是抓取輸入的 cache 延遲,兩者付得一模一樣。我們量了地板:每 20 萬半週期約 8400 萬次節點重算 = <b>每半週期約 420 個事件</b>,每個約 20 奈秒。在約 1-2 奈秒的 L1 延遲加上相依指標追逐之下,<b>約 20 奈秒就是「解一個節點並傳播出去」的 CPU 光速</b>。換成更便宜的布林式動不了它。</p>
+  <h3><span class="en">(b) Fewer nodes — but the foldable ones are already free</span><span class="zh">(b) 更少節點 —— 但能折的早就免費了</span></h3>
+  <p class="en">The logic-gate fold removes internal/intermediate wires. We measured the realistic foldable set at <b>~14.5%</b> of nodes. But those nodes are overwhelmingly the pull-up gate outputs the fast-path <i>already</i> resolves in O(1); folding them into a consumer saves the consumer nothing it wasn't already going to do. The honest expected speedup from the full fold is <b>~2-4%</b>, at real behavioral risk (timing/glitch in a hand-built series-parallel reduction). "15%" is a <i>node-count</i> figure, not a speed figure.</p>
+  <p class="zh">邏輯閘折疊拿掉內部/中介線。我們量出務實可折的集合約佔節點 <b>~14.5%</b>。但這些節點絕大多數正是 fast-path <i>本來就</i>以 O(1) 解掉的上拉閘輸出;把它們折進消費端,並不能讓消費端少做它本來就要做的事。完整折疊老實的預期加速是 <b>~2-4%</b>,還帶著真實的行為風險(手工 series-parallel 化約的時序/毛刺)。「15%」是<i>節點數</i>的數字,不是速度的數字。</p>
+  <div class="note">
+    <p class="en" style="margin:.2em 0"><b>And the AOT route is worse, not better.</b> The project already tried compiling the logic to straight-line code (an IR interpreter, then a codegen back-end, then the "Escape-1" oblivious compile). Every one was <i>slower</i> on one core: IR interpreter <span class="num">−2.5%</span>; AOT/codegen <span class="num">3-6× slower</span>; oblivious-compiled <span class="num">84× slower</span>. The reason is the mirror image of the 1.13 number: a compiled block evaluates the <i>whole</i> region every step (~14,700 nodes) to find the ~420 that changed — it trades sparsity for straight-line speed and loses by ~35×. <a href="ceiling.html">Full IR/codegen data →</a></p>
+    <p class="zh" style="margin:.2em 0"><b>而 AOT 路線是更糟,不是更好。</b>專案早就試過把邏輯編成直線碼(IR 直譯器、再來 codegen 後端、再來「Escape-1」oblivious 編譯)。每一個在單核上都<i>更慢</i>:IR 直譯 <span class="num">−2.5%</span>;AOT/codegen <span class="num">慢 3-6×</span>;oblivious 編譯 <span class="num">慢 84×</span>。原因正是 1.13 這個數字的鏡像:一個編譯區塊每一步都評估<i>整個</i>區域(約 14,700 節點)才能找出那變動的約 420 個 —— 它拿稀疏性去換直線速度,結果輸了約 35×。<a href="ceiling.html">完整 IR/codegen 數據 →</a></p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">The estimators we built — and the predictions they refuted</span><span class="zh">我們建的估算器 —— 以及它們打臉的預測</span></h2>
+  <p class="en">We asked Gemini (a strong model, given the full measured context) where the <i>bigger</i> reductions live beyond the ~15% logic fold. It named four levers and gave confident ceilings. We then built the cheapest measurement for each — and ran them. Here is the prediction next to the fact.</p>
+  <p class="zh">我們問 Gemini(一個強力模型,並附上完整的實測脈絡):除了那 ~15% 邏輯折疊之外,<i>更大</i>的縮減在哪。它點名四根槓桿、給了自信的上限。我們替每一根做了最便宜的量測 —— 並跑了。以下是「預測」對「事實」。</p>
+  <table>
+    <tr>
+      <th><span class="en">Lever (AI's idea)</span><span class="zh">槓桿(AI 的點子)</span></th>
+      <th><span class="en">AI prediction</span><span class="zh">AI 預測</span></th>
+      <th><span class="en">Measured</span><span class="zh">實測</span></th>
+      <th><span class="en">Verdict</span><span class="zh">判決</span></th>
+    </tr>
+    <tr>
+      <td><b>1. Memory / latch collapse</b><br><span class="mut en">"the big lever — collapse OAM/RAM/registers"</span><span class="mut zh">「最大的槓桿 —— 塌縮 OAM/RAM/暫存器」</span></td>
+      <td><span class="num">~30-40%</span> <span class="en">of nodes</span><span class="zh">的節點</span></td>
+      <td><span class="num" style="color:#ff7676">17.3%</span><br><span class="mut en">(clean held bits only 13.0%)</span><span class="mut zh">(乾淨的保存位元只有 13.0%)</span></td>
+      <td><span class="tagN">✗</span> <span class="en">~half</span><span class="zh">約一半</span></td>
+    </tr>
+    <tr>
+      <td><b>2. Bus / decoder abstraction</b><br><span class="mut en">"kills a giant 1,000-node BFS"</span><span class="mut zh">「殺掉一個千節點的大 BFS」</span></td>
+      <td><span class="num">~7%</span> <span class="en">nodes + huge BFS-time win</span><span class="zh">節點 + 巨大的 BFS 時間勝利</span></td>
+      <td><span class="num" style="color:#ff7676">3.8%</span> <span class="en">nodes;</span><span class="zh">節點;</span><br><b><span class="en">no giant BFS exists</span><span class="zh">根本沒有大 BFS</span></b></td>
+      <td><span class="tagN">✗✗</span> <span class="en">premise false</span><span class="zh">前提錯誤</span></td>
+    </tr>
+    <tr>
+      <td><b>3. Clock-phase event gating</b><br><span class="mut en">"highly lucrative — skip glitches"</span><span class="mut zh">「非常有賺頭 —— 跳過毛刺」</span></td>
+      <td><span class="num">~20-35%</span> <span class="en">fewer events</span><span class="zh">更少事件</span></td>
+      <td><span class="num" style="color:#ff7676">0.3%</span> <span class="en">of pops</span><span class="zh">的彈出</span></td>
+      <td><span class="tagN">✗✗✗</span> <span class="en">~100× off</span><span class="zh">差約 100 倍</span></td>
+    </tr>
+    <tr>
+      <td><b>4. Deeper logic folding</b><br><span class="mut en">"fanout-2, adder/XOR cells"</span><span class="mut zh">「fanout-2、加法器/XOR cell」</span></td>
+      <td><span class="num">2-4%</span> <span class="en">extra</span><span class="zh">額外</span></td>
+      <td><span class="en">matches — but adds risk for noise</span><span class="zh">吻合 —— 但為噪音等級的量加風險</span></td>
+      <td><span class="tagY">≈</span> <span class="en">"dead end" (its own words)</span><span class="zh">「死路」(它自己說的)</span></td>
+    </tr>
+  </table>
+  <h3><span class="en">The sharpest refutation: there is no giant BFS</span><span class="zh">最尖銳的打臉:根本沒有大 BFS</span></h3>
+  <p class="en">Lever 2's entire rationale was "one toggle in the 1,076-node channel component fires a BFS touching ~1,000 nodes — abstract it away to kill that." We found the 1,076-node component, then measured the actual walk: <b>depth 1.13, max 14</b>. The fast-path and the <a href="prunes.html">P-1 → P-4 prunes</a> already keep every conducting group tiny. The 1,000-node BFS the prediction was built on <i>does not happen</i>. This is the cleanest case of a confident, mechanistically-plausible AI argument resting on a quantity nobody had measured — and being wrong by ~750×.</p>
+  <p class="zh">槓桿 2 的整套理由是「那個 1,076 節點的通道連通塊裡只要有一個翻動,就會觸發一個掃過約 1,000 個節點的 BFS —— 抽象掉它來消滅那個」。我們找到了那個 1,076 節點的連通塊,然後量了實際走訪:<b>深度 1.13、最大 14</b>。fast-path 與 <a href="prunes.html">P-1 → P-4 剪枝</a>早就把每個導通群壓得很小。那個預測賴以成立的千節點 BFS <i>根本不會發生</i>。這是最乾淨的一個例子:一個自信、機制上看似合理的 AI 論證,建立在一個沒人量過的量上 —— 然後錯了約 750 倍。</p>
+  <p class="mut en">Why was the AI consistently optimistic? Because its priors are CMOS / generic-EDA: it expected series NAND stacks (NMOS has almost none — body-effect makes designers use parallel NOR), giant data-bus BFS cascades (the prunes already flattened them), and clock-phase glitch storms (the same prunes already drop them at enqueue). Every overshoot is a textbook structure that <i>this</i> already-optimized engine had quietly removed.</p>
+  <p class="mut zh">AI 為何一貫樂觀?因為它的先驗是 CMOS / 通用 EDA:它預期有串接 NAND 堆疊(NMOS 幾乎沒有 —— body effect 讓設計者改用並聯 NOR)、巨大的資料匯流排 BFS 串連(剪枝早把它們壓平了)、以及時脈相位的毛刺風暴(同一批剪枝早在入列時就丟掉了)。每一次高估,都是一個教科書結構,而<i>這顆</i>已被優化過的引擎早就悄悄把它移除了。</p>
+</section>
+
+<section>
+  <h2><span class="en">What the chip actually is: 95.4% digital, 4.2% analog</span><span class="zh">這顆晶片到底是什麼:95.4% 數位、4.2% 類比</span></h2>
+  <p class="en">The same classification pass that fed the estimators also tagged every node with a gate-class and a digital-ness bucket. Purely from the netlist's structure (no simulation), the 14,727 live nodes split:</p>
+  <p class="zh">餵給估算器的同一個分類流程,也替每個節點標上閘類別與數位性歸類。純粹從網表結構(不靠模擬),14,727 個有效節點分成:</p>
+  <div class="boxes">
+    <div class="box"><div class="n" style="color:#7ee0a8">43.4%</div><div class="l"><span class="en">static logic (NOR / inverter / series)</span><span class="zh">靜態邏輯(NOR/反相器/串接)</span></div></div>
+    <div class="box"><div class="n" style="color:#ffd479">51.9%</div><div class="l"><span class="en">dynamic digital (registers / latches / precharge)</span><span class="zh">動態數位(暫存器/閂鎖/預充電)</span></div></div>
+    <div class="box"><div class="n" style="color:#ff7676">4.2%</div><div class="l"><span class="en">analog (bus charge-share / float)</span><span class="zh">類比(匯流排電荷分享/浮接)</span></div></div>
+  </div>
+  <p class="en">So <b>digital (logic + registers) = 95.4%</b>. This independently re-derives the <a href="study.html">Escape-1</a> headline — that ~98.9% of the chip's activity is reducible to logic + registers and only ~1.1% is genuinely analog — but this time from a <i>purely structural</i> pass, not a behavioral one. (Our 4.2% over-counts true analog: it lumps in routing fabric that is behaviorally digital, so the real analog core is even smaller, consistent with the 1.1%.) The conclusion is robust precisely <i>because</i> the digital share is so high: the chip <b>is</b> almost all logic. And it <b>still</b> can't be sped up — because being logic is not the bottleneck; the per-event memory latency is.</p>
+  <p class="zh">所以 <b>數位(邏輯+暫存器)= 95.4%</b>。這獨立地重新推導出 <a href="study.html">Escape-1</a> 的標題結論 —— 晶片約 98.9% 的活動可化約成邏輯+暫存器、只有約 1.1% 是真類比 —— 但這次是從<i>純結構</i>的分析,而不是行為的。(我們的 4.2% 高估了真類比:它把行為上其實是數位的路由布線也算進去,所以真正的類比核心更小,與 1.1% 一致。)結論之所以穩固,正<i>因為</i>數位佔比如此之高:這顆晶片<b>幾乎全是</b>邏輯。然而它<b>依然</b>無法被加速 —— 因為「是邏輯」不是瓶頸;每事件的記憶體延遲才是。</p>
+</section>
+
+<section>
+  <h2><span class="en">The external model's final verdict</span><span class="zh">外部模型的最終判決</span></h2>
+  <p class="en">We handed Gemini the full measured table above plus the project's catalogue of nine proven dead-ends, and asked it directly: is there <i>any</i> single-core, event-driven lever left above ~20%? Its answer opened: <b>"You are done."</b> It then did the arithmetic that makes the wall physical, not strategic:</p>
+  <p class="zh">我們把上面完整的實測表、加上專案九條已證實的死路清單交給 Gemini,直接問:還有<i>任何</i>單核、事件驅動、超過 ~20% 的槓桿嗎?它的回答開頭是:<b>「你做完了。」</b>接著它做了那個讓這道牆變成物理、而非策略問題的算術:</p>
+  <div class="bad">
+    <p class="en" style="margin:.2em 0">~420 events/half-cycle at ~20 ns each is the hardware floor. To hit NES real-time (42,954,552 hc/s) you would have to process those 420 events in <b>0.05 ns per half-cycle</b> — a 4 GHz CPU completes <b>0.2 clock cycles</b> in that time. "You have built the fastest software switch-level NMOS engine possible. The laws of physics on a Von Neumann architecture say you stop here."</p>
+    <p class="zh" style="margin:.2em 0">每半週期約 420 個事件、每個約 20 奈秒,就是硬體地板。要達到 NES 實機(每秒 42,954,552 hc),你得在<b>每半週期 0.05 奈秒</b>內處理完那 420 個事件 —— 一顆 4 GHz CPU 在那段時間只能跑完 <b>0.2 個時脈週期</b>。「你已經做出最快的軟體開關級 NMOS 引擎。在 Von Neumann 架構上,物理定律說你到此為止。」</p>
+  </div>
+  <p class="en">Notably, this is the same model that, one round earlier, predicted a "3-5× → ~300-500K hc/s" headroom from the four levers. The difference between the two answers was not a better model — it was <b>data</b>. Given the measurements, even the optimistic model converged on the negative result the project had already reached the hard way.</p>
+  <p class="zh">值得注意的是,這正是上一輪預測那四根槓桿能帶來「3-5× → ~30-50 萬 hc/s」餘裕的同一個模型。兩個答案的差別不是換了更好的模型 —— 是<b>數據</b>。在有了量測之後,連樂觀的模型都收斂到專案早已用最硬的方式抵達的那個負結論。</p>
+</section>
+
+<section>
+  <h2><span class="en">The catalogue of dead-ends (the wall, mapped)</span><span class="zh">死路清單(已被測繪的牆)</span></h2>
+  <p class="en">None of this is one model's opinion. It is what the project measured, on real hardware, with bit-exact checksums where the idea was supposed to be exact:</p>
+  <p class="zh">這些都不是某個模型的意見。這是專案在真實硬體上量出來的,凡是「應該等價」的點子都帶 bit-exact checksum:</p>
+  <table>
+    <tr><th><span class="en">Idea</span><span class="zh">點子</span></th><th><span class="en">Result vs S1</span><span class="zh">對 S1 結果</span></th><th><span class="en">Root cause</span><span class="zh">根因</span></th></tr>
+    <tr><td><span class="en">AOT / codegen macro-block</span><span class="zh">AOT / codegen 巨集區塊</span></td><td class="num" style="color:#ff7676">3-6× slower</td><td><span class="en">dense re-eval destroys sparsity</span><span class="zh">密集重算摧毀稀疏性</span></td></tr>
+    <tr><td><span class="en">Oblivious compiled (Escape-1)</span><span class="zh">Oblivious 編譯(Escape-1)</span></td><td class="num" style="color:#ff7676">84× slower</td><td><span class="en">i-cache, same cause</span><span class="zh">i-cache,同因</span></td></tr>
+    <tr><td><span class="en">IR interpreter</span><span class="zh">IR 直譯器</span></td><td class="num" style="color:#ff7676">−2.5%</td><td><span class="en">ALU win swallowed by latency</span><span class="zh">ALU 勝利被延遲吞掉</span></td></tr>
+    <tr><td><span class="en">GPU, single instance</span><span class="zh">GPU,單一實例</span></td><td class="num" style="color:#ff7676">10.7× slower</td><td><span class="en">divergent branches, sync</span><span class="zh">分支發散、同步</span></td></tr>
+    <tr><td><span class="en">Bit-parallel / bitset BFS</span><span class="zh">位元平行 / bitset BFS</span></td><td class="num" style="color:#ff7676">156× slower</td><td><span class="en">walks avg 1.4 nodes — overhead crushes them</span><span class="zh">走訪平均 1.4 節點 —— 額外開銷壓垮它</span></td></tr>
+    <tr><td><span class="en">Per-chip / fine parallelism</span><span class="zh">每晶片 / 細粒度平行</span></td><td class="num" style="color:#ff7676">15× slower</td><td><span class="en">per-wave work too small to amortize sync</span><span class="zh">每波工太小,攤不掉同步</span></td></tr>
+    <tr><td><span class="en">Counter-maintained O(1) fast-path</span><span class="zh">計數器維護的 O(1) fast-path</span></td><td class="num" style="color:#ff7676">−6%</td><td><span class="en">maintenance in hotter path > saving</span><span class="zh">在更熱路徑的維護 > 省下的</span></td></tr>
+    <tr><td><a href="dominant-bypass.html"><span class="en">Dominant-driver bypass (P-5)</span><span class="zh">主導驅動旁路(P-5)</span></a></td><td class="num" style="color:#ff7676">−6.84%</td><td><span class="en">+13.76% skip, but ~7% maintenance floor</span><span class="zh">+13.76% 跳過,但 ~7% 維護地板</span></td></tr>
+    <tr><td><span class="en">Under-settle (cap the settle)</span><span class="zh">欠收斂(限制 settle)</span></td><td class="num" style="color:#ff7676"><span class="en">CPU crashes</span><span class="zh">CPU 崩潰</span></td><td><span class="en">deepest 0.58% is the real critical path</span><span class="zh">最深的 0.58% 就是真正的關鍵路徑</span></td></tr>
+  </table>
+  <p class="mut en">The structural reason behind all of it: ~94% of the netlist is one bidirectional strongly-connected component — there is no auto-derivable static schedule (DAG) to compile to; only the ~6% feed-forward fringe is statically orderable. <a href="frontier.html">The frontier proof →</a></p>
+  <p class="mut zh">這一切背後的結構原因:約 94% 的網表是一個雙向的強連通分量 —— 沒有可自動推導的靜態排程(DAG)可編譯;只有約 6% 的前饋邊緣能靜態排序。<a href="frontier.html">前緣的證明 →</a></p>
+</section>
+
+<section>
+  <h2><span class="en">What the abstraction <i>is</i> good for: the gate-level view</span><span class="zh">這個抽象化<i>真正</i>的用處:閘級視圖</span></h2>
+  <p class="en">The abstraction failed as a speed lever — but it succeeded as a <b>lens</b>. The classifier turns the transistor hairball into a typed, named gate-level netlist that an emulator developer can actually read. We exported the whole 2A03+2C02:</p>
+  <p class="zh">這個抽象化作為速度槓桿失敗了 —— 但作為一面<b>透鏡</b>成功了。分類器把電晶體毛線球變成一份有類別、有名字的閘級網表,emulator 開發者真的看得懂。我們把整顆 2A03+2C02 匯出:</p>
+  <ul>
+    <li><span class="en"><b>Structural Verilog</b>: 3,398 <i>exact</i> NOR/inverter boolean assigns (<code>assign Y = ~(a | b);</code>), 4,908 series-gate (AOI) cells with fan-in listed, 1,910 dynamic latches with their write-control and data-source identified, 12,817 named wires. (Series/dynamic cells are annotated, never given a possibly-wrong closed-form — honesty over completeness.)</span><span class="zh"><b>結構化 Verilog</b>:3,398 個<i>精確</i>的 NOR/反相器布林式(<code>assign Y = ~(a | b);</code>)、4,908 個列出扇入的串接閘(AOI)、1,910 個認出寫入控制與資料來源的動態閂鎖、12,817 條具名線。(串接/動態 cell 用標註,絕不給出可能錯的封閉式 —— 誠實優先於完整。)</span></li>
+    <li><span class="en"><b>Graphviz</b> signal-flow graph: 30,700 edges, colored by gate class, clustered cpu / ppu.</span><span class="zh"><b>Graphviz</b> 訊號流圖:30,700 條邊、依閘類別上色、依 cpu / ppu 分群。</span></li>
+    <li><span class="en"><b>Register/latch boundaries</b>: 1,028 multi-bit groups auto-recovered from names (<code>a0..a7 → a[7:0]</code>) — real NES registers surface: <code>ppu.vramaddr_v[14:0]</code>, <code>ppu.tile_l[15:0]</code>, <code>cpu.sq0_t[10:0]</code> (APU square timer), <code>BA[15:0]</code> (address bus).</span><span class="zh"><b>暫存器/閂鎖邊界</b>:從名稱自動還原 1,028 組多位元(<code>a0..a7 → a[7:0]</code>)—— 真實 NES 暫存器浮現:<code>ppu.vramaddr_v[14:0]</code>、<code>ppu.tile_l[15:0]</code>、<code>cpu.sq0_t[10:0]</code>(APU 方波計時器)、<code>BA[15:0]</code>(位址匯流排)。</span></li>
+  </ul>
+  <figure>
+    <img src="pic/s2_gatelevel_sq0.png" alt="gate-level view of the APU square-0 duty logic">
+    <figcaption><span class="en">One small slice, sliced out by name (<code>--gate-filter cpu.sq0_du</code>) and rendered: the 2A03's APU square-0 duty-cycle logic. Light green = inverter, dark green = series gate, amber = APU clock / dynamic-storage bit; the orange <code>ctrl</code> edges are the clock gating the series gates. From a 14,727-node hairball to a readable schematic.</span><span class="zh">用名稱切出一小塊(<code>--gate-filter cpu.sq0_du</code>)並渲染:2A03 的 APU 方波-0 duty 邏輯。淺綠=反相器、深綠=串接閘、琥珀=APU 時脈/動態儲存位元;橘色 <code>ctrl</code> 邊是時脈閘控那些串接閘。從 14,727 節點的毛線球,變成看得懂的電路圖。</span></figcaption>
+  </figure>
+  <p class="en">This is where the value landed: not a faster sim, but a <b>verifiable, navigable map</b> of the silicon — named registers to set watchpoints on, a Φ1/Φ2-aware structure for chasing the undocumented hardware glitches emulators argue about, and a standard-EDA export to trace logic paths. The speed question is closed; the chip is now legible.</p>
+  <p class="zh">價值落在這裡:不是更快的模擬,而是一張<b>可驗證、可導覽的</b>矽晶圖 —— 有名字的暫存器可下中斷點、有相位(Φ1/Φ2)意識的結構可追那些 emulator 爭論不休、沒文件的硬體 glitch、以及一份標準 EDA 匯出可追邏輯路徑。速度的問題關閉了;這顆晶片現在讀得懂了。</p>
+</section>
+
+<section>
+  <h2><span class="en">Conclusion</span><span class="zh">結論</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0">The second S2 attempt reached the same place as the first — abstraction does not beat S1 — but this time the floor is mapped exactly. <b>Single-core, event-driven switch-level is exhausted at ~15-20%</b>, because the engine already runs at the netlist's natural minimum granularity (group depth 1.13) and is bound by ~20 ns of memory latency per event, not by computation. Every "bigger lever" — memory collapse, bus abstraction, clock-phase gating, deeper folding — was predicted optimistically by a strong model and refuted by measurement, by factors of ~2× to ~100×. The AOT escape from event-driven is worse (3-84× slower), because it trades the sparsity that makes the engine fast. Real-time on this paradigm is not a missing trick; it is 0.05 ns of physics. <b>The win that remains is the gate-level view — the chip, finally legible.</b></p>
+    <p class="zh" style="margin:.2em 0">第二次 S2 嘗試抵達了與第一次相同的地方 —— 抽象化贏不過 S1 —— 但這次把地板精確測繪了出來。<b>單核、事件驅動的開關級在 ~15-20% 見頂</b>,因為引擎早已運作在網表的天然最小顆粒度(群深度 1.13),受限於每事件約 20 奈秒的記憶體延遲,而非計算。每一根「更大的槓桿」—— 記憶體塌縮、匯流排抽象、時脈相位閘控、更深的折疊 —— 都被一個強力模型樂觀預測、又被量測以約 2× 到約 100× 的倍率打臉。逃離事件驅動的 AOT 路線更糟(慢 3-84×),因為它換掉了讓引擎變快的稀疏性。這個範式上的實機速度不是缺一招;是 0.05 奈秒的物理。<b>留下來的勝利是那個閘級視圖 —— 這顆晶片,終於讀得懂了。</b></p>
+  </div>
+  <p class="mut en">Measurements: full_palette, 14,727 live nodes, ~26.7K transistors, AMD Ryzen 7 3700X, S1 ≈ 115K hc/s. Estimators + classifier + export run load-time / DEBUG-instrumented; the engine is bit-exact and untouched (whole-NES checksum <code>0x9B103E5E206E4C37</code> @200k). Tools: <code>--gate-abs-estimate</code>, <code>--gate-classify</code>, <code>--gate-export</code> in <code>src/AprVisual.S2</code>. 2026-06-10.</p>
+  <p class="mut zh">量測:full_palette、14,727 有效節點、約 26.7K 電晶體、AMD Ryzen 7 3700X、S1 ≈ 115K hc/s。估算器+分類器+匯出皆為載入期 / DEBUG 計數;引擎 bit-exact 且未更動(整機 checksum <code>0x9B103E5E206E4C37</code> @20 萬)。工具:<code>src/AprVisual.S2</code> 的 <code>--gate-abs-estimate</code>、<code>--gate-classify</code>、<code>--gate-export</code>。2026-06-10。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="study.html">&larr; <span class="en">The earlier study (Escape-1)</span><span class="zh">較早的研究(Escape-1)</span></a> &nbsp;·&nbsp; <a href="ceiling.html"><span class="en">IR / codegen data</span><span class="zh">IR / codegen 數據</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">S2, the second attempt: abstraction still can't beat S1. The floor is now mapped — group depth 1.13, ~20 ns/event, ~15-20% ceiling — and four confident AI predictions (memory 30-40%, bus 7% + giant BFS, clock-phase 20-35%) were refuted by measurement (17.3% / 3.8% + no BFS / 0.3%). The value is the gate-level view. 2026-06-10.</span><span class="zh">S2,第二次嘗試:抽象化仍贏不過 S1。地板已測繪 —— 群深度 1.13、每事件約 20 奈秒、~15-20% 上限 —— 四個自信的 AI 預測(記憶體 30-40%、匯流排 7% + 大 BFS、時脈相位 20-35%)都被量測打臉(17.3% / 3.8% + 沒有 BFS / 0.3%)。價值是閘級視圖。2026-06-10。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

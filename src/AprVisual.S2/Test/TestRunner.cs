@@ -22,6 +22,7 @@ namespace AprVisual.Test
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            string? gateAbsPath = null;   // S2 --gate-abs-estimate: node-reduction go/no-go (diagnostic only)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -59,6 +60,7 @@ namespace AprVisual.Test
                     case "--dump-system":     dumpSystem = true; break;
                     case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
                     case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
+                    case "--gate-abs-estimate": if (i + 1 < args.Length) gateAbsPath = args[++i]; break;      // S2: how many nodes a gate-abstraction could eliminate (go/no-go)
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
@@ -108,6 +110,7 @@ namespace AprVisual.Test
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);
             if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
+            if (gateAbsPath   != null) return GateAbsEstimateMode(gateAbsPath);
             if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
@@ -199,6 +202,20 @@ namespace AprVisual.Test
             {
                 WireCore.LoadSystem(rom);
                 Console.WriteLine(WireCore.FcTaintStats());
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── S2 --gate-abs-estimate: node-reduction go/no-go for the gate-abstraction plan ──
+        private static int GateAbsEstimateMode(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                Console.WriteLine(WireCore.GateAbsEstimate());
                 return 0;
             }
             finally { WireCore.Shutdown(); }

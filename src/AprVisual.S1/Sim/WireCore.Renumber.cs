@@ -1,37 +1,27 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace AprVisual.Sim
 {
-    // ── Co-activity node renumbering (load-time experiment) ─────────────────────────────────────────────
+    // ── Class-major node renumbering, ALWAYS ON (range-prune + self-captured locality key) ─────────────
     //
-    // The hot loop's cost is the random gather of per-node data (NodeInfos 16B = 4/line, plus six 1-byte
-    // arrays = 64/line). The co-activity profiler measured that one half-cycle pops ~360 distinct nodes
-    // spread over ~199 NodeInfo cache lines under the layout-derived numbering — vs a perfect-packing
-    // floor of ~90 (headroom 2.21×). This pass renumbers nodes so that nodes that pop at similar
-    // positions within a half-cycle get ADJACENT ids, compressing the per-window line footprint of every
-    // id-indexed hot array at once.
+    // Purpose 1 — RANGE-PRUNE (+3.6%): sort ids CLASS-MAJOR so each prune class is one contiguous id
+    // block and SetNodeState's prune checks become register compares (see RangePrune* below).
+    // Purpose 2 — LOCALITY (+6.2%): within each class block, order nodes by the TRUE first-touch order
+    // of the production settle cascade, SELF-CAPTURED at load (no file, no flag, any ROM — the key is
+    // re-derived from the actual chip every load, so it cannot go stale).
     //
-    // Flow: (1) a DEBUG bench run with --co-profile <file> dumps per-node (popCount, meanPos) — pop
-    // counts are deterministic, so a Debug profile is valid for Release; (2) a Release run with
-    // --renumber <file> applies the permutation at load, right after ComposeSystem (post-lowering, so
-    // profile ids match), BEFORE handlers attach (their fake nodes alloc past the permuted range =
-    // identity). Bit-exactness: the simulation has exactly ONE id-order-dependent site — the power-on
-    // RecomputeAllNodes enqueue sweep — which (like NodeStatesChecksum) iterates in ORIGINAL id order
-    // via the permutation, so a renumbered run produces the same physical event sequence and the SAME
-    // golden checksum as an identity run.
+    // Flow (LoadSystem, auto, three passes): pass 0 classifies the prune bits under identity ids;
+    // pass 1 builds class-major with a temporary blind-BFS key — its ranges VERIFY, so the prunes are
+    // ON — then warms past the reset transient and records first-touch through the cold instrumented
+    // settle copy (WarmupCaptureFirstTouch), translated back to identity ids; pass 2 is the final
+    // build with bits + captured key. Bit-exactness: the simulation has exactly ONE id-order-dependent
+    // site — the power-on RecomputeAllNodes enqueue sweep — which (like NodeStatesChecksum) iterates
+    // in ORIGINAL id order via the permutation, so a renumbered run produces the same physical event
+    // sequence and the SAME golden checksums as an identity run. The hot path compiles ONLY the
+    // range-compare form — no mode branch, no parameters.
     internal static unsafe partial class WireCore
     {
-        /// <summary>--renumber &lt;profile file&gt;: apply a co-activity permutation at load (null = off).
-        /// Overrides the automatic two-phase class renumber (for locality-key experiments).</summary>
-        public static string? RenumberFile;
-
-        // The automatic class-major renumber is ALWAYS ON (not parameterized): LoadSystem runs a first
-        // pass with identity ids up to Reset() (classifiers final, NO settle), captures each node's
-        // prune class, then rebuilds with the class-major permutation. Locality key within each class
-        // block = the clk-BFS signal-flow order (approximates the settle cascade's first-touch order).
-        // The hot path compiles ONLY the range-compare form — no mode branch exists at runtime.
 
         /// <summary>Pass-1-captured PruneMask bits per identity id (consumed once by ApplyRenumber).</summary>
         internal static byte[]? PendingClassBits;
@@ -139,44 +129,20 @@ namespace AprVisual.Sim
 
         public static string LastRenumberStats = "(no renumber)";
 
-        /// <summary>PruneMask bits of a node (safe accessor for the managed --co-profile dump).</summary>
-        public static int GetPruneBits(int nn) => PruneMask != null ? (PruneMask[nn] & 3) : 0;
-
         internal static void ApplyRenumber()
         {
-            if (RenumberFile == null && PendingClassBits == null) return;
+            if (PendingClassBits == null) return;
             int n = NodeArrayCount;
 
-            // ── sources: (a) --renumber profile file "<nodeId> <popCount> <meanPos> [<firstTouchSeq>]
-            //    [<pruneBits>]" (DEBUG --co-profile dump; locality key = firstTouchSeq, else meanPos);
-            //    (b) AUTO: PendingClassBits captured by the pass-1 Reset (bits only; locality key =
-            //    original id — the physical-layout adjacency, measured equivalent). When bits are
-            //    present they are the MAJOR key (contiguous class blocks → the prune masks become
-            //    register range-compares; see RangePrune* above). ──
+            // ── inputs (both captured by earlier passes, identity ids): PendingClassBits = the prune
+            //    classes (the MAJOR key — contiguous class blocks → the prune masks become register
+            //    range-compares; see RangePrune* above); PendingLocalityOrder = the self-captured
+            //    first-touch order (the locality key; absent on the pass-1 temporary build). ──
             var sortKey = new double[n];
             var profiled = new bool[n];
             var pruneBits = new int[n];
             bool haveBits = false;
             int profiledCount = 0;
-            if (RenumberFile != null)
-            {
-                foreach (string line in File.ReadLines(RenumberFile))
-                {
-                    if (line.Length == 0 || line[0] == '#') continue;
-                    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length < 3 || !int.TryParse(parts[0], out int nn)) continue;
-                    if (nn < 0 || nn >= n) continue;
-                    double key;
-                    bool hot;
-                    if (parts.Length >= 4 && double.TryParse(parts[3], System.Globalization.CultureInfo.InvariantCulture, out double ft))
-                    { key = ft; hot = long.TryParse(parts[1], out long pc) && pc > 0; if (!hot) key = double.PositiveInfinity; }
-                    else if (double.TryParse(parts[2], System.Globalization.CultureInfo.InvariantCulture, out double mp)) { key = mp; hot = true; }
-                    else continue;
-                    if (parts.Length >= 5 && int.TryParse(parts[4], out int pb)) { pruneBits[nn] = pb & 3; haveBits = true; }
-                    sortKey[nn] = key; profiled[nn] = hot; if (hot) profiledCount++;
-                }
-            }
-            else
             {
                 var bits = PendingClassBits!;
                 int m = Math.Min(n, bits.Length);
@@ -297,9 +263,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < n; i++) permU[i] = (ushort)perm[i];
             RenumberPerm = permU;
             RenumberPermLen = n;
-            LastRenumberStats = RenumberFile != null
-                ? $"renumber: co-activity permutation applied ({profiledCount:N0} profiled of {n:N0} ids{(haveBits ? $", range-prune blocks A={RangePruneA} S={RangePruneS} B={RangePruneB}" : "")}, {RenumberFile})"
-                : $"renumber: AUTO class-major permutation ({n:N0} ids, range-prune blocks A={RangePruneA} S={RangePruneS} B={RangePruneB})";
+            LastRenumberStats = $"renumber: AUTO class-major permutation ({n:N0} ids, {profiledCount:N0} locality-keyed, range-prune blocks A={RangePruneA} S={RangePruneS} B={RangePruneB})";
         }
     }
 }

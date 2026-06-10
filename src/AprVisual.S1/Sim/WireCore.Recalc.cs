@@ -21,7 +21,7 @@ namespace AprVisual.Sim
         /// historical goldens (0x794A43ABDF169ADA @300k etc.).</summary>
         public static ulong NodeStatesChecksum()
         {
-            // Under --renumber, hash in ORIGINAL id order (via the permutation) so the checksum stays
+            // Under the auto renumber, hash in ORIGINAL id order (via the permutation) so the checksum stays
             // directly comparable with the golden values of the identity numbering.
             ushort* perm = RenumberPerm;
             int permLen = RenumberPermLen;
@@ -35,7 +35,7 @@ namespace AprVisual.Sim
 
         /// <summary>Re-evaluate every (non-supply) node — used at power-on after Reset(). Port of Wires::recomputeAllNodes.
         /// The ONLY id-order-dependent site in the engine (power-on settle order feeds the floating
-        /// hold-previous tie-break) — under --renumber it iterates in ORIGINAL id order via the
+        /// hold-previous tie-break) — under the auto renumber it iterates in ORIGINAL id order via the
         /// permutation, so a renumbered run is bit-exact with the identity run.</summary>
         public static void RecomputeAllNodes()
         {
@@ -169,10 +169,6 @@ namespace AprVisual.Sim
         // can't gain. Also tracks the GLOBAL hot set (nodes that ever pop) and its line footprint.
         internal static long CoWindows, CoSumPops, CoSumDistinctNodes, CoSumDistinctLines;
         internal static int CoGlobalNodes, CoGlobalLines;
-        internal static double[]? CoSumPos;   // per-node Σ(position within half-cycle window) — --co-profile dump
-        internal static long[]? CoPopCount;   // per-node pop count
-        internal static long[]? CoFirstTouch; // per-node global pop-sequence index of FIRST steady-state pop (greedy line-packing key)
-        private static long _coPopSeq;
         private static long[]? _coLastNode, _coLastLine;   // lastSeen window id per node / per line
         private static long _coCurWindow = -1;
         private static int _coWinPops, _coWinNodes, _coWinLines;
@@ -184,7 +180,6 @@ namespace AprVisual.Sim
             // among the hot core) and dilutes the headroom stats. Skip until well past the reset sequence.
             if (Time < 384) return;
             if (_coLastNode == null) { _coLastNode = new long[NodeCount]; _coLastLine = new long[(NodeCount >> 2) + 1];
-                CoSumPos = new double[NodeCount]; CoPopCount = new long[NodeCount]; CoFirstTouch = new long[NodeCount];
                 for (int i = 0; i < _coLastNode.Length; i++) _coLastNode[i] = -1;
                 for (int i = 0; i < _coLastLine!.Length; i++) _coLastLine[i] = -1; }
             if (Time != _coCurWindow)
@@ -193,9 +188,6 @@ namespace AprVisual.Sim
                 _coCurWindow = Time; _coWinPops = _coWinNodes = _coWinLines = 0;
             }
             _coWinPops++;
-            _coPopSeq++;
-            if (CoPopCount![nn] == 0) CoFirstTouch![nn] = _coPopSeq;   // greedy packing: first steady-state pop order
-            CoSumPos![nn] += _coWinPops; CoPopCount[nn]++;   // position within this half-cycle window (1-based)
             if (_coLastNode[nn] == -1) CoGlobalNodes++;
             if (_coLastNode[nn] != Time) { _coLastNode[nn] = Time; _coWinNodes++; }
             int line = nn >> 2;

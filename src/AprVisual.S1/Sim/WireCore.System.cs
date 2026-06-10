@@ -96,14 +96,13 @@ namespace AprVisual.Sim
             // the classifiers (end of Reset, before ANY settle) produce the final PruneMask — captures
             // each node's prune class, then loops back: pass 2 re-composes (ResetBuild clears all of
             // pass 1) and ApplyRenumber sorts ids class-major, making the prune facts contiguous id
-            // RANGES (the RANGE_PRUNE compare path). A --renumber profile file skips the extra pass
-            // (its bits column already carries the classes). Bit-exact: power-on order + checksum go
-            // through the permutation in original order.
+            // RANGES (the range-prune compare path), with the SELF-CAPTURED first-touch locality key.
+            // Bit-exact: power-on order + checksum go through the permutation in original order.
             for (int pass = 0; ; pass++)
             {
                 ComposeSystem(chrIsRam, isTestRom);   // WireCore.System.cs (ResetBuild + load defs + AddInstance)
 
-                ApplyRenumber();   // co-activity / class permutation (no-op without file or captured bits; post-lowering, pre-handlers)
+                ApplyRenumber();   // class-major permutation (no-op without captured bits; post-lowering, pre-handlers)
 
                 CopyRomBytes(rom);
 
@@ -114,8 +113,7 @@ namespace AprVisual.Sim
 
                 ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)
 
-                bool autoRenumber = RenumberFile == null;
-                if (autoRenumber && pass == 0)
+                if (pass == 0)
                 {
                     // PASS 0 — classify only (no settle): capture each node's prune class under
                     // identity ids. Feeds pass 1's class-major build (temporary blind-BFS locality).
@@ -123,7 +121,7 @@ namespace AprVisual.Sim
                     CapturePruneClasses();   // → PendingClassBits (+ StashedClassBits for pass 2)
                     continue;
                 }
-                if (autoRenumber && pass == 1)
+                if (pass == 1)
                 {
                     // PASS 1 — capture: this build has VERIFIED ranges, so the prunes are ON and the
                     // settle is the PRODUCTION cascade. Warm past the reset transient, then record the

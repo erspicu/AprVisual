@@ -576,6 +576,8 @@ namespace AprVisual.Test
                     double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;
                     Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");
                     Console.WriteLine($"#   FloatSingle={WireCore.DiagNCFloatSingle:N0}({W(WireCore.DiagNCFloatSingle):F1}%) FloatMulti={WireCore.DiagNCFloatMulti:N0}({W(WireCore.DiagNCFloatMulti):F1}%,capLTall={WireCore.DiagNCFloatMultiCapLT:N0}) PullUp={WireCore.DiagNCPullUp:N0}({W(WireCore.DiagNCPullUp):F1}%) Supply={WireCore.DiagNCSupply:N0}({W(WireCore.DiagNCSupply):F1}%) Other={WireCore.DiagNCOther:N0}({W(WireCore.DiagNCOther):F1}%)");
+                    double Pp(long x) => WireCore.DiagPops == 0 ? 0 : 100.0 * x / WireCore.DiagPops;
+                    Console.WriteLine($"# [P-2b candidate] single-channel pure-PullUp class: pops={WireCore.DiagP2bPops:N0} ({Pp(WireCore.DiagP2bPops):F1}% of all) no-change={WireCore.DiagNCP2b:N0} skippable(state==1)={WireCore.DiagNCP2bState1:N0} ({Pp(WireCore.DiagNCP2bState1):F1}% of all pops)");
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

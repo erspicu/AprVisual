@@ -78,10 +78,22 @@ namespace AprVisual.Sim
         internal static long DiagPops, DiagNoChange, DiagStateChanges,
                              DiagNCFloatSingle, DiagNCFloatMulti, DiagNCFloatMultiCapLT,
                              DiagNCPullUp, DiagNCSupply, DiagNCOther;
+        // [P-2b candidate diagnostic] the "single-channel pure-PullUp" class: PullUp + exactly one
+        // c1c2 channel + ZERO own gnd/pwr gates (+ inline). When its only channel turns OFF it isolates
+        // and provably resolves to 1 (PullUp) — so a turn-off enqueue is skippable iff state==1.
+        // These counters size that prize: class pops, the no-change subset, and the skippable subset.
+        internal static long DiagP2bPops, DiagNCP2b, DiagNCP2bState1;
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {
             DiagPops++;
+            {   // P-2b class traffic (counted for ALL pops, change or not — sizes the candidate's reach)
+                NodeInfo* d2 = NodeInfos + nn;
+                if ((d2->Flags & NodeFlags.PullUp) != 0 && d2->Inline != 0 && d2->C1c2Count == 1
+                    && d2->GndCount == 0 && d2->PwrCount == 0
+                    && (d2->Flags & (NodeFlags.ForceCompute | NodeFlags.HasCallback)) == 0)
+                    DiagP2bPops++;
+            }
             if (!noChange) return;
             DiagNoChange++;
             NodeInfo* d = NodeInfos + nn;
@@ -96,7 +108,17 @@ namespace AprVisual.Sim
                 if (capLt) DiagNCFloatMultiCapLT++;
             }
             else if (floatOnly) DiagNCOther++;
-            else if ((d->Flags & NodeFlags.PullUp) != 0) DiagNCPullUp++;
+            else if ((d->Flags & NodeFlags.PullUp) != 0)
+            {
+                DiagNCPullUp++;
+                // P-2b class membership (structural): single-channel pure-PullUp (see field comment).
+                if (d->Inline != 0 && d->C1c2Count == 1 && d->GndCount == 0 && d->PwrCount == 0
+                    && (d->Flags & (NodeFlags.ForceCompute | NodeFlags.HasCallback)) == 0)
+                {
+                    DiagNCP2b++;
+                    if (NodeStates[nn] != 0) DiagNCP2bState1++;   // skippable: would resolve to 1 anyway
+                }
+            }
             else if (d->Inline != 0 ? (d->GndCount != 0 || d->PwrCount != 0) : (d->TlistC1gnd != 0 || d->TlistC1pwr != 0)) DiagNCSupply++;
             else DiagNCOther++;
         }

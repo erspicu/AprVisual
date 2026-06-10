@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace AprVisual.Sim
 {
@@ -12,9 +13,9 @@ namespace AprVisual.Sim
         //      Wires::add_callback / invoke_callbacks / step_cycle's handler chain (wire_module.cpp)
         //    See MD/note/03_系統整合與週期推進.md.
         //
-        //    Design (kept from MetalNES):
-        //      - "handlers" run once per half-cycle, chained into one delegate (RunHandlerChain).
-        //        e.g. the clock handler toggles the master clock node.
+        //    Design (kept from MetalNES, adapted):
+        //      - the only per-half-cycle "handler" is the clock toggle; it is INLINED into StepCycle
+        //        (Recalc.cs) via the static ClockNode — no delegate (the generic chain was removed, [H1]).
         //      - "callbacks" fire when any watched node changes, *after* propagation settles.
         //        Implemented by adding a fake transistor (gate = watchedNode, c1 = fakeTargetNode,
         //        c2 = Ngnd) per watched node, plus a callback record on the fake target — so the
@@ -26,19 +27,40 @@ namespace AprVisual.Sim
         //    Ordering note: handlers must be attached (AddCallback adds fake nodes/transistors) BEFORE
         //    WireCore.Reset() — Reset() sizes the hot arrays to the node count *at that point*.
 
-        // ── per-half-cycle handler chain ──
-        private static Action? _handlerChain;
-        public static void AddHandler(Action h) => _handlerChain = _handlerChain is null ? h : _handlerChain + h;
-        private static void RunHandlerChain() => _handlerChain?.Invoke();
+        // ── per-half-cycle work is now inlined into StepCycle (Recalc.cs) ──
+        // [H1 2026-06-05] The old generic handler chain (`_handlerChain` Action + AddHandler/RunHandlerChain)
+        // only ever held ONE handler — the clock toggle — so it was removed: StepCycle toggles the static
+        // ClockNode inline (no delegate invoke / no closure capture). Add a real per-half-cycle hook back
+        // here only if a second one is ever needed.
 
         // ── callbacks (node-change watchers) ──
+        // [H3] CallbackInfo is now a TYPED handler descriptor: InvokeCallbacks switches on Kind and calls a
+        // static handler (no Action delegate / no closure) for the hot kinds (memory / video). The per-instance
+        // context lives directly on this object (it IS the dispatch unit — so a field read is one hop, NOT the
+        // extra hop the rejected ctx-holder added). Generic Action is kept only for rare/test watchers.
+        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video }
+
         internal sealed class CallbackInfo
         {
             public string Name = "";
             public int TargetNode;
             public int[] WatchedNodes = Array.Empty<int>();
-            public Action Callback = static () => { };
             public bool Enqueued;
+            public HandlerKind Kind;
+            public Action? Callback;                       // Generic only
+
+            // memory handler context (MemRead / MemReadWrite) — UNMANAGED (Stage 2). These pointers are
+            // handler-lifetime (AllocHandlerArray, freed at rebuild); MemData = the Memory's byte* buffer.
+            // Read as cb.Addr/cb.MemData = ONE hop from cb (which InvokeCallbacks already loaded) — no ctx
+            // penalty — and drops the managed-array bounds check.
+            public int Cs, We, Mask, ALen, DLen;
+            public int* Addr;
+            public int* DataOut;
+            public byte* MemData;
+
+            // video handler context (Video)
+            public int Pclk1;
+            public bool VidPrev;
         }
 
         private static readonly List<CallbackInfo> _callbacks = new();
@@ -47,18 +69,29 @@ namespace AprVisual.Sim
         // returns in O(1) when pending=0 (the common case after most settles).
         private static List<CallbackInfo> _pendingCallbacks = new();
         private static List<CallbackInfo> _processingCallbacks = new();
-        // Node-id direct lookup (suggest #F4): _callbackByNode[nn] = the CallbackInfo registered
-        // on node nn (or null). Built in Reset; lets the hot RecalcNode callback-enqueue path
-        // do a direct array load instead of jumping into the managed Nodes[] Node object graph.
+        // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] = the CallbackInfo registered on
+        // node nn (null if none). Built in Reset; lets RecalcNode's HasCallback group-walk look the callback
+        // up directly instead of jumping into the managed Nodes[] Node object graph.
+        // [A6 2026-06-04] NodeCount-sized reference array, NOT a sparse Dictionary. The old code chose the
+        // Dictionary on the *assumption* that the array's ~115 KB + gen2 scan wasn't worth it "for ~0 hot-path
+        // benefit" — that was never measured and was WRONG: the HasCallback branch fires per-group-member for
+        // every group containing a watched bus node (far more often than callbacks actually *fire*), so
+        // Dictionary.TryGetValue's hash+probe was real cost. Direct array index measured **+~1.4%**
+        // (3 interleaved-paired batches, 49/60 wins, median +1.36/+1.36/+1.46%, bit-exact).
         internal static CallbackInfo?[]? _callbackByNode;
 
         internal static void ResetHandlers()
         {
-            _handlerChain = null;
+            ClockNode = EmptyNode;   // [H1] re-resolved by AttachClockHandler each rebuild
             _callbacks.Clear();
             _pendingCallbacks.Clear();
             _processingCallbacks.Clear();
             _callbackByNode = null;
+            // free this composed system's handler-lifetime unmanaged arrays (video node-lists, palette,
+            // memory-handler node-lists, behavioral RAM/ROM Data) before the next rebuild re-creates them.
+            FreeHandlerArrays();
+            _vidHpos = _vidVpos = _vidPalPtr = null; _vidHposLen = _vidVposLen = _vidPalPtrLen = 0;
+            _vidPalRam = null; _vidPalRamOk = null; _nesPalettePtr = null;
         }
 
         /// <summary>
@@ -68,10 +101,16 @@ namespace AprVisual.Sim
         /// brings the target into a group whenever a watched node flips. MUST be called before Reset().
         /// </summary>
         public static void AddCallback(IReadOnlyList<int> watchedNodes, Action cb)
+            => RegisterCallback(watchedNodes, new CallbackInfo { Kind = HandlerKind.Generic, Callback = cb });
+
+        // Shared bookkeeping: allocate the fake target node, add a (gate=watched, c1=target, c2=Ngnd) fake
+        // transistor per watched node, and record the (already-Kind-typed) CallbackInfo on the target. The
+        // caller fills info.Kind + its context fields. MUST be called before Reset().
+        private static void RegisterCallback(IReadOnlyList<int> watchedNodes, CallbackInfo info)
         {
             string name = "callback:" + string.Join(",", watchedNodes.Select(GetNodeName));
             int target = AddNamedNode(name);
-            var info = new CallbackInfo { Name = name, TargetNode = target, WatchedNodes = watchedNodes.ToArray(), Callback = cb };
+            info.Name = name; info.TargetNode = target; info.WatchedNodes = watchedNodes.ToArray();
             _callbacks.Add(info);
             foreach (int nn in watchedNodes) AddTransistor("callback", gate: nn, c1: target, c2: Ngnd);
             var node = GetOrCreateNode(target);
@@ -92,10 +131,53 @@ namespace AprVisual.Sim
                 {
                     var cb = _processingCallbacks[i];
                     cb.Enqueued = false;
-                    cb.Callback();
+                    // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
+                    switch (cb.Kind)
+                    {
+                        case HandlerKind.MemRead:      DoMemRead(cb); break;
+                        case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
+                        case HandlerKind.Video:        DoVideo(cb); break;
+                        default:                       cb.Callback!(); break;   // Generic (rare / test)
+                    }
                 }
                 _processingCallbacks.Clear();
             }
+        }
+
+        // ── typed handler bodies (were per-instance closures; now static, dispatched by Kind) ──
+        // ROM / read-only RAM: on chip-select active, drive the data-out bus with mem[addr].
+        private static void DoMemRead(CallbackInfo cb)
+        {
+            if (NodeStates[cb.Cs] != 0) return;
+            int address = ReadBits(cb.Addr, cb.ALen);
+            WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+        }
+
+        // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
+        private static void DoMemReadWrite(CallbackInfo cb)
+        {
+            if (NodeStates[cb.Cs] != 0) return;
+            int address = ReadBits(cb.Addr, cb.ALen);
+            if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
+            else                        WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+        }
+
+        // video: on the pclk1 rising edge, write the visible pixel from palette RAM via the (static, unmanaged)
+        // video node-lists + master palette. VidPrev (the rising-edge tracker) is per-instance state on cb.
+        private static void DoVideo(CallbackInfo cb)
+        {
+            bool now = NodeStates[cb.Pclk1] != 0;
+            if (!cb.VidPrev && now)
+            {
+                int x = ReadBits(_vidHpos, _vidHposLen), y = ReadBits(_vidVpos, _vidVposLen);
+                if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
+                {
+                    int slot = ReadBits(_vidPalPtr, _vidPalPtrLen) & 31;
+                    int colour6 = _vidPalRamOk[slot] != 0 ? ReadBits(_vidPalRam + slot * PalRamSlotW, PalRamSlotW) : 0;
+                    FrameBuffer[y * ScreenW + x] = _nesPalettePtr[colour6 & 0x3F];
+                }
+            }
+            cb.VidPrev = now;
         }
 
         internal static void EnqueueCallback(CallbackInfo cb)
@@ -113,13 +195,16 @@ namespace AprVisual.Sim
         }
 
         // ── behavioral memory ──
+        // Data is UNMANAGED (byte*, AllocHandlerArray) — allocated at setupMemory, freed by FreeHandlerArrays
+        // at rebuild. Length is the power-of-2 size (mask = Length - 1).
         internal sealed class Memory
         {
             public string Name = "";
-            public byte[] Data = Array.Empty<byte>();
-            public byte Read(int addr) => Data[addr & (Data.Length - 1)];          // assumes power-of-2 size
-            public void Write(int addr, byte v) => Data[addr & (Data.Length - 1)] = v;
-            public void Clear() => Array.Clear(Data);
+            public byte* Data;
+            public int Length;
+            public byte Read(int addr) => Data[addr & (Length - 1)];               // assumes power-of-2 size
+            public void Write(int addr, byte v) => Data[addr & (Length - 1)] = v;
+            public void Clear() { if (Data != null) NativeMemory.Clear(Data, (nuint)Length); }
         }
 
         private static readonly Dictionary<string, Memory> _memories = new(StringComparer.Ordinal);
@@ -144,6 +229,28 @@ namespace AprVisual.Sim
         {
             bool changed = false;
             for (int i = 0; i < nodes.Length; i++)
+            {
+                if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
+                else                          changed |= SetLowQueued(nodes[i]);
+            }
+            if (changed) ProcessQueue();
+        }
+
+        // Unmanaged int* overloads — handler node-lists are now unmanaged (AllocHandlerArray), so the
+        // hot path indexes raw pointers (no bounds checks, no managed array object).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ReadBits(int* nodes, int len)
+        {
+            int v = 0;
+            for (int i = 0; i < len; i++) v |= NodeStates[nodes[i]] << i;
+            return v;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteBits(int* nodes, int len, int value)
+        {
+            bool changed = false;
+            for (int i = 0; i < len; i++)
             {
                 if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
                 else                          changed |= SetLowQueued(nodes[i]);
@@ -183,12 +290,13 @@ namespace AprVisual.Sim
         //  Handler factories — call these between ComposeSystem() and Reset().
         // ───────────────────────────────────────────────────────────────────────
 
-        /// <summary>The board's master clock: toggle the "clk" node every half-cycle. Port of handler_clock.</summary>
+        /// <summary>The board's master clock: resolve the "clk" node into the static ClockNode; StepCycle
+        /// toggles it inline every half-cycle (no handler delegate — see Recalc.cs StepCycle [H1]). Port of handler_clock.</summary>
         public static void AttachClockHandler()
         {
             int clk = LookupNode("clk");
             if (clk == EmptyNode) { Console.Error.WriteLine("AttachClockHandler: no 'clk' node — skipping"); return; }
-            AddHandler(() => { if (NodeStates[clk] != 0) SetLow(clk); else SetHigh(clk); });
+            ClockNode = clk;   // [H1] StepCycle toggles ClockNode inline (was an AddHandler delegate)
         }
 
         /// <summary>Attach a behavioral RAM/ROM handler for every module that exposes a "func&lt;ram&gt;" / "func&lt;rom&gt;" hook node. Port of register_handlers&lt;handler_ram&gt;("*func&lt;ram&gt;") etc.</summary>
@@ -215,42 +323,28 @@ namespace AprVisual.Sim
             if (cs == EmptyNode || addrL.Count == 0 || dataOutL.Count == 0)
             { Console.Error.WriteLine($"memory handler '{prefix}': missing cs/a[]/_d[7:0]"); return; }
 
-            // Cache as int[] (suggest #06) — the lambda closure captures arrays not List<int>,
-            // so ReadBits/WriteBits resolves to the int[] overload (no interface dispatch).
-            int[] addr = addrL.ToArray();
-            int[] dataOut = dataOutL.ToArray();
+            // [H3 Stage 2] typed CallbackInfo (no closure) — context lives on the CallbackInfo, dispatched by
+            // Kind in InvokeCallbacks → DoMemRead / DoMemReadWrite (static). Node-lists are UNMANAGED int*
+            // (handler-lifetime); MemData is the Memory's byte* buffer. cb.Addr/cb.MemData = one hop (no ctx
+            // penalty), no managed-array bounds check.
+            int alen = addrL.Count, dlen = dataOutL.Count;
+            int* addr = AllocHandlerArray<int>(alen);
+            for (int i = 0; i < alen; i++) addr[i] = addrL[i];
+            int* dataOut = AllocHandlerArray<int>(dlen);
+            for (int i = 0; i < dlen; i++) dataOut[i] = dataOutL[i];
 
             var trigger = new List<int> { cs };
             if (we != EmptyNode) trigger.Add(we);
             trigger.AddRange(addrL);
             trigger.AddRange(dataBusL);
 
-            // Specialize callback body by ROM/RAM at attach time (suggest #F2): hoist mem.Data
-            // and mask out of the hot path, and split read-only vs read/write into separate
-            // closures so the closure body has no attach-time-known branches.
-            byte[] data = mem.Data;
-            int mask = data.Length - 1;
             bool readOnly = isRom || we == EmptyNode;
-
-            if (readOnly)
+            RegisterCallback(trigger, new CallbackInfo
             {
-                AddCallback(trigger, () =>
-                {
-                    if (NodeStates[cs] != 0) return;
-                    int address = ReadBits(addr);
-                    WriteBits(dataOut, data[address & mask]);
-                });
-            }
-            else
-            {
-                AddCallback(trigger, () =>
-                {
-                    if (NodeStates[cs] != 0) return;
-                    int address = ReadBits(addr);
-                    if (NodeStates[we] == 0) data[address & mask] = (byte)ReadBits(dataOut);
-                    else                      WriteBits(dataOut, data[address & mask]);
-                });
-            }
+                Kind = readOnly ? HandlerKind.MemRead : HandlerKind.MemReadWrite,
+                Cs = cs, We = we, Mask = mem.Length - 1,
+                Addr = addr, ALen = alen, DataOut = dataOut, DLen = dlen, MemData = mem.Data,
+            });
         }
 
         /// <summary>
@@ -267,6 +361,17 @@ namespace AprVisual.Sim
         /// resolve. Must be called before Reset() (AddCallback adds nodes); FrameBuffer is allocated by
         /// ResetNes(), and the callback reads the static field at call time.
         /// </summary>
+        // Video-handler node-lists, UNMANAGED (there's exactly one video handler, so these are static
+        // fields the closure reads directly — no captured-pointer-local problem). Allocated in
+        // AttachVideoHandler via AllocHandlerArray, freed by FreeHandlerArrays at rebuild.
+        private static int* _vidHpos; private static int _vidHposLen;
+        private static int* _vidVpos; private static int _vidVposLen;
+        private static int* _vidPalPtr; private static int _vidPalPtrLen;
+        private static int* _vidPalRam;     // 32 slots × 6 nodes, flattened (slot s at +s*6)
+        private static byte* _vidPalRamOk;  // [32] 1 = slot has the full 6 nodes
+        private static uint* _nesPalettePtr; // 64-entry master palette, unmanaged copy of NesPaletteSrc
+        private const int PalRamSlotW = 6;
+
         public static void AttachVideoHandler()
         {
             int pclk1 = LookupNode("ppu.pclk1");
@@ -289,28 +394,36 @@ namespace AprVisual.Sim
                 return;
             }
 
-            int[] hN = hpos.ToArray(), vN = vpos.ToArray(), pN = palPtr.ToArray();
-            bool prev = false;
-            AddCallback(new[] { pclk1 }, () =>
+            // copy node-lists + master palette into unmanaged (handler-lifetime) storage.
+            _vidHposLen = hpos.Count; _vidHpos = AllocHandlerArray<int>(_vidHposLen);
+            for (int i = 0; i < _vidHposLen; i++) _vidHpos[i] = hpos[i];
+            _vidVposLen = vpos.Count; _vidVpos = AllocHandlerArray<int>(_vidVposLen);
+            for (int i = 0; i < _vidVposLen; i++) _vidVpos[i] = vpos[i];
+            _vidPalPtrLen = palPtr.Count; _vidPalPtr = AllocHandlerArray<int>(_vidPalPtrLen);
+            for (int i = 0; i < _vidPalPtrLen; i++) _vidPalPtr[i] = palPtr[i];
+            _vidPalRam = AllocHandlerArray<int>(32 * PalRamSlotW);
+            _vidPalRamOk = AllocHandlerArray<byte>(32);
+            for (int s = 0; s < 32; s++)
             {
-                bool now = NodeStates[pclk1] != 0;
-                if (!prev && now)                               // rising edge of the pixel clock
+                if (palRam[s].Length == PalRamSlotW)
                 {
-                    int x = ReadBits(hN), y = ReadBits(vN);
-                    if ((uint)x < ScreenW && (uint)y < ScreenH && FrameBuffer != null)
-                    {
-                        int slot = ReadBits(pN) & 31;
-                        int colour6 = palRam[slot].Length == 6 ? ReadBits(palRam[slot]) : 0;
-                        FrameBuffer[y * ScreenW + x] = NesPalette[colour6 & 0x3F];
-                    }
+                    _vidPalRamOk[s] = 1;
+                    for (int k = 0; k < PalRamSlotW; k++) _vidPalRam[s * PalRamSlotW + k] = palRam[s][k];
                 }
-                prev = now;
-            });
+            }
+            _nesPalettePtr = AllocHandlerArray<uint>(NesPaletteSrc.Length);
+            for (int i = 0; i < NesPaletteSrc.Length; i++) _nesPalettePtr[i] = NesPaletteSrc[i];
+
+            // [H3] typed CallbackInfo (no closure) — dispatched by Kind in InvokeCallbacks → DoVideo (static).
+            // The node-lists/palette are the static unmanaged fields above; only the rising-edge tracker
+            // (VidPrev) + Pclk1 are per-instance state on the CallbackInfo.
+            RegisterCallback(new[] { pclk1 }, new CallbackInfo { Kind = HandlerKind.Video, Pclk1 = pclk1 });
         }
 
         // The 64-colour NES master palette (common "2C02 NTSC" RGB approximation). ARGB 0x00RRGGBB.
         // Indices 0x0D/0x0E/0x0F/0x1D-0x1F/0x2D-0x2F/0x3D-0x3F are "blacker than black" → black.
-        private static readonly uint[] NesPalette =
+        // Managed SOURCE table; AttachVideoHandler copies it into the unmanaged _nesPalettePtr for the hot read.
+        private static readonly uint[] NesPaletteSrc =
         [
             0x666666, 0x002A88, 0x1412A7, 0x3B00A4, 0x5C007E, 0x6E0040, 0x6C0600, 0x561D00,
             0x333500, 0x0B4800, 0x005200, 0x004F08, 0x00404D, 0x000000, 0x000000, 0x000000,

@@ -13,12 +13,16 @@ namespace AprVisual.Test
     //    Diagnostic flags: --no-lower (lowering A/B compare). --fast-path accepted as no-op.
     internal static class TestRunner
     {
+        private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
+        private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
+
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
-            string? frameDumpPath = null;
+            string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
             string frameOutDir = "frames";
@@ -30,6 +34,7 @@ namespace AprVisual.Test
             int benchHcCount = 0;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
+            bool pin = false; int pinCore = -1;   // --pin [N]: pin hot thread (N = force logical core; absent = auto best P-core)
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -52,6 +57,10 @@ namespace AprVisual.Test
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
+                    case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
+                    case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
+                    case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
+                    case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
@@ -61,13 +70,15 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
-                    case "--ir":              WireCore.EnableIr = true; break;          // S2 IR (Phase A) dispatch on
-                    case "--profile":         _profileMode = true; break;              // whole-NES work profiler (analysis only)
-                    case "--coverage":        _coverageMode = true; break;             // boolean-coverability probe (Escape-1 de-risk)
-                    case "--extract":         _coverageMode = true; _extractMode = true; break;   // + extract logic model + levelize
-                    case "--miter":           _miterMode = true; break;                          // Escape-1: oblivious logic vs golden, per-hc
-                    case "--compile":         _miterMode = true; _compileMode = true; break;      // + emit straight-line C#, compile, compare speed
-                    case "--cones":           _miterMode = true; _coneMode = true; break;          // + macro-event de-risk: cone compression ratio
+                    case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
+                        pin = true;
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _pc)) { pinCore = _pc; i++; }
+                        break;
+#if DEBUG
+                    case "--settle-cap":      // DEBUG experiment: ABANDON each settle past N waves (study under-settle divergence)
+                        if (i + 1 < args.Length && int.TryParse(args[++i], out int _scap)) { WireCore.MaxSettlePasses = _scap; WireCore.SettleCapSilent = true; }
+                        break;
+#endif
                     case "--benchmark":
                         benchmark = true;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) benchPath = args[++i];
@@ -84,8 +95,20 @@ namespace AprVisual.Test
 
             WireCore.SystemDefDir = systemDefDir;
 
+            if (pin)
+            {
+                // Thread-pin (not process) + High priority + EcoQoS-off. Cuts run-to-run variance for the
+                // memory-latency-bound hot loop by stopping core migration from trashing L1/L2. Opt-in only;
+                // status is printed and recorded in the bench JSON ("pinned"). See Sim/PerfTuning.cs.
+                _pinned = true;
+                Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
+            }
+
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
+            if (payloadHistPath != null) return PayloadHist(payloadHistPath);
+            if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
+            if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
@@ -121,6 +144,64 @@ namespace AprVisual.Test
 
             PrintUsage();
             return 0;
+        }
+
+        // ── --payload-hist: NodeInfo inline-payload size distribution (for the 16B-pack study) ──
+        private static unsafe int PayloadHist(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            double P(long x, long t) => t == 0 ? 0 : 100.0 * x / t;
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int n = WireCore.NodeCount, inlineN = 0, overflow = 0, nullN = 0;
+                var hist = new int[16];   // payload = 2*C1c2Count + GndCount + PwrCount (inline nodes)
+                for (int nn = 0; nn < n; nn++)
+                {
+                    if (WireCore.Nodes[nn] == null) { nullN++; continue; }
+                    var ns = WireCore.NodeInfos[nn];
+                    if (ns.Inline != 0) { inlineN++; int p = 2 * ns.C1c2Count + ns.GndCount + ns.PwrCount; if (p < hist.Length) hist[p]++; }
+                    else overflow++;
+                }
+                Console.WriteLine($"# ===== NodeInfo payload-size distribution ({Path.GetFileName(romPath)}) =====");
+                Console.WriteLine($"#  live nodes {n - nullN:N0}  (inline {inlineN:N0} / overflow {overflow:N0})   InlineCap={NodeInfo.InlineCap}");
+                for (int p = 0; p <= 8 && p < hist.Length; p++)
+                    Console.WriteLine($"#   payload={p,2}: {hist[p],6:N0}  ({P(hist[p], inlineN):F1}% of inline)");
+                Console.WriteLine("# ============================================================");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --names: map a comma-separated list of node ids to names (diagnostic) ──
+        private static int NamesLookup(string ids)
+        {
+            // needs the netlist + name map; use ComposeSystem (LoadSystem path keeps _nameByNode).
+            var rom = NesRom.LoadFromFile("AprVisualBenchMark/roms/full_palette.nes");
+            if (rom is null) { Console.Error.WriteLine("failed to load ROM for name lookup"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                foreach (var s in ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (int.TryParse(s, out int id)) Console.WriteLine($"{id}\t{WireCore.GetNodeName(id)}");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --fc-taint-stats: same-state-prune eligibility (FC-free vs FC-tainted channel components) ──
+        private static int FcTaintStats(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                Console.WriteLine(WireCore.FcTaintStats());
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
         }
 
         // ── module-level dump: parse one .js def + sub-modules and print a summary ──
@@ -437,7 +518,6 @@ namespace AprVisual.Test
 
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
-                if (WireCore.EnableIr) Console.WriteLine($"# {WireCore.LastIrStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {frames} frames = {halfCycles:N0} master half-cycles = {cpuCycles:N0} 6502 cycles");
                 Console.WriteLine($"# real time: {secs:F3} s");
@@ -452,118 +532,6 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
-        private static bool _profileMode;   // --profile: whole-NES work profiler (analysis only)
-        private static bool _coverageMode;  // --coverage: boolean-coverability probe (Escape-1 de-risk)
-        private static bool _extractMode;   // --extract: + extract logic model + levelize
-        private static bool _miterMode;     // --miter: Dynamic Miter — oblivious logic vs golden, per half-cycle
-        private static bool _compileMode;   // --compile: + emit straight-line C# sweep (Roslyn), compare speed
-        private static bool _coneMode;      // --cones: + macro-event de-risk (cone compression ratio)
-
-        // ── --miter: Escape-1 Dynamic Miter. Phase 1 collects coverage + builds the oblivious logic
-        //    model (extracted combinational nodes, their dense truth tables, level order). Phase 2 advances
-        //    the golden switch-level engine one half-cycle at a time and, after each, sweeps the oblivious
-        //    logic model (levelized; extracted inputs read the model's own LogicState, boundary inputs read
-        //    golden NodeStates) and compares — measuring whether the levelized boolean abstraction reproduces
-        //    the switch-level behaviour for the extracted nodes (the core Escape-1 correctness claim).
-        private static int RunMiter(int hcCount)
-        {
-            int build  = hcCount * 3 / 10; if (build < 1) build = 1;   // coverage probe builds _covMap
-            int rest   = hcCount - build;
-            int learn  = rest * 7 / 10; if (learn < 1) learn = 1;      // fast learn-only: fill TTs + identify state
-            int valid  = rest - learn; if (valid < 1) valid = 1;       // frozen relaxation validate
-
-            Console.WriteLine($"# ===== DYNAMIC MITER: build={build:N0} hc, learn={learn:N0} hc, validate={valid:N0} hc =====");
-            WireCore.AllocCoverage();
-            WireCore.Step(build);
-            WireCore.ReportCoverage();
-            WireCore.ExtractModel();                 // builds the oblivious logic model (BuildLogicModel)
-            if (!WireCore.LogicModelBuilt) { Console.WriteLine("# miter: no logic model built — abort"); return 1; }
-
-            // Learn window (fast: golden-pass only, no relaxation): finish filling truth tables for combos that
-            // occur, and flag genuine state elements (self-stateful on golden inputs). Cheap -> can run long.
-            WireCore.AllocLogicEval();
-            WireCore.MiterCollectSelf = true;
-            WireCore.MiterLearnOnly = true;
-            for (int i = 0; i < learn; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-
-            // Convert self-stateful TT nodes (dynamic latches the radius-1 TT can't hold) to STRUCTURAL BusResolve
-            // (its floating tie-break gives the hold) instead of dropping them to golden — keeps them in-model.
-            int conv = WireCore.ConvertSelfStatefulToStructural();
-            Console.WriteLine($"# >>> converted {conv:N0} self-stateful TT nodes -> structural BusResolve (hold-capable)");
-            Console.WriteLine($"# >>> oblivious set {WireCore.LogicOrderCount:N0} nodes (TT + structural); divergers (true analog) demoted next");
-
-            // Validate window (frozen TT, full relaxation): the real correctness measurement.
-            WireCore.MiterCollectSelf = false;
-            WireCore.MiterLearnOnly = false;
-            int vw = Math.Max(1, valid / 6);         // shorter windows while iterating the diverger fixpoint
-            WireCore.ResetMiterCounters();
-            WireCore.ReseedLogicState();
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-            sw.Stop();
-            Console.WriteLine($"# --- VALIDATE-0: refined set, frozen TT, relaxation ({vw:N0} hc, {vw / sw.Elapsed.TotalSeconds:N0} hc/s) ---");
-            WireCore.ReportMiter();
-
-            // Iterate verify-then-enable on relaxation divergence until the validated set is clean by construction.
-            for (int r = 1; r <= 6; r++)
-            {
-                int d = WireCore.RefineDivergers();
-                Console.WriteLine($"# >>> refine-{r}: demoted {d:N0} divergers -> provably-clean oblivious set {WireCore.LogicOrderCount:N0} nodes");
-                if (d == 0) break;
-                WireCore.ResetMiterCounters();
-                WireCore.ReseedLogicState();
-                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-            }
-            // Final window: validate the converged clean set + measure ACTIVITY coverage (what fraction of the
-            // golden engine's actual state-changes land on oblivious-set nodes — bounds the achievable speedup).
-            WireCore.MiterActivity = true; WireCore.ActTotal = WireCore.ActObliv = WireCore.ActState = 0;
-            WireCore.ResetMiterCounters(); WireCore.ReseedLogicState();
-            for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-            WireCore.MiterActivity = false;
-            Console.WriteLine($"# --- VALIDATE-final: converged clean oblivious set ({WireCore.LogicOrderCount:N0} nodes) ---");
-            WireCore.ReportMiter();
-            long act = Math.Max(1, WireCore.ActTotal);
-            double oPct = 100.0 * WireCore.ActObliv / act, sPct = 100.0 * WireCore.ActState / act;
-            long residual = WireCore.ActTotal - WireCore.ActObliv - WireCore.ActState;
-            double rPct = 100.0 * residual / act;
-            Console.WriteLine($"# ============ ACTIVITY COVERAGE (golden state-changes) ============");
-            Console.WriteLine($"#  golden state-changes this window: {WireCore.ActTotal:N0}");
-            Console.WriteLine($"#  on oblivious-logic nodes:         {WireCore.ActObliv:N0}  ({oPct:F1}%)  -> compiled bitwise (cheap)");
-            Console.WriteLine($"#  on cut state-element nodes:       {WireCore.ActState:N0}  ({sPct:F1}%)  -> register update (cheap, if modeled)");
-            Console.WriteLine($"#  truly-residual switch-level:      {residual:N0}  ({rPct:F1}%)  <- the irreducible analog/uncovered core");
-            Console.WriteLine($"#  -> speedup ceiling ~ {1.0 / Math.Max(0.001, residual / (double)act):F1}x (Amdahl, if oblivious+register were free)");
-            WireCore.ReportResidualBreakdown();
-            Console.WriteLine($"# ==================================================================");
-
-            // Macro-event de-risk: condense the final model into cones and measure the per-half-cycle
-            // distinct-macro-unit count (the macro-event count) vs golden's node-events (the compression ratio).
-            if (_coneMode)
-            {
-                WireCore.BuildCones();
-                WireCore.MiterConeCount = true;
-                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.ConeStepBoundary(); }
-                WireCore.MiterConeCount = false;
-                WireCore.ReportCones();
-            }
-
-            // Oblivious COMPILATION: emit the relaxation sweep as straight-line C#, compile in-memory, and
-            // re-validate with it — proving (a) identical golden match and (b) a faster sweep than the interpreter.
-            if (_compileMode)
-            {
-                double interpNs = WireCore.MiterSweeps > 0 ? WireCore.MiterSweepSec / WireCore.MiterSweeps * 1e9 : 0;
-                WireCore.CompileSweep();
-                WireCore.MiterUseCompiled = true;
-                WireCore.ResetMiterCounters(); WireCore.ReseedLogicState();
-                for (int i = 0; i < vw; i++) { WireCore.Step(1); WireCore.MiterStep(); }
-                WireCore.MiterUseCompiled = false;
-                Console.WriteLine($"# --- VALIDATE-compiled: straight-line C# relaxation ({vw:N0} hc) ---");
-                WireCore.ReportMiter();
-                double compNs = WireCore.MiterSweeps > 0 ? WireCore.MiterSweepSec / WireCore.MiterSweeps * 1e9 : 0;
-                Console.WriteLine($"# ===== OBLIVIOUS COMPILATION: interpreter {interpNs:F0} ns/hc -> compiled {compNs:F0} ns/hc  ({interpNs / Math.Max(1, compNs):F1}x faster sweep, same match) =====");
-            }
-            return 0;
-        }
-
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──
         public static int BenchmarkHalfCycles(string romPath, int hcCount, string logDir = "log")
         {
@@ -576,27 +544,15 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
-                if (_miterMode) return RunMiter(hcCount);
                 // Memory hygiene before the hot path: LoadSystem's ClearPostLoadBuildState already freed
                 // the build graph (~25-50 MB); release the residual name maps + Node shells the hot loop
                 // never touches, then force a final compacting Gen2 GC so no collection can fire mid-
                 // measurement. Hot data is unmanaged (NodeStates/NodeInfos/TransistorList/...), so this is
                 // timing-stability hygiene + minimum resident heap, not a throughput change.
-                if (_profileMode)
-                {
-                    WireCore.AllocProfile();   // profile the STEADY run (post power-on); keeps name maps for the report
-                }
-                else if (_coverageMode)
-                {
-                    WireCore.AllocCoverage();  // boolean-coverability probe; keeps the managed graph + name maps
-                }
-                else
-                {
-                    WireCore.ReleaseBenchResidualState();
-                    System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
-                    System.GC.WaitForPendingFinalizers();
-                    System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
-                }
+                WireCore.ReleaseBenchResidualState();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                System.GC.WaitForPendingFinalizers();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);
@@ -607,20 +563,93 @@ namespace AprVisual.Test
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
-                if (WireCore.EnableIr) Console.WriteLine($"# {WireCore.LastIrStats}");
+                Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
+                Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
                 var (bv, bd) = BuildVersion();
                 Console.WriteLine($"# engine: csharp  version: {bv} ({bd})");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
+#if DEBUG
+                {
+                    // wasted-pop profiler (DEBUG only; counts identical to Release). See WireCore.Recalc.cs.
+                    double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;
+                    Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");
+                    Console.WriteLine($"#   FloatSingle={WireCore.DiagNCFloatSingle:N0}({W(WireCore.DiagNCFloatSingle):F1}%) FloatMulti={WireCore.DiagNCFloatMulti:N0}({W(WireCore.DiagNCFloatMulti):F1}%,capLTall={WireCore.DiagNCFloatMultiCapLT:N0}) PullUp={WireCore.DiagNCPullUp:N0}({W(WireCore.DiagNCPullUp):F1}%) Supply={WireCore.DiagNCSupply:N0}({W(WireCore.DiagNCSupply):F1}%) Other={WireCore.DiagNCOther:N0}({W(WireCore.DiagNCOther):F1}%)");
+                }
+                {
+                    // SetNodeState compound-`if` condition profiler (DEBUG only). Independent (short-circuit-defeated)
+                    // true-rate of each && clause, per template. Reorder so the cheapest + most-often-FALSE clause
+                    // leads. % is of that template's N. See WireCore.Recalc.cs CondTally*.
+                    static double P(long x, long n) => n == 0 ? 0 : 100.0 * x / n;
+                    long o1 = WireCore.CpOff1_N, o2 = WireCore.CpOff2_N, on = WireCore.CpOn_N;
+                    Console.WriteLine("# [cond-profile] SetNodeState &&-clause independent true-rates (for reordering):");
+                    Console.WriteLine($"#   TurnOff-c1 N={o1:N0}: nextHash0={P(WireCore.CpOff1_NextHash0, o1):F1}% maskOff={P(WireCore.CpOff1_MaskOff, o1):F1}% | whole={P(WireCore.CpOff1_Whole, o1):F1}%");
+                    Console.WriteLine($"#   TurnOff-c2 N={o2:N0}: c2!=pwr={P(WireCore.CpOff2_NotPwr, o2):F1}% c2!=gnd={P(WireCore.CpOff2_NotGnd, o2):F1}% nextHash0={P(WireCore.CpOff2_NextHash0, o2):F1}% maskOff={P(WireCore.CpOff2_MaskOff, o2):F1}% | whole={P(WireCore.CpOff2_Whole, o2):F1}%");
+                    Console.WriteLine($"#   TurnOn-c1  N={on:N0}: nextHash0={P(WireCore.CpOn_NextHash0, on):F1}% maskUnsafe={P(WireCore.CpOn_MaskUnsafe, on):F1}% xor!=0={P(WireCore.CpOn_Xor, on):F1}% combined={P(WireCore.CpOn_Combined, on):F1}% | whole={P(WireCore.CpOn_Whole, on):F1}%");
+                }
+                {
+                    // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call
+                    // took. Used to revisit the MaxSettlePasses safety cap (Release omits the cap). See
+                    // WireCore.Recalc.cs SettlePassTally. Counts all ProcessQueue calls (clk + handler settles).
+                    var h = WireCore.SettlePassHist;
+                    long calls = WireCore.SettleCalls;
+                    long total = 0, sum = 0; int maxIter = 0;
+                    for (int i = 0; i < h.Length; i++) { total += h[i]; sum += h[i] * i; if (h[i] != 0) maxIter = i; }
+                    double mean = total == 0 ? 0 : (double)sum / total;
+                    // percentile helper: smallest pass-count whose cumulative share >= q
+                    int Pct(double q) { long need = (long)System.Math.Ceiling(q * total); long cum = 0; for (int i = 0; i < h.Length; i++) { cum += h[i]; if (cum >= need) return i; } return maxIter; }
+                    Console.WriteLine($"# [settle-pass-dist] ProcessQueue calls={calls:N0}  passes: mean={mean:F2} max={maxIter} | p50={Pct(0.50)} p90={Pct(0.90)} p99={Pct(0.99)} p99.9={Pct(0.999)} p99.99={Pct(0.9999)}");
+                    Console.WriteLine("#   histogram (passes: count, %, cum%):");
+                    double cumPct = 0;
+                    for (int i = 0; i <= maxIter; i++)
+                    {
+                        if (h[i] == 0) continue;
+                        double pct = total == 0 ? 0 : 100.0 * h[i] / total;
+                        cumPct += pct;
+                        Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
+                    }
+                }
+                {
+                    // BFS group-walk DEPTH distribution (DEBUG only): max BFS level each AddNodeToGroup walk
+                    // reached = hops through ON transistors from seed to the farthest conducting member.
+                    // Depth 0 = singleton (no conducting neighbour). See WireCore.Group.cs / BfsDepthTally.
+                    var h = WireCore.BfsDepthHist;
+                    long walks = WireCore.BfsWalks;
+                    long total = 0, sum = 0; int maxD = 0;
+                    for (int i = 0; i < h.Length; i++) { total += h[i]; sum += h[i] * i; if (h[i] != 0) maxD = i; }
+                    double mean = total == 0 ? 0 : (double)sum / total;
+                    int Pct(double q) { long need = (long)System.Math.Ceiling(q * total); long cum = 0; for (int i = 0; i < h.Length; i++) { cum += h[i]; if (cum >= need) return i; } return maxD; }
+                    Console.WriteLine($"# [bfs-depth-dist] AddNodeToGroup walks={walks:N0}  depth: mean={mean:F2} MAX={maxD} | p50={Pct(0.50)} p90={Pct(0.90)} p99={Pct(0.99)} p99.9={Pct(0.999)} p99.99={Pct(0.9999)}");
+                    Console.WriteLine("#   histogram (depth: count, %, cum%):");
+                    double cumPct = 0;
+                    for (int i = 0; i <= maxD; i++)
+                    {
+                        if (h[i] == 0) continue;
+                        double pct = total == 0 ? 0 : 100.0 * h[i] / total;
+                        cumPct += pct;
+                        Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
+                    }
+                }
+#endif
                 PrintRealtimeGap(stepsHz);
-                if (_profileMode) WireCore.ReportProfile();
-                else if (_coverageMode) { WireCore.ReportCoverage(); if (_extractMode) WireCore.ExtractModel(); }
-                else WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
+                WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);
+                if (_dumpStatesPath != null) DumpStates(_dumpStatesPath);
             }
             finally { WireCore.Shutdown(); }
             return 0;
+        }
+
+        // ── DIAGNOSTIC (--dump-states): write per-node state for A/B node-level diffing ──
+        // (Nodes[] shells are freed by ReleaseBenchResidualState before the run; NodeStates is unmanaged
+        //  and valid until Shutdown, so dump all NodeCount slots — empty slots read 0 on both sides.)
+        private static unsafe void DumpStates(string path)
+        {
+            using var w = new StreamWriter(path);
+            for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                w.WriteLine($"{nn} {WireCore.NodeStates[nn]}");
+            Console.WriteLine($"# dumped {WireCore.NodeCount} node slots to {path}");
         }
 
         // NES NTSC runs at 1.789773 MHz CPU * 24 master-half-cycles/CPU-cycle = 42,954,552 hc/s,
@@ -702,7 +731,8 @@ namespace AprVisual.Test
                 sb.Append($"  \"slowdownFactor\": {gap:F1},\n");
                 sb.Append($"  \"checksum\": \"0x{checksum:X16}\",\n");
                 sb.Append($"  \"fastPathNodes\": {WireCore.PureLogicNodeCount},\n");
-                sb.Append($"  \"liveNodes\": {WireCore.NonNullNodeCount}\n");
+                sb.Append($"  \"liveNodes\": {WireCore.NonNullNodeCount},\n");
+                sb.Append($"  \"pinned\": {(_pinned ? "true" : "false")}\n");
                 sb.Append("}\n");
                 File.WriteAllText(file, sb.ToString());
                 Console.WriteLine($"# log written: {file}");
@@ -841,15 +871,15 @@ namespace AprVisual.Test
                 Console.WriteLine(sb);
 
                 var vram = WireCore.ResolveMemory("u4.ram");
-                if (vram != null && vram.Data.Length >= 64)
+                if (vram != null && vram.Length >= 64)
                 {
                     sb = new StringBuilder("VRAM[0000..003F]:");
-                    for (int i = 0; i < 64; i++) { if ((i & 15) == 0) sb.Append("  "); sb.Append(' ').Append(vram.Data[i].ToString("X2")); }
+                    for (int i = 0; i < 64; i++) { if ((i & 15) == 0) sb.Append("  "); sb.Append(' ').Append(vram.Read(i).ToString("X2")); }
                     Console.WriteLine(sb);
                     int nzNt = 0, nzAt = 0;
-                    int ntLen = Math.Min(0x3C0, vram.Data.Length);
-                    for (int i = 0; i < ntLen; i++) if (vram.Data[i] != 0) nzNt++;
-                    for (int i = 0x3C0; i < 0x400 && i < vram.Data.Length; i++) if (vram.Data[i] != 0) nzAt++;
+                    int ntLen = Math.Min(0x3C0, vram.Length);
+                    for (int i = 0; i < ntLen; i++) if (vram.Read(i) != 0) nzNt++;
+                    for (int i = 0x3C0; i < 0x400 && i < vram.Length; i++) if (vram.Read(i) != 0) nzAt++;
                     Console.WriteLine($"# nametable 0: {nzNt}/{ntLen} nonzero tile bytes, {nzAt}/64 nonzero attr bytes");
                 }
                 else Console.WriteLine("# (no u4.ram memory)");
@@ -1085,6 +1115,8 @@ namespace AprVisual.Test
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
                     [--fast-path]                          no-op (fast-path is always on in S1)
+                    [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
+                                                           (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
 
                   (no args)                                open an empty window
                 """);

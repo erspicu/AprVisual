@@ -38,6 +38,33 @@ namespace AprVisual.Sim
             NativeMemory.AlignedFree(p);
         }
 
+        // ── Handler-lifetime allocations (NOT in _allocations) ──
+        // Handler arrays (video node-lists, NES palette, memory-handler node-lists, behavioral RAM/ROM
+        // Data) are allocated at attach / setup-memory time — BEFORE Reset() — and must survive the
+        // FreeUnmanagedMemory() that every Reset()/SoftReset() runs. So they live in a SEPARATE pool,
+        // freed only by FreeHandlerArrays() (called from ResetHandlers() at the start of each rebuild,
+        // before the handlers/memories are re-created). The closures hold the pointers via static fields
+        // or captured managed holders, so this pool's lifetime exactly matches one composed system.
+        private static readonly List<IntPtr> _handlerAllocations = new();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static T* AllocHandlerArray<T>(int count) where T : unmanaged
+        {
+            nuint bytes = (nuint)count * (nuint)sizeof(T);
+            void* p = NativeMemory.AlignedAlloc(bytes, 64);
+            NativeMemory.Clear(p, bytes);
+            _handlerAllocations.Add((IntPtr)p);
+            return (T*)p;
+        }
+
+        /// <summary>Free every handler-lifetime allocation. Called from ResetHandlers() at rebuild.</summary>
+        public static void FreeHandlerArrays()
+        {
+            foreach (IntPtr p in _handlerAllocations)
+                if (p != IntPtr.Zero) NativeMemory.AlignedFree((void*)p);
+            _handlerAllocations.Clear();
+        }
+
         /// <summary>Free every unmanaged allocation owned by WireCore and null the field pointers.</summary>
         public static void FreeUnmanagedMemory()
         {
@@ -56,6 +83,7 @@ namespace AprVisual.Sim
             _groupBuf = null;
             _inGroup = null;
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
+            PruneMask = null;   // enqueue-prune safety mask (bit0 turn-on / bit1 turn-off; always re-built by Reset)
             FrameBuffer = null;
         }
     }

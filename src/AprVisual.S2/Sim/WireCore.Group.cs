@@ -73,83 +73,93 @@ namespace AprVisual.Sim
             return GetNodeValue();
         }
 
-        // Iterative BFS version: reuses _groupBuf as both the current-group list and the
-        // pending-work queue. No recursive calls — readIndex advances through queued nodes,
-        // _groupCount is the write cursor. Drained when readIndex == _groupCount.
-        // AddNodeOrApplyDriver handles the dedup + IR/Codegen intercepts that were inline in
-        // the recursive version.
+        // Iterative BFS over ON transistors. _groupBuf is both the group list and the work queue
+        // (readIndex reads, gc writes); drained when readIndex == gc. Non-recursive → JIT inlines it,
+        // and with ComputeNodeGroup's [AggressiveInlining] the whole BFS chain folds into the
+        // ProcessQueue inner loop.
         //
-        // Non-recursive now → JIT can inline. Combined with ComputeNodeGroup's [AggressiveInlining],
-        // the whole BFS chain becomes inlined into RecalcNode's caller (ProcessQueueInterp inner loop).
+        // Perf shape (measured, interleaved-paired, bit-exact):
+        //   • hoist the static SoA pointers + group state into LOCALS and manual-inline the per-node
+        //     add (dedup + push + RecalcHash clear + flags OR): keeps gc/gf in registers across the
+        //     whole walk instead of hitting static-field memory each step — **+3.2%**.
+        //   • high-fanout (overflow) c1c2 walk reads two (gate,other) pairs per 64-bit load — **+1.4%**
+        //     (only pays here because high-fanout walks are long; the same trick LOST on short walks).
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static void AddNodeToGroup(int seed)
         {
+            // hoisted locals (see method comment) — write back gc/gf at the end.
+            byte* inGroup = _inGroup;
+            ushort* groupBuf = _groupBuf;
+            byte* nodeStates = NodeStates;
+            byte* recalcHash = RecalcHash;
+            NodeInfo* nodeInfos = NodeInfos;
+            ushort* transList = TransistorList;
+            int gc = _groupCount;
+            NodeFlags gf = _groupFlags;
+
+            if (inGroup[seed] == 0) { inGroup[seed] = 1; groupBuf[gc++] = (ushort)seed; recalcHash[seed] = 0; gf |= nodeInfos[seed].Flags; }
+
+#if DEBUG
+            int dbgLevelEnd = gc;   // end of BFS level 0 (the seed) — for the depth profiler
+            int dbgDepth = 0;
+#endif
             int readIndex = 0;
-            AddNodeOrApplyDriver(seed);
-
-            while (readIndex < _groupCount)
+            while (readIndex < gc)
             {
-                int nn = _groupBuf[readIndex++];
-                NodeInfo* ns = NodeInfos + nn;
+#if DEBUG
+                if (readIndex == dbgLevelEnd) { dbgDepth++; dbgLevelEnd = gc; }   // crossed into the next BFS level
+#endif
+                int nn = groupBuf[readIndex++];
+                NodeInfo* ns = nodeInfos + nn;
 
-                // S2-A: walk channels from the inline payload (one cache line, no chase) when available.
                 if (ns->Inline != 0)
                 {
                     ushort* pay = ns->InlinePayload;
                     int n2 = ns->C1c2Count << 1;
-                    // channels to normal nodes: (gate, other) pairs
-                    for (int k = 0; k < n2; k += 2) { if (NodeStates[pay[k]] != 0) AddNodeOrApplyDriver(pay[k + 1]); }
-                    // any ON channel to GND ⇒ pulled low
+                    for (int k = 0; k < n2; k += 2)
+                        if (nodeStates[pay[k]] != 0) { int o = pay[k + 1]; if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
                     int gndEnd = n2 + ns->GndCount;
-                    for (int k = n2; k < gndEnd; k++) { if (NodeStates[pay[k]] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
-                    // any ON channel to VCC ⇒ pulled high
+                    for (int k = n2; k < gndEnd; k++) { if (nodeStates[pay[k]] != 0) { gf |= NodeFlags.Gnd; break; } }
                     int pwrEnd = gndEnd + ns->PwrCount;
-                    for (int k = gndEnd; k < pwrEnd; k++) { if (NodeStates[pay[k]] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                    for (int k = gndEnd; k < pwrEnd; k++) { if (nodeStates[pay[k]] != 0) { gf |= NodeFlags.Pwr; break; } }
                 }
                 else
                 {
-                    // high-fanout fallback: TransistorList 0-terminated sub-lists (unchanged).
-                    // walk channels to normal nodes: (gate, other) pairs, 0-terminated
-                    if (ns->TlistC1c2s != 0)
+                    if (ns->TlistC1c2s != 0)   // high-fanout: ulong dual-pair (2 (gate,other) pairs / 64-bit load)
                     {
-                        ushort* p = TransistorList + ns->TlistC1c2s;
-                        while (*p != 0)
+                        ushort* p = transList + ns->TlistC1c2s;
+                        while (true)
                         {
-                            int gate = *p++;
-                            int other = *p++;
-                            if (NodeStates[gate] != 0) AddNodeOrApplyDriver(other);
+                            ulong quad = System.Runtime.CompilerServices.Unsafe.ReadUnaligned<ulong>(p);
+                            int g1 = (ushort)quad; if (g1 == 0) break;
+                            if (nodeStates[g1] != 0) { int o = (ushort)(quad >> 16); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
+                            int g2 = (ushort)(quad >> 32); if (g2 == 0) break;
+                            if (nodeStates[g2] != 0) { int o = (ushort)(quad >> 48); if (inGroup[o] == 0) { inGroup[o] = 1; groupBuf[gc++] = (ushort)o; recalcHash[o] = 0; gf |= nodeInfos[o].Flags; } }
+                            p += 4;
                         }
                     }
-                    // any ON channel to GND ⇒ the whole group is pulled low
                     if (ns->TlistC1gnd != 0)
                     {
-                        ushort* p = TransistorList + ns->TlistC1gnd;
-                        while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Gnd; break; } }
+                        ushort* p = transList + ns->TlistC1gnd;
+                        while (*p != 0) { int gate = *p++; if (nodeStates[gate] != 0) { gf |= NodeFlags.Gnd; break; } }
                     }
-                    // any ON channel to VCC ⇒ pulled high
                     if (ns->TlistC1pwr != 0)
                     {
-                        ushort* p = TransistorList + ns->TlistC1pwr;
-                        while (*p != 0) { int gate = *p++; if (NodeStates[gate] != 0) { _groupFlags |= NodeFlags.Pwr; break; } }
+                        ushort* p = transList + ns->TlistC1pwr;
+                        while (*p != 0) { int gate = *p++; if (nodeStates[gate] != 0) { gf |= NodeFlags.Pwr; break; } }
                     }
                 }
             }
-        }
 
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static void AddNodeOrApplyDriver(int nn)
-        {
-            if (_inGroup[nn] != 0) return;
-
-            _inGroup[nn] = 1;
-            if (Profiling) { ProfVisit[nn]++; ProfTotalVisits++; }
-            ref NodeInfo ns = ref NodeInfos[nn];
-            _groupBuf[_groupCount++] = (ushort)nn;
-            RecalcHash[nn] = 0;
-            _groupFlags |= ns.Flags;
-            // NodeConnections deferred to GetNodeValue's floating branch (suggest #02):
-            // only needed when _groupFlags ends up None, which is <1% of walks.
+#if DEBUG
+            BfsDepthTally(dbgDepth);   // BFS-depth distribution profiler (DEBUG only)
+#endif
+            _groupCount = gc;
+            _groupFlags = gf;
         }
+        // (the old AddNodeOrApplyDriver helper is now manual-inlined at each add site above — the
+        //  dedup + push + RecalcHash clear + flags OR. NodeConnections stays deferred to GetNodeValue's
+        //  floating branch, suggest #02 — only needed when the group ends up all-floating, <1% of walks.)
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte GetNodeValue()

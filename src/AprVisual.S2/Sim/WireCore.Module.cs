@@ -78,8 +78,6 @@ namespace AprVisual.Sim
             _forceComputeList.Clear(); _forceComputeList.TrimExcess();
             // Parsed JSON module defs (biggest single allocator, ~20-50 MB).
             ClearLoadedDefs();
-            // chip-diag remap (chip-diag itself was removed from the S1 fork).
-            LastLowerRemap = null;
             // Hint a Gen2 collection so the cleared memory actually returns to the OS;
             // happens once at LoadSystem, has no bench-time cost.
             System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
@@ -272,7 +270,9 @@ namespace AprVisual.Sim
                 foreach (var (mname, msize) in def.Memories)
                 {
                     string full = CombinePrefix(prefix, mname);
-                    _memories[full] = new Memory { Name = full, Data = new byte[msize] };
+                    // Data is unmanaged (handler-lifetime): freed by FreeHandlerArrays() at the next rebuild
+                    // (ResetHandlers runs right after _memories.Clear()). AllocHandlerArray zeroes it.
+                    _memories[full] = new Memory { Name = full, Data = AllocHandlerArray<byte>(msize), Length = msize };
                 }
 
                 // setupSegments — pull-ups (we don't keep the polygons)

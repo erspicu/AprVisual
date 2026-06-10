@@ -1,23 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    AprVisual.S2 — the S2 stage (netlist -> IR).
+    AprVisual.S2 - fresh investigation fork (re-attempt, 2026-06-10).
 
-    STARTING POINT: a verbatim copy of AprVisual.S1's sources (2026-05-31), kept in its own
-    directory so the S2 IR work develops WITHOUT mixing into the S1 fork. At copy time S2 == S1
-    (bit-identical engine; same NodeStates checksum). The plan: extract boolean logic /
-    loop-SCC structure into an Expr IR + an IR interpreter, while the inherited S1 switch-level
-    engine stays as the bit-exact GOLDEN REFERENCE the IR must match per node.
-
-    RULE (memory: beat-s1-rule-and-ir-reattempt-plan): any IR direction must prove, on the
-    SMALLEST hand-written prototype, FASTER-than-S1 AND bit-exact BEFORE building further
-    (validation point before investment point; the earlier IR attempt failed by deferring
-    validation, ending 3-6x slower). Stay event-driven (batch lost the ~1.4-node sparsity); the
-    ~94% bidirectional pass-transistor SCC is the structural wall (only the feed-forward
-    fringe is compressible). See WebSite/landscape.html + WebSite/intuition.html.
-
-    Inherited S1 engine (the golden reference, not yet the thing to replace): Sim/WireCore.*
-    with the fast-path (incl. R-1 dynamic-singleton, +18.6%), S1.5 lowering, SoA L3 layout.
+    A VERBATIM copy of the golden src/AprVisual.S1/ engine at the time of forking, so S2
+    starts byte-for-byte identical to S1 (same golden checksum 0x794A43ABDF169ADA @300k
+    full_palette, extra-ram) — a verified baseline to diverge from. Namespace stays
+    `AprVisual`; only the AssemblyName/folder is S2 (separate assembly). The earlier S2
+    Escape-1 investigation was deleted; this is a clean slate for a new attempt, with the
+    per-node / behavioral equivalence gate against S1 kept throughout.
   -->
 
   <!-- 2026-05-30: converted from WinExe/WinForms to a pure console app. The live
@@ -27,7 +18,9 @@
        target drops from net10.0-windows to portable net10.0 with no desktop deps. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- 2026-06-09: bumped net10.0 → net11.0 — measured ~+1% (JIT/runtime only, bit-exact, 34/50
+         interleaved-paired) on this engine. Releases now build self-contained net11. -->
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -43,13 +36,6 @@
 
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
   </PropertyGroup>
-
-  <!-- Roslyn for runtime oblivious-logic codegen (Escape-1 step 7): emit a straight-line C#
-       relaxation sweep from the extracted model, compile in-memory, run + miter vs golden.
-       4.11.0 is the version present in the local NuGet cache (offline-restorable). -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
-  </ItemGroup>
 
   <!-- Embed a benchmark version (short git commit + commit date, "-dirty" if this project's tracked
        sources have uncommitted changes) as assembly metadata, read at runtime by TestRunner. Baked in

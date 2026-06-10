@@ -230,6 +230,9 @@ namespace AprVisual.Sim
                     ns.TlistC1pwr = AddSubList(c1pwr);
                 }
             }
+            // >=4 trailing pad zeros so SetNodeState's 8-byte (4-ushort) ulong reads at the last sublist
+            // can't fault past the array end (pad zeros read as terminators = harmless). See SetNodeState.
+            tl.Add(0); tl.Add(0); tl.Add(0); tl.Add(0);
             TransistorList = AllocArray<ushort>(tl.Count);
             for (int i = 0; i < tl.Count; i++) TransistorList[i] = (ushort)tl[i];
             _transistorListLength = tl.Count;
@@ -246,20 +249,16 @@ namespace AprVisual.Sim
             //    Pure-logic-gnd nodes (pull-up + only GND channels + no normal channel + no callback)
             //    resolve in O(1) via RecalcNodeFast, bypassing the group DFS. See WireCore.FastPath.cs.
             ClassifyPureLogicNodes();
-
-            // ── S2 IR (Phase A): extract + enable the clean pure-logic subset (truth-table LUT).
-            //    Reads the managed Node graph (still alive here, before ClearPostLoadBuildState).
-            //    Reclassifies survivors to IrCls so RecalcNode dispatches them to EvalIr. No-op if
-            //    EnableIr is false. See WireCore.Ir.cs / MD/S2/design/04.
-            BuildIr();
+            ClassifyPruneTaint();   // safety mask for the same-state turn-on prune (no-PullUp / ForceCompute)
+            ClassifyTurnOffSkip();  // P-2: safety mask for the turn-off enqueue prune (isolated-on-disconnect float-hold)
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).
-            _callbackByNode = new CallbackInfo?[NodeCount];
+            _callbackByNode = new CallbackInfo?[NodeCount];   // [A6] direct array (was Dictionary)
             for (int i = 0; i < NodeCount; i++)
             {
-                var node = Nodes[i];
-                if (node != null) _callbackByNode[i] = node.Callback;
+                var cb = Nodes[i]?.Callback;
+                if (cb != null) _callbackByNode[i] = cb;
             }
         }
 
@@ -281,20 +280,30 @@ namespace AprVisual.Sim
     // bit-exact). Tlist* indices are kept for ALL nodes (fast-path classify reads TlistC1c2s != 0).
     // Cold fields (Connections, TlistGates/writeback) remain in WireCore.NodeConnections /
     // NodeTlistGates (different access pattern: tie-break + SetNodeState writeback, not the BFS scan).
+    // 16 bytes (4 per 64B cache line; was 32). The inline channel payload and the overflow
+    // TransistorList indices are MUTUALLY EXCLUSIVE (every hot access is gated by Inline), so they
+    // share one 12-byte region via explicit layout (a union). InlineCap drops 7->6 to make the payload
+    // 12 bytes (= the 3 Tlist ints); GndCount/PwrCount pack into one byte (each <= 6, a nibble). This
+    // halves NodeInfos (460KB -> 230KB) so more of the BFS working set stays in L2 — the only field
+    // that needs >16 bits is the Tlist index (TransistorList ~115K), which keeps its int and lives in
+    // the union slot. All field NAMES are unchanged so the hot sites don't change.
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Size = 16)]
     internal unsafe struct NodeInfo
     {
-        public const int InlineCap = 7;   // InlinePayload slots; node is inline iff 2*C1c2Count + GndCount + PwrCount <= InlineCap
+        public const int InlineCap = 6;   // InlinePayload slots; node is inline iff 2*C1c2Count + GndCount + PwrCount <= InlineCap
+        [System.Runtime.InteropServices.FieldOffset(0)] public WireCore.NodeFlags Flags;  // mutable (SetHigh/SetLow at runtime)
+        [System.Runtime.InteropServices.FieldOffset(1)] public byte Inline;               // 1 = use InlinePayload; 0 = use Tlist*
+        [System.Runtime.InteropServices.FieldOffset(2)] public byte C1c2Count;            // # (gate,other) PAIRS inline
+        [System.Runtime.InteropServices.FieldOffset(3)] public byte GndPwr;               // GndCount = low nibble, PwrCount = high nibble (each <= 6)
+        // ── 12-byte union @ offset 4 ── inline nodes use InlinePayload; overflow nodes use the 3 Tlist ints.
+        [System.Runtime.InteropServices.FieldOffset(4)]  public fixed ushort InlinePayload[InlineCap];  // [c1c2 pairs][gnd gates][pwr gates]
+        [System.Runtime.InteropServices.FieldOffset(4)]  public int TlistC1c2s;   // index into WireCore.TransistorList: (gate,other, ..., 0)
+        [System.Runtime.InteropServices.FieldOffset(8)]  public int TlistC1gnd;   // ...: (gate, ..., 0) — channels whose far end is GND
+        [System.Runtime.InteropServices.FieldOffset(12)] public int TlistC1pwr;   // ...: (gate, ..., 0) — channels whose far end is VCC
 
-        public WireCore.NodeFlags Flags;   // 0 (byte enum) — mutable (SetHigh/SetLow/SetFloat at runtime)
-        public byte C1c2Count;             // 1 — number of (gate,other) PAIRS inline (Inline==1)
-        public byte GndCount;              // 2 — number of GND-channel gates inline
-        public byte PwrCount;              // 3 — number of VCC-channel gates inline
-        public byte Inline;                // 4 — 1 = use InlinePayload; 0 = use Tlist* + TransistorList
-        // (1 byte pad at offset 5 to 2-align the fixed buffer)
-        public fixed ushort InlinePayload[InlineCap];  // 6..20 — [c1c2 pairs][gnd gates][pwr gates]
-        public int TlistC1c2s;      // 20 — index into WireCore.TransistorList: (gate,other, ..., 0)
-        public int TlistC1gnd;      // 24 — ...: (gate, ..., 0) — channels whose far end is GND
-        public int TlistC1pwr;      // 28 — ...: (gate, ..., 0) — channels whose far end is VCC
+        // GndCount/PwrCount packed into GndPwr (nibbles) — same read/write surface as the old byte fields.
+        public byte GndCount { readonly get => (byte)(GndPwr & 0x0F); set => GndPwr = (byte)((GndPwr & 0xF0) | (value & 0x0F)); }
+        public byte PwrCount { readonly get => (byte)(GndPwr >> 4);   set => GndPwr = (byte)((GndPwr & 0x0F) | ((value & 0x0F) << 4)); }
     }
 
     // Build-time transistor record (the hot path uses the flattened WireCore.TransistorList instead).

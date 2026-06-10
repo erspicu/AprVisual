@@ -15,8 +15,10 @@ namespace AprVisual.Sim
 
         /// <summary>FNV-1a 64-bit hash over the whole NodeStates array — a cheap fingerprint of the
         /// chip's complete state, for rigorous A/B equivalence checking (two runs that match here at
-        /// the same Time are bit-identical per node). NOTE: hashed by node id, so only comparable
-        /// between runs with the SAME node numbering (i.e. same --rcm setting).</summary>
+        /// the same Time are bit-identical per node). Always hashed in ORIGINAL (pre-renumber) id
+        /// order — under the class-major auto-renumber the loop walks NodeStates through the
+        /// permutation — so the value is numbering-independent and directly comparable with the
+        /// historical goldens (0x794A43ABDF169ADA @300k etc.).</summary>
         public static ulong NodeStatesChecksum()
         {
             // Under --renumber, hash in ORIGINAL id order (via the permutation) so the checksum stays
@@ -99,52 +101,9 @@ namespace AprVisual.Sim
             else DiagNCOther++;
         }
 
-        // ── SetNodeState compound-`if` condition profiler (DEBUG ONLY) ──
-        // Measures, for each of the 3 enqueue `if` templates, the INDEPENDENT true-rate of every &&-clause
-        // (evaluated unconditionally here — defeats short-circuit, so each rate is unconditional, not the
-        // biased "only-when-earlier-passed" rate the live && would show). Goal: reorder the && clauses so the
-        // cheapest + most-often-FALSE clause runs first (more short-circuits ⇒ fewer ops in the hot loop).
-        // Counts are deterministic ⇒ identical to Release. a/b unroll copies are aggregated per template.
-        // Reordering pure (side-effect-free) && clauses is bit-exact; still gate the chosen order on checksum.
-        internal static long
-            CpOff1_N, CpOff1_NextHash0, CpOff1_MaskOff, CpOff1_Whole,                          // TurnOff c1: nextHash0 && maskOff
-            CpOff2_N, CpOff2_NotPwr, CpOff2_NotGnd, CpOff2_NextHash0, CpOff2_MaskOff, CpOff2_Whole, // TurnOff c2: !pwr && !gnd && nextHash0 && maskOff
-            CpOn_N, CpOn_NextHash0, CpOn_MaskUnsafe, CpOn_Xor, CpOn_Combined, CpOn_Whole;       // TurnOn c1: nextHash0 && (maskUnsafe | xor)
-
-        private static unsafe void CondTallyOff1(int c)
-        {
-            CpOff1_N++;
-            bool h = RecalcHashNext[c] == 0;
-            bool m = (PruneMask[c] & PruneTurnOffSkip) == 0;
-            if (h) CpOff1_NextHash0++;
-            if (m) CpOff1_MaskOff++;
-            if (h && m) CpOff1_Whole++;
-        }
-        private static unsafe void CondTallyOff2(int c2, int npwr, int ngnd)
-        {
-            CpOff2_N++;
-            bool p = c2 != npwr, g = c2 != ngnd;
-            bool h = RecalcHashNext[c2] == 0;
-            bool m = (PruneMask[c2] & PruneTurnOffSkip) == 0;
-            if (p) CpOff2_NotPwr++;
-            if (g) CpOff2_NotGnd++;
-            if (h) CpOff2_NextHash0++;
-            if (m) CpOff2_MaskOff++;
-            if (p && g && h && m) CpOff2_Whole++;
-        }
-        private static unsafe void CondTallyOn(int c1, int c2)
-        {
-            CpOn_N++;
-            bool h = RecalcHashNext[c1] == 0;
-            bool mu = (PruneMask[c1] & PruneTurnOnUnsafe) != 0;
-            bool x = (NodeStates[c1] ^ NodeStates[c2]) != 0;
-            bool comb = mu || x;
-            if (h) CpOn_NextHash0++;
-            if (mu) CpOn_MaskUnsafe++;
-            if (x) CpOn_Xor++;
-            if (comb) CpOn_Combined++;
-            if (h && comb) CpOn_Whole++;
-        }
+        // (the SetNodeState &&-clause [cond-profile] profiler was REMOVED 2026-06-11: its purpose —
+        //  measuring per-clause true-rates to order the PruneMask tests — died with the mask reads;
+        //  the range-prune compares have no reorderable clause left. See git history if ever needed.)
 
         // ── settle-pass distribution profiler (DEBUG ONLY) ──
         // Histogram of how many settle waves each ProcessQueue() call takes to reach quiescence
@@ -232,13 +191,11 @@ namespace AprVisual.Sim
         //   Super Mario Bros. / 71M hc:  max 41 iter, p99 in [17-32]
         // 128 = ~2.8× safety margin over observed max — so in practice it never trips.
 #if DEBUG
-        // DEBUG-only. Normally 128 (pure non-convergence tripwire). The --settle-cap experiment
-        // (TestRunner) lowers it to deliberately ABANDON settles past N passes, to study how an
-        // under-settled (timing-violation) chip diverges. SettleCapSilent suppresses the per-trip
-        // abort message (a low cap trips ~every settle). Both are DEBUG-only — Release has neither
-        // the field nor the cap block (this whole region is #if DEBUG).
-        internal static int MaxSettlePasses = 128;
-        internal static bool SettleCapSilent = false;
+        // DEBUG-only pure non-convergence tripwire — Release has neither the const nor the cap block.
+        // (The old --settle-cap/-SettleCapSilent under-settle EXPERIMENT was removed 2026-06-11: its
+        // study concluded — abandoning even the deepest 0.58% of settles diverges within <1000 hc, no
+        // graceful degradation — so the knob had no remaining use. See git history / the memory note.)
+        internal const int MaxSettlePasses = 128;
 #endif
 
         // Per-node FIFO double-buffer settle. The hot loop of the engine. (Was a thin ProcessQueue()
@@ -264,8 +221,7 @@ namespace AprVisual.Sim
                     Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
                 {
-                    if (!SettleCapSilent)
-                        Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
+                    Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
                     for (int i = 0; i < RecalcListNextCount; i++) RecalcHashNext[RecalcListNext[i]] = 0;
                     RecalcListNextCount = 0;
                     break;
@@ -389,19 +345,15 @@ namespace AprVisual.Sim
                 // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
                 if (newState == 0)
                 {
-#if DEBUG
-                    int npwr = Npwr, ngnd = Ngnd;   // supply-skip is folded into pruneMask now — only the [cond-profile] needs these
-#endif
-                    // [P-2 turn-off enqueue prune] skip endpoints that become a driverless isolated singleton
-                    // the instant this (their only) channel opens — they float and HOLD their previous value, so
-                    // re-evaluating them is a guaranteed no-op. Bit 1 (PruneTurnOffSkip) of the shared PruneMask
-                    // is the precomputed static safety mask (C1c2Count==1, no supply/PullUp/FC/callback — see
-                    // ClassifyTurnOffSkip). Bit-exact. [exp supply-skip fold] supply (ngnd/npwr) is ALSO marked
-                    // skip in ClassifyTurnOffSkip, so c2 needs NO explicit `c2!=ngnd && c2!=npwr` guard — it is
-                    // now identical to c1. Clause order: more-selective maskOff (≈20% false) before nextHash==0.
-                    // [range-prune, 2026-06-10] the auto class-major renumber makes "turn-off skip" an id RANGE:
-                    // skip ⇔ c < S (supply 1,2 included). Replaces the random pruneMask byte load with a
-                    // register compare — one dependent load deleted per endpoint check. Verified at Reset.
+                    // [P-2 turn-off enqueue prune, range form (2026-06-10)] skip endpoints that become a
+                    // driverless isolated singleton the instant this (their only) channel opens — they float
+                    // and HOLD their previous value, so re-evaluating them is a guaranteed no-op (the static
+                    // safety class: C1c2Count==1, no supply/PullUp/FC/callback — see ClassifyTurnOffSkip).
+                    // The class-major auto-renumber (WireCore.Renumber.cs) makes that class one contiguous id
+                    // block, so the test is a REGISTER COMPARE: skip ⇔ c < S. Supply (ngnd/npwr, ids 1,2 < 3
+                    // ≤ S) rides the same compare — the historical explicit `c2!=ngnd && c2!=npwr` guard and
+                    // its successor (the supply-skip mask fold) are both subsumed. Boundaries verified against
+                    // the freshly computed PruneMask at every Reset. Bit-exact.
                     int rS = RangePruneS;
                     while (true)
                     {
@@ -409,25 +361,13 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-#if DEBUG
-                        CondTallyOff1(c1a);
-#endif
                         if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-#if DEBUG
-                        CondTallyOff2(c2a, npwr, ngnd);
-#endif
                         if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-#if DEBUG
-                        CondTallyOff1(c1b);
-#endif
                         if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-#if DEBUG
-                        CondTallyOff2(c2b, npwr, ngnd);
-#endif
                         if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
@@ -436,24 +376,18 @@ namespace AprVisual.Sim
                 {
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
                     // c1 suffices (BFS traverses the ON channel to c2).
-                    // [same-state turn-on prune] if c1 and c2 already hold the same state, merging two
-                    // equal-state groups can't change any value — PROVIDED the merged group resolves through
-                    // the monotone driven-priority LUT. Bit 0 (PruneTurnOnUnsafe) of the shared PruneMask forces
-                    // the enqueue for nodes that can resolve non-monotonically (no-PullUp floating/hold-previous,
-                    // or ForceCompute Gnd+Pwr cancel; cleared by P-3/4 for the cap<all-neighbours subset).
-                    // Bit-exact (golden checksum); +11.85% (14/14 paired). See ClassifyPruneTaint.
-                    // Micro-form: the keep-condition is folded branchlessly —
-                    // (mask&bit0) | (state^state) != 0  ==  unsafe || state!=state. The `if` stays — a pruned
-                    // node must NOT have nextHash set, or it would look queued without being in the list.
-                    // Clause ORDER (2026-06-08): the combined keep-term is tested FIRST, nextHash==0 LAST.
-                    // The DEBUG [cond-profile] (CondTallyOn) measured nextHash==0 ≈97.7% true here — a near-
-                    // useless lead gate — while the combined term is ≈41.8% false, so leading with it short-
-                    // circuits the (cheaper, single-load) nextHash check more often. +~1% (29/40 paired over
-                    // two 20-round runs, bit-exact). The earlier "nextHash==0 first" assumed already-queued was
-                    // common; the profile disproved that for full_palette. (Re-check on a busier ROM if ordering
-                    // is ever revisited — already-queued rate is workload-dependent.)
-                    // [range-prune, 2026-06-10] turn-on unsafe is the two outer blocks: unsafe ⇔ c < A || c >= B
-                    // (c1 is never supply). Two register compares replace the pruneMask byte load.
+                    // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
+                    // the same state, merging two equal-state groups can't change any value — PROVIDED the
+                    // merged group resolves through the monotone driven-priority LUT. The "unsafe" class
+                    // that must always enqueue (no-PullUp floating/hold-previous, or ForceCompute Gnd+Pwr
+                    // cancel; minus the P-3/4 cap<all-neighbours un-taint — see ClassifyPruneTaint) sits in
+                    // the two OUTER id blocks of the class-major renumber, so the test is two REGISTER
+                    // COMPARES: unsafe ⇔ c < A || c >= B (c1 is never supply). Boundaries verified against
+                    // the computed PruneMask at every Reset. The keep-term stays FIRST, nextHash==0 LAST
+                    // (the 2026-06-08 [cond-profile] showed nextHash==0 is ≈97.7% true — a near-useless lead
+                    // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
+                    // a pruned node must NOT have nextHash set, or it would look queued without being listed.
+                    // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
                     byte* nodeStates = NodeStates;
                     int rA = RangePruneA, rB = RangePruneB;
                     while (true)
@@ -462,16 +396,10 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-#if DEBUG
-                        CondTallyOn(c1a, c2a);
-#endif
                         if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-#if DEBUG
-                        CondTallyOn(c1b, c2b);
-#endif
                         if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }

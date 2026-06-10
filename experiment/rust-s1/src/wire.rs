@@ -41,7 +41,8 @@ pub const NES_PALETTE: [u32; 64] = [
     0xE4E594, 0xCFEF96, 0xBDF4AB, 0xB3F3CC, 0xB5EBF2, 0xB8B8B8, 0x000000, 0x000000,
 ];
 
-// enqueue-prune mask bits (see WireCore.prune_mask)
+// enqueue-prune classification bits — used by compute_prune_mask (load-time). The hot path no
+// longer reads a mask: the class-major renumber turns these classes into id RANGES (range_a/s/b).
 pub const PRUNE_TURN_ON_UNSAFE: u8 = 1;
 pub const PRUNE_TURN_OFF_SKIP: u8 = 2;
 

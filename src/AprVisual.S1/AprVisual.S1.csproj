@@ -23,6 +23,12 @@
       simd-queue, levelize, oblivious, rcm (marginal or experimental),
       All IR / Codegen / Dispatcher / Partition machinery,
       dead-end-skip (broke CPU bus state).
+
+    NB on "rcm removed" above (2026-06-11): the OLD rcm flag was bandwidth-oriented graph renumbering
+    and stayed dead. S1 NOW ships a DIFFERENT renumbering: the automatic class-major permutation
+    (Sim/WireCore.Renumber.cs, always on) whose purpose is to turn the prune masks into id RANGE
+    compares in SetNodeState (range-prune, +3.6 pct). Same word, different objective; don't confuse
+    the two.
   -->
 
   <!-- 2026-05-30: converted from WinExe/WinForms to a pure console app. The live

@@ -38,16 +38,20 @@ namespace AprVisual.Sim
         public static int PureLogicNodeCount;
         public static string LastFastPathStats = "(fast-path disabled — default; --fast-path to enable)";
 
-        // [enqueue-prune safety mask — one byte per node, BIT-PACKED so both prune paths read one array]
+        // [enqueue-prune classification — one byte per node, bit-packed]
         //   bit 0 (PruneTurnOnUnsafe = 1): node is UNSAFE for the same-state turn-ON prune (P-1). Set for
         //       no-PullUp / ForceCompute nodes (their merge can resolve non-monotonically via the floating
         //       capacitance tie-break); CLEARED again by P-3/P-4 for the cap<all-neighbours subset that
-        //       provably can't win a tie-break. Read by SetNodeState's turn-on enqueue.
+        //       provably can't win a tie-break.
         //   bit 1 (PruneTurnOffSkip = 2): node is a single-channel no-driver leaf that ISOLATES → float-holds
-        //       when its channel opens (P-2); skip enqueuing it on turn-OFF. Read by the turn-off enqueue.
-        // One array (was two: PruneUnsafe + TurnOffSkip) → half the L1 footprint for the masks and both bits
-        // for a node live in the same cache line; the per-read `& bit` is ~free. Built at Reset by
-        // ClassifyPruneTaint() (bit 0) then ClassifyTurnOffSkip() (bit 1 + the P-3/4 bit-0 clears).
+        //       when its channel opens (P-2); skip enqueuing it on turn-OFF.
+        // Built at Reset by ClassifyPruneTaint() (bit 0) then ClassifyTurnOffSkip() (bit 1 + the P-3/4
+        // bit-0 clears). NOTE [range-prune, 2026-06-10]: the HOT PATH no longer reads this array —
+        // the class-major auto-renumber (WireCore.Renumber.cs) makes each prune class one contiguous
+        // id block, and SetNodeState tests the RangePrune* boundaries instead. The mask's remaining
+        // role is the GROUND TRUTH the ranges are verified against at every Reset (and the DEBUG
+        // [cond-profile] tallies / --co-profile dump); in Release it is freed right after a
+        // successful verification.
         internal const byte PruneTurnOnUnsafe = 1;
         internal const byte PruneTurnOffSkip  = 2;
         internal static byte* PruneMask;
@@ -216,12 +220,12 @@ namespace AprVisual.Sim
                 for (int k = 0; k < nc; k++) if (myCap >= NodeConnections[pay[k * 2 + 1]]) { capLtAll = false; break; }
                 if (capLtAll) { PruneMask[nn] &= unchecked((byte)~PruneTurnOnUnsafe); p34++; }   // clear bit 0
             }
-            // [supply-skip fold, 2026-06-09] mark supply as turn-off-skip so SetNodeState's c2 enqueue no
-            // longer needs an explicit `c2 != ngnd && c2 != npwr` guard — c2 becomes IDENTICAL to c1, so the
-            // unrolled turn-off loop is 4 uniform checks (tighter JIT codegen). Supply is never recomputed /
-            // enqueued, so skip=1 on it is correct + bit-exact. Only bit 1; turn-on reads bit 0 and never sees
-            // supply as c1 (AddTransistor normalises supply onto c2). Measured +~1.5-2% C# (42/50 paired,
-            // golden 0x794A43ABDF169ADA). The 2 extra pruneMask[supply] reads are L1-hot (2 fixed bytes).
+            // [supply-skip fold, 2026-06-09] mark supply as turn-off-skip: supply is never recomputed /
+            // enqueued, so skip=1 on it is correct + bit-exact (this is what historically let the c2 enqueue
+            // drop its explicit `c2 != ngnd && c2 != npwr` guard, +~1.5-2%). Under the range form the same
+            // fact is expressed positionally — supply ids 1,2 < 3 ≤ S satisfy the `c < S` skip compare — but
+            // the bits stay set here so the mask remains the complete ground truth the ranges are verified
+            // against. Only bit 1; turn-on never sees supply as c1 (AddTransistor normalises supply onto c2).
             PruneMask[Npwr] |= PruneTurnOffSkip;
             PruneMask[Ngnd] |= PruneTurnOffSkip;
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;

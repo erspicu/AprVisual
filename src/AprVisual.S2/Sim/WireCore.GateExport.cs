@@ -85,7 +85,9 @@ namespace AprVisual.Sim
             return i > 0 ? s.Substring(0, i) : "core";
         }
 
-        public static void ExportGateLevel(string basePath)
+        // filter: if non-null, only nodes whose NAME contains this substring (plus their 1-hop fan-in,
+        // for edge context) are emitted — for cutting a small, renderable subgraph out of the 14.7K-node chip.
+        public static void ExportGateLevel(string basePath, string? filter = null)
         {
             int n = NodeCount;
             var ctx = BuildGateCtx();
@@ -94,6 +96,26 @@ namespace AprVisual.Sim
 
             var cls = new GateClass[n];
             for (int nn = 0; nn < n; nn++) if (Nodes[nn] != null) cls[nn] = ClassifyGate(nn, ctx);
+
+            // build the keep-set when filtering: matched nodes + their 1-hop fan-in sources (so edges resolve).
+            bool[]? keep = null;
+            if (filter != null)
+            {
+                keep = new bool[n];
+                var matched = new List<int>();
+                for (int nn = 0; nn < n; nn++)
+                    if (Nodes[nn] != null && nn != Npwr && nn != Ngnd && GetNodeName(nn).Contains(filter, StringComparison.Ordinal))
+                    { keep[nn] = true; matched.Add(nn); }
+                foreach (int nn in matched)
+                {
+                    NodeInfo* ns = NodeInfos + nn;
+                    foreach (int s in GndGateList(ns)) if (s != Npwr && s != Ngnd) keep[s] = true;
+                    foreach (int s in PwrGateList(ns)) if (s != Npwr && s != Ngnd) keep[s] = true;
+                    foreach (var (g, o) in PassList(ns)) { if (g != Npwr && g != Ngnd) keep[g] = true; if (o != Npwr && o != Ngnd) keep[o] = true; }
+                }
+                Console.WriteLine($"# filter '{filter}': {matched.Count:N0} matched nodes (+ 1-hop fan-in)");
+            }
+            bool Keep(int nn) => keep == null || keep[nn];
 
             // ── Verilog ──────────────────────────────────────────────────────────────────────────────
             long exactGates = 0, annotated = 0, regs = 0, wires = 0;
@@ -109,7 +131,7 @@ namespace AprVisual.Sim
                 // declarations
                 for (int nn = 0; nn < n; nn++)
                 {
-                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd || !Keep(nn)) continue;
                     if (cls[nn] == GateClass.DynamicStorage) { w.WriteLine($"  reg  {V(nn)};  // {cls[nn]}"); regs++; }
                     else { w.WriteLine($"  wire {V(nn)};  // {cls[nn]}"); wires++; }
                 }
@@ -118,7 +140,7 @@ namespace AprVisual.Sim
                 // logic
                 for (int nn = 0; nn < n; nn++)
                 {
-                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd || !Keep(nn)) continue;
                     NodeInfo* ns = NodeInfos + nn;
                     switch (cls[nn])
                     {
@@ -184,7 +206,7 @@ namespace AprVisual.Sim
                 var byCluster = new Dictionary<string, List<int>>();
                 for (int nn = 0; nn < n; nn++)
                 {
-                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd || !Keep(nn)) continue;
                     string c = Cluster(nn);
                     if (!byCluster.TryGetValue(c, out var lst)) byCluster[c] = lst = new List<int>();
                     lst.Add(nn);
@@ -202,19 +224,19 @@ namespace AprVisual.Sim
                 // edges: fan-in signal -> gate output (only for the logic classes, to keep the graph meaningful)
                 for (int nn = 0; nn < n; nn++)
                 {
-                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                    if (Nodes[nn] == null || nn == Npwr || nn == Ngnd || !Keep(nn)) continue;
                     NodeInfo* ns = NodeInfos + nn;
                     GateClass g = cls[nn];
                     if (g == GateClass.Inverter || g == GateClass.NorGate || g == GateClass.SeriesGate || g == GateClass.SupplyDrivenDyn)
                     {
-                        foreach (int src in GndGateList(ns)) { if (src != Npwr && src != Ngnd) { w.WriteLine($"  n{src} -> n{nn};"); edges++; } }
-                        foreach (int src in PwrGateList(ns)) { if (src != Npwr && src != Ngnd) { w.WriteLine($"  n{src} -> n{nn} [style=dashed];"); edges++; } }
+                        foreach (int src in GndGateList(ns)) { if (src != Npwr && src != Ngnd && Keep(src)) { w.WriteLine($"  n{src} -> n{nn};"); edges++; } }
+                        foreach (int src in PwrGateList(ns)) { if (src != Npwr && src != Ngnd && Keep(src)) { w.WriteLine($"  n{src} -> n{nn} [style=dashed];"); edges++; } }
                     }
                     if (g == GateClass.SeriesGate || g == GateClass.DynamicStorage)
                         foreach (var (gate, other) in PassList(ns))
                         {
-                            if (gate != Npwr && gate != Ngnd) { w.WriteLine($"  n{gate} -> n{nn} [color=orange,label=ctrl];"); edges++; }
-                            if (other != Npwr && other != Ngnd && other != nn) { w.WriteLine($"  n{other} -> n{nn} [color=gray,style=dotted];"); edges++; }
+                            if (gate != Npwr && gate != Ngnd && Keep(gate)) { w.WriteLine($"  n{gate} -> n{nn} [color=orange,label=ctrl];"); edges++; }
+                            if (other != Npwr && other != Ngnd && other != nn && Keep(other)) { w.WriteLine($"  n{other} -> n{nn} [color=gray,style=dotted];"); edges++; }
                         }
                 }
                 w.WriteLine("}");

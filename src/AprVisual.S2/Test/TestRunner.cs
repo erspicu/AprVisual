@@ -26,6 +26,7 @@ namespace AprVisual.Test
             string? gateClassifyPath = null;   // S2 --gate-classify: per-node gate-class + digital/analog breakdown
             string? gateExportPath = null;     // S2 --gate-export: structural Verilog + Graphviz gate-level netlist
             string gateExportOut = "gatelevel";   // base path for --gate-export (writes <base>.v + <base>.dot)
+            string? gateFilter = null;             // --gate-filter <substr>: cut a small renderable subgraph by node-name substring
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -67,6 +68,7 @@ namespace AprVisual.Test
                     case "--gate-classify":   if (i + 1 < args.Length) gateClassifyPath = args[++i]; break;    // S2: per-node gate-class + digital/analog breakdown (the gate-level view)
                     case "--gate-export":     if (i + 1 < args.Length) gateExportPath = args[++i]; break;      // S2: write structural Verilog + Graphviz gate-level netlist
                     case "--gate-out":        if (i + 1 < args.Length) gateExportOut = args[++i]; break;       // base path for --gate-export (<base>.v + <base>.dot)
+                    case "--gate-filter":     if (i + 1 < args.Length) gateFilter = args[++i]; break;          // cut a small subgraph by node-name substring (for rendering)
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
@@ -118,7 +120,7 @@ namespace AprVisual.Test
             if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
             if (gateAbsPath   != null) return GateAbsEstimateMode(gateAbsPath);
             if (gateClassifyPath != null) return GateClassifyMode(gateClassifyPath);
-            if (gateExportPath != null) return GateExportMode(gateExportPath, gateExportOut);
+            if (gateExportPath != null) return GateExportMode(gateExportPath, gateExportOut, gateFilter);
             if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
@@ -244,14 +246,14 @@ namespace AprVisual.Test
         }
 
         // ── S2 --gate-export: structural Verilog + Graphviz gate-level netlist ──
-        private static int GateExportMode(string romPath, string outBase)
+        private static int GateExportMode(string romPath, string outBase, string? filter)
         {
             var rom = NesRom.LoadFromFile(romPath);
             if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
             try
             {
                 WireCore.LoadSystem(rom);
-                WireCore.ExportGateLevel(outBase);
+                WireCore.ExportGateLevel(outBase, filter);
                 return 0;
             }
             finally { WireCore.Shutdown(); }

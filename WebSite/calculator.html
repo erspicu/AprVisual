@@ -159,7 +159,7 @@
     <li class="en"><b>% of real-time speed</b> = <code>R</code> ÷ 42,954,552 × 100%</li>
     <li class="zh"><b>佔實機速度百分比</b> = <code>R</code> ÷ 42,954,552 × 100%</li>
   </ul>
-  <p class="note"><span class="en">Reality check: the dev machine's C# engine reaches <b>~120.6K hc/s</b> at boost (2026-06, range-prune + bundled profile key). Plug it in and you get ~5.9 s per frame, ~0.169 FPS, and ~356× slower than real time — i.e. about <b>0.28%</b> of real-time speed. That gap is the whole point of the project: see <a href="ceiling.html">why it can't realistically be closed on one CPU core</a>.</span><span class="zh">對照一下:開發機的 C# 引擎在 boost 下約 <b>120.6K hc/s</b>(2026-06,範圍剪枝 + 內建 profile 鍵)。代進去就是每張畫面約 5.9 秒、約 0.169 FPS、比實機慢約 356 倍 —— 也就是只有實機速度的約 <b>0.28%</b>。這個差距正是整個專案的重點:見<a href="ceiling.html">為什麼單核 CPU 實務上補不上這個差距</a>。</span></p>
+  <p class="note"><span class="en">Reality check: the dev machine's C# engine reaches <b>~126.7K hc/s</b> at boost (2026-06, range-prune + self-captured locality key). Plug it in and you get ~5.6 s per frame, ~0.177 FPS, and ~339× slower than real time — i.e. about <b>0.30%</b> of real-time speed. That gap is the whole point of the project: see <a href="ceiling.html">why it can't realistically be closed on one CPU core</a>.</span><span class="zh">對照一下:開發機的 C# 引擎在 boost 下約 <b>126.7K hc/s</b>(2026-06,範圍剪枝 + 自我捕捉 locality 鍵)。代進去就是每張畫面約 5.6 秒、約 0.177 FPS、比實機慢約 339 倍 —— 也就是只有實機速度的約 <b>0.30%</b>。這個差距正是整個專案的重點:見<a href="ceiling.html">為什麼單核 CPU 實務上補不上這個差距</a>。</span></p>
 </section>
 
 <section>
@@ -196,10 +196,10 @@
 <section>
   <h2><span class="en">Notes &amp; caveats</span><span class="zh">說明與注意事項</span></h2>
   <ul>
-    <li class="en">The <b>#1 default</b> is fetched live from the community leaderboard — the fastest <b>recorded</b> result so far (anyone with a faster CPU can take the top spot by <a href="https://github.com/erspicu/AprVisual/releases">running the benchmark</a>). If the leaderboard can't be reached, the calculator falls back to the dev machine's ~120.6K example.</li>
-    <li class="zh"><b>第一名預設值</b>是即時從社群排行榜抓取的 —— 目前<b>有紀錄</b>的最快結果(任何擁有更快 CPU 的人都能藉由<a href="https://github.com/erspicu/AprVisual/releases">跑 benchmark</a> 登頂)。若連不到排行榜,換算器會退回開發機的 ~120.6K 範例。</li>
-    <li class="en">The hot loop is <b>memory-latency-bound</b>, so a given machine's hc/s tracks its CPU clock and boost/thermal state — the same engine reads ~120.6K at boost and lower when pinned to base clock. Treat any single number as a point on that curve.</li>
-    <li class="zh">熱迴圈受<b>記憶體延遲限制</b>,所以同一台機器的 hc/s 會隨 CPU 時脈與 boost/熱狀態變動 —— 同一個引擎 boost 下約 120.6K,鎖在基頻時較低。任何單一數字都只是那條曲線上的一個點。</li>
+    <li class="en">The <b>#1 default</b> is fetched live from the community leaderboard — the fastest <b>recorded</b> result so far (anyone with a faster CPU can take the top spot by <a href="https://github.com/erspicu/AprVisual/releases">running the benchmark</a>). If the leaderboard can't be reached, the calculator falls back to the dev machine's ~126.7K example.</li>
+    <li class="zh"><b>第一名預設值</b>是即時從社群排行榜抓取的 —— 目前<b>有紀錄</b>的最快結果(任何擁有更快 CPU 的人都能藉由<a href="https://github.com/erspicu/AprVisual/releases">跑 benchmark</a> 登頂)。若連不到排行榜,換算器會退回開發機的 ~126.7K 範例。</li>
+    <li class="en">The hot loop is <b>memory-latency-bound</b>, so a given machine's hc/s tracks its CPU clock and boost/thermal state — the same engine reads ~126.7K at boost and lower when pinned to base clock. Treat any single number as a point on that curve.</li>
+    <li class="zh">熱迴圈受<b>記憶體延遲限制</b>,所以同一台機器的 hc/s 會隨 CPU 時脈與 boost/熱狀態變動 —— 同一個引擎 boost 下約 126.7K,鎖在基頻時較低。任何單一數字都只是那條曲線上的一個點。</li>
     <li class="en"><b>FPS here is the simulation's own throughput</b> expressed as frames/second — not a smooth 60 fps you could play at. Don't compare it directly with another netlist sim's "Hz", which may define a step differently.</li>
     <li class="zh">這裡的 <b>FPS 是模擬本身的吞吐量</b>換算成「張/秒」 —— 不是可以拿來玩、順順的 60 fps。也別直接拿去跟別的網表模擬器的「Hz」比,因為各家對「一步」的定義不同。</li>
   </ul>

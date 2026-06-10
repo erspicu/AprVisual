@@ -189,14 +189,21 @@ fn compute_prune_mask(snap: &crate::snapshot::Snapshot) -> (Vec<u8>, usize, usiz
 // block index per prune class — order matches C#: no-skip&unsafe is LAST.
 fn block_of(bits: u8) -> u8 { match bits & 3 { 3 => 0, 2 => 1, 0 => 2, _ => 3 } }
 
-// class-major + clk-BFS-locality permutation (parity with C# WireCore.Renumber.cs).
-// Locality key = BFS from clk along signal-flow edges (node → endpoints of the transistors it
-// gates — the edges set_node_state enqueues through) ≈ the settle cascade's first-touch order.
-fn build_renumber(snap: &crate::snapshot::Snapshot, bits: &[u8]) -> (Vec<u16>, i32, i32, i32) {
+// class-major + locality permutation (parity with C# WireCore.Renumber.cs).
+// Locality key within each class block: a MEASURED co-activity profile when provided (--renumber
+// <file>, the dynamic first-touch order from a C# DEBUG --co-profile run — worth ~+1.5% over the
+// static key on the bench workload), else BFS from clk along signal-flow edges (node → endpoints
+// of the transistors it gates) ≈ a static approximation of the same cascade order. The profile
+// carries ONLY the locality key — the prune classes always come from our own classification, so
+// the contiguity verification still must hold (a stale/foreign profile degrades locality only).
+fn build_renumber(snap: &crate::snapshot::Snapshot, bits: &[u8], profile: Option<&[u32]>) -> (Vec<u16>, i32, i32, i32) {
     let nc = snap.node_count;
     assert!(snap.npwr == 1 && snap.ngnd == 2, "renumber assumes npwr=1/ngnd=2 (snapshot format)");
     let mut order = vec![u32::MAX; nc];
-    if snap.clock_node > 2 && (snap.clock_node as usize) < nc {
+    if let Some(p) = profile {
+        let m = p.len().min(nc);
+        order[..m].copy_from_slice(&p[..m]);
+    } else if snap.clock_node > 2 && (snap.clock_node as usize) < nc {
         let mut q = std::collections::VecDeque::new();
         let mut seen = vec![false; nc];
         let clk = snap.clock_node as usize;
@@ -272,13 +279,14 @@ fn apply_renumber(snap: &mut crate::snapshot::Snapshot, perm: &[u16]) {
 const MAX_SETTLE_PASSES: u32 = 128;
 
 impl WireCore {
-    pub fn from_snapshot(mut snap: crate::snapshot::Snapshot) -> Self {
+    pub fn from_snapshot(mut snap: crate::snapshot::Snapshot, locality_profile: Option<&[u32]>) -> Self {
         // ── [range-prune] class-major renumber (parity with C# commit 51e046d) ──
-        // 1. classify prune bits on the IDENTITY ids; 2. build the class-major + clk-BFS permutation;
-        // 3. remap the whole snapshot; 4. re-classify on the remapped ids as ground truth and verify
-        // every node's bits equal the range-implied bits (classes are id-invariant ⇒ must hold).
+        // 1. classify prune bits on the IDENTITY ids; 2. build the class-major permutation (locality
+        // key = measured profile if provided, else clk-BFS); 3. remap the whole snapshot; 4. re-classify
+        // on the remapped ids as ground truth and verify every node's bits equal the range-implied bits
+        // (classes are id-invariant ⇒ must hold).
         let (bits0, _, _, _) = compute_prune_mask(&snap);
-        let (perm, range_a, range_s, range_b) = build_renumber(&snap, &bits0);
+        let (perm, range_a, range_s, range_b) = build_renumber(&snap, &bits0, locality_profile);
         apply_renumber(&mut snap, &perm);
         let (prune_mask, prune_unsafe_count, turn_off_skip_count, p34_untaint_count) = compute_prune_mask(&snap);
         for nn in 3..snap.node_count {

@@ -26,13 +26,31 @@ fn main() {
 }
 
 fn usage() {
-    eprintln!("usage: wire_s1 bench     <snapshot.aprsnap> <hc_count> [log_dir] [--pin [N]]");
+    eprintln!("usage: wire_s1 bench     <snapshot.aprsnap> <hc_count> [log_dir] [--pin [N]] [--renumber <profile>]");
     eprintln!("       wire_s1 shot      <snapshot.aprsnap> <frames>   <out.png>");
     eprintln!("       wire_s1 framedump <snapshot.aprsnap> <frames>   <out_dir>");
     eprintln!();
     eprintln!("Fast-path is always on in the S1 fork (no flag).");
     eprintln!("--pin [N]: (Windows) pin the hot thread + High priority + EcoQoS-off to cut bench");
     eprintln!("           variance. No arg = auto-pick the quietest P-core; N = force logical core N.");
+    eprintln!("--renumber <profile>: use a measured co-activity profile (C# DEBUG --co-profile dump,");
+    eprintln!("           identity ids) as the renumber locality key instead of the static clk-BFS key.");
+}
+
+// Parse a C# --co-profile dump ("<nodeId> <popCount> <meanPos> <firstTouchSeq> [...]", identity ids)
+// into a per-node locality key: firstTouchSeq for nodes that popped, u32::MAX (block tail) otherwise.
+// Only the LOCALITY column is consumed — prune classes are always recomputed by the engine itself.
+fn load_locality_profile(path: &str, node_count_hint: usize) -> Vec<u32> {
+    let text = std::fs::read_to_string(path).expect("renumber profile read failed");
+    let mut order = vec![u32::MAX; node_count_hint];
+    for line in text.lines() {
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let mut it = line.split_ascii_whitespace();
+        let (Some(nn), Some(pc), _mp, Some(ft)) = (it.next(), it.next(), it.next(), it.next()) else { continue; };
+        let (Ok(nn), Ok(pc), Ok(ft)) = (nn.parse::<usize>(), pc.parse::<u64>(), ft.parse::<u32>()) else { continue; };
+        if nn < order.len() && pc > 0 { order[nn] = ft; }
+    }
+    order
 }
 
 // Write the current framebuffer to <path> as an RGBA PNG.
@@ -64,7 +82,7 @@ fn framedump(args: &[String]) {
     std::fs::create_dir_all(out_dir).expect("create out_dir");
     eprintln!("# wire_s1 (Rust S1 framedump): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
-    let mut wc = wire::WireCore::from_snapshot(snap);
+    let mut wc = wire::WireCore::from_snapshot(snap, None);
     let clock_node = wc.clock_node;     // post-renumber ids (the snapshot fields hold pre-renumber ids)
     let vblank_node = wc.vblank_node;
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
@@ -95,6 +113,7 @@ fn bench(args: &[String]) {
     let mut pos: Vec<&String> = Vec::new();
     let mut pin = false;
     let mut pin_core: i32 = -1;
+    let mut renumber_path: Option<String> = None;
     let mut i = 2;
     while i < args.len() {
         if args[i] == "--pin" {
@@ -102,6 +121,8 @@ fn bench(args: &[String]) {
             if i + 1 < args.len() {
                 if let Ok(c) = args[i + 1].parse::<i32>() { pin_core = c; i += 1; }
             }
+        } else if args[i] == "--renumber" {
+            if i + 1 < args.len() { renumber_path = Some(args[i + 1].clone()); i += 1; }
         } else {
             pos.push(&args[i]);
         }
@@ -115,11 +136,14 @@ fn bench(args: &[String]) {
     eprintln!("# wire_s1 (Rust S1 fork): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
     let node_count = snap.node_count;
-    let mut wc = wire::WireCore::from_snapshot(snap);
+    let profile = renumber_path.as_deref().map(|p| load_locality_profile(p, node_count));
+    let mut wc = wire::WireCore::from_snapshot(snap, profile.as_deref());
     let clock_node = wc.clock_node;     // post-renumber id (the snapshot field holds the pre-renumber id)
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
     eprintln!("# prune-taint: {} turn-on-unsafe; P-2 turn-off-skip {}; P-3/4 cap<all un-taint {}", wc.prune_unsafe_count, wc.turn_off_skip_count, wc.p34_untaint_count);
-    eprintln!("# renumber: class-major permutation, range-prune blocks A={} S={} B={} (verified)", wc.range_a, wc.range_s, wc.range_b);
+    eprintln!("# renumber: class-major permutation, range-prune blocks A={} S={} B={} (verified){}",
+              wc.range_a, wc.range_s, wc.range_b,
+              if renumber_path.is_some() { " [locality: measured co-activity profile]" } else { " [locality: clk-BFS]" });
 
     // Opt-in --pin: thread affinity + High priority + EcoQoS-off (cuts run-to-run variance).
     // Pure scheduling, so the checksum is unchanged. Recorded in the bench JSON as "pinned".
@@ -344,7 +368,7 @@ fn shot(args: &[String]) {
 
     eprintln!("# wire_s1 (Rust S1 shot): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
-    let mut wc = wire::WireCore::from_snapshot(snap);
+    let mut wc = wire::WireCore::from_snapshot(snap, None);
     let clock_node = wc.clock_node;     // post-renumber ids (the snapshot fields hold pre-renumber ids)
     let vblank_node = wc.vblank_node;
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);

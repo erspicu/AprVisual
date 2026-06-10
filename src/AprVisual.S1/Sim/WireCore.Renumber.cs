@@ -1,0 +1,228 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+namespace AprVisual.Sim
+{
+    // ── Co-activity node renumbering (load-time experiment) ─────────────────────────────────────────────
+    //
+    // The hot loop's cost is the random gather of per-node data (NodeInfos 16B = 4/line, plus six 1-byte
+    // arrays = 64/line). The co-activity profiler measured that one half-cycle pops ~360 distinct nodes
+    // spread over ~199 NodeInfo cache lines under the layout-derived numbering — vs a perfect-packing
+    // floor of ~90 (headroom 2.21×). This pass renumbers nodes so that nodes that pop at similar
+    // positions within a half-cycle get ADJACENT ids, compressing the per-window line footprint of every
+    // id-indexed hot array at once.
+    //
+    // Flow: (1) a DEBUG bench run with --co-profile <file> dumps per-node (popCount, meanPos) — pop
+    // counts are deterministic, so a Debug profile is valid for Release; (2) a Release run with
+    // --renumber <file> applies the permutation at load, right after ComposeSystem (post-lowering, so
+    // profile ids match), BEFORE handlers attach (their fake nodes alloc past the permuted range =
+    // identity). Bit-exactness: the simulation has exactly ONE id-order-dependent site — the power-on
+    // RecomputeAllNodes enqueue sweep — which (like NodeStatesChecksum) iterates in ORIGINAL id order
+    // via the permutation, so a renumbered run produces the same physical event sequence and the SAME
+    // golden checksum as an identity run.
+    internal static unsafe partial class WireCore
+    {
+        /// <summary>--renumber &lt;profile file&gt;: apply a co-activity permutation at load (null = off).
+        /// Overrides the automatic two-phase class renumber (for locality-key experiments).</summary>
+        public static string? RenumberFile;
+
+        // The automatic class-major renumber is ALWAYS ON (not parameterized): LoadSystem runs a first
+        // pass with identity ids up to Reset() (classifiers final, NO settle), captures each node's
+        // prune class, then rebuilds with the class-major permutation. Locality key within each class
+        // block = the clk-BFS signal-flow order (approximates the settle cascade's first-touch order).
+        // The hot path compiles ONLY the range-compare form — no mode branch exists at runtime.
+
+        /// <summary>Pass-1-captured PruneMask bits per identity id (consumed once by ApplyRenumber).</summary>
+        internal static byte[]? PendingClassBits;
+
+        /// <summary>Capture every node's prune class after a pass-1 Reset() (identity numbering).</summary>
+        internal static void CapturePruneClasses()
+        {
+            var bits = new byte[NodeCount];
+            for (int nn = 0; nn < NodeCount; nn++) bits[nn] = (byte)(PruneMask[nn] & 3);
+            PendingClassBits = bits;
+        }
+
+        /// <summary>old→new id permutation (identity for ids ≥ RenumberPermLen — the post-renumber fake
+        /// handler nodes). Null when not renumbered. Read by RecomputeAllNodes / NodeStatesChecksum (both
+        /// cold: power-on / report time). UNMANAGED ushort* (node ids &lt; 65K), 29KB instead of a 59KB
+        /// managed int[]; lives in the handler-lifetime pool because it must survive Reset()'s
+        /// FreeUnmanagedMemory sweep (ApplyRenumber runs pre-Reset; checksum reads it for the process
+        /// lifetime) — freed with the other handler arrays at the next rebuild.</summary>
+        internal static ushort* RenumberPerm;
+        internal static int RenumberPermLen;
+
+        // ── Range-prune boundaries (set when the profile carries prune bits) ──────────────────────────
+        // The class-major sort puts each (skip,unsafe) prune class into ONE contiguous id block:
+        //   [3, A)  skip ∩ unsafe      [A, S)  skip ∩ safe      [S, B)  no-skip ∩ safe
+        //   [B, ∞)  no-skip ∩ unsafe   ← LAST, so post-renumber fake handler nodes (callback targets,
+        //                                always no-pull-up ⇒ unsafe, callback ⇒ no-skip) extend it.
+        // Then the static prune facts become register compares (supply ids 1,2 < 3 ≤ S ride the skip test):
+        //   turn-off skip  ⇔  c <  S          turn-on unsafe  ⇔  c < A  ||  c >= B
+        // ClassifyTurnOffSkip verifies every node's computed mask against the ranges before enabling.
+        //
+        // SAFE-DEGENERATE defaults (used whenever no verified class layout exists — selftest/hand-built
+        // netlists, --no-renumber, or a verification mismatch): S=3 skips ONLY supply (ids 1,2 — the
+        // mandatory guard) and A=∞ treats every node as turn-on-unsafe. That disables the P-1/2/3/4
+        // prunes (more no-op re-evals, SLOWER) but stays bit-exact-correct on any numbering.
+        internal const int RangeSafeA = int.MaxValue, RangeSafeS = 3, RangeSafeB = int.MaxValue;
+        internal static int RangePruneA = RangeSafeA, RangePruneS = RangeSafeS, RangePruneB = RangeSafeB;
+        internal static bool RangePruneActive;   // a class-major layout was applied (verify it at Reset)
+        internal static bool RangePruneOk;       // ...and the freshly computed mask confirmed it
+
+        public static string LastRenumberStats = "(no renumber)";
+
+        /// <summary>PruneMask bits of a node (safe accessor for the managed --co-profile dump).</summary>
+        public static int GetPruneBits(int nn) => PruneMask != null ? (PruneMask[nn] & 3) : 0;
+
+        internal static void ApplyRenumber()
+        {
+            if (RenumberFile == null && PendingClassBits == null) return;
+            int n = NodeArrayCount;
+
+            // ── sources: (a) --renumber profile file "<nodeId> <popCount> <meanPos> [<firstTouchSeq>]
+            //    [<pruneBits>]" (DEBUG --co-profile dump; locality key = firstTouchSeq, else meanPos);
+            //    (b) AUTO: PendingClassBits captured by the pass-1 Reset (bits only; locality key =
+            //    original id — the physical-layout adjacency, measured equivalent). When bits are
+            //    present they are the MAJOR key (contiguous class blocks → the prune masks become
+            //    register range-compares; see RangePrune* above). ──
+            var sortKey = new double[n];
+            var profiled = new bool[n];
+            var pruneBits = new int[n];
+            bool haveBits = false;
+            int profiledCount = 0;
+            if (RenumberFile != null)
+            {
+                foreach (string line in File.ReadLines(RenumberFile))
+                {
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 3 || !int.TryParse(parts[0], out int nn)) continue;
+                    if (nn < 0 || nn >= n) continue;
+                    double key;
+                    bool hot;
+                    if (parts.Length >= 4 && double.TryParse(parts[3], System.Globalization.CultureInfo.InvariantCulture, out double ft))
+                    { key = ft; hot = long.TryParse(parts[1], out long pc) && pc > 0; if (!hot) key = double.PositiveInfinity; }
+                    else if (double.TryParse(parts[2], System.Globalization.CultureInfo.InvariantCulture, out double mp)) { key = mp; hot = true; }
+                    else continue;
+                    if (parts.Length >= 5 && int.TryParse(parts[4], out int pb)) { pruneBits[nn] = pb & 3; haveBits = true; }
+                    sortKey[nn] = key; profiled[nn] = hot; if (hot) profiledCount++;
+                }
+            }
+            else
+            {
+                var bits = PendingClassBits!;
+                int m = Math.Min(n, bits.Length);
+                for (int nn = 0; nn < m; nn++) pruneBits[nn] = bits[nn] & 3;
+                haveBits = true;
+                PendingClassBits = null;   // consume once
+
+                // locality key — static approximation of the dynamic first-touch cascade order: BFS from
+                // clk along the SIGNAL-FLOW edges (node → endpoints of the transistors it gates — exactly
+                // the edges SetNodeState enqueues through). The first settle wave pops in roughly this
+                // discovery order, so packing by it ≈ the measured-good first-touch profile key, with no
+                // settle needed (works for any netlist, any ROM). Unreached nodes sink to the block tail.
+                int clk = LookupNode("clk");
+                if (clk != EmptyNode)
+                {
+                    var q = new Queue<int>();
+                    var seen = new bool[n];
+                    int seq = 0;
+                    seen[clk] = true; q.Enqueue(clk);
+                    while (q.Count > 0)
+                    {
+                        int u = q.Dequeue();
+                        sortKey[u] = ++seq; profiled[u] = true;
+                        var un = _nodes[u];
+                        if (un == null) continue;
+                        foreach (int t in un.Gates)
+                        {
+                            var tr = _transistors[t];
+                            int e1 = tr.C1, e2 = tr.C2;
+                            if (e1 > Ngnd && e1 < n && !seen[e1]) { seen[e1] = true; q.Enqueue(e1); }
+                            if (e2 > Ngnd && e2 < n && !seen[e2]) { seen[e2] = true; q.Enqueue(e2); }
+                        }
+                    }
+                    profiledCount = seq;
+                }
+            }
+
+            // block index per prune class — order chosen so no-skip∩unsafe is LAST (fake handler nodes
+            // created after the renumber are exactly that class and append to it).
+            static int BlockOf(int bits) => bits switch { 3 => 0, 2 => 1, 0 => 2, _ => 3 };   // 1 (unsafe only) => 3
+
+            // ── build the permutation: ids 0 (reserved) / Npwr / Ngnd fixed; the rest ordered by
+            //    (pruneClass block when available, locality key, original id). Never-popped and null
+            //    slots sink within their block in original relative order. ──
+            var ids = new List<int>(n);
+            for (int i = 3; i < n; i++) ids.Add(i);
+            ids.Sort((a, b) =>
+            {
+                if (haveBits)
+                {
+                    int blkc = BlockOf(pruneBits[a]).CompareTo(BlockOf(pruneBits[b]));
+                    if (blkc != 0) return blkc;
+                }
+                double ka = profiled[a] ? sortKey[a] : double.PositiveInfinity;
+                double kb = profiled[b] ? sortKey[b] : double.PositiveInfinity;
+                int c = ka.CompareTo(kb);
+                return c != 0 ? c : a.CompareTo(b);
+            });
+            var perm = new int[n];
+            perm[0] = 0; perm[Npwr] = Npwr; perm[Ngnd] = Ngnd;
+            int next = 3;
+            foreach (int old in ids) perm[old] = next++;
+
+            if (haveBits)
+            {
+                int c0 = 0, c1 = 0, c2 = 0;
+                foreach (int old in ids)
+                {
+                    int blk = BlockOf(pruneBits[old]);
+                    if (blk == 0) c0++; else if (blk == 1) c1++; else if (blk == 2) c2++;
+                }
+                RangePruneA = 3 + c0;
+                RangePruneS = RangePruneA + c1;
+                RangePruneB = RangePruneS + c2;
+                RangePruneActive = true;
+            }
+
+            // ── apply to every build-time structure that holds node ids ──
+            // 1. _nodes: move shells to their new slots (Gates/C1c2s hold TRANSISTOR indices — untouched).
+            var oldNodes = new Node?[n];
+            for (int i = 0; i < n; i++) oldNodes[i] = _nodes[i];
+            for (int i = 0; i < n; i++) { var sh = oldNodes[i]; if (sh != null) sh.Id = perm[i]; _nodes[perm[i]] = sh; }
+            // 2. _transistors: remap gate/c1/c2.
+            for (int t = 0; t < _transistors.Count; t++)
+            {
+                var tr = _transistors[t];
+                tr.Gate = perm[tr.Gate]; tr.C1 = perm[tr.C1]; tr.C2 = perm[tr.C2];
+                _transistors[t] = tr;
+            }
+            // 3. _transistorSet: rebuild (handler attach dedups against it later).
+            _transistorSet.Clear();
+            foreach (var tr in _transistors) _transistorSet.Add((tr.Gate, tr.C1, tr.C2));
+            // 4. _forceComputeList.
+            for (int i = 0; i < _forceComputeList.Count; i++) _forceComputeList[i] = perm[_forceComputeList[i]];
+            // 5. name maps.
+            var names = new List<KeyValuePair<string, int>>(_nodeByName);
+            _nodeByName.Clear(); _nameByNode.Clear();
+            foreach (var kv in names)
+            {
+                int nn = perm[kv.Value];
+                _nodeByName[kv.Key] = nn;
+                if (!_nameByNode.ContainsKey(nn)) _nameByNode[nn] = kv.Key;
+            }
+
+            // persist as unmanaged ushort* (handler-lifetime pool — survives Reset, freed at next rebuild)
+            ushort* permU = AllocHandlerArray<ushort>(n);
+            for (int i = 0; i < n; i++) permU[i] = (ushort)perm[i];
+            RenumberPerm = permU;
+            RenumberPermLen = n;
+            LastRenumberStats = RenumberFile != null
+                ? $"renumber: co-activity permutation applied ({profiledCount:N0} profiled of {n:N0} ids{(haveBits ? $", range-prune blocks A={RangePruneA} S={RangePruneS} B={RangePruneB}" : "")}, {RenumberFile})"
+                : $"renumber: AUTO class-major permutation ({n:N0} ids, range-prune blocks A={RangePruneA} S={RangePruneS} B={RangePruneB})";
+        }
+    }
+}

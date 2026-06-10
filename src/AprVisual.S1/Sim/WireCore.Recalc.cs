@@ -19,16 +19,36 @@ namespace AprVisual.Sim
         /// between runs with the SAME node numbering (i.e. same --rcm setting).</summary>
         public static ulong NodeStatesChecksum()
         {
+            // Under --renumber, hash in ORIGINAL id order (via the permutation) so the checksum stays
+            // directly comparable with the golden values of the identity numbering.
+            ushort* perm = RenumberPerm;
+            int permLen = RenumberPermLen;
             ulong h = 14695981039346656037UL;
-            for (int i = 0; i < NodeCount; i++) { h ^= NodeStates[i]; h *= 1099511628211UL; }
+            if (perm == null)
+                for (int i = 0; i < NodeCount; i++) { h ^= NodeStates[i]; h *= 1099511628211UL; }
+            else
+                for (int i = 0; i < NodeCount; i++) { h ^= NodeStates[i < permLen ? perm[i] : i]; h *= 1099511628211UL; }
             return h;
         }
 
-        /// <summary>Re-evaluate every (non-supply) node — used at power-on after Reset(). Port of Wires::recomputeAllNodes.</summary>
+        /// <summary>Re-evaluate every (non-supply) node — used at power-on after Reset(). Port of Wires::recomputeAllNodes.
+        /// The ONLY id-order-dependent site in the engine (power-on settle order feeds the floating
+        /// hold-previous tie-break) — under --renumber it iterates in ORIGINAL id order via the
+        /// permutation, so a renumbered run is bit-exact with the identity run.</summary>
         public static void RecomputeAllNodes()
         {
-            for (int nn = 0; nn < NodeCount; nn++)
+            // Without a verified class layout the RangeSafe* degenerate boundaries are in force —
+            // correct but with the P-1..P-4 prunes disabled. Fine for selftest / hand-built netlists;
+            // a real system load should never settle in this state, so flag it loudly.
+            if (!RangePruneOk && NodeCount > 1000)
+                Console.Error.WriteLine("WireCore: settling WITHOUT a verified range-prune layout — prunes disabled, expect ~2x slower (auto-renumber failed?)");
+            ushort* perm = RenumberPerm;
+            int permLen = RenumberPermLen;
+            for (int i = 0; i < NodeCount; i++)
+            {
+                int nn = perm == null ? i : (i < permLen ? perm[i] : i);
                 if (nn != Npwr && nn != Ngnd && Nodes[nn] != null) EnqueueNode(nn);
+            }
             ProcessQueue();
         }
 
@@ -157,6 +177,49 @@ namespace AprVisual.Sim
             if (depth < 0) depth = 0; else if (depth > 255) depth = 255;
             BfsDepthHist[depth]++;
         }
+
+        // ── Co-activity / cache-line headroom profiler (DEBUG ONLY) ──
+        // Decision gate for "co-activity node renumbering": per half-cycle window, how many DISTINCT
+        // nodes pop, and how many DISTINCT NodeInfo cache lines (64B = 4 NodeInfos, line = nn>>2) they
+        // touch under the CURRENT numbering — vs the ideal packing floor ceil(distinct/4). The ratio
+        // current/ideal is the max line-compression a perfect co-activity permutation could deliver.
+        // If it's near 1, the physical-layout numbering already co-locates co-fired nodes → renumber
+        // can't gain. Also tracks the GLOBAL hot set (nodes that ever pop) and its line footprint.
+        internal static long CoWindows, CoSumPops, CoSumDistinctNodes, CoSumDistinctLines;
+        internal static int CoGlobalNodes, CoGlobalLines;
+        internal static double[]? CoSumPos;   // per-node Σ(position within half-cycle window) — --co-profile dump
+        internal static long[]? CoPopCount;   // per-node pop count
+        internal static long[]? CoFirstTouch; // per-node global pop-sequence index of FIRST steady-state pop (greedy line-packing key)
+        private static long _coPopSeq;
+        private static long[]? _coLastNode, _coLastLine;   // lastSeen window id per node / per line
+        private static long _coCurWindow = -1;
+        private static int _coWinPops, _coWinNodes, _coWinLines;
+
+        private static void CoActivityTally(int nn)
+        {
+            // steady-state only: the power-on RecomputeAllNodes settle is one giant window that pops ~ALL
+            // nodes in id order — including it contaminates meanPos for rarely-popping nodes (scatters them
+            // among the hot core) and dilutes the headroom stats. Skip until well past the reset sequence.
+            if (Time < 384) return;
+            if (_coLastNode == null) { _coLastNode = new long[NodeCount]; _coLastLine = new long[(NodeCount >> 2) + 1];
+                CoSumPos = new double[NodeCount]; CoPopCount = new long[NodeCount]; CoFirstTouch = new long[NodeCount];
+                for (int i = 0; i < _coLastNode.Length; i++) _coLastNode[i] = -1;
+                for (int i = 0; i < _coLastLine!.Length; i++) _coLastLine[i] = -1; }
+            if (Time != _coCurWindow)
+            {
+                if (_coCurWindow >= 0) { CoWindows++; CoSumPops += _coWinPops; CoSumDistinctNodes += _coWinNodes; CoSumDistinctLines += _coWinLines; }
+                _coCurWindow = Time; _coWinPops = _coWinNodes = _coWinLines = 0;
+            }
+            _coWinPops++;
+            _coPopSeq++;
+            if (CoPopCount![nn] == 0) CoFirstTouch![nn] = _coPopSeq;   // greedy packing: first steady-state pop order
+            CoSumPos![nn] += _coWinPops; CoPopCount[nn]++;   // position within this half-cycle window (1-based)
+            if (_coLastNode[nn] == -1) CoGlobalNodes++;
+            if (_coLastNode[nn] != Time) { _coLastNode[nn] = Time; _coWinNodes++; }
+            int line = nn >> 2;
+            if (_coLastLine![line] == -1) CoGlobalLines++;
+            if (_coLastLine[line] != Time) { _coLastLine[line] = Time; _coWinLines++; }
+        }
 #endif
 
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueue:
@@ -227,6 +290,7 @@ namespace AprVisual.Sim
                         RecalcHash[nn] = 0;
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);
+                        CoActivityTally(nn);
 #endif
                     }
                 }
@@ -335,7 +399,10 @@ namespace AprVisual.Sim
                     // ClassifyTurnOffSkip). Bit-exact. [exp supply-skip fold] supply (ngnd/npwr) is ALSO marked
                     // skip in ClassifyTurnOffSkip, so c2 needs NO explicit `c2!=ngnd && c2!=npwr` guard — it is
                     // now identical to c1. Clause order: more-selective maskOff (≈20% false) before nextHash==0.
-                    byte* pruneMask = PruneMask;
+                    // [range-prune, 2026-06-10] the auto class-major renumber makes "turn-off skip" an id RANGE:
+                    // skip ⇔ c < S (supply 1,2 included). Replaces the random pruneMask byte load with a
+                    // register compare — one dependent load deleted per endpoint check. Verified at Reset.
+                    int rS = RangePruneS;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
@@ -345,23 +412,23 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOff1(c1a);
 #endif
-                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // identical to c1 (supply-skip folded into pruneMask)
+                        if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
 #endif
-                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
 #endif
-                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }
@@ -385,8 +452,10 @@ namespace AprVisual.Sim
                     // two 20-round runs, bit-exact). The earlier "nextHash==0 first" assumed already-queued was
                     // common; the profile disproved that for full_palette. (Re-check on a busier ROM if ordering
                     // is ever revisited — already-queued rate is workload-dependent.)
+                    // [range-prune, 2026-06-10] turn-on unsafe is the two outer blocks: unsafe ⇔ c < A || c >= B
+                    // (c1 is never supply). Two register compares replace the pruneMask byte load.
                     byte* nodeStates = NodeStates;
-                    byte* pruneMask = PruneMask;
+                    int rA = RangePruneA, rB = RangePruneB;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
@@ -396,14 +465,14 @@ namespace AprVisual.Sim
 #if DEBUG
                         CondTallyOn(c1a, c2a);
 #endif
-                        if (((pruneMask[c1a] & PruneTurnOnUnsafe) | (nodeStates[c1a] ^ nodeStates[c2a])) != 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOn(c1b, c2b);
 #endif
-                        if (((pruneMask[c1b] & PruneTurnOnUnsafe) | (nodeStates[c1b] ^ nodeStates[c2b])) != 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
                 }

@@ -15,6 +15,7 @@ namespace AprVisual.Test
     {
         private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
         private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
+        private static string? _coProfileOut;      // --co-profile: per-node (popCount, meanPos) dump (DEBUG bench only)
 
         public static int Run(string[] args)
         {
@@ -70,6 +71,8 @@ namespace AprVisual.Test
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
+                    case "--renumber":        if (i + 1 < args.Length) WireCore.RenumberFile = args[++i]; break;   // DIAGNOSTIC: override the auto class renumber with a measured co-activity profile (from a DEBUG --co-profile run)
+                    case "--co-profile":      if (i + 1 < args.Length) _coProfileOut = args[++i]; break;           // DEBUG bench: dump per-node (popCount, meanPos, firstTouch, pruneBits) for --renumber
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
                         pin = true;
                         if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _pc)) { pinCore = _pc; i++; }
@@ -565,6 +568,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
                 Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
+                Console.WriteLine($"# {WireCore.LastRenumberStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
                 Console.WriteLine($"# rate: {stepsHz:N0} hc/s ({secs * 1e6 / halfCycles:F2} µs/hc)");
@@ -630,6 +634,38 @@ namespace AprVisual.Test
                         double pct = total == 0 ? 0 : 100.0 * h[i] / total;
                         cumPct += pct;
                         Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
+                    }
+                }
+                {
+                    // co-activity / cache-line headroom (DEBUG only) — the renumbering decision gate.
+                    // headroom = mean distinct NodeInfo lines touched per half-cycle (current numbering)
+                    // vs the perfect-packing floor ceil(distinctNodes/4). Near 1.0 ⇒ renumbering can't gain.
+                    long w = WireCore.CoWindows;
+                    if (w > 0)
+                    {
+                        double mPops = (double)WireCore.CoSumPops / w, mNodes = (double)WireCore.CoSumDistinctNodes / w, mLines = (double)WireCore.CoSumDistinctLines / w;
+                        double ideal = mNodes / 4.0;
+                        Console.WriteLine($"# [co-activity] windows={w:N0}  per-hc: pops={mPops:F1} distinct-nodes={mNodes:F1} NodeInfo-lines={mLines:F1} (ideal {ideal:F1}) headroom={(ideal > 0 ? mLines / ideal : 0):F2}x");
+                        Console.WriteLine($"#   global hot set: {WireCore.CoGlobalNodes:N0} nodes ever popped, on {WireCore.CoGlobalLines:N0} lines ({WireCore.CoGlobalLines * 64 / 1024} KB of NodeInfos; ideal {(WireCore.CoGlobalNodes + 3) / 4:N0} lines = {((WireCore.CoGlobalNodes + 3) / 4) * 64 / 1024} KB)");
+                        if (_coProfileOut != null && WireCore.CoPopCount != null)
+                        {
+                            // per-node co-activity profile for --renumber: "<nodeId> <popCount> <meanPos>".
+                            // Pop counts/order are deterministic ⇒ a Debug profile is valid for Release.
+                            // EVERY live node is dumped (popCount may be 0): the renumber's class-major
+                            // sort needs each node's static prune bits, not just the steady-state hot set.
+                            using var pw = new StreamWriter(_coProfileOut);
+                            pw.WriteLine("# nodeId popCount meanPosWithinHalfCycle firstTouchSeq pruneBits");
+                            for (int nn = 0; nn < WireCore.NodeCount; nn++)
+                            {
+                                if (nn == 1 || nn == 2) continue;   // supply: fixed ids, never permuted
+                                long pc = WireCore.CoPopCount[nn];
+                                double mp = pc > 0 ? WireCore.CoSumPos![nn] / pc : 0;
+                                long ft = pc > 0 ? WireCore.CoFirstTouch![nn] : 0;
+                                int bits = WireCore.GetPruneBits(nn);
+                                pw.WriteLine($"{nn} {pc} {mp.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} {ft} {bits}");
+                            }
+                            Console.WriteLine($"# [co-profile] wrote {_coProfileOut}");
+                        }
                     }
                 }
 #endif

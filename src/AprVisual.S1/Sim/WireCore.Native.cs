@@ -63,6 +63,9 @@ namespace AprVisual.Sim
             foreach (IntPtr p in _handlerAllocations)
                 if (p != IntPtr.Zero) NativeMemory.AlignedFree((void*)p);
             _handlerAllocations.Clear();
+            RenumberPerm = null; RenumberPermLen = 0;   // lives in this pool (WireCore.Renumber.cs)
+            RangePruneA = RangeSafeA; RangePruneS = RangeSafeS; RangePruneB = RangeSafeB;   // safe-degenerate until a layout is applied+verified
+            RangePruneActive = false; RangePruneOk = false;
         }
 
         /// <summary>Free every unmanaged allocation owned by WireCore and null the field pointers.</summary>

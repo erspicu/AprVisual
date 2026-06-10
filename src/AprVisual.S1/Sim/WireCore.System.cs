@@ -86,14 +86,34 @@ namespace AprVisual.Sim
                           || rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
                           || rom.Path.Contains("nes_test", StringComparison.OrdinalIgnoreCase);
 
-            ComposeSystem(chrIsRam, isTestRom);   // WireCore.System.cs (ResetBuild + load defs + AddInstance)
+            // [auto-renumber] two-phase load: pass 1 composes + attaches + Reset()s with IDENTITY ids —
+            // the classifiers (end of Reset, before ANY settle) produce the final PruneMask — captures
+            // each node's prune class, then loops back: pass 2 re-composes (ResetBuild clears all of
+            // pass 1) and ApplyRenumber sorts ids class-major, making the prune facts contiguous id
+            // RANGES (the RANGE_PRUNE compare path). A --renumber profile file skips the extra pass
+            // (its bits column already carries the classes). Bit-exact: power-on order + checksum go
+            // through the permutation in original order.
+            for (int pass = 0; ; pass++)
+            {
+                ComposeSystem(chrIsRam, isTestRom);   // WireCore.System.cs (ResetBuild + load defs + AddInstance)
 
-            CopyRomBytes(rom);
+                ApplyRenumber();   // co-activity / class permutation (no-op without file or captured bits; post-lowering, pre-handlers)
 
-            // Handlers add fake nodes/transistors via AddCallback — MUST run before Reset() (which sizes the hot arrays).
-            AttachClockHandler();     // WireCore.Handlers.cs — toggles "clk" each half-cycle
-            AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
-            AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
+                CopyRomBytes(rom);
+
+                // Handlers add fake nodes/transistors via AddCallback — MUST run before Reset() (which sizes the hot arrays).
+                AttachClockHandler();     // WireCore.Handlers.cs — toggles "clk" each half-cycle
+                AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
+                AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
+
+                if (pass == 0 && RenumberPerm == null)
+                {
+                    Reset();                // classify only — no settle has run yet, so this is safe in all builds
+                    CapturePruneClasses();  // → PendingClassBits (consumed by pass 2's ApplyRenumber)
+                    continue;
+                }
+                break;
+            }
 
             ResolveCachedNodes();
 

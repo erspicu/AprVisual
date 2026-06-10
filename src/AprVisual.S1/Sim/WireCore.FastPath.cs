@@ -226,6 +226,36 @@ namespace AprVisual.Sim
             PruneMask[Ngnd] |= PruneTurnOffSkip;
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3/4 turn-on un-taint: {p34:N0} (cap<all-neighbours) — bit-exact enqueue prunes";
+
+            // ── [range-prune verify] the class-major renumber (WireCore.Renumber.cs) claims each prune
+            // class occupies one contiguous id block. The mask just computed IS the ground truth: verify
+            // EVERY id's bits equal the range-implied bits before any compare-based path may be trusted.
+            // (Supply 1,2 carry TurnOffSkip and sit below 3 ≤ S, covered by the `c < S` skip-test form,
+            // so the loop starts at 3. Fake handler nodes ≥ perm length extend the last block — covered.)
+            if (RangePruneActive)
+            {
+                bool ok = 3 <= RangePruneA && RangePruneA <= RangePruneS && RangePruneS <= RangePruneB;
+                for (int nn = 3; ok && nn < n; nn++)
+                {
+                    int bits = PruneMask[nn] & (PruneTurnOnUnsafe | PruneTurnOffSkip);
+                    int implied = nn < RangePruneA ? (PruneTurnOnUnsafe | PruneTurnOffSkip)
+                               : nn < RangePruneS ? PruneTurnOffSkip
+                               : nn < RangePruneB ? 0
+                               : PruneTurnOnUnsafe;
+                    if (bits != implied) ok = false;
+                }
+                RangePruneOk = ok;
+                if (!ok)
+                {
+                    // wrong ranges would MIS-prune — fall back to the safe-degenerate boundaries
+                    // (prunes off, supply still guarded, bit-exact-correct on any numbering).
+                    RangePruneA = RangeSafeA; RangePruneS = RangeSafeS; RangePruneB = RangeSafeB;
+                    Console.Error.WriteLine("WireCore: range-prune layout MISMATCH — falling back to safe-degenerate ranges (prunes disabled)");
+                }
+                LastTurnOffSkipStats += ok ? " [range-prune VERIFIED]" : " [range-prune MISMATCH — safe-degenerate fallback]";
+            }
+            // (no layout applied ⇒ the RangeSafe* defaults are in force: prunes disabled, supply guarded,
+            // correct on any numbering — what selftest / hand-built netlists run under in a RANGE build.)
         }
 
         /// <summary>

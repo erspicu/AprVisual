@@ -151,7 +151,7 @@
         <td>Data-Oriented Design — M. Acton, <i>"Data-Oriented Design and C++"</i>, CppCon 2014 (the canonical modern talk; SoA itself is a long-standing vectorization idea, not a single paper).</td></tr>
     <tr><td><span class="en">Knowing memory latency — not compute — is the wall</span><span class="zh">認清瓶頸是記憶體延遲、不是運算</span></td>
         <td>Wm. A. Wulf &amp; S. A. McKee, <i>"Hitting the Memory Wall: Implications of the Obvious"</i>, ACM SIGARCH CAN 23(1), 1995.</td></tr>
-    <tr><td><span class="en">RCM cache-locality renumbering <b>(failed for us)</b></span><span class="zh">RCM cache 區域性重編號 <b>(對我們失敗)</b></span></td>
+    <tr><td><span class="en">RCM cache-locality renumbering <b>(failed for us</b> — though renumbering itself later shipped +3.6% under a <a href="rcm-revival.html">different objective</a><b>)</b></span><span class="zh">RCM cache 區域性重編號 <b>(對我們失敗</b> —— 但重編號本身後來換了<a href="rcm-revival.html">目標函數</a>,以 +3.6% 出貨<b>)</b></span></td>
         <td>E. Cuthill &amp; J. McKee, <i>"Reducing the Bandwidth of Sparse Symmetric Matrices"</i>, ACM Nat. Conf. 1969; the <i>reverse</i> (RCM) variant is attributed to J. A. George, 1971.</td></tr>
     <tr><td><span class="en">Bit-parallel / dense-scan BFS <b>(failed for us)</b></span><span class="zh">bit-parallel / dense-scan BFS <b>(對我們失敗)</b></span></td>
         <td>S. Beamer, K. Asanović, D. Patterson, <i>"Direction-Optimizing Breadth-First Search"</i>, SC 2012; the Ligra framework, J. Shun &amp; G. E. Blelloch, PPoPP 2013. Bit-packed boolean-graph roots: the "Four Russians" method (Arlazarov, Dinic, Kronrod, Faradzhev, 1970). <span class="mut"><span class="en">[bit-packing root — approximate]</span><span class="zh">[bit-packing 根源 — 近似]</span></span></td></tr>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — the dead end that came back: renumbering, from useless to +3.6%</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:13px; font-family:Consolas,"SF Mono",monospace; line-height:1.5;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">The dead end that came back</span><span class="zh">復活的死路</span></h1>
+  <p class="sub en">In May, node renumbering (RCM) was measured, found worthless (~1.0×), and buried in the dead-end catalogue. In June it shipped as the project's biggest hot-path win since the P-1 prune: <b>C# +3.6%, Rust +2.9%, bit-exact, on by default</b>. Nothing about the old measurement was wrong. What changed was the <i>objective</i>: the old attempt used renumbering to chase cache locality, which this engine genuinely doesn't need — the new one uses it to <b>turn a lookup table into two register compares</b>, deleting a dependent load from the hottest loop. Same tool, different question. This page is the full story, because "we measured it, it's dead" turned out to be a statement about one objective, not about the tool.</p>
+  <p class="sub zh">五月,節點重編號(RCM)被實測、判定無用(~1.0×)、葬進死路清單。六月,它以 P-1 剪枝以來最大的熱路徑勝利出貨:<b>C# +3.6%、Rust +2.9%、位元等價、預設開啟</b>。舊量測沒有任何錯。改變的是<i>目標函數</i>:舊嘗試用重編號追求 cache 區域性 —— 這顆引擎根本不缺;新作法用它<b>把查表變成兩個暫存器比較</b>,從最熱的迴圈刪掉一條相依載入。同一把工具,不同的問題。這頁是完整的故事 —— 因為「我們量過了,它是死路」其實只是對某一個目標函數的陳述,不是對工具本身。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">Act 1 — why RCM died (and deserved to)</span><span class="zh">第一幕 —— RCM 為何死(而且死得有理)</span></h2>
+  <p class="en">Classic RCM (reverse Cuthill-McKee) renumbers a graph's vertices to reduce <i>bandwidth</i> — neighbours get nearby ids, so neighbouring data shares cache lines. The bet: the BFS group walk jumps between neighbours, so co-locating them cuts cache misses. Measured (2026-05): <span class="num">~1.04×</span> at boot, <span class="num">~0.98×</span> steady-state — nothing. The diagnosis then was already right: the hot working set is small enough to be cache-resident, so there was no <i>capacity</i> problem for locality to fix.</p>
+  <p class="zh">經典 RCM(reverse Cuthill-McKee)重編圖的頂點以縮小<i>頻寬</i> —— 鄰居拿到相近的 ID,鄰接資料共享 cache line。賭注是:BFS 群走訪在鄰居間跳躍,把它們放一起能省 cache miss。實測(2026-05):開機期 <span class="num">~1.04×</span>、穩態 <span class="num">~0.98×</span> —— 等於沒有。當時的診斷其實已經對了:熱工作集小到可以常駐快取,根本沒有「容量」問題可以讓區域性去解。</p>
+</section>
+
+<section>
+  <h2><span class="en">Act 2 — the diagnosis that re-opened the case</span><span class="zh">第二幕 —— 重啟調查的診斷</span></h2>
+  <p class="en">A month later, three experiments ran back-to-back, all attacking memory behaviour, all instrumented (interleaved-paired, bit-exact gates):</p>
+  <p class="zh">一個月後,三個實驗連著跑,全都攻記憶體行為、全都有儀器(interleaved-paired、位元等價閘門):</p>
+  <table>
+    <tr><th><span class="en">Experiment</span><span class="zh">實驗</span></th><th><span class="en">What it proved</span><span class="zh">證明了什麼</span></th><th><span class="en">Result</span><span class="zh">結果</span></th></tr>
+    <tr><td><span class="en">Shrink the wave queues (int→ushort, −60KB)</span><span class="zh">佇列瘦身(int→ushort,−60KB)</span></td><td><span class="en">streamed data is free (HW prefetcher)</span><span class="zh">串流資料免費(硬體 prefetcher)</span></td><td class="num">−0.07%</td></tr>
+    <tr><td><span class="en">Software prefetch of the next pops' NodeInfo</span><span class="zh">軟體預取下一批彈出的 NodeInfo</span></td><td><span class="en">there is no latency left to hide</span><span class="zh">沒有延遲可藏</span></td><td class="num">−0.3 ~ −1.1%</td></tr>
+    <tr><td><span class="en">Pure co-activity locality renumber (cache-line density of the per-half-cycle hot set: <b>−45%</b>, near the packing ideal)</span><span class="zh">純共活性區域性重編號(每半週期熱集的 cache-line 密度:<b>−45%</b>,逼近打包理想值)</span></td><td><span class="en">even a near-perfect locality win moves nothing</span><span class="zh">連近乎完美的區域性勝利都動不了什麼</span></td><td class="num">−0.36%</td></tr>
+  </table>
+  <div class="bad">
+    <p class="en" style="margin:.2em 0"><b>Three independent confirmations of one fact:</b> the ~20 ns/event floor is not cache-miss-bound. It is <b>dependent-load-chain</b> bound — each event is a short chain of "load, then load what it points to, then branch on it", and the chain's <i>length</i> is the cost. Locality changes where bytes live; it doesn't shorten chains.</p>
+    <p class="zh" style="margin:.2em 0"><b>三個獨立實驗指向同一個事實:</b>每事件約 20 奈秒的地板不是 cache miss 造成的,而是<b>相依載入鏈</b>:每個事件是一小串「載入 → 載入它指到的東西 → 依它分支」,成本就是鏈的<i>長度</i>。區域性只改變位元組住哪裡,不會縮短鏈。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Act 3 — the flip: same tool, new objective</span><span class="zh">第三幕 —— 翻盤:同一把工具,新的目標</span></h2>
+  <p class="en">If the bound is chain length, the only lever is <b>deleting links</b>. The hottest loop — <code>SetNodeState</code>'s enqueue walk, run for every transistor endpoint of every state flip — contained exactly one deletable link: the <code>PruneMask</code> byte load. Each endpoint check read a random byte from a 15KB array to learn a <i>static fact</i> ("is this node safe to skip?"). L1-resident, but still a 4-5-cycle dependent load feeding a branch, millions of times per frame.</p>
+  <p class="zh">如果瓶頸是鏈長,唯一的槓桿就是<b>刪掉鏈節</b>。最熱的迴圈 —— <code>SetNodeState</code> 的入列走訪,每次狀態翻轉的每個電晶體端點都要跑 —— 正好有一條可刪的鏈節:<code>PruneMask</code> 的位元組載入。每個端點檢查都要從 15KB 陣列隨機讀一個 byte,只為了知道一個<i>靜態事實</i>(「這個節點能不能安全跳過?」)。它常駐 L1,但仍是一條 4-5 cycle、餵給分支的相依載入,每張 frame 數百萬次。</p>
+  <p class="en"><b>The insight: a static fact doesn't need a lookup — it can live in the node's id itself.</b> Sort nodes so each prune class occupies one contiguous id block, and the lookup becomes a compare against a constant already in a register:</p>
+  <p class="zh"><b>洞察:靜態事實不需要查表 —— 它可以住在節點 ID 本身。</b>把節點排序成「每個剪枝類別佔一段連續 ID 區間」,查表就變成「跟暫存器裡的常數比大小」:</p>
+  <pre>ids:  [3 ..A)          [A ..S)        [S ..B)          [B ..end)
+      skip ∩ unsafe    skip ∩ safe    no-skip ∩ safe   no-skip ∩ unsafe
+
+turn-off skip?    c &lt; S            <span class="mut">(supply ids 1,2 &lt; 3 ≤ S ride the same compare)</span>
+turn-on  unsafe?  c &lt; A  ||  c ≥ B <span class="mut">(c is never supply on this path)</span></pre>
+  <p class="en">And this is where the "dead" renumbering machinery becomes the <i>enabler</i>: you need a permutation pass to create those contiguous blocks. The locality result even helps in reverse — since locality is worth ~0, sacrificing it for class-major ordering costs nothing. (Within each block, ids follow a clk-BFS signal-flow order — a free static approximation of the cascade order that keeps what little locality value exists.)</p>
+  <p class="zh">這就是「死掉的」重編號機器變成<i>賦能者</i>的地方:要造出連續區塊,就需要一個排列(permutation)pass。而區域性的負結果在這裡反而幫忙 —— 既然區域性值 ~0,為了類別排序犧牲它毫無代價。(每個區塊內,ID 依 clk-BFS 訊號流順序排 —— 串接順序的免費靜態近似,保住僅存的一點區域性價值。)</p>
+  <h3><span class="en">Safety: never trust the layout, verify it</span><span class="zh">安全性:不信任排列,驗證它</span></h3>
+  <p class="en">A wrong boundary would silently mis-prune (worst case: enqueue VCC and group-walk the power rail). So the mask is still computed at every Reset as <b>ground truth</b>, and every node's bits are checked against the range-implied bits before the first settle; on mismatch the engine falls back to safe-degenerate boundaries (prunes off, supply guarded, still correct). The whole thing is automatic — a two-phase load classifies under identity ids first, then rebuilds permuted — no profile file, any ROM, any netlist. Bit-exactness is engineered, not hoped for: the power-on sweep and the checksum both iterate in <i>original</i> id order through the permutation, so all three golden checksums hold unchanged.</p>
+  <p class="zh">邊界錯了會默默剪錯(最壞情況:把 VCC 入列、對電源軌做群走訪)。所以每次 Reset 仍然把遮罩算出來當<b>基準真相</b>,在第一次 settle 之前逐節點比對「範圍推導的位元」;不符就退到安全退化邊界(剪枝關閉、supply 仍守住、依然正確)。整件事全自動 —— 兩段式載入先在原始編號下分類、再重排重建 —— 不需 profile 檔、任何 ROM、任何網表。位元等價是設計出來的,不是僥倖:開機掃描與 checksum 都透過排列以<i>原始</i> ID 順序迭代,所以三條 golden checksum 原封不動成立。</p>
+</section>
+
+<section>
+  <h2><span class="en">The measurements</span><span class="zh">量測</span></h2>
+  <div class="boxes">
+    <div class="box"><div class="n" style="color:#7ee0a8">+3.56%</div><div class="l">C# median, 19/20 &amp; 11/12 paired</div></div>
+    <div class="box"><div class="n" style="color:#7ee0a8">+2.90%</div><div class="l">Rust median, 20/20 paired</div></div>
+    <div class="box"><div class="n">119.7K / 103.1K</div><div class="l"><span class="en">new peaks, hc/s (best of 10)</span><span class="zh">新峰值 hc/s(10 取最佳)</span></div></div>
+  </div>
+  <p class="en">Cross-engine validation came free: the two independent implementations (C# composes the netlist; Rust remaps a snapshot) derived <b>byte-identical block boundaries</b> (A=460, S=1275, B=7532) and the same golden checksums. A measured co-activity profile as the locality key reaches <span class="num">+5.12%</span> and is kept as a diagnostic (<code>--renumber &lt;profile&gt;</code>) — it's netlist-specific, so the shipping default is the self-contained automatic form.</p>
+  <p class="zh">跨引擎驗證是免費送的:兩個獨立實作(C# 自組網表;Rust 重映射 snapshot)推導出<b>完全相同的區塊邊界</b>(A=460、S=1275、B=7532)與同一組 golden checksum。用實測共活性 profile 當區域性鍵可達 <span class="num">+5.12%</span>,保留為診斷選項(<code>--renumber &lt;profile&gt;</code>)—— 它綁定特定網表,所以出貨預設是自包含的全自動形態。</p>
+</section>
+
+<section>
+  <h2><span class="en">Old RCM vs. new renumbering — what actually differs</span><span class="zh">舊 RCM vs 新重編號 —— 到底差在哪</span></h2>
+  <table>
+    <tr><th></th><th><span class="en">RCM (2026-05, dead)</span><span class="zh">RCM(2026-05,死)</span></th><th><span class="en">Class-major (2026-06, shipped)</span><span class="zh">類別為主鍵(2026-06,出貨)</span></th></tr>
+    <tr><td><span class="en">Objective</span><span class="zh">目標函數</span></td><td><span class="en">cache locality / graph bandwidth</span><span class="zh">cache 區域性 / 圖頻寬</span></td><td><b><span class="en">encode static facts as id ranges</span><span class="zh">把靜態事實編進 ID 區間</span></b></td></tr>
+    <tr><td><span class="en">Sort key</span><span class="zh">排序鍵</span></td><td><span class="en">graph adjacency (BFS levels)</span><span class="zh">圖鄰接性(BFS 層)</span></td><td><span class="en">prune class (major) + clk signal-flow (minor)</span><span class="zh">剪枝類別(主)+ clk 訊號流(次)</span></td></tr>
+    <tr><td><span class="en">What it tries to remove</span><span class="zh">想移除的東西</span></td><td><span class="en">cache misses</span><span class="zh">cache miss</span></td><td><span class="en">a dependent LOAD (chain link) per endpoint check + a 15KB array</span><span class="zh">每端點檢查一條相依載入(鏈節)+ 一條 15KB 陣列</span></td></tr>
+    <tr><td><span class="en">Why that matters here</span><span class="zh">為何在這裡有效</span></td><td><span class="tagN"><span class="en">it doesn't — hot set already resident</span><span class="zh">無效 —— 熱集已常駐</span></span></td><td><span class="tagY"><span class="en">the engine is chain-bound; deleting links is THE lever</span><span class="zh">引擎被鏈長綁死;刪鏈節正是那根槓桿</span></span></td></tr>
+    <tr><td><span class="en">Hot-path change</span><span class="zh">熱路徑變更</span></td><td><span class="en">none (data moves, code identical)</span><span class="zh">無(資料搬家,程式碼不變)</span></td><td><span class="en">mask loads → register compares; mask array freed</span><span class="zh">遮罩載入 → 暫存器比較;遮罩陣列釋放</span></td></tr>
+    <tr><td><span class="en">Result</span><span class="zh">結果</span></td><td class="num">~1.0×</td><td class="num" style="color:#7ee0a8">+3.56% C# / +2.90% Rust</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">The lesson</span><span class="zh">教訓</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0">Dead ends are indexed by <b>objective</b>, not by tool. "Renumbering is dead" was true for the question RCM asked (locality) and false for a question nobody had asked yet (range-encoding static facts). The general form, for any engine that is dependent-chain-bound rather than miss-bound: <b>every static per-element fact currently answered by a lookup table is a candidate to be answered by the element's position instead</b> — sort once at load, compare forever at run time. The prune masks were the hottest such table here; the fast-path class byte is the next candidate on the list.</p>
+    <p class="zh" style="margin:.2em 0">死路的索引鍵是<b>目標函數</b>,不是工具。「重編號已死」對 RCM 問的那個問題(區域性)為真,對一個當時還沒人問的問題(把靜態事實編成區間)為假。對任何被相依鏈而非 cache miss 綁死的引擎,通式是:<b>每一個目前靠查表回答的「靜態的每元素事實」,都是候選 —— 改用元素的「位置」來回答</b>:載入時排序一次,執行期永遠用比較。剪枝遮罩是這裡最熱的一張表;fast-path 類別位元組是清單上的下一個候選。</p>
+  </div>
+  <p class="mut en">Measurements: full_palette 400k hc, <code>--pin</code>, interleaved-paired with checksum gates; goldens <code>0x794A43ABDF169ADA</code> @300k / <code>0x9174E19D961CB6E5</code> @400k / <code>0x6D4CCBCE2E9CD599</code> @1M all unchanged. C# commit <code>51e046d</code> (+ hygiene/cleanup follow-ups), Rust <code>665acf5</code>. AMD Ryzen 7 3700X. 2026-06-10/11.</p>
+  <p class="mut zh">量測:full_palette 40 萬 hc、<code>--pin</code>、interleaved-paired + checksum 閘門;golden <code>0x794A43ABDF169ADA</code> @30 萬 / <code>0x9174E19D961CB6E5</code> @40 萬 / <code>0x6D4CCBCE2E9CD599</code> @100 萬全數不變。C# commit <code>51e046d</code>(+ 後續清理),Rust <code>665acf5</code>。AMD Ryzen 7 3700X。2026-06-10/11。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="prunes.html">&larr; <span class="en">The prunes (P-1 → P-4) this builds on</span><span class="zh">本文建立其上的剪枝(P-1 → P-4)</span></a> &nbsp;·&nbsp; <a href="dominant-bypass.html"><span class="en">P-5: correct but still lost</span><span class="zh">P-5:正確卻仍輸</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">Range-prune: the class-major renumber turns the prune masks into id range compares. C# +3.56% / Rust +2.90%, bit-exact, on by default. The old RCM verdict stands for its own objective — this is the same tool answering a different question. 2026-06-11.</span><span class="zh">範圍剪枝:類別為主鍵的重編號把剪枝遮罩變成 ID 區間比較。C# +3.56% / Rust +2.90%、位元等價、預設開啟。舊 RCM 的判決對它自己的目標依然成立 —— 這是同一把工具回答另一個問題。2026-06-11。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

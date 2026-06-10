@@ -649,6 +649,14 @@ namespace AprVisual.Test
                         Console.WriteLine($"#     {i,3}: {h[i],12:N0}  {pct,6:F2}%  {cumPct,6:F2}%");
                     }
                 }
+                {
+                    // S2 Estimator 3 (clock-phase wasted events / memory-event share) — DEBUG only.
+                    // See WireCore.Recalc.cs ClockPhaseTally. The EVENT-reduction ceilings for memory/bus abstraction.
+                    long pops = WireCore.DiagPhasePops;
+                    double Pp(long x) => pops == 0 ? 0 : 100.0 * x / pops;
+                    Console.WriteLine($"# [phase-waste] pops={pops:N0}  phase-dead={WireCore.DiagPhaseWasted:N0} ({Pp(WireCore.DiagPhaseWasted):F1}%)  ← clock-gating event ceiling (gates-nothing + all pass-channels OFF this phase)");
+                    Console.WriteLine($"# [mem-event-share] pops on no-pull-up (Est-1/2 storage/bus/fabric mass)={WireCore.DiagMemPops:N0} ({Pp(WireCore.DiagMemPops):F1}%)  ← event traffic memory+bus abstraction would remove");
+                }
 #endif
                 PrintRealtimeGap(stepsHz);
                 WriteBenchLog(logDir, romPath, hcCount, halfCycles, secs, stepsHz, stateHash);

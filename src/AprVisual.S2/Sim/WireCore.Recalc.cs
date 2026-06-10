@@ -142,6 +142,46 @@ namespace AprVisual.Sim
             SettlePassHist[iter]++;
         }
 
+        // ── Clock-phase wasted-event profiler (S2 Estimator 3 — DEBUG ONLY) ──
+        // Node count is a static proxy; the REAL cost is EVENTS (pops). This measures, at run-time, two
+        // event-reduction ceilings for the S2 memory/bus abstraction:
+        //   [phase-waste]      — a pop on a node that gates NOTHING and whose every pass-channel is OFF this
+        //                        phase (isolated singleton) ⇒ its re-eval cannot propagate anywhere this
+        //                        phase = a clock-phase-gated dead event (Gemini's "consumers are pass-
+        //                        transistors whose gate control is 0"). Share of all pops = the clock-gating
+        //                        ceiling (Gemini: ~20-35% fewer events).
+        //   [mem-event-share]  — pops landing on a no-pull-up node (the Estimator-1/2 storage/bus/fabric mass)
+        //                        = how much event traffic memory+bus abstraction would actually remove.
+        // Counts are deterministic ⇒ identical to Release; only wall-clock differs. Power-on settle is
+        // included (tiny vs a 200K-hc bench).
+        internal static long DiagPhasePops, DiagPhaseWasted, DiagMemPops;
+
+        private static unsafe void ClockPhaseTally(int nn)
+        {
+            DiagPhasePops++;
+            NodeInfo* d = NodeInfos + nn;
+            bool hasPullUp = (d->Flags & NodeFlags.PullUp) != 0;
+            bool hasPass   = d->Inline != 0 ? (d->C1c2Count != 0) : (d->TlistC1c2s != 0);
+            bool hasSupply = d->Inline != 0 ? (d->GndCount != 0 || d->PwrCount != 0) : (d->TlistC1gnd != 0 || d->TlistC1pwr != 0);
+            bool gatesAny  = NodeTlistGates[nn] != 0;
+            if (!hasPullUp) DiagMemPops++;
+            if (!gatesAny && hasPass && !hasSupply)
+            {
+                bool anyOn = false;
+                if (d->Inline != 0)
+                {
+                    ushort* pay = d->InlinePayload; int n2 = d->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) if (NodeStates[pay[k]] != 0) { anyOn = true; break; }
+                }
+                else
+                {
+                    ushort* p = TransistorList + d->TlistC1c2s;
+                    while (*p != 0) { if (NodeStates[*p] != 0) { anyOn = true; break; } p += 2; }
+                }
+                if (!anyOn) DiagPhaseWasted++;
+            }
+        }
+
         // ── BFS group-walk DEPTH distribution profiler (DEBUG ONLY) ──
         // Histogram of the max BFS level reached by each AddNodeToGroup walk = how many hops, through
         // currently-ON transistors, from the seed to the farthest conducting member. Depth 0 = singleton
@@ -227,6 +267,7 @@ namespace AprVisual.Sim
                         RecalcHash[nn] = 0;
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);
+                        ClockPhaseTally(nn);
 #endif
                     }
                 }

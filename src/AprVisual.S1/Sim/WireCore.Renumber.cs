@@ -36,12 +36,78 @@ namespace AprVisual.Sim
         /// <summary>Pass-1-captured PruneMask bits per identity id (consumed once by ApplyRenumber).</summary>
         internal static byte[]? PendingClassBits;
 
-        /// <summary>Capture every node's prune class after a pass-1 Reset() (identity numbering).</summary>
+        /// <summary>Pass-1-captured STATE-AWARE locality order per identity id (consumed once by
+        /// ApplyRenumber; uint.MaxValue = unreached → block tail in original relative order).</summary>
+        internal static uint[]? PendingLocalityOrder;
+
+        /// <summary>Capture every node's prune class after the pass-0 Reset() (identity numbering).
+        /// Also stashed (StashedClassBits) so the capture pass can re-arm it for the final pass.</summary>
         internal static void CapturePruneClasses()
         {
             var bits = new byte[NodeCount];
             for (int nn = 0; nn < NodeCount; nn++) bits[nn] = (byte)(PruneMask[nn] & 3);
             PendingClassBits = bits;
+            StashedClassBits = bits;
+        }
+
+        // ── [true first-touch capture] drive the pass-1 warm-up through a COLD copy of the settle
+        // loop that records each node's first pop. The hot ProcessQueue stays untouched (zero cost in
+        // the final build); this copy runs ONLY during pass-1 and is torn down with it. If it ever
+        // drifts from ProcessQueue the damage is bounded to a worse locality KEY (perf-only — the
+        // class blocks and all correctness machinery are independent of the key).
+        /// <summary>Pass-0-captured class bits, kept ACROSS the capture pass (ApplyRenumber consumes
+        /// PendingClassBits at pass 1; pass 1's end re-arms it from this stash for the final pass).</summary>
+        internal static byte[]? StashedClassBits;
+
+        internal static unsafe void WarmupCaptureFirstTouch(int hcCount)
+        {
+            int n = NodeCount;
+            var order = new uint[n];
+            for (int i = 0; i < n; i++) order[i] = uint.MaxValue;
+            uint seq = 0;
+            int clk = ClockNode;
+            if (clk == EmptyNode) { PendingLocalityOrder = order; return; }
+
+            for (int hc = 0; hc < hcCount; hc++)
+            {
+                // clock toggle — mirrors StepCycle's branchless flip
+                ref NodeInfo cns = ref NodeInfos[clk];
+                int nextS = NodeStates[clk] ^ 1;
+                cns.Flags = (cns.Flags & ~(NodeFlags.SetHigh | NodeFlags.SetLow)) | (NodeFlags)(8 >> nextS);
+                EnqueueNode(clk);
+
+                // settle — mirrors ProcessQueue's double-buffered wave loop, plus the first-touch record
+                while (RecalcListNextCount != 0)
+                {
+                    int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
+                    byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+                    RecalcListCount = RecalcListNextCount;
+                    RecalcListNextCount = 0;
+                    for (int i = 0; i < RecalcListCount; i++)
+                    {
+                        int nn = RecalcList[i];
+                        if (RecalcHash[nn] != 0)
+                        {
+                            if (order[nn] == uint.MaxValue) order[nn] = seq++;   // ← the capture
+                            RecalcNode(nn);
+                            RecalcHash[nn] = 0;
+                        }
+                    }
+                    RecalcListCount = 0;
+                }
+                InvokeCallbacks();
+                Time++;
+            }
+
+            // The capture ran on the PASS-1 build (some temporary permutation, verified ranges, prunes
+            // ON — the production cascade). Translate the order back to IDENTITY ids so the final pass's
+            // ApplyRenumber (which runs pre-renumber) can consume it: identityOrder[orig] = order[perm[orig]].
+            ushort* perm = RenumberPerm;
+            int permLen = RenumberPermLen;
+            var identityOrder = new uint[n];
+            for (int orig = 0; orig < n; orig++)
+                identityOrder[orig] = order[orig < permLen ? perm[orig] : orig];
+            PendingLocalityOrder = identityOrder;
         }
 
         /// <summary>old→new id permutation (identity for ids ≥ RenumberPermLen — the post-renumber fake
@@ -118,11 +184,21 @@ namespace AprVisual.Sim
                 haveBits = true;
                 PendingClassBits = null;   // consume once
 
-                // locality key — static approximation of the dynamic first-touch cascade order: BFS from
-                // clk along the SIGNAL-FLOW edges (node → endpoints of the transistors it gates — exactly
-                // the edges SetNodeState enqueues through). The first settle wave pops in roughly this
-                // discovery order, so packing by it ≈ the measured-good first-touch profile key, with no
-                // settle needed (works for any netlist, any ROM). Unreached nodes sink to the block tail.
+                // locality key — preferred: the TRUE first-touch order captured from the production
+                // (pruned) cascade during the pass-1 warm-up (see WarmupCaptureFirstTouch).
+                if (PendingLocalityOrder != null)
+                {
+                    var ord = PendingLocalityOrder;
+                    int mo = Math.Min(n, ord.Length);
+                    for (int nn = 0; nn < mo; nn++)
+                        if (ord[nn] != uint.MaxValue) { sortKey[nn] = ord[nn]; profiled[nn] = true; profiledCount++; }
+                    PendingLocalityOrder = null;   // consume once
+                }
+                else
+                {
+                // fallback locality key — BLIND static approximation: BFS from clk along the SIGNAL-FLOW
+                // edges (node → endpoints of the transistors it gates — exactly the edges SetNodeState
+                // enqueues through), ignoring gate states. Unreached nodes sink to the block tail.
                 int clk = LookupNode("clk");
                 if (clk != EmptyNode)
                 {
@@ -146,6 +222,7 @@ namespace AprVisual.Sim
                     }
                     profiledCount = seq;
                 }
+                }   // end blind-BFS fallback
             }
 
             // block index per prune class — order chosen so no-skip∩unsafe is LAST (fake handler nodes

@@ -78,6 +78,12 @@ namespace AprVisual.Sim
         // Set by the --extra-ram CLI flag.
         public static bool ForceExtraRam = false;
 
+        // Capture-pass tuning (see LoadSystem pass 1 / WarmupCaptureFirstTouch): warm-up past the
+        // reset transient, then record the true first-touch order over the capture span. The capture
+        // runs on the FULL-SPEED pruned engine, so 32K hc ≈ 0.3 s of load time.
+        private const int CaptureWarmupHc = 1024;
+        private const int FirstTouchCaptureHc = 32768;
+
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
@@ -106,16 +112,34 @@ namespace AprVisual.Sim
                 AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
                 AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
 
-                if (pass == 0 && RenumberPerm == null)
+                ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)
+
+                bool autoRenumber = RenumberFile == null;
+                if (autoRenumber && pass == 0)
                 {
-                    Reset();                // classify only — no settle has run yet, so this is safe in all builds
-                    CapturePruneClasses();  // → PendingClassBits (consumed by pass 2's ApplyRenumber)
+                    // PASS 0 — classify only (no settle): capture each node's prune class under
+                    // identity ids. Feeds pass 1's class-major build (temporary blind-BFS locality).
+                    Reset();
+                    CapturePruneClasses();   // → PendingClassBits (+ StashedClassBits for pass 2)
+                    continue;
+                }
+                if (autoRenumber && pass == 1)
+                {
+                    // PASS 1 — capture: this build has VERIFIED ranges, so the prunes are ON and the
+                    // settle is the PRODUCTION cascade. Warm past the reset transient, then record the
+                    // TRUE first-touch order through the cold instrumented settle copy (the hot
+                    // ProcessQueue is untouched). Translated back to identity ids; everything else is
+                    // torn down by the final rebuild. (An unpruned warm-up was measured −1% vs this —
+                    // the locality key's value is the pruned cascade's order, not line density alone.)
+                    ResetNes(full: true);
+                    Step(CaptureWarmupHc);                     // past the post-reset transient
+                    WarmupCaptureFirstTouch(FirstTouchCaptureHc); // → PendingLocalityOrder (identity ids)
+                    PendingClassBits = StashedClassBits;          // re-arm the class bits for the final pass
+                    StashedClassBits = null;
                     continue;
                 }
                 break;
             }
-
-            ResolveCachedNodes();
 
             ResetNes(full: true);     // clear RAMs + Reset() + alloc FrameBuffer + assert/run/deassert res
 

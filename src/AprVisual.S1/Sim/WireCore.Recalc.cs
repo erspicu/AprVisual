@@ -40,10 +40,11 @@ namespace AprVisual.Sim
         public static void RecomputeAllNodes()
         {
             // Without a verified class layout the RangeSafe* degenerate boundaries are in force —
-            // correct but with the P-1..P-4 prunes disabled. Fine for selftest / hand-built netlists;
-            // a real system load should never settle in this state, so flag it loudly.
-            if (!RangePruneOk && NodeCount > 1000)
-                Console.Error.WriteLine("WireCore: settling WITHOUT a verified range-prune layout — prunes disabled, expect ~2x slower (auto-renumber failed?)");
+            // correct but with the P-1..P-4 prunes disabled. That state is INTENTIONAL for selftest /
+            // hand-built netlists and for the auto-renumber's pass-1 warm-up (RenumberPerm == null);
+            // it is only alarming when a permutation EXISTS but its verification failed.
+            if (!RangePruneOk && RenumberPerm != null)
+                Console.Error.WriteLine("WireCore: settling WITHOUT a verified range-prune layout — prunes disabled, expect ~2x slower (range verification failed)");
             ushort* perm = RenumberPerm;
             int permLen = RenumberPermLen;
             for (int i = 0; i < NodeCount; i++)

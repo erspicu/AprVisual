@@ -10,7 +10,7 @@ namespace AprVisual.Sim
     // and the switch-level netlist abstracted into recognizable logic gates. This pass is the foundation:
     // it walks the composed netlist once and assigns each live node a GateClass, then summarizes the
     // digital-ness breakdown. It does NOT change the engine — it is the gate-level VIEW + the input the
-    // fold step would consume. Invoked via TestRunner --gate-classify <rom>.
+    // export (WireCore.GateExport.cs) and any fold step consume. Invoked via TestRunner --gate-classify.
     //
     // The three digital-ness buckets connect back to the project's Escape-1 headline (~98.9% of activity
     // reduces to logic + registers, ~1.1% genuine analog):
@@ -47,19 +47,26 @@ namespace AprVisual.Sim
             _ => DigitalKind.Rail,
         };
 
-        public static string GateClassify()
+        private const int BigCccThreshold = 32;   // a "bus / decoder" net (matches Estimator 2's large-component threshold)
+
+        // Shared classification context: handler-driven pins, channel-connected-component sizes (union-find
+        // over c1c2). Built once, consumed by ClassifyGate. (Same construction as Estimator 2 / ClassifyPruneTaint.)
+        internal sealed class GateCtx
+        {
+            public HashSet<int> Driven = new();
+            public int[] Parent = Array.Empty<int>();
+            public Dictionary<int, int> CompSize = new();
+        }
+
+        internal static GateCtx BuildGateCtx()
         {
             int n = NodeCount;
-
-            // handler-driven pins (RAM/ROM/bus DataOut) — externally driven behavioral sources.
-            var driven = new HashSet<int>();
+            var ctx = new GateCtx();
             foreach (var cb in _callbacks)
                 if (cb.DataOut != null)
-                    for (int i = 0; i < cb.DLen; i++) driven.Add(cb.DataOut[i]);
+                    for (int i = 0; i < cb.DLen; i++) ctx.Driven.Add(cb.DataOut[i]);
 
-            // channel-connected-component sizes (union-find over c1c2) — to tell BusFabric (large CCC) from
-            // a PassWaypoint (small routing component). Same construction as ClassifyPruneTaint / Estimator 2.
-            int[] parent = new int[n];
+            var parent = new int[n];
             for (int i = 0; i < n; i++) parent[i] = i;
             for (int nn = 0; nn < n; nn++)
             {
@@ -77,7 +84,7 @@ namespace AprVisual.Sim
                     while (*p != 0) { FcuUnion(parent, nn, *(p + 1)); p += 2; }
                 }
             }
-            var compSize = new Dictionary<int, int>();
+            ctx.Parent = parent;
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
@@ -85,21 +92,54 @@ namespace AprVisual.Sim
                 bool hasPass = ns->Inline != 0 ? (ns->C1c2Count != 0) : (ns->TlistC1c2s != 0);
                 if (!hasPass) continue;
                 int r = FcuFind(parent, nn);
-                compSize.TryGetValue(r, out int c); compSize[r] = c + 1;
+                ctx.CompSize.TryGetValue(r, out int c); ctx.CompSize[r] = c + 1;
             }
-            const int BigCcc = 32;   // a "bus / decoder" net (matches Estimator 2's large-component threshold)
+            return ctx;
+        }
 
-            // count GND pull-down transistors of a node (its fan-in, for NOR vs inverter) ──
-            int GndFanin(NodeInfo* ns)
-            {
-                if (ns->Inline != 0) return ns->GndCount;
-                if (ns->TlistC1gnd == 0) return 0;
-                ushort* p = TransistorList + ns->TlistC1gnd; int c = 0;
-                while (*p != 0) { c++; p++; }   // c1gnd list is a flat (gate,...,0) — one ushort per transistor
-                return c;
-            }
+        // Count GND pull-down transistors of a node (its fan-in, for NOR vs inverter).
+        private static int GndFanin(NodeInfo* ns)
+        {
+            if (ns->Inline != 0) return ns->GndCount;
+            if (ns->TlistC1gnd == 0) return 0;
+            ushort* p = TransistorList + ns->TlistC1gnd; int c = 0;
+            while (*p != 0) { c++; p++; }   // c1gnd list is a flat (gate,...,0) — one ushort per transistor
+            return c;
+        }
 
+        // Classify one LIVE node (Nodes[nn] != null). Rails return Supply.
+        internal static GateClass ClassifyGate(int nn, GateCtx ctx)
+        {
+            if (nn == Npwr || nn == Ngnd) return GateClass.Supply;
+            NodeInfo* ns = NodeInfos + nn;
             const NodeFlags fcCb = NodeFlags.ForceCompute | NodeFlags.HasCallback;
+            bool hasPullUp = (ns->Flags & NodeFlags.PullUp) != 0;
+            bool hasPass   = ns->Inline != 0 ? (ns->C1c2Count != 0) : (ns->TlistC1c2s != 0);
+            bool hasSupply = ns->Inline != 0 ? (ns->GndCount != 0 || ns->PwrCount != 0) : (ns->TlistC1gnd != 0 || ns->TlistC1pwr != 0);
+            bool gatesAny  = NodeTlistGates[nn] != 0;
+            bool special   = (ns->Flags & fcCb) != 0;
+
+            if (special) return GateClass.Special;
+            if (ctx.Driven.Contains(nn)) return GateClass.Driven;
+            if (hasPullUp)
+            {
+                if (hasPass) return GateClass.SeriesGate;
+                return GndFanin(ns) <= 1 ? GateClass.Inverter : GateClass.NorGate;
+            }
+            if (hasSupply) return GateClass.SupplyDrivenDyn;
+            if (hasPass)
+            {
+                if (gatesAny) return GateClass.DynamicStorage;
+                ctx.CompSize.TryGetValue(FcuFind(ctx.Parent, nn), out int sz);
+                return sz >= BigCccThreshold ? GateClass.BusFabric : GateClass.PassWaypoint;
+            }
+            return GateClass.Unknown;   // no pull-up, no supply, no pass, no flags — isolated/floating stub
+        }
+
+        public static string GateClassify()
+        {
+            int n = NodeCount;
+            var ctx = BuildGateCtx();
             var classCount = new long[Enum.GetValues<GateClass>().Length];
             var kindCount = new long[4];
             long faninSum = 0, norGates = 0; int maxFanin = 0;
@@ -107,41 +147,14 @@ namespace AprVisual.Sim
             for (int nn = 0; nn < n; nn++)
             {
                 if (Nodes[nn] == null) continue;
-                GateClass g;
-                if (nn == Npwr || nn == Ngnd) g = GateClass.Supply;
-                else
-                {
-                    NodeInfo* ns = NodeInfos + nn;
-                    bool hasPullUp = (ns->Flags & NodeFlags.PullUp) != 0;
-                    bool hasPass   = ns->Inline != 0 ? (ns->C1c2Count != 0) : (ns->TlistC1c2s != 0);
-                    bool hasSupply = ns->Inline != 0 ? (ns->GndCount != 0 || ns->PwrCount != 0) : (ns->TlistC1gnd != 0 || ns->TlistC1pwr != 0);
-                    bool gatesAny  = NodeTlistGates[nn] != 0;
-                    bool special   = (ns->Flags & fcCb) != 0;
-                    bool isDriven  = driven.Contains(nn);
-
-                    if (special) g = GateClass.Special;
-                    else if (isDriven) g = GateClass.Driven;
-                    else if (hasPullUp)
-                    {
-                        if (hasPass) g = GateClass.SeriesGate;
-                        else
-                        {
-                            int fanin = GndFanin(ns);
-                            g = fanin <= 1 ? GateClass.Inverter : GateClass.NorGate;
-                            if (g == GateClass.NorGate || g == GateClass.Inverter)
-                            { faninSum += fanin; norGates++; if (fanin > maxFanin) maxFanin = fanin; }
-                        }
-                    }
-                    else if (hasSupply) g = GateClass.SupplyDrivenDyn;
-                    else if (hasPass)
-                    {
-                        if (gatesAny) g = GateClass.DynamicStorage;
-                        else { compSize.TryGetValue(FcuFind(parent, nn), out int sz); g = sz >= BigCcc ? GateClass.BusFabric : GateClass.PassWaypoint; }
-                    }
-                    else g = GateClass.Unknown;   // no pull-up, no supply, no pass, no flags — isolated/floating stub
-                }
+                GateClass g = ClassifyGate(nn, ctx);
                 classCount[(int)g]++;
                 kindCount[(int)KindOf(g)]++;
+                if (g == GateClass.NorGate || g == GateClass.Inverter)
+                {
+                    int fanin = GndFanin(NodeInfos + nn);
+                    faninSum += fanin; norGates++; if (fanin > maxFanin) maxFanin = fanin;
+                }
             }
 
             long live = 0; for (int nn = 0; nn < n; nn++) if (Nodes[nn] != null && nn != Npwr && nn != Ngnd) live++;

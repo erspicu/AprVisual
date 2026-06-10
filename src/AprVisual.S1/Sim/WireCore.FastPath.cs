@@ -256,6 +256,14 @@ namespace AprVisual.Sim
             }
             // (no layout applied ⇒ the RangeSafe* defaults are in force: prunes disabled, supply guarded,
             // correct on any numbering — what selftest / hand-built netlists run under in a RANGE build.)
+#if !DEBUG
+            // [array hygiene] in Release the hot path reads only the verified id RANGES — the mask was
+            // the ground truth for the verification above and is dead weight from here on (15KB RAM;
+            // untouched memory costs no cache, so this is hygiene not speed). DEBUG keeps it for the
+            // [cond-profile] tallies + the --co-profile pruneBits dump. The auto-renumber's pass 1
+            // (RangePruneActive == false) must keep it too: CapturePruneClasses reads it after Reset.
+            if (RangePruneActive && RangePruneOk) { FreeAligned(PruneMask); PruneMask = null; }
+#endif
         }
 
         /// <summary>

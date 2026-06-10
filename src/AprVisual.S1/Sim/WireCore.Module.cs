@@ -110,6 +110,7 @@ namespace AprVisual.Sim
         public static void ResetBuild()
         {
             ClearLoadedDefs();
+            InstanceRanges.Clear();   // append-only in AddInstance — without this it accumulates across every compose (2x per two-phase load, more across --test-dir)
             _nodes.Clear();
             _transistors.Clear();
             _transistorSet.Clear();

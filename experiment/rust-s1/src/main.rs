@@ -64,9 +64,9 @@ fn framedump(args: &[String]) {
     std::fs::create_dir_all(out_dir).expect("create out_dir");
     eprintln!("# wire_s1 (Rust S1 framedump): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
-    let clock_node = snap.clock_node;
-    let vblank_node = snap.ppu_vblank_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
+    let clock_node = wc.clock_node;     // post-renumber ids (the snapshot fields hold pre-renumber ids)
+    let vblank_node = wc.vblank_node;
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
     eprintln!("# prune-taint: {} turn-on-unsafe; P-2 turn-off-skip {}; P-3/4 cap<all un-taint {}", wc.prune_unsafe_count, wc.turn_off_skip_count, wc.p34_untaint_count);
     println!("# rendering {frames} frame(s) -> {out_dir}");
@@ -115,10 +115,11 @@ fn bench(args: &[String]) {
     eprintln!("# wire_s1 (Rust S1 fork): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
     let node_count = snap.node_count;
-    let clock_node = snap.clock_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
+    let clock_node = wc.clock_node;     // post-renumber id (the snapshot field holds the pre-renumber id)
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
     eprintln!("# prune-taint: {} turn-on-unsafe; P-2 turn-off-skip {}; P-3/4 cap<all un-taint {}", wc.prune_unsafe_count, wc.turn_off_skip_count, wc.p34_untaint_count);
+    eprintln!("# renumber: class-major permutation, range-prune blocks A={} S={} B={} (verified)", wc.range_a, wc.range_s, wc.range_b);
 
     // Opt-in --pin: thread affinity + High priority + EcoQoS-off (cuts run-to-run variance).
     // Pure scheduling, so the checksum is unchanged. Recorded in the bench JSON as "pinned".
@@ -343,9 +344,9 @@ fn shot(args: &[String]) {
 
     eprintln!("# wire_s1 (Rust S1 shot): loading {path} ...");
     let snap = snapshot::load(path).expect("snapshot load failed");
-    let clock_node = snap.clock_node;
-    let vblank_node = snap.ppu_vblank_node;
     let mut wc = wire::WireCore::from_snapshot(snap);
+    let clock_node = wc.clock_node;     // post-renumber ids (the snapshot fields hold pre-renumber ids)
+    let vblank_node = wc.vblank_node;
     eprintln!("# fast-path: {} pure-logic-gnd nodes classified (hardcoded on)", wc.fast_path_count);
     eprintln!("# prune-taint: {} turn-on-unsafe; P-2 turn-off-skip {}; P-3/4 cap<all un-taint {}", wc.prune_unsafe_count, wc.turn_off_skip_count, wc.p34_untaint_count);
 

@@ -92,16 +92,176 @@ pub struct WireCore {
     pub is_pure_logic: Vec<u8>,
     pub fast_path_count: usize,
 
-    // enqueue-prune safety mask (parity with C# PruneMask, bit-packed): one byte per node.
-    //   bit 0 (PRUNE_TURN_ON_UNSAFE) = UNSAFE for the same-state turn-ON prune (P-1): no-PullUp
-    //       floating/hold-previous dynamic+storage cell, or in a ForceCompute channel-component;
-    //       CLEARED again by P-3/P-4 for the cap<all-neighbours subset that can't win a tie-break.
-    //   bit 1 (PRUNE_TURN_OFF_SKIP) = single-channel no-driver leaf that isolates→float-holds on
-    //       turn-OFF (P-2): skip enqueuing it when its channel opens.
-    pub prune_mask: Vec<u8>,
+    // enqueue-prune classification stats. The mask itself is NOT kept: since the class-major
+    // renumber ([range-prune], parity with C# 51e046d) the hot path reads the id RANGES below;
+    // the mask is recomputed on the renumbered snapshot only as verification ground truth.
     pub prune_unsafe_count: usize,
     pub turn_off_skip_count: usize,
     pub p34_untaint_count: usize,
+
+    // [range-prune] class-major renumber boundaries. Ids sorted into contiguous prune-class blocks:
+    //   [3,A) skip&unsafe   [A,S) skip&safe   [S,B) noskip&safe   [B,..) noskip&unsafe
+    // ⇒ turn-off skip ⇔ c < S (supply ids 1,2 < 3 ≤ S ride the same test — the old hash-shield
+    //   still covers them too); turn-on unsafe ⇔ c < A || c >= B (c1 is never supply).
+    // Verified against the recomputed mask at construction (panic on mismatch — never mis-prune).
+    pub range_a: i32,
+    pub range_s: i32,
+    pub range_b: i32,
+    // old→new id permutation; node_states_checksum iterates ORIGINAL id order through it, so the
+    // checksum stays directly comparable with the C# goldens across the renumbering.
+    pub renumber_perm: Vec<u16>,
+    // renumbered ids the runner needs (the snapshot's own fields hold pre-renumber ids).
+    pub clock_node: i32,
+    pub vblank_node: i32,
+}
+
+// ── prune classification (P-1 taint / P-2 skip / P-3-4 untaint / driven exclusion) ──────────────
+// Extracted from the constructor so the renumber can run it twice: once on IDENTITY ids to build
+// the class-major permutation, once on the REMAPPED snapshot as verification ground truth + stats.
+// The classes are intrinsic per-node properties (flags / channel component / pair count / relative
+// capacitance / driven set), so they are invariant under renumbering.
+fn compute_prune_mask(snap: &crate::snapshot::Snapshot) -> (Vec<u8>, usize, usize, usize) {
+    let nc = snap.node_count;
+    let mut prune_mask = vec![0u8; nc];
+    let mut unsafe_count = 0usize;
+    let mut skip_count = 0usize;
+    let mut p34_count = 0usize;
+
+    fn find(p: &mut [usize], mut x: usize) -> usize { while p[x] != x { p[x] = p[p[x]]; x = p[x]; } x }
+    fn union(p: &mut [usize], a: usize, b: usize) { let ra = find(p, a); let rb = find(p, b); if ra != rb { p[ra] = rb; } }
+    let mut parent: Vec<usize> = (0..nc).collect();
+    for nn in 0..nc {
+        if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
+        let t = snap.node_infos[nn].tlist_c1c2s;
+        if t != 0 {
+            let mut p = t as usize;
+            while snap.transistor_list[p] != 0 {
+                union(&mut parent, nn, snap.transistor_list[p + 1] as usize);
+                p += 2;
+            }
+        }
+    }
+    let mut tainted_root = vec![false; nc];
+    for nn in 0..nc {
+        if (snap.node_infos[nn].flags & FLAG_FORCE_COMPUTE) != 0 {
+            let r = find(&mut parent, nn);
+            tainted_root[r] = true;
+        }
+    }
+    // bit 0: P-1 turn-on-unsafe (no-PullUp dynamic/storage, or ForceCompute component)
+    for nn in 0..nc {
+        if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
+        let dynamic = (snap.node_infos[nn].flags & FLAG_PULLUP) == 0;
+        let fc = tainted_root[find(&mut parent, nn)];
+        if dynamic || fc { prune_mask[nn] |= PRUNE_TURN_ON_UNSAFE; unsafe_count += 1; }
+    }
+
+    // handler-driven data-bus pins (e.g. u1._d*): driven via SetHigh/SetLow → NOT float-hold; exclude
+    // from both P-2 and P-3/4 (parity with C# ClassifyTurnOffSkip's `driven` set from _callbacks.DataOut).
+    let mut driven = vec![false; nc];
+    for h in &snap.handlers {
+        for &d in &h.data_out { if d >= 0 && (d as usize) < nc { driven[d as usize] = true; } }
+    }
+    let excl = FLAG_PULLUP | FLAG_FORCE_COMPUTE | FLAG_HAS_CALLBACK | FLAG_PWR | FLAG_GND;
+    for nn in 0..nc {
+        if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd || driven[nn] { continue; }
+        let ni = &snap.node_infos[nn];
+        if (ni.flags & excl) != 0 { continue; }
+        if ni.tlist_c1gnd != 0 || ni.tlist_c1pwr != 0 { continue; }   // has a supply driver ⇒ not a pure float node
+        if ni.tlist_c1c2s == 0 { continue; }
+        let mut p = ni.tlist_c1c2s as usize;
+        let my_cap = ni.connections;
+        let mut npairs = 0usize;
+        let mut cap_lt_all = true;
+        while snap.transistor_list[p] != 0 {
+            let other = snap.transistor_list[p + 1] as usize;
+            if my_cap >= snap.node_infos[other].connections { cap_lt_all = false; }
+            npairs += 1;
+            p += 2;
+        }
+        if npairs == 1 { prune_mask[nn] |= PRUNE_TURN_OFF_SKIP; skip_count += 1; }
+        if cap_lt_all { prune_mask[nn] &= !PRUNE_TURN_ON_UNSAFE; p34_count += 1; }
+    }
+    (prune_mask, unsafe_count, skip_count, p34_count)
+}
+
+// block index per prune class — order matches C#: no-skip&unsafe is LAST.
+fn block_of(bits: u8) -> u8 { match bits & 3 { 3 => 0, 2 => 1, 0 => 2, _ => 3 } }
+
+// class-major + clk-BFS-locality permutation (parity with C# WireCore.Renumber.cs).
+// Locality key = BFS from clk along signal-flow edges (node → endpoints of the transistors it
+// gates — the edges set_node_state enqueues through) ≈ the settle cascade's first-touch order.
+fn build_renumber(snap: &crate::snapshot::Snapshot, bits: &[u8]) -> (Vec<u16>, i32, i32, i32) {
+    let nc = snap.node_count;
+    assert!(snap.npwr == 1 && snap.ngnd == 2, "renumber assumes npwr=1/ngnd=2 (snapshot format)");
+    let mut order = vec![u32::MAX; nc];
+    if snap.clock_node > 2 && (snap.clock_node as usize) < nc {
+        let mut q = std::collections::VecDeque::new();
+        let mut seen = vec![false; nc];
+        let clk = snap.clock_node as usize;
+        seen[clk] = true;
+        q.push_back(clk);
+        let mut seq = 0u32;
+        while let Some(u) = q.pop_front() {
+            order[u] = seq; seq += 1;
+            let tg = snap.node_infos[u].tlist_gates;
+            if tg != 0 {
+                let mut p = tg as usize;
+                while snap.transistor_list[p] != 0 {
+                    let c1 = snap.transistor_list[p] as usize;       // (c1,c2) pairs, 0-terminated
+                    let c2 = snap.transistor_list[p + 1] as usize;
+                    if c1 > 2 && c1 < nc && !seen[c1] { seen[c1] = true; q.push_back(c1); }
+                    if c2 > 2 && c2 < nc && !seen[c2] { seen[c2] = true; q.push_back(c2); }
+                    p += 2;
+                }
+            }
+        }
+    }
+    let mut ids: Vec<usize> = (3..nc).collect();
+    ids.sort_by(|&a, &b| {
+        block_of(bits[a]).cmp(&block_of(bits[b]))
+            .then(order[a].cmp(&order[b]))
+            .then(a.cmp(&b))
+    });
+    let mut perm = vec![0u16; nc];
+    perm[1] = 1; perm[2] = 2;   // perm[0] = 0 (reserved); supply fixed
+    let (mut c0, mut c1, mut c2c) = (0i32, 0i32, 0i32);
+    let mut next = 3u16;
+    for &old in &ids {
+        perm[old] = next; next += 1;
+        match block_of(bits[old]) { 0 => c0 += 1, 1 => c1 += 1, 2 => c2c += 1, _ => {} }
+    }
+    (perm, 3 + c0, 3 + c0 + c1, 3 + c0 + c1 + c2c)
+}
+
+// remap every node id baked into the snapshot (states/infos slots, transistor-list entries — every
+// nonzero u16 IS a node id regardless of which sublist it sits in — handler pins, video node lists).
+fn apply_renumber(snap: &mut crate::snapshot::Snapshot, perm: &[u16]) {
+    let nc = snap.node_count;
+    let m = |x: i32| -> i32 { if x >= 0 && (x as usize) < nc { perm[x as usize] as i32 } else { x } };
+    let mut ns = vec![0u8; nc];
+    let mut ni = vec![crate::snapshot::NodeInfo::default(); nc];
+    for i in 0..nc {
+        ns[perm[i] as usize] = snap.node_states[i];
+        ni[perm[i] as usize] = snap.node_infos[i];
+    }
+    snap.node_states = ns;
+    snap.node_infos = ni;
+    for v in snap.transistor_list.iter_mut() { if *v != 0 { *v = perm[*v as usize]; } }
+    for h in snap.handlers.iter_mut() {
+        h.cs = m(h.cs); h.we = m(h.we); h.target = m(h.target);
+        for x in h.addr.iter_mut() { *x = m(*x); }
+        for x in h.data_out.iter_mut() { *x = m(*x); }
+    }
+    snap.clock_node = m(snap.clock_node);
+    snap.ppu_vblank_node = m(snap.ppu_vblank_node);
+    snap.pclk1_node = m(snap.pclk1_node);
+    for x in snap.hpos_nodes.iter_mut() { *x = m(*x); }
+    for x in snap.vpos_nodes.iter_mut() { *x = m(*x); }
+    for x in snap.pal_ptr_nodes.iter_mut() { *x = m(*x); }
+    for bits in snap.pal_ram_nodes.iter_mut() {
+        for x in bits.iter_mut() { *x = m(*x); }
+    }
 }
 
 // 2026-05-25: 128 = ~2.8x safety margin over observed max (full_palette 45 iter, SMB 41 iter).
@@ -111,7 +271,24 @@ pub struct WireCore {
 const MAX_SETTLE_PASSES: u32 = 128;
 
 impl WireCore {
-    pub fn from_snapshot(snap: crate::snapshot::Snapshot) -> Self {
+    pub fn from_snapshot(mut snap: crate::snapshot::Snapshot) -> Self {
+        // ── [range-prune] class-major renumber (parity with C# commit 51e046d) ──
+        // 1. classify prune bits on the IDENTITY ids; 2. build the class-major + clk-BFS permutation;
+        // 3. remap the whole snapshot; 4. re-classify on the remapped ids as ground truth and verify
+        // every node's bits equal the range-implied bits (classes are id-invariant ⇒ must hold).
+        let (bits0, _, _, _) = compute_prune_mask(&snap);
+        let (perm, range_a, range_s, range_b) = build_renumber(&snap, &bits0);
+        apply_renumber(&mut snap, &perm);
+        let (prune_mask, prune_unsafe_count, turn_off_skip_count, p34_untaint_count) = compute_prune_mask(&snap);
+        for nn in 3..snap.node_count {
+            let implied: u8 = if (nn as i32) < range_a { 3 } else if (nn as i32) < range_s { 2 }
+                              else if (nn as i32) < range_b { 0 } else { 1 };
+            assert_eq!(prune_mask[nn] & 3, implied, "range-prune verification failed at node {nn} — refusing to mis-prune");
+        }
+        drop(prune_mask);   // hot path reads only the ranges from here on
+        let clock_node = snap.clock_node;     // post-renumber ids for the runner
+        let vblank_node = snap.ppu_vblank_node;
+
         let nc = snap.node_count;
         let mut target_to_handler = vec![-1i32; nc];
         for (i, h) in snap.handlers.iter().enumerate() {
@@ -146,76 +323,8 @@ impl WireCore {
             fast_path_count += 1;
         }
 
-        // ── same-state turn-on prune safety mask (parity with C# ClassifyPruneTaint) ──
-        // union-find over c1c2 channels; taint a node iff it has no PullUp (can float → charge/cap
-        // hold-previous tie-break: dynamic logic + storage cells) OR its channel-component holds a
-        // ForceCompute node (Gnd+Pwr cancel → non-monotone). Pruning the untainted (PullUp-static) rest
-        // is bit-exact. One-off at construction (not hot path); uses snap.* before they're moved below.
-        let mut prune_mask = vec![0u8; nc];
-        let mut prune_unsafe_count = 0usize;
-        let mut turn_off_skip_count = 0usize;
-        let mut p34_untaint_count = 0usize;
-        {
-            fn find(p: &mut [usize], mut x: usize) -> usize { while p[x] != x { p[x] = p[p[x]]; x = p[x]; } x }
-            fn union(p: &mut [usize], a: usize, b: usize) { let ra = find(p, a); let rb = find(p, b); if ra != rb { p[ra] = rb; } }
-            let mut parent: Vec<usize> = (0..nc).collect();
-            for nn in 0..nc {
-                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
-                let t = snap.node_infos[nn].tlist_c1c2s;
-                if t != 0 {
-                    let mut p = t as usize;
-                    while snap.transistor_list[p] != 0 {
-                        union(&mut parent, nn, snap.transistor_list[p + 1] as usize);
-                        p += 2;
-                    }
-                }
-            }
-            let mut tainted_root = vec![false; nc];
-            for nn in 0..nc {
-                if (snap.node_infos[nn].flags & FLAG_FORCE_COMPUTE) != 0 {
-                    let r = find(&mut parent, nn);
-                    tainted_root[r] = true;
-                }
-            }
-            // bit 0: P-1 turn-on-unsafe (no-PullUp dynamic/storage, or ForceCompute component)
-            for nn in 0..nc {
-                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd { continue; }
-                let dynamic = (snap.node_infos[nn].flags & FLAG_PULLUP) == 0;
-                let fc = tainted_root[find(&mut parent, nn)];
-                if dynamic || fc { prune_mask[nn] |= PRUNE_TURN_ON_UNSAFE; prune_unsafe_count += 1; }
-            }
-
-            // handler-driven data-bus pins (e.g. u1._d*): driven via SetHigh/SetLow → NOT float-hold; exclude
-            // from both P-2 and P-3/4 (parity with C# ClassifyTurnOffSkip's `driven` set from _callbacks.DataOut).
-            let mut driven = vec![false; nc];
-            for h in &snap.handlers {
-                for &d in &h.data_out { if d >= 0 && (d as usize) < nc { driven[d as usize] = true; } }
-            }
-            let excl = FLAG_PULLUP | FLAG_FORCE_COMPUTE | FLAG_HAS_CALLBACK | FLAG_PWR | FLAG_GND;
-            for nn in 0..nc {
-                if (nn as i32) == snap.npwr || (nn as i32) == snap.ngnd || driven[nn] { continue; }
-                let ni = &snap.node_infos[nn];
-                if (ni.flags & excl) != 0 { continue; }
-                if ni.tlist_c1gnd != 0 || ni.tlist_c1pwr != 0 { continue; }   // has a supply driver ⇒ not a pure float node
-                if ni.tlist_c1c2s == 0 { continue; }
-                // walk c1c2 channels: count pairs + test cap < ALL neighbours
-                let mut p = ni.tlist_c1c2s as usize;
-                let my_cap = ni.connections;
-                let mut npairs = 0usize;
-                let mut cap_lt_all = true;
-                while snap.transistor_list[p] != 0 {
-                    let other = snap.transistor_list[p + 1] as usize;
-                    if my_cap >= snap.node_infos[other].connections { cap_lt_all = false; }
-                    npairs += 1;
-                    p += 2;
-                }
-                // P-2: single-channel no-driver leaf → isolates→float-holds on turn-OFF → skip its turn-off enqueue
-                if npairs == 1 { prune_mask[nn] |= PRUNE_TURN_OFF_SKIP; turn_off_skip_count += 1; }
-                // P-3/P-4: cap < ALL neighbours ⇒ can never win a floating tie-break ⇒ same-state turn-ON prune
-                // is bit-exact ⇒ un-taint bit 0 (P-1's endpoint same-state check blocks cross-state bridging).
-                if cap_lt_all { prune_mask[nn] &= !PRUNE_TURN_ON_UNSAFE; p34_untaint_count += 1; }
-            }
-        }
+        // (prune classification + the class-major renumber happened above — see compute_prune_mask /
+        //  build_renumber / apply_renumber. From here everything operates on the REMAPPED snapshot.)
 
         // R1: split snapshot NodeInfo into hot NodeHot[] + cold parallel arrays. Hot path
         // (add_node_to_group / recalc_node_fast / *_queued) only touches NodeHot;
@@ -280,10 +389,15 @@ impl WireCore {
             framebuffer: vec![0u32; SCREEN_W * SCREEN_H],
             is_pure_logic,
             fast_path_count,
-            prune_mask,
             prune_unsafe_count,
             turn_off_skip_count,
             p34_untaint_count,
+            range_a,
+            range_s,
+            range_b,
+            renumber_perm: perm,
+            clock_node,
+            vblank_node,
         }
     }
 
@@ -526,48 +640,53 @@ impl WireCore {
                 let tl = self.transistor_list.as_ptr();
                 let mut p = tlist_gates as usize;
                 if new_state == 0 {
-                    // [P-2 turn-off enqueue prune] gate each enqueue with `want = (mask & TURN_OFF_SKIP)==0`:
-                    // a single-channel no-driver leaf isolates→float-holds when its channel opens, so re-eval
-                    // is a no-op — skip it. `hash |= n` (was `=1`) so a skipped/already-queued node's hash is
-                    // untouched; supply shield preserved (supply hash is permanently 1 ⇒ n=0).
+                    // [P-2 turn-off enqueue prune, range form] skip ⇔ c < range_s (the class-major
+                    // renumber makes the static skip class one contiguous block; supply 1,2 < 3 ≤ S
+                    // rides the same compare). Replaces the random prune_mask byte load — a dependent
+                    // chain link — with a register compare. `hash |= n` so a skipped/already-queued
+                    // node's hash is untouched; supply hash-shield preserved (redundant but harmless).
+                    let rs = self.range_s;
                     loop {
                         let quad = (tl.add(p) as *const u64).read_unaligned();
                         let c1a = (quad as u16) as i32;
                         if c1a == 0 { break; }
                         let c2a = ((quad >> 16) as u16) as i32;
                         let cu = c1a as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c1a >= rs) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         let cu = c2a as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c2a >= rs) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2a;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         let c1b = ((quad >> 32) as u16) as i32;
                         if c1b == 0 { break; }
                         let c2b = ((quad >> 48) as u16) as i32;
                         let cu = c1b as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c1b >= rs) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         let cu = c2b as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_OFF_SKIP) == 0) as u8);
+                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c2b >= rs) as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2b;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         p += 4;
                     }
                 } else {
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of c1.
-                    // [same-state turn-on prune] skip the enqueue when c1==c2 state AND c1 is prune-safe
-                    // (PullUp-static, non-FC). `want` folds that into the branchless XOR-shielded enqueue;
+                    // [same-state turn-on prune, range form] unsafe ⇔ c < range_a || c >= range_b (the
+                    // two outer class blocks; c1 is never supply). Two register compares replace the
+                    // prune_mask byte load. `want` folds into the branchless XOR-shielded enqueue;
                     // `|= n` sets the hash only when we actually add (else a pruned node would look queued).
+                    let ra = self.range_a;
+                    let rb = self.range_b;
                     loop {
                         let quad = (tl.add(p) as *const u64).read_unaligned();
                         let c1a = (quad as u16) as i32;
                         if c1a == 0 { break; }
                         let c2a = ((quad >> 16) as u16) as i32;
                         let cu = c1a as usize;
-                        let want = ((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_ON_UNSAFE) != 0)
+                        let want = (c1a < ra) | (c1a >= rb)
                                  | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2a as usize));
                         let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
@@ -576,7 +695,7 @@ impl WireCore {
                         if c1b == 0 { break; }
                         let c2b = ((quad >> 48) as u16) as i32;
                         let cu = c1b as usize;
-                        let want = ((*self.prune_mask.get_unchecked(cu) & PRUNE_TURN_ON_UNSAFE) != 0)
+                        let want = (c1b < ra) | (c1b >= rb)
                                  | (*self.node_states.get_unchecked(cu) != *self.node_states.get_unchecked(c2b as usize));
                         let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & (want as u8);
                         *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
@@ -761,8 +880,14 @@ impl WireCore {
     }
 
     pub fn node_states_checksum(&self) -> u64 {
+        // ORIGINAL id order via the renumber permutation — stays directly comparable with the
+        // C# goldens (which hash in original order too) across the class-major renumbering.
         let mut h: u64 = 14695981039346656037;
-        for &b in &self.node_states { h ^= b as u64; h = h.wrapping_mul(1099511628211); }
+        for old in 0..self.node_states.len() {
+            let i = self.renumber_perm[old] as usize;
+            h ^= self.node_states[i] as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
         h
     }
 }

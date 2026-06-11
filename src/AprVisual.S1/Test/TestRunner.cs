@@ -586,6 +586,28 @@ namespace AprVisual.Test
                     Console.WriteLine($"#   BENEFIT — enqueues P-5 suppressed: c1={skipC1:N0} c2={skipC2:N0} total={skipC1 + skipC2:N0}  ({pctPops(skipC1 + skipC2):F1}% of all RecalcNode pops={pops:N0})");
                 }
                 {
+                    // [E0] zero-maintenance design ranking (DEBUG only). Splits the suppressed enqueues by the
+                    // static class a derive-at-skip-site predicate could cover, plus pin provenance + volumes.
+                    long tot = WireCore.DiagPinSkipC1 + WireCore.DiagPinSkipC2;
+                    double P(long x) => tot == 0 ? 0 : 100.0 * x / tot;
+                    var c = WireCore.E0SkipByClass;
+                    var w = WireCore.E0SkipByWriter;
+                    int[] nodesPerCls = new int[8];
+                    if (WireCore.E0Class != null) foreach (byte b in WireCore.E0Class) nodesPerCls[b]++;
+                    Console.WriteLine("# [E0] suppressed-enqueue split by ZERO-MAINTENANCE class (skip ⇔ range ∧ states[c]|states[probe]):");
+                    Console.WriteLine($"#   1 pure-D1  (PU,0g0p)   : {c[1],13:N0}  ({P(c[1]),5:F1}%)  [{nodesPerCls[1]:N0} nodes]");
+                    Console.WriteLine($"#   2 merged   (PU,1g0p)   : {c[2],13:N0}  ({P(c[2]),5:F1}%)  [{nodesPerCls[2]:N0} nodes]");
+                    Console.WriteLine($"#   3 D2-gnd   (—,1g0p)    : {c[3],13:N0}  ({P(c[3]),5:F1}%)  [{nodesPerCls[3]:N0} nodes]");
+                    Console.WriteLine($"#   4 D2-pwr   (—,0g1p)    : {c[4],13:N0}  ({P(c[4]),5:F1}%)  [{nodesPerCls[4]:N0} nodes]");
+                    Console.WriteLine($"#   5 PU+1pwr  (PU,0g1p)   : {c[5],13:N0}  ({P(c[5]),5:F1}%)  [{nodesPerCls[5]:N0} nodes]");
+                    Console.WriteLine($"#   6 residue  (multi-sup) : {c[6],13:N0}  ({P(c[6]),5:F1}%)  [{nodesPerCls[6]:N0} nodes]  ← needs maintained bit (V0)");
+                    Console.WriteLine($"#   7 excluded (FC/cb/drv) : {c[7],13:N0}  ({P(c[7]),5:F1}%)  [{nodesPerCls[7]:N0} nodes]  ← soundness exclusions (lost prize)");
+                    Console.WriteLine($"#   0 other    (no-sup,—)  : {c[0],13:N0}  ({P(c[0]),5:F1}%)");
+                    Console.WriteLine($"#   coverage 1-5 (buildable zero-maint): {c[1]+c[2]+c[3]+c[4]+c[5]:N0} ({P(c[1]+c[2]+c[3]+c[4]+c[5]):F1}% of suppressed)");
+                    Console.WriteLine($"#   pin provenance of consumed skips: fast-path={w[1]:N0} ({P(w[1]):F1}%)  BFS-member={w[2]:N0} ({P(w[2]):F1}%)");
+                    Console.WriteLine($"#   turn-off endpoint tests: c1={WireCore.E0OffTestsC1:N0} c2={WireCore.E0OffTestsC2:N0}; fast pops: cls1={WireCore.E0FastCls1:N0} cls2={WireCore.E0FastCls2:N0}");
+                }
+                {
                     // wasted-pop profiler (DEBUG only; counts identical to Release). See WireCore.Recalc.cs.
                     double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;
                     Console.WriteLine($"# [waste-profile] pops={WireCore.DiagPops:N0} no-change={WireCore.DiagNoChange:N0} ({(WireCore.DiagPops == 0 ? 0 : 100.0 * WireCore.DiagNoChange / WireCore.DiagPops):F1}%)  (% of waste:)");

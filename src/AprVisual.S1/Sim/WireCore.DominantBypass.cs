@@ -86,6 +86,90 @@ namespace AprVisual.Sim
         //   Set/Clear  = pinned-bit transitions written.
         //   SkipC1/C2  = enqueues P-5 actually suppressed in the turn-off walk (the BENEFIT, beyond P-2).
         internal static long DiagPinFastCalls, DiagPinBfsCalls, DiagPinBfsScans, DiagPinSet, DiagPinClear, DiagPinSkipC1, DiagPinSkipC2;
+
+        // ── [E0] zero-maintenance-design ranking experiment (DEBUG ONLY, 2026-06-11) ──
+        // Splits the suppressed-enqueue population (DiagPinSkipC1/C2) by the STATIC class a
+        // zero-maintenance skip predicate could cover (derive pinned at the skip site from
+        // structure + NodeStates instead of maintaining a pinned bit):
+        //   1 pure-D1    : PullUp, no own supply gates          → test states[c]==1
+        //   2 merged     : PullUp + exactly-1 own gnd, 0 pwr    → test states[c]|states[sg]
+        //   3 D2-gnd     : no-PullUp + exactly-1 gnd, 0 pwr     → test states[c]==0 && states[sg]
+        //   4 D2-pwr     : no-PullUp + 0 gnd, exactly-1 pwr     → test states[c]==1 && states[sg]
+        //   5 PU+1pwr    : PullUp + 0 gnd, exactly-1 pwr        → test states[c]|states[sg]
+        //   6 residue    : multi/mixed own-supply gates         → needs a maintained bit (V0 land)
+        //   7 excluded   : FC/HasCallback/driven/clk/res CHANNEL COMPONENT (soundness exclusions)
+        //   0 other      : no-PullUp no-supply pass nodes (P-2 territory — never pinned anyway)
+        // Also tags pin PROVENANCE (last writer: fast path vs BFS member loop) per consumed skip,
+        // and counts total turn-off endpoint tests + the cls1/cls2 fast-pop split (cost model).
+        internal static byte[]? E0Class;
+        internal static byte[]? E0Writer;     // last IsPinned writer: 1=fast, 2=bfs-member
+        internal static readonly long[] E0SkipByClass = new long[8];
+        internal static readonly long[] E0SkipByWriter = new long[4];
+        internal static long E0OffTestsC1, E0OffTestsC2, E0FastCls1, E0FastCls2;
+
+        internal static void BuildE0Class()
+        {
+            int n = NodeCount;
+            E0Class = new byte[n];
+            E0Writer = new byte[n];
+            // union-find over c1c2 channel components (same construction as ClassifyPruneTaint)
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++) parent[i] = i;
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                NodeInfo* ns = NodeInfos + nn;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int n2 = ns->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) FcuUnion(parent, nn, pay[k + 1]);
+                }
+                else if (ns->TlistC1c2s != 0)
+                {
+                    ushort* p = TransistorList + ns->TlistC1c2s;
+                    while (*p != 0) { FcuUnion(parent, nn, *(p + 1)); p += 2; }
+                }
+            }
+            // exclusion roots: FC / callback flags, handler-driven pins, clk, res — at COMPONENT level
+            bool[] badRoot = new bool[n];
+            foreach (var cb in _callbacks)
+                if (cb.DataOut != null)
+                    for (int i = 0; i < cb.DLen; i++) badRoot[FcuFind(parent, cb.DataOut[i])] = true;
+            for (int nn = 0; nn < n; nn++)
+                if (Nodes[nn] != null && (NodeInfos[nn].Flags & (NodeFlags.ForceCompute | NodeFlags.HasCallback)) != 0)
+                    badRoot[FcuFind(parent, nn)] = true;
+            int clkN = LookupNode("clk"); if (clkN != EmptyNode) badRoot[FcuFind(parent, clkN)] = true;
+            int resN = LookupNode("res"); if (resN != EmptyNode) badRoot[FcuFind(parent, resN)] = true;
+
+            for (int nn = 0; nn < n; nn++)
+            {
+                if (Nodes[nn] == null || nn == Npwr || nn == Ngnd) continue;
+                NodeInfo* ns = NodeInfos + nn;
+                bool hasPass = ns->Inline != 0 ? ns->C1c2Count != 0 : ns->TlistC1c2s != 0;
+                if (!hasPass) continue;   // never a guarded pass-side skip endpoint
+                if ((ns->Flags & (NodeFlags.ForceCompute | NodeFlags.HasCallback)) != 0 || badRoot[FcuFind(parent, nn)])
+                { E0Class[nn] = 7; continue; }
+                int g, p2;
+                if (ns->Inline != 0) { g = ns->GndCount; p2 = ns->PwrCount; }
+                else
+                {
+                    g = 0; p2 = 0;
+                    if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; while (*p != 0) { g++; p++; } }
+                    if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; while (*p != 0) { p2++; p++; } }
+                }
+                bool pu = (ns->Flags & NodeFlags.PullUp) != 0;
+                byte cls;
+                if (pu && g == 0 && p2 == 0) cls = 1;
+                else if (pu && g == 1 && p2 == 0) cls = 2;
+                else if (!pu && g == 1 && p2 == 0) cls = 3;
+                else if (!pu && g == 0 && p2 == 1) cls = 4;
+                else if (pu && g == 0 && p2 == 1) cls = 5;
+                else if (g + p2 >= 1) cls = 6;
+                else cls = 0;
+                E0Class[nn] = cls;
+            }
+        }
 #endif
 
         // [P-5 — fused singleton resolve + pinned-bit maintenance] the count-and-capture twin of
@@ -127,6 +211,7 @@ namespace AprVisual.Sim
 #if DEBUG
             DiagPinFastCalls++;   // scan here is SHARED with value resolution; extra cost is just this RMW
             if (pinned) DiagPinSet++; else DiagPinClear++;
+            if (E0Writer != null) E0Writer[nn] = 1;   // [E0] provenance: fast path
 #endif
         }
 
@@ -176,6 +261,7 @@ namespace AprVisual.Sim
 #if DEBUG
             DiagPinBfsCalls++;
             if (pinned) DiagPinSet++; else DiagPinClear++;
+            if (E0Writer != null) E0Writer[nn] = 2;   // [E0] provenance: BFS member loop
 #endif
         }
     }

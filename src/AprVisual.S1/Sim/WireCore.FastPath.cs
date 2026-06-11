@@ -236,6 +236,9 @@ namespace AprVisual.Sim
             PruneMask[Ngnd] |= PruneTurnOffSkip;
             double pct = NonNullNodeCount > 0 ? 100.0 * count / NonNullNodeCount : 0;
             LastTurnOffSkipStats = $"turn-off-skip (P-2): {count:N0} nodes ({pct:F1}%, excl {driven.Count} driven); P-3/4 turn-on un-taint: {p34:N0} (cap<all-neighbours) — bit-exact enqueue prunes";
+#if DEBUG
+            BuildE0Class();   // [E0] static class table for the zero-maintenance skip ranking (needs _callbacks + flags, both ready here)
+#endif
         }
 
         /// <summary>

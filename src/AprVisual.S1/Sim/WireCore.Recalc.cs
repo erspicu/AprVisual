@@ -256,6 +256,9 @@ namespace AprVisual.Sim
             //       RecalcNodeFast is bit-identical to ComputeNodeGroup({nn}). One ON gate ⇒ fall to BFS.
             //   0 = must go through the BFS (callback / forceCompute / supply resolution).
             byte cls = IsPureLogic[nn];
+#if DEBUG
+            if (cls == 1) E0FastCls1++; else if (cls == 2) E0FastCls2++;   // [E0] fast-pop class split (cls2 tallied even when it falls to BFS)
+#endif
             if (cls == 1) { RecalcNodeFast(nn); return; }
             if (cls == 2)
             {
@@ -354,13 +357,17 @@ namespace AprVisual.Sim
                         int c2a = (ushort)(quad >> 16);
 #if DEBUG
                         CondTallyOff1(c1a);
-                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0 && isPinned[c1a] != 0 && c2a != npwr && c2a != ngnd) DiagPinSkipC1++;
+                        E0OffTestsC1++;
+                        if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && nextHash[c1a] == 0 && isPinned[c1a] != 0 && c2a != npwr && c2a != ngnd)
+                        { DiagPinSkipC1++; E0SkipByClass[E0Class![c1a]]++; E0SkipByWriter[E0Writer![c1a]]++; }
 #endif
                         if ((pruneMask[c1a] & PruneTurnOffSkip) == 0 && !(isPinned[c1a] != 0 && c2a != npwr && c2a != ngnd) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
 #if DEBUG
                         CondTallyOff2(c2a, npwr, ngnd);
-                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0 && isPinned[c2a] != 0) DiagPinSkipC2++;
+                        E0OffTestsC2++;
+                        if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && nextHash[c2a] == 0 && isPinned[c2a] != 0)
+                        { DiagPinSkipC2++; E0SkipByClass[E0Class![c2a]]++; E0SkipByWriter[E0Writer![c2a]]++; }
 #endif
                         if ((pruneMask[c2a] & PruneTurnOffSkip) == 0 && isPinned[c2a] == 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }   // c2's other side (c1) is always regular ⇒ pass edge
                         int c1b = (ushort)(quad >> 32);
@@ -368,12 +375,16 @@ namespace AprVisual.Sim
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         CondTallyOff1(c1b);
-                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0 && isPinned[c1b] != 0 && c2b != npwr && c2b != ngnd) DiagPinSkipC1++;
+                        E0OffTestsC1++;
+                        if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && nextHash[c1b] == 0 && isPinned[c1b] != 0 && c2b != npwr && c2b != ngnd)
+                        { DiagPinSkipC1++; E0SkipByClass[E0Class![c1b]]++; E0SkipByWriter[E0Writer![c1b]]++; }
 #endif
                         if ((pruneMask[c1b] & PruneTurnOffSkip) == 0 && !(isPinned[c1b] != 0 && c2b != npwr && c2b != ngnd) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
 #if DEBUG
                         CondTallyOff2(c2b, npwr, ngnd);
-                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0 && isPinned[c2b] != 0) DiagPinSkipC2++;
+                        E0OffTestsC2++;
+                        if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && nextHash[c2b] == 0 && isPinned[c2b] != 0)
+                        { DiagPinSkipC2++; E0SkipByClass[E0Class![c2b]]++; E0SkipByWriter[E0Writer![c2b]]++; }
 #endif
                         if ((pruneMask[c2b] & PruneTurnOffSkip) == 0 && isPinned[c2b] == 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;

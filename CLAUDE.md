@@ -74,7 +74,7 @@ To read a `.docx`: `unzip -p file.docx word/document.xml` and strip XML, or ask 
 ## Visual6502 / MetalNES data format (load-bearing for the parser)
 
 - **`segdefs`** — `[node, pull, layer, x1,y1, x2,y2, ...]` polygon per silicon segment. `pull` is `'+'` or `'-'` (pull-up / pull-down — keep **both**; MetalNES only kept `'+'`).
-- **`transdefs`** — `[name, gate, c1, c2, bbox[4], geom[5]]` (Visual6502) or `[..., weak]` (2A03/2C02 — the 7th boolean = weak/depletion-load device; **use it** to separate strong pull-down vs weak pull-up). NMOS-only; c1/c2 are interchangeable.
+- **`transdefs`** — `[name, gate, c1, c2, bbox[4], geom[5]]` (Visual6502) or `[..., weak]` (2A03/2C02 — the 7th boolean = weak/depletion-load device). **Measured 2026-06-12: the flag is `false` on EVERY row of both the vendored and the upstream raw 2A03/2C02 transdefs** — depletion pull-ups are represented as segdefs `'+'` instead, so the parsed `IsWeak` is carried but consumed nowhere at runtime (model surface, not a missed optimization; see MD/note/2026-06-12-lowering再評估). NMOS-only; c1/c2 are interchangeable.
 - **`nodenames`** — name → node number (`vcc`, `vss`, `clk0`, `res`, address/data bus, and for 2A03 the internal regs `a0..a7`/`x0..x7`/`y0..y7`/`pcl0..pcl7`/...). Names may have `/` `#` `~` `_` prefixes; PPU multiplexes `ab[7:0]`/`db[7:0]` onto the same nodes.
 - MetalNES `.js` modules also have `pins`, `modules` (sub-instances), `connections`, `pullups`, `forceCompute`, `memory:{}`, and `*_files` references to external netlist `.js` — see `MD/note/02`.
 

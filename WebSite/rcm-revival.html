@@ -116,7 +116,7 @@ turn-on  unsafe?  c &lt; A  ||  c ≥ B <span class="mut">(c is never supply on 
     <div class="box"><div class="n" style="color:#7ee0a8">+3.56%</div><div class="l">C# median, 19/20 &amp; 11/12 paired</div></div>
     <div class="box"><div class="n" style="color:#7ee0a8">+2.90%</div><div class="l">Rust median, 20/20 paired</div></div>
     <div class="box"><div class="n" style="color:#7ee0a8">+6.17%</div><div class="l"><span class="en">C# self-captured key (Act 4), 20/20</span><span class="zh">C# 自我捕捉鍵(第四幕),20/20</span></div></div>
-    <div class="box"><div class="n">126.7K / 103.1K</div><div class="l"><span class="en">current peaks, hc/s (best of 10, incl. Act 4)</span><span class="zh">目前峰值 hc/s(10 取最佳,含第四幕)</span></div></div>
+    <div class="box"><div class="n">126.7K / 118.5K</div><div class="l"><span class="en">current peaks, hc/s (best of 10; Rust incl. the later B1 pair path)</span><span class="zh">目前峰值 hc/s(10 取最佳;Rust 含其後的 B1 成對路徑)</span></div></div>
   </div>
   <p class="en">Cross-engine validation came free: the two independent implementations (C# composes the netlist; Rust remaps a snapshot) derived <b>byte-identical block boundaries</b> (A=460, S=1275, B=7532) and the same golden checksums. A measured co-activity profile as the locality key reached <span class="num">+5.12%</span> in early tests — that observation became Act 4.</p>
   <p class="zh">跨引擎驗證是免費送的:兩個獨立實作(C# 自組網表;Rust 重映射 snapshot)推導出<b>完全相同的區塊邊界</b>(A=460、S=1275、B=7532)與同一組 golden checksum。早期測試裡,用實測共活性 profile 當區域性鍵可達 <span class="num">+5.12%</span> —— 這個觀察催生了第四幕。</p>

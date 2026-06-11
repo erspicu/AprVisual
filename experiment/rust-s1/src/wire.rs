@@ -717,15 +717,95 @@ impl WireCore {
             if cls == 1 { self.recalc_node_fast(nn); return; }
             if cls == 2 {
                 // R-1: all c1c2s gates OFF ⇒ conducting group is {nn} ⇒ O(1) recalc_node_fast (bit-identical).
-                let mut p = (*self.node_hot.get_unchecked(nn as usize)).tlist_c1c2s as usize;
-                let mut grows = false;
+                let ni = *self.node_hot.get_unchecked(nn as usize);
+                let mut p = ni.tlist_c1c2s as usize;
                 loop {
                     let gate = *self.transistor_list.get_unchecked(p);
-                    if gate == 0 { break; }
-                    if *self.node_states.get_unchecked(gate as usize) != 0 { grows = true; break; }
+                    if gate == 0 { self.recalc_node_singleton(nn); return; }
+                    if *self.node_states.get_unchecked(gate as usize) != 0 { break; }
                     p += 2;  // (gate, other) pairs
                 }
-                if !grows { self.recalc_node_singleton(nn); return; }
+                // [B1 pair path, 2026-06-12 — port of C# WireCore.Recalc.cs B1] first ON gate at p:
+                // if the group is provably exactly {nn, o}, resolve the pair inline without the group
+                // walk. Same bit-exactness obligations as C#: every bail happens BEFORE any mutation
+                // (self-channel, second ON seed gate, o has HasCallback/ForceCompute, any ON channel of
+                // o to a third node); on commit clear recalc_hash[o] (the walk's member clear), OR both
+                // nodes' flags + gnd/pwr early-break scans, floating tie-break = strict larger-cap wins
+                // with the seed winning ties (== compute_node_group over push order [nn, o]), and write
+                // back nn THEN o (next-wave enqueue order = within-wave Gauss-Seidel semantics).
+                'pair: {
+                    let o = *self.transistor_list.get_unchecked(p + 1) as i32;
+                    if o == nn { break 'pair; }
+                    let mut p2 = p + 2;
+                    loop {
+                        let gate = *self.transistor_list.get_unchecked(p2);
+                        if gate == 0 { break; }
+                        if *self.node_states.get_unchecked(gate as usize) != 0 { break 'pair; }
+                        p2 += 2;
+                    }
+                    let oi = *self.node_hot.get_unchecked(o as usize);
+                    if (oi.flags & (FLAG_HAS_CALLBACK | FLAG_FORCE_COMPUTE)) != 0 { break 'pair; }
+                    if oi.tlist_c1c2s != 0 {
+                        let mut q = oi.tlist_c1c2s as usize;
+                        loop {
+                            let gate = *self.transistor_list.get_unchecked(q);
+                            if gate == 0 { break; }
+                            if *self.node_states.get_unchecked(gate as usize) != 0
+                                && *self.transistor_list.get_unchecked(q + 1) as i32 != nn { break 'pair; }
+                            q += 2;
+                        }
+                    }
+                    // committed — group is exactly {nn, o}
+                    *self.recalc_hash.get_unchecked_mut(o as usize) = 0;
+                    let mut f = ni.flags | oi.flags;
+                    if ni.tlist_c1gnd != 0 {
+                        let mut g = ni.tlist_c1gnd as usize;
+                        loop {
+                            let gate = *self.transistor_list.get_unchecked(g);
+                            if gate == 0 { break; }
+                            g += 1;
+                            if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_GND; break; }
+                        }
+                    }
+                    if ni.tlist_c1pwr != 0 {
+                        let mut g = ni.tlist_c1pwr as usize;
+                        loop {
+                            let gate = *self.transistor_list.get_unchecked(g);
+                            if gate == 0 { break; }
+                            g += 1;
+                            if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_PWR; break; }
+                        }
+                    }
+                    if oi.tlist_c1gnd != 0 {
+                        let mut g = oi.tlist_c1gnd as usize;
+                        loop {
+                            let gate = *self.transistor_list.get_unchecked(g);
+                            if gate == 0 { break; }
+                            g += 1;
+                            if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_GND; break; }
+                        }
+                    }
+                    if oi.tlist_c1pwr != 0 {
+                        let mut g = oi.tlist_c1pwr as usize;
+                        loop {
+                            let gate = *self.transistor_list.get_unchecked(g);
+                            if gate == 0 { break; }
+                            g += 1;
+                            if *self.node_states.get_unchecked(gate as usize) != 0 { f |= FLAG_PWR; break; }
+                        }
+                    }
+                    let v = if f != 0 {
+                        *self.flags_to_state.get_unchecked(f as usize)
+                    } else if *self.node_connections.get_unchecked(o as usize)
+                            > *self.node_connections.get_unchecked(nn as usize) {
+                        *self.node_states.get_unchecked(o as usize)
+                    } else {
+                        *self.node_states.get_unchecked(nn as usize)
+                    };
+                    self.set_node_state(nn, v);
+                    self.set_node_state(o, v);
+                    return;
+                }
             }
         }
         let new_state = self.compute_node_group(nn);

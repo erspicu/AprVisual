@@ -369,21 +369,62 @@ namespace AprVisual.Sim
                     // ≤ S) rides the same compare — the historical explicit `c2!=ngnd && c2!=npwr` guard and
                     // its successor (the supply-skip mask fold) are both subsumed. Boundaries verified against
                     // the freshly computed PruneMask at every Reset. Bit-exact.
+                    //
+                    // [P-5z zero-maintenance pin-skip (2026-06-11), WireCore.PinSkip.cs] additionally skip an
+                    // endpoint c of the "exactly one own gnd channel, clean component" class when that gnd
+                    // channel's GATE is currently ON (NodeStates[ProbeGate[c]] != 0): Gnd is the top LUT
+                    // priority, so c's group resolves 0 no matter which pass channel opens — the re-eval is a
+                    // provable no-op. ProbeGate is 0 for non-class nodes and NodeStates[0] == 0, so the term
+                    // self-disables with NO range compare and NO masking ALU. Folded into the existing
+                    // nextHash test (no new branch); the 2-deep probe chain feeds that one branch, not the
+                    // carried nextCount chain. The c1 side masks with (2-c2)>>31 so an own-SUPPLY channel
+                    // turn-off (c2 ∈ {1,2}) always enqueues (that gate may BE the probe being removed —
+                    // SetNodeState wrote its 0 before this walk — and it keeps the callback fake-transistor
+                    // path, c2=Ngnd, unconditional). The c2 side needs no mask (its other side c1 is never
+                    // supply). NB: the c==1 "PullUp pins high" leg of the original P-5 is NOT implementable
+                    // maintenance-free — it needs the value AT THE LAST RESOLUTION, and a live NodeStates[c]
+                    // read diverges on mid-settle transients (measured, bisect 2026-06-11).
                     int rS = RangePruneS;
+                    ushort* probeGate = ProbeGate;
+                    byte* nodeStates = NodeStates;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-                        if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        {
+                            int skip = nodeStates[probeGate[c1a]] & ((2 - c2a) >> 31);
+#if DEBUG
+                            if (skip != 0 && c1a >= rS && nextHash[c1a] == 0) DiagPinSkips++;
+#endif
+                            if (c1a >= rS && (nextHash[c1a] | skip) == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        {
+                            int skip = nodeStates[probeGate[c2a]];
+#if DEBUG
+                            if (skip != 0 && c2a >= rS && nextHash[c2a] == 0) DiagPinSkips++;
+#endif
+                            if (c2a >= rS && (nextHash[c2a] | skip) == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-                        if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        {
+                            int skip = nodeStates[probeGate[c1b]] & ((2 - c2b) >> 31);
+#if DEBUG
+                            if (skip != 0 && c1b >= rS && nextHash[c1b] == 0) DiagPinSkips++;
+#endif
+                            if (c1b >= rS && (nextHash[c1b] | skip) == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        }
+                        {
+                            int skip = nodeStates[probeGate[c2b]];
+#if DEBUG
+                            if (skip != 0 && c2b >= rS && nextHash[c2b] == 0) DiagPinSkips++;
+#endif
+                            if (c2b >= rS && (nextHash[c2b] | skip) == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        }
                         p += 4;
                     }
                 }

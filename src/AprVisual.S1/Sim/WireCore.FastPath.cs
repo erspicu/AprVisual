@@ -260,6 +260,10 @@ namespace AprVisual.Sim
             }
             // (no layout applied ⇒ the RangeSafe* defaults are in force: prunes disabled, supply guarded,
             // correct on any numbering — what selftest / hand-built netlists run under in a RANGE build.)
+
+            // [P-5z] classify + verify the zero-maintenance pin-skip classes (WireCore.PinSkip.cs) —
+            // needs the `driven` set built above and the verified range-prune layout state.
+            ClassifyPinSkip(driven);
 #if !DEBUG
             // [array hygiene] in Release the hot path reads only the verified id RANGES — the mask was
             // the ground truth for the verification above and is dead weight from here on (15KB RAM;

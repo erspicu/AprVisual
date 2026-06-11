@@ -560,6 +560,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
                 Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
+                Console.WriteLine($"# {WireCore.LastPinSkipStats}");
                 Console.WriteLine($"# {WireCore.LastRenumberStats}");
                 Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
                 Console.WriteLine($"# simulated: {halfCycles:N0} master half-cycles in {secs:F3} s");
@@ -575,6 +576,7 @@ namespace AprVisual.Test
                     Console.WriteLine($"#   FloatSingle={WireCore.DiagNCFloatSingle:N0}({W(WireCore.DiagNCFloatSingle):F1}%) FloatMulti={WireCore.DiagNCFloatMulti:N0}({W(WireCore.DiagNCFloatMulti):F1}%,capLTall={WireCore.DiagNCFloatMultiCapLT:N0}) PullUp={WireCore.DiagNCPullUp:N0}({W(WireCore.DiagNCPullUp):F1}%) Supply={WireCore.DiagNCSupply:N0}({W(WireCore.DiagNCSupply):F1}%) Other={WireCore.DiagNCOther:N0}({W(WireCore.DiagNCOther):F1}%)");
                     double Pp(long x) => WireCore.DiagPops == 0 ? 0 : 100.0 * x / WireCore.DiagPops;
                     Console.WriteLine($"# [P-2b candidate] single-channel pure-PullUp class: pops={WireCore.DiagP2bPops:N0} ({Pp(WireCore.DiagP2bPops):F1}% of all) no-change={WireCore.DiagNCP2b:N0} skippable(state==1)={WireCore.DiagNCP2bState1:N0} ({Pp(WireCore.DiagNCP2bState1):F1}% of all pops)");
+                    Console.WriteLine($"# [P-5z] pin-skip suppressed enqueues: {WireCore.DiagPinSkips:N0} ({Pp(WireCore.DiagPinSkips):F1}% of pops)");
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

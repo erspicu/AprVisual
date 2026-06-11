@@ -87,6 +87,7 @@ namespace AprVisual.Sim
             _inGroup = null;
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
             PruneMask = null;   // enqueue-prune safety mask (bit0 turn-on / bit1 turn-off; always re-built by Reset)
+            ProbeGate = null;   // P-5z probe table (always re-built by Reset's ClassifyPinSkip)
             FrameBuffer = null;
         }
     }

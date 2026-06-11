@@ -156,9 +156,62 @@ namespace AprVisual.Sim
         // included (tiny vs a 200K-hc bench).
         internal static long DiagPhasePops, DiagPhaseWasted, DiagMemPops;
 
+        // ── per-structure pop share (OAM / palette behavioralization sizing — DEBUG ONLY) ──
+        // Classifies every node: OAM primary cell / OAM secondary cell / palette cell / their bitlines
+        // (pass-channel neighbours of cells) / row selects (spr_row*/pal_row*) / other, then counts
+        // RecalcNode pops per class. Sizes the "behavioralize PPU-internal memories" lever: pops on
+        // cells + bitlines are the event mass a behavioral OAM/palette model could remove.
+        internal const int StOther = 0, StOamPri = 1, StOamSec = 2, StPal = 3, StOamBit = 4, StPalBit = 5, StRowSel = 6;
+        internal static readonly long[] DiagStructPops = new long[8];
+        internal static readonly long[] DiagStructNodes = new long[8];
+        internal static byte[]? DiagStructOf;
+
+        internal static void BuildStructDiag()
+        {
+            var cls = new byte[NodeCount];
+            foreach (var kv in _nodeByName)
+            {
+                int nn = kv.Value;
+                if ((uint)nn >= (uint)NodeCount || nn == Npwr || nn == Ngnd) continue;
+                string nm = kv.Key;
+                int p = nm.IndexOf(".oam_ram_", StringComparison.Ordinal);
+                if (p >= 0)
+                {
+                    // ppu.oam_ram_<hex>_<a|b><bit> — hex index >= 0x100 = secondary OAM (0x100..0x11F)
+                    int s = p + 9, e = nm.IndexOf('_', s);
+                    bool ok = e > s && int.TryParse(nm.AsSpan(s, e - s), System.Globalization.NumberStyles.HexNumber, null, out int idx) && idx >= 0x100;
+                    cls[nn] = ok ? (byte)StOamSec : (byte)StOamPri;
+                }
+                else if (nm.Contains(".pal_ram_", StringComparison.Ordinal)) cls[nn] = StPal;
+                else if (nm.Contains(".spr_row", StringComparison.Ordinal) || nm.Contains(".pal_row", StringComparison.Ordinal)) cls[nn] = StRowSel;
+            }
+            // bitlines = pass-channel neighbours of cells that aren't themselves cells/rows/supply
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                if (cls[nn] is not (StOamPri or StOamSec or StPal)) continue;
+                byte bit = cls[nn] == StPal ? (byte)StPalBit : (byte)StOamBit;
+                NodeInfo* d = NodeInfos + nn;
+                if (d->Inline != 0)
+                {
+                    ushort* pay = d->InlinePayload; int n2 = d->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) { int o = pay[k + 1]; if (o != Npwr && o != Ngnd && cls[o] == StOther) cls[o] = bit; }
+                }
+                else if (d->TlistC1c2s != 0)
+                {
+                    ushort* pp = TransistorList + d->TlistC1c2s;
+                    while (*pp != 0) { int o = *(pp + 1); if (o != Npwr && o != Ngnd && cls[o] == StOther) cls[o] = bit; pp += 2; }
+                }
+            }
+            Array.Clear(DiagStructNodes);
+            for (int nn = 0; nn < NodeCount; nn++) DiagStructNodes[cls[nn]]++;
+            DiagStructOf = cls;
+        }
+
         private static unsafe void ClockPhaseTally(int nn)
         {
             DiagPhasePops++;
+            var so = DiagStructOf;
+            if (so != null) DiagStructPops[so[nn]]++;
             NodeInfo* d = NodeInfos + nn;
             bool hasPullUp = (d->Flags & NodeFlags.PullUp) != 0;
             bool hasPass   = d->Inline != 0 ? (d->C1c2Count != 0) : (d->TlistC1c2s != 0);

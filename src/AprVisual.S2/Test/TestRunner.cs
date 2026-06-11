@@ -599,6 +599,9 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
+#if DEBUG
+                WireCore.BuildStructDiag();   // per-structure pop tally (OAM/palette behavioralization sizing) — needs the name maps, so before ReleaseBenchResidualState
+#endif
                 // Memory hygiene before the hot path: LoadSystem's ClearPostLoadBuildState already freed
                 // the build graph (~25-50 MB); release the residual name maps + Node shells the hot loop
                 // never touches, then force a final compacting Gen2 GC so no collection can fire mid-
@@ -694,6 +697,16 @@ namespace AprVisual.Test
                     double Pp(long x) => pops == 0 ? 0 : 100.0 * x / pops;
                     Console.WriteLine($"# [phase-waste] pops={pops:N0}  phase-dead={WireCore.DiagPhaseWasted:N0} ({Pp(WireCore.DiagPhaseWasted):F1}%)  ← clock-gating event ceiling (gates-nothing + all pass-channels OFF this phase)");
                     Console.WriteLine($"# [mem-event-share] pops on no-pull-up (Est-1/2 storage/bus/fabric mass)={WireCore.DiagMemPops:N0} ({Pp(WireCore.DiagMemPops):F1}%)  ← event traffic memory+bus abstraction would remove");
+                }
+                {
+                    // per-structure pop share (OAM / palette behavioralization sizing) — DEBUG only.
+                    // See WireCore.Recalc.cs BuildStructDiag. cells + bitlines ≈ the removable event mass.
+                    long pops = WireCore.DiagPhasePops;
+                    var sp = WireCore.DiagStructPops; var sn = WireCore.DiagStructNodes;
+                    double Ps(long x) => pops == 0 ? 0 : 100.0 * x / pops;
+                    Console.WriteLine($"# [struct-nodes] OAMpri={sn[WireCore.StOamPri]:N0} OAMsec={sn[WireCore.StOamSec]:N0} PAL={sn[WireCore.StPal]:N0} OAMbitline={sn[WireCore.StOamBit]:N0} PALbitline={sn[WireCore.StPalBit]:N0} rowSel={sn[WireCore.StRowSel]:N0} other={sn[WireCore.StOther]:N0}");
+                    Console.WriteLine($"# [struct-pops]  OAMpri={sp[WireCore.StOamPri]:N0} ({Ps(sp[WireCore.StOamPri]):F2}%)  OAMsec={sp[WireCore.StOamSec]:N0} ({Ps(sp[WireCore.StOamSec]):F2}%)  PAL={sp[WireCore.StPal]:N0} ({Ps(sp[WireCore.StPal]):F2}%)  OAMbitline={sp[WireCore.StOamBit]:N0} ({Ps(sp[WireCore.StOamBit]):F2}%)  PALbitline={sp[WireCore.StPalBit]:N0} ({Ps(sp[WireCore.StPalBit]):F2}%)  rowSel={sp[WireCore.StRowSel]:N0} ({Ps(sp[WireCore.StRowSel]):F2}%)");
+                    Console.WriteLine($"#   ← behavioralize-OAM/palette removable event mass ≈ cells + bitlines (rowSel pops mostly stay; their gate-walk cost shrinks)");
                 }
 #endif
                 PrintRealtimeGap(stepsHz);

@@ -127,6 +127,13 @@
       <div class="out"><div class="v" id="o-need" style="color:#ffd479;">—</div><div class="k"><span class="en">throughput needed for that FPS</span><span class="zh">達到該 FPS 所需吞吐量</span></div></div>
     </div>
 
+    <div class="arrow" style="margin-top:16px;">&#9095; <span class="en">the same throughput, expressed as the chips' clock speeds</span><span class="zh">同一個吞吐量,換算成晶片時脈速度</span></div>
+    <div class="outs">
+      <div class="out"><div class="v" id="o-mclk">—</div><div class="k"><span class="en">simulated master clock<br>real NES: 21.477 MHz</span><span class="zh">模擬出的主時脈<br>實機:21.477 MHz</span></div></div>
+      <div class="out"><div class="v" id="o-cpu">—</div><div class="k"><span class="en">equivalent 6502 (2A03) clock<br>real NES: 1.79 MHz</span><span class="zh">等效 6502(2A03)時脈<br>實機:1.79 MHz</span></div></div>
+      <div class="out"><div class="v" id="o-ppu">—</div><div class="k"><span class="en">equivalent PPU (2C02) clock<br>real NES: 5.37 MHz</span><span class="zh">等效 PPU(2C02)時脈<br>實機:5.37 MHz</span></div></div>
+    </div>
+
   </div>
 
   <div class="big" id="top-box">
@@ -159,6 +166,17 @@
     <li class="en"><b>% of real-time speed</b> = <code>R</code> ÷ 42,954,552 × 100%</li>
     <li class="zh"><b>佔實機速度百分比</b> = <code>R</code> ÷ 42,954,552 × 100%</li>
   </ul>
+  <h3><span class="en">Chip-clock equivalents</span><span class="zh">換算成晶片時脈</span></h3>
+  <p class="en">An <code>hc</code> is one half-cycle of the <b>master clock</b> (one toggle of the board's <code>clk</code> node — the engine's fundamental step), and the NES derives every other clock from it by fixed division. So a throughput <code>R</code> (in hc/s) maps directly onto "how fast the simulated chips are running":</p>
+  <p class="zh"><code>hc</code> 是<b>主時脈</b>的一個半週期(主機板 <code>clk</code> 節點翻轉一次 —— 引擎的基本步進),而 NES 的其他時脈都是主時脈的固定分頻。所以吞吐量 <code>R</code>(hc/s)可以直接換算成「模擬出的晶片跑多快」:</p>
+  <table>
+    <tr><th><span class="en">Clock</span><span class="zh">時脈</span></th><th><span class="en">Conversion</span><span class="zh">換算式</span></th><th><span class="en">Real NES (NTSC)</span><span class="zh">實機(NTSC)</span></th></tr>
+    <tr><td><span class="en">Master clock</span><span class="zh">主時脈</span></td><td><code>R ÷ 2</code> <span class="mut">(<span class="en">1 cycle = 2 half-cycles</span><span class="zh">1 週期 = 2 個半週期</span>)</span></td><td><code>21.477272 MHz</code></td></tr>
+    <tr><td><span class="en">6502 / 2A03 CPU clock</span><span class="zh">6502 / 2A03 CPU 時脈</span></td><td><code>R ÷ 24</code> <span class="mut">(<span class="en">CPU = master ÷ 12</span><span class="zh">CPU = 主時脈 ÷ 12</span>)</span></td><td><code>1.789773 MHz</code></td></tr>
+    <tr><td><span class="en">PPU / 2C02 pixel clock</span><span class="zh">PPU / 2C02 像素時脈</span></td><td><code>R ÷ 8</code> <span class="mut">(<span class="en">PPU = master ÷ 4</span><span class="zh">PPU = 主時脈 ÷ 4</span>)</span></td><td><code>5.369318 MHz</code></td></tr>
+  </table>
+  <p class="mut" style="font-size:13px;"><span class="en">Example: 126.7K hc/s ⇒ a 63.4 kHz master clock ⇒ an equivalent ~5.3 kHz 6502 and ~15.8 kHz PPU — against the real 1.79 MHz / 5.37 MHz. Careful when comparing with other projects' "Hz": many quote CPU-clock-equivalent figures (divide ours by 24 first), and most simulate one chip, not the whole console.</span><span class="zh">例:126.7K hc/s ⇒ 主時脈 63.4 kHz ⇒ 等效 6502 約 5.3 kHz、等效 PPU 約 15.8 kHz —— 對照實機的 1.79 MHz / 5.37 MHz。跟別的專案的「Hz」比較時要小心:很多專案標的是 CPU 時脈口徑(我們的數字要先 ÷24),而且多數只模擬一顆晶片、不是整台主機。</span></p>
+
   <p class="note"><span class="en">Reality check: the dev machine's C# engine reaches <b>~126.7K hc/s</b> at boost (2026-06, range-prune + self-captured locality key). Plug it in and you get ~5.6 s per frame, ~0.177 FPS, and ~339× slower than real time — i.e. about <b>0.30%</b> of real-time speed. That gap is the whole point of the project: see <a href="ceiling.html">why it can't realistically be closed on one CPU core</a>.</span><span class="zh">對照一下:開發機的 C# 引擎在 boost 下約 <b>126.7K hc/s</b>(2026-06,範圍剪枝 + 自我捕捉 locality 鍵)。代進去就是每張畫面約 5.6 秒、約 0.177 FPS、比實機慢約 339 倍 —— 也就是只有實機速度的約 <b>0.30%</b>。這個差距正是整個專案的重點:見<a href="ceiling.html">為什麼單核 CPU 實務上補不上這個差距</a>。</span></p>
 </section>
 
@@ -253,6 +271,11 @@
     if (k >= 1000) return (k/1000).toFixed(2) + 'M hc/s';
     return k.toFixed(1) + 'K hc/s';
   }
+  function fmtHz(hz){
+    if (hz >= 1e6) return (hz/1e6).toFixed(2) + ' MHz';
+    if (hz >= 1e3) return (hz/1e3).toFixed(1) + ' kHz';
+    return Math.round(hz) + ' Hz';
+  }
 
   function paint(){
     var spf = HC_PER_FRAME / hcps;
@@ -272,6 +295,10 @@
     }
     pctEl.textContent = fmtPct(pct);
     document.getElementById('o-need').textContent = fmtK(hcps);
+    // chip-clock equivalents: hc = master half-cycle ⇒ master = R/2, CPU(2A03) = master/12 = R/24, PPU(2C02) = master/4 = R/8
+    document.getElementById('o-mclk').textContent = fmtHz(hcps / 2);
+    document.getElementById('o-cpu').textContent  = fmtHz(hcps / 24);
+    document.getElementById('o-ppu').textContent  = fmtHz(hcps / 8);
   }
 
   function syncInputs(){

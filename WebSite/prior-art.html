@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — prior art &amp; original contributions: where our optimizations sit in the literature</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagK{color:#8b95a1; font-weight:700;}
+  .tagV{color:#ffd479; font-weight:700;}
+  .tagO{color:#7ee0a8; font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Prior art, honestly</span><span class="zh">誠實的文獻定位</span></h1>
+  <p class="sub en">Where do AprVisual's optimizations sit relative to the switch-level simulation literature (MOSSIM II, COSMOS, IRSIM) — and which parts are genuinely original? We asked an external model to adversarially map every technique to its closest named prior art, then verified at title level that the "plausibly original" claims aren't already taken. Principle: we'd rather learn we reinvented something 40 years old than claim false novelty.</p>
+  <p class="sub zh">AprVisual 的優化相對於 switch-level 模擬文獻(MOSSIM II、COSMOS、IRSIM)處在什麼位置 —— 哪些部分是真正原創?我們請外部模型對抗式地把每個技術對到最近的具名先行研究,再對「可能原創」的主張做標題級防撞驗證。原則:寧可發現自己重新發明了 40 年前的東西,也不做虛假的原創宣稱。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The premise that makes the mapping honest</span><span class="zh">讓對照誠實的大前提</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0">Our resolution model <b>is functionally Bryant's MOSSIM II (1984)</b> minus the X (unknown) state: the priority resolution and the largest-capacitance floating tie-break are his discrete-strength / node-size lattice formalization, inherited via visual6502's chipsim.js. Our "group walk" is what the literature calls <b>channel-connected component (CCC) evaluation</b>. Admitting this first is what makes every claim below meaningful.</p>
+    <p class="zh" style="margin:.2em 0">我們的解析模型<b>在功能上「就是」Bryant 的 MOSSIM II(1984)</b>去掉 X(未知)態:優先序解析與最大電容浮接保值是他的離散強度 / node-size lattice 形式化,經由 visual6502 的 chipsim.js 繼承。我們的「群組走訪」在文獻裡叫 <b>CCC(channel-connected component)求值</b>。先承認這個,下面的每一條主張才有意義。</p>
+  </div>
+  <p class="mut en">Legend for the verdicts below: <span class="tagK">KNOWN</span> = standard literature, we just cite it · <span class="tagV">VARIANT</span> = known concept, our form/engineering differs · <span class="tagO">PLAUSIBLY ORIGINAL</span> = no precedent found by adversarial mapping + title-level search.</p>
+  <p class="mut zh">判定圖例:<span class="tagK">已知</span> = 標準文獻,引用即可 · <span class="tagV">變體</span> = 概念已知,我們的形式/工程不同 · <span class="tagO">可能原創</span> = 對抗式對照 + 標題級搜尋皆未發現先例。</p>
+</section>
+
+<section>
+  <h2><span class="en">Family 1 — the dynamic fast-path (group-cardinality-specialized resolution)</span><span class="zh">家族 1 —— 動態 fast-path(群組基數特化解析)</span></h2>
+  <table>
+    <tr><th><span class="en">Our technique</span><span class="zh">我們的技術</span></th><th><span class="en">Closest prior art</span><span class="zh">最近先行研究</span></th><th><span class="en">Verdict + the difference</span><span class="zh">判定 + 差異</span></th></tr>
+    <tr>
+      <td><span class="en"><b>Static singleton (cls1)</b> — nodes with no pass channels resolve O(1), no walk ever</span><span class="zh"><b>靜態單例(cls1)</b> —— 無 pass 通道的節點永遠 O(1) 解析,免走訪</span></td>
+      <td>MOSSIM II (Bryant 1984), COSMOS (Bryant et al. 1987)</td>
+      <td><span class="tagK"><span class="en">KNOWN</span><span class="zh">已知</span></span> — <span class="en">basic static CCC extraction; COSMOS even compiles such nodes into Boolean gates. We just cite it.</span><span class="zh">基本的靜態 CCC 抽取;COSMOS 甚至把這類節點直接編成布林閘。引用即可。</span></td>
+    </tr>
+    <tr>
+      <td><span class="en"><b>R-1 dynamic singleton</b> (+18.6%) — at the event, if every pass gate is OFF <i>right now</i>, the group is {nn}: O(1) resolve, bit-identical to the walk</span><span class="zh"><b>R-1 動態單例</b>(+18.6%)—— 事件當下若所有通道閘都 OFF,群組就是 {nn}:O(1) 解析,與走訪逐位元相同</span></td>
+      <td><span class="en">IRSIM (Salz &amp; Horowitz 1989) — dynamic active subnetworks / RC trees over ON switches</span><span class="zh">IRSIM(Salz &amp; Horowitz 1989)—— 沿 ON 開關的動態 active subnetwork / RC 樹</span></td>
+      <td><span class="tagV"><span class="en">VARIANT</span><span class="zh">變體</span></span> — <span class="en">the dynamic-sizing concept is IRSIM's; our novelty is implementation-level: a runtime <b>cardinality proof as an early-out dispatch</b> that bypasses the generic relaxation with an O(1) inline path. Frame: "dynamic sizing applied as an early-out execution filter."</span><span class="zh">動態尺寸的概念是 IRSIM 的;我們的新意在實作層:把執行期<b>基數證明當早退派發</b>,以 O(1) 內聯路徑繞過一般化鬆弛。正確的框架:「dynamic sizing 作為 early-out 執行過濾器」。</span></td>
+    </tr>
+    <tr>
+      <td><span class="en"><b>B1 pair path</b> (+0.6% C# / +14.5% Rust) — prove the group is exactly {seed, neighbour}, resolve the pair inline replicating the walk byte-for-byte (member hash clear, tie-break, write order)</span><span class="zh"><b>B1 成對路徑</b>(C# +0.6% / Rust +14.5%)—— 證明群組恰為 {種子, 鄰居},就地解析並逐位元複製走訪語意(成員 hash 清除、tie-break、寫回順序)</span></td>
+      <td><span class="en">COSMOS / Anamos — <b>static</b> template matching (transmission gates, latches) compiled to specialized code</span><span class="zh">COSMOS / Anamos —— <b>靜態</b>樣板匹配(傳輸閘、latch)編成特化程式碼</span></td>
+      <td><span class="tagV"><span class="en">VARIANT + a dynamic twist</span><span class="zh">變體 + 動態轉折</span></span> — <span class="en">the literature matches subgraphs statically; we do <b>runtime topological pattern matching on the active channel graph</b>. Not theoretically new (it's loop-unrolling the BFS for size = 2), but a highly effective engineering variant — and the 24× cross-engine asymmetry it exposed (recursive vs iterative walk back-ends) is a portability datapoint in its own right.</span><span class="zh">文獻做的是靜態子圖匹配;我們做的是<b>對 active channel graph 的執行期拓撲樣板匹配</b>。理論上不新(= 對 size 2 展開內聯 BFS),但工程上極有效 —— 它暴露的 24 倍跨引擎不對稱(遞迴 vs 迭代走訪後端)本身就是一個移植性數據點。</span></td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">Family 2 — the prune family (provably-null event suppression at the source)</span><span class="zh">家族 2 —— 剪枝家族(在源頭壓制可證明無效的事件)</span></h2>
+  <table>
+    <tr><th><span class="en">Our technique</span><span class="zh">我們的技術</span></th><th><span class="en">Closest prior art</span><span class="zh">最近先行研究</span></th><th><span class="en">Verdict + the difference</span><span class="zh">判定 + 差異</span></th></tr>
+    <tr>
+      <td><span class="en"><b>P-1 same-state turn-on prune</b> (+11.85%) — equal-state endpoints ⇒ the merge can't change anything, <i>if</i> resolution stays monotone; safety = a load-time structural taint (no-pull-up / ForceCompute components)</span><span class="zh"><b>P-1 同態 turn-on 剪枝</b>(+11.85%)—— 端點同態 ⇒ 合併不會改變任何值,<i>前提</i>是解析走單調路徑;安全性 = 載入期結構 taint(無上拉 / FC 元件)</span></td>
+      <td><span class="en">selective trace / latency (Ulrich 1969); IRSIM's equipotential bypass</span><span class="zh">selective trace / latency(Ulrich 1969);IRSIM 的等電位 bypass</span></td>
+      <td><span class="tagV"><span class="en">VARIANT</span><span class="zh">變體</span></span> — <span class="en">skipping equipotential connections is standard; our contribution is the <b>taxonomy of when an equal-state merge is still unsafe</b> under discrete charge-sharing (the floating tie-break IS the chip's storage) and the structural taint that encodes it. Our first naive version shipped a black screen — that bug is exactly the literature's quirk.</span><span class="zh">跳過等電位連接是標準;我們的貢獻是「<b>同態合併在離散電荷分享下何時仍不安全</b>」的分類學(浮接 tie-break 就是晶片的儲存機制)與將其編碼的結構 taint。我們第一版天真實作直接黑畫面 —— 那個 bug 正是文獻裡的這個陷阱。</span></td>
+    </tr>
+    <tr>
+      <td><span class="en"><b>P-2 turn-off isolation prune</b> — a statically degree-1, driverless leaf isolates and holds when its only channel opens: suppress the enqueue itself</span><span class="zh"><b>P-2 關斷隔離剪枝</b> —— 靜態度 1、無驅動的葉節點,唯一通道斷開必然孤立保值:直接壓制入列</span></td>
+      <td><span class="en">IRSIM charge-preservation rules (a <b>runtime evaluation outcome</b>)</span><span class="zh">IRSIM 電荷保持規則(<b>執行期求值的結果</b>)</span></td>
+      <td><span class="tagO"><span class="en">PLAUSIBLY ORIGINAL</span><span class="zh">可能原創</span></span> — <span class="en">we elevate the hold-outcome to a <b>load-time static proof</b> and suppress the event <b>before the queue</b> — saving the whole enqueue→pop→resolve chain, not just the propagation. No collision found at title level.</span><span class="zh">我們把保值結果提升為<b>載入期靜態證明</b>,在<b>佇列之前</b>壓制事件 —— 省的是整條 enqueue→pop→resolve 鏈,不只是傳播。標題級搜尋無相撞。</span></td>
+    </tr>
+    <tr>
+      <td><span class="en"><b>P-3/P-4 capacitance-dominance un-taint</b> (+5.96% / +1.71%) — a driverless node whose capacitance is strictly below ALL channel neighbours can never win the merged group's tie-break ⇒ equal-state merges through it are provable no-ops</span><span class="zh"><b>P-3/P-4 電容支配 un-taint</b>(+5.96% / +1.71%)—— 無驅動節點若電容嚴格小於所有通道鄰居,永遠贏不了合併群組的 tie-break ⇒ 經過它的同態合併可證明為 no-op</span></td>
+      <td><span class="en">Bryant's node-size (κ) lattice (the semantics itself); <b>IRSIM's <code>maxnode</code> size practice</b> (hand-assigned coarse sizes — e.g. precharged buses = size 2, storage = 0 — to simplify resolution); EDA memory extraction (Jou &amp; Jou 1988)</span><span class="zh">Bryant 的 node-size(κ)lattice(語意本體);<b>IRSIM 的 <code>maxnode</code> 尺寸實務</b>(人工指定粗尺寸 —— 如預充匯流排 size 2、儲存 0 —— 以簡化解析);EDA 記憶體抽取(Jou &amp; Jou 1988)</span></td>
+      <td><span class="tagO"><span class="en">PLAUSIBLY ORIGINAL — our strongest claim</span><span class="zh">可能原創 —— 最強主張</span></span> — <span class="en">using <b>automatically derived dominance inequalities</b> to formally prove tie-break immunity, and spending that proof on <b>event suppression</b>. IRSIM's nearest-neighbour practice is manual coarsening for resolution efficiency — different mechanism, different purpose. The heavy storage cells exclude <i>themselves</i>: having the largest capacitance is what makes them storage.</span><span class="zh">用<b>自動推導的支配不等式</b>形式化證明 tie-break 免疫,並把這個證明花在<b>事件壓制</b>上。IRSIM 那個最近鄰是人工尺寸粗化、目的在解析效率 —— 機制不同、用途不同。重儲存細胞會<i>自己排除自己</i>:電容最大正是它們作為儲存的物理本質。</span></td>
+    </tr>
+    <tr>
+      <td><span class="en"><b>"Identify memory by its physics, not its name"</b> — pull-up flags + channel-component union-find + capacitance comparisons + driven-pin exclusion ⇒ zero hand-listed nodes, any netlist</span><span class="zh"><b>「用物理認記憶體,不用名字」</b> —— 上拉旗標 + 通道元件 union-find + 電容比較 + 驅動腳排除 ⇒ 零人工名單、任何網表通用</span></td>
+      <td><span class="en">EDA state-element extraction (Kam et al. 1995 etc.); Fast-SPICE latency bypass; RTL ODC / clock-gating inference</span><span class="zh">EDA 狀態元件抽取(Kam et al. 1995 等);Fast-SPICE latency bypass;RTL ODC / clock-gating 推斷</span></td>
+      <td><span class="tagV"><span class="en">KNOWN technique, novel application — presented as methodology, not a claim</span><span class="zh">技術已知、應用新穎 —— 以方法論呈現,不作主張</span></span> — <span class="en">extraction is 40-year-old EDA; what's new is spending it on <b>safety classes for event culling</b>. Distinctions: IRSIM/COSMOS extract to know <i>what to evaluate</i>, we extract to know <i>what to drop</i>; Fast-SPICE bypasses numerical integration dynamically, we gate discrete enqueues statically; RTL has explicit DFF primitives, we infer implicit state from a sea of flat transistors.</span><span class="zh">抽取是 40 年老 EDA;新的是把它花在<b>事件剪枝的安全分類</b>上。劃界:IRSIM/COSMOS 抽取是為了知道「該算什麼」,我們是為了知道「該丟什麼」;Fast-SPICE 動態跳過數值積分,我們靜態擋住離散入列;RTL 有顯式 DFF 元件,我們從平坦電晶體海推斷隱式狀態。</span></td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2><span class="en">And the renumbering work (from the earlier consult)</span><span class="zh">還有重編號那一塊(前一次諮詢)</span></h2>
+  <p class="en">The <a href="rcm-revival.html">range-prune + self-captured first-touch key</a> got the same treatment first: its components map to the <b>Inspector-Executor</b> lineage (Saltz 1991; Ding &amp; Kennedy 1999; Strout 2003), trace-driven layout (Chilimbi 2001), deoptimization guards (Hölzle 1992) and ECS archetype sorting — but the synthesis (<b>an in-process, self-contained, event-driven execution-trace capture used to relay out a switch-level simulator's graph memory</b>) has no precedent and was judged a publishable original contribution. The empirically new finding inside it: the locality key's value is the <b>pruned cascade's order</b>, not cache-line density (an equally-dense non-production order measured ±0).</p>
+  <p class="zh"><a href="rcm-revival.html">範圍剪枝 + 自我捕捉初次觸碰鍵</a>更早接受了同樣的檢驗:其組件分屬 <b>Inspector-Executor</b> 譜系(Saltz 1991;Ding &amp; Kennedy 1999;Strout 2003)、軌跡導向佈局(Chilimbi 2001)、去優化守衛(Hölzle 1992)與 ECS archetype 排序 —— 但綜合體(<b>同進程、自包含、事件驅動執行軌跡捕捉,用於 switch-level 模擬器的圖記憶體重排</b>)沒有先例,被判定為可發表的原創貢獻。其中實證上新的發現:locality 鍵的價值在<b>已剪枝級聯的順序</b>、而非快取行密度(等密度的非生產順序實測 ±0)。</p>
+</section>
+
+<section>
+  <h2><span class="en">The honest bottom line</span><span class="zh">誠實的結論</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>Two top-level original claims</b> — the self-captured trace relayout, and the capacitance-dominance tie-break-immunity proof (P-3/P-4) — plus <b>one secondary claim</b> (P-2's pre-queue static suppression). The dynamic fast-path family (R-1, B1) and P-1 are effective engineering <b>variants</b> of IRSIM/COSMOS-era concepts and are presented as such; the physics-based classification is methodology, not a claim. Title-level scoop scans found no collisions; the one must-cite nearest neighbour (IRSIM's <code>maxnode</code> practice) is distinguished above.</p>
+    <p class="zh" style="margin:.2em 0"><b>兩個頂層原創主張</b> —— 自捕捉軌跡重排、電容支配 tie-break 免疫證明(P-3/P-4)—— 加上<b>一個次要主張</b>(P-2 的佇列前靜態壓制)。動態 fast-path 家族(R-1、B1)與 P-1 是 IRSIM/COSMOS 時代概念的高效工程<b>變體</b>,如實呈現;物理分類法是方法論、不是主張。標題級防撞掃描無相撞;唯一必引的最近鄰(IRSIM 的 <code>maxnode</code> 實務)已在上文劃界。</p>
+  </div>
+  <p class="mut en">Method note: the mapping comes from adversarial consults with an external model (instructed to refute novelty, not confirm it), cross-checked by title-level searches on IEEE Xplore / ACM DL / Scholar query sets designed to surface a collision if one exists. Full records (claim wordings, search keys, per-item citations) live in the repo under <code>MD/note/2026-06-1*-論文準備*</code>.</p>
+  <p class="mut zh">方法說明:對照來自對外部模型的對抗式諮詢(指示它反駁原創性、而非確認),再以特意設計來「若有相撞必浮現」的 IEEE Xplore / ACM DL / Scholar 查詢組做標題級交叉驗證。完整記錄(主張措辭、搜尋關鍵字、逐項引用)在 repo 的 <code>MD/note/2026-06-1*-論文準備*</code>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="lineage.html">&larr; <span class="en">The lineage this builds on</span><span class="zh">本文建立其上的系譜</span></a> &nbsp;·&nbsp; <a href="prunes.html"><span class="en">How the prunes work</span><span class="zh">剪枝運作原理</span></a> &nbsp;·&nbsp; <a href="rcm-revival.html"><span class="en">The renumbering story</span><span class="zh">重編號的故事</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">Adversarial prior-art mapping of every AprVisual optimization: two top-level original claims, one secondary, the rest honestly labelled variants of MOSSIM II / IRSIM / COSMOS-era concepts. 2026-06-12.</span><span class="zh">對 AprVisual 每項優化的對抗式文獻對照:兩個頂層原創主張、一個次要主張,其餘誠實標示為 MOSSIM II / IRSIM / COSMOS 時代概念的變體。2026-06-12。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

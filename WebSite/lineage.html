@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — the lineage: visual6502 → MetalNES → AprVisual.S1</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; font-size:13px; overflow-x:auto; font-family:Consolas,"SF Mono",monospace; line-height:1.5;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  tr.me td{background:#13201a;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">One algorithm, three generations</span><span class="zh">一條演算法,三代傳承</span></h1>
+  <p class="sub en">Where AprVisual comes from: the visual6502 → MetalNES → AprVisual.S1 lineage, what each generation added, a measured four-way comparison of the whole family on one machine — and the original contributions we put on top. <b>One sentence: visual6502 invented the algorithm, MetalNES composed it into a NES, and AprVisual turned it into a bit-verifiable research engine that is ~2.5× faster and contributed original techniques.</b></p>
+  <p class="sub zh">AprVisual 的出身:visual6502 → MetalNES → AprVisual.S1 的系譜、每一代各加了什麼、同一台機器上整個家族的四方實測比較 —— 以及我們疊在最上面的原創貢獻。<b>一句話:visual6502 發明了演算法,MetalNES 把它組成一台 NES,AprVisual 把它變成逐位元可驗證、快約 2.5 倍、並貢獻了原創技術的研究級引擎。</b></p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The family tree</span><span class="zh">血脈樹</span></h2>
+  <p class="en">Everything below descends from one piece of JavaScript — visual6502's <code>chipsim.js</code> — but the branches differ wildly in how faithful (or ambitious) they are. That alone explains most of the performance spread.</p>
+  <p class="zh">下面所有東西都源自同一份 JavaScript —— visual6502 的 <code>chipsim.js</code> —— 但各分支對它的「忠實度(或野心)」差很多,光這一點就解釋了大部分的效能差距。</p>
+  <pre>
+Visual6502  chipsim.js  (JavaScript, MIT) ─── the common ancestor / 共同祖先
+├── Visual 2A03 / 2C02 (JS, Quietust) ─ chipsim.js applied to the two NES chips
+│      └── VisualNes (C++/C#) ──── a line-by-line port of those two JS sims, wired into a NES
+├── perfect6502 (C) ────────────── an optimized REWRITE of chipsim.js, 6502 only
+└── MetalNES (C++) ─────────────── a re-engineered descendant (LUT/handlers/modules/analog), whole NES
+        └── AprVisual S1 (C#) ──── our port of MetalNES + our own optimization program
+                └── rust-s1 (Rust) ─ a bit-exact twin of S1</pre>
+  <table>
+    <tr><th><span class="en">Project</span><span class="zh">專案</span></th><th><span class="en">Relationship to the JS</span><span class="zh">與 JS 的關係</span></th><th><span class="en">Evidence</span><span class="zh">證據</span></th></tr>
+    <tr><td><b>VisualNes</b></td><td><span class="en"><b>line-by-line port</b></span><span class="zh"><b>逐字移植</b></span></td><td><span class="en"><code>chipsim.cpp</code> keeps the JS inefficiencies (O(n²) <code>find()</code> dedup) and even JS leftovers (<code>eval(readTriggers[a])</code> as comments)</span><span class="zh"><code>chipsim.cpp</code> 保留了 JS 的低效(O(n²) <code>find()</code> 去重),連 JS 殘跡(<code>eval(readTriggers[a])</code> 註解)都還在</span></td></tr>
+    <tr><td><b>perfect6502</b></td><td><span class="en"><b>optimized rewrite</b> (6502 only)</span><span class="zh"><b>最佳化重寫</b>(只有 6502)</span></td><td><span class="en">README: "derived from the JavaScript visual6502 implementation"; rebuilt in C with bitmap states + precomputed dependant lists</span><span class="zh">README 自述源自 visual6502;以 C 重寫成 bitmap 狀態 + 預算 dependant 清單</span></td></tr>
+    <tr><td><b>MetalNES</b></td><td><span class="en"><b>re-engineered descendant</b></span><span class="zh"><b>重新工程化的後代</b></span></td><td><span class="en">adds things chipsim.js never had: the 256-entry LUT, behavioral handlers, a module system, analog video/audio ladders</span><span class="zh">加了 chipsim.js 沒有的東西:256 項 LUT、行為式 handler、模組系統、類比視訊/音訊 ladder</span></td></tr>
+    <tr class="me"><td><b>AprVisual S1</b></td><td><span class="en"><b>MetalNES port + our optimizations</b></span><span class="zh"><b>MetalNES 移植 + 我們的優化</b></span></td><td><span class="en">our <code>SetNodeState</code>/<code>ProcessQueue</code>/tlist layout = MetalNES's pre-prune prototype, function-for-function; then R-1, P-1→P-4, range-prune, the self-captured key, B1…</span><span class="zh">我們的 <code>SetNodeState</code>/<code>ProcessQueue</code>/tlist 佈局 = MetalNES 加剪枝前的逐函式原型;之後再疊 R-1、P-1→P-4、範圍剪枝、自捕捉鍵、B1……</span></td></tr>
+  </table>
+  <p class="mut en">The shared semantics all generations run: event-driven settle; per event, build the conducting group (BFS over ON pass transistors), OR the members' flags, resolve by priority (GND wins → VCC/pull-up → external drive → hold); a purely-floating group resolves to the largest-capacitance member's previous state. In the literature this <i>is</i> Bryant's MOSSIM II model minus the X state — see <a href="prior-art.html">where our work sits in the literature</a>.</p>
+  <p class="mut zh">三代共享的語意:事件驅動 settle;每個事件建導通群組(對 ON pass 電晶體做 BFS)、OR 成員旗標、按優先序解析(GND 勝 → VCC/上拉 → 外部驅動 → 保持);純浮接群組由最大電容成員保值。在文獻裡這「就是」Bryant 的 MOSSIM II 模型(去掉 X 態)—— 見<a href="prior-art.html">我們的工作在文獻中的位置</a>。</p>
+</section>
+
+<section>
+  <h2><span class="en">What MetalNES added over visual6502</span><span class="zh">MetalNES 在 visual6502 之上加了什麼</span></h2>
+  <ul>
+    <li class="en"><b>Whole-system composition</b> — not just one CPU: the Visual2A03 + Visual2C02 netlists plus the board's TTL chips, composed into a complete NES-001 via <code>.js</code> module definitions (pins / modules / connections / pullups / forceCompute / memory).</li>
+    <li class="zh"><b>整機組裝</b> —— 不只一顆 CPU:Visual2A03 + Visual2C02 兩顆晶片網表加主機板 TTL,用 <code>.js</code> 模組定義(pins / modules / connections / pullups / forceCompute / memory)組成完整 NES-001。</li>
+    <li class="en"><b>An optimized C++ engine</b> — native data structures and the <b>256-entry FlagsToState lookup table</b>: one OR-ed flag byte → one table read replaces the priority-ladder branches (and distinguishes "driven high" from "hold previous").</li>
+    <li class="zh"><b>優化的 C++ 引擎</b> —— 原生資料結構與 <b>256 項 FlagsToState 查找表</b>:旗標 OR 成一個 byte、查一次表就出值(並區分「驅動為高」與「浮接保值」)。</li>
+    <li class="en"><b>Behavioral memory</b> — RAM/ROM as handlers (the callback = fake-transistor mechanism) instead of transistors, removing the largest mass of pointless simulation.</li>
+    <li class="zh"><b>行為式記憶體</b> —— RAM/ROM 掛 handler(callback = 假電晶體機制)而非電晶體,省下最大宗的無謂模擬。</li>
+    <li class="en"><b>ForceCompute</b> — the special Gnd+Pwr-cancel resolution for certain bus nodes; <b>plus analog video/audio voltage ladders</b> (beyond our digital scope — depth, not speed).</li>
+    <li class="zh"><b>ForceCompute</b> —— 特定匯流排節點的 Gnd+Pwr 互消特殊解析;<b>還有類比視訊/音訊電壓 ladder</b>(超出我們的數位範圍 —— 是深度,不是速度)。</li>
+    <li class="en"><span class="mut">Trade-offs: only <code>'+'</code> pull-ups kept (the <code>'-'</code> column dropped), and no bit-exact verification methodology.</span></li>
+    <li class="zh"><span class="mut">代價:segdefs 只保留 <code>'+'</code> 上拉(丟了 <code>'-'</code>),也沒有逐位元等價的驗證方法論。</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">The measured four-way comparison (one machine, one ROM, one unit)</span><span class="zh">四方實測比較(同機、同 ROM、同單位)</span></h2>
+  <p class="en">We didn't take anyone's word for it: we <b>compiled and benchmarked the whole family ourselves</b> (2026-06-08, Ryzen 7 3700X, <code>full_palette.nes</code>, NES master-clock half-cycles). VisualNes and MetalNES build cleanly headless; MetalNES needed real surgery (it's a macOS Metal GUI app — we stubbed the GUI/raster/audio layers and drove the wire core directly, measuring engine + logic + RAM/ROM/bus, the same scope as our benchmark).</p>
+  <p class="zh">我們沒有聽信任何轉述,而是<b>自己把整個家族編譯起來實測</b>(2026-06-08,Ryzen 7 3700X,<code>full_palette.nes</code>,NES 主時脈半週期單位)。VisualNes 很好編;MetalNES 得動手術(它是 macOS 的 Metal GUI 程式 —— 我們把 GUI/繪圖/音訊層 stub 掉、直接驅動 wire 核心,量到的是引擎 + 邏輯 + RAM/ROM/匯流排,與我們 benchmark 的口徑相同)。</p>
+  <table>
+    <tr><th><span class="en">Project</span><span class="zh">專案</span></th><th><span class="en">Scope</span><span class="zh">範圍</span></th><th><span class="en">Lang</span><span class="zh">語言</span></th><th>hc/s</th><th><span class="en">Algorithmic character</span><span class="zh">演算法特徵</span></th></tr>
+    <tr><td><b>VisualNes</b></td><td><span class="en">whole NES</span><span class="zh">整台 NES</span></td><td>C++</td><td class="num">~24K</td><td><span class="en">literal chipsim.js port: O(n²) group dedup, <code>vector</code>+<code>shared_ptr</code> in the hot path, <b>zero prunes</b> — the "unoptimized chipsim" baseline</span><span class="zh">chipsim.js 逐字移植:O(n²) 群組去重、熱路徑進出 <code>vector</code>+<code>shared_ptr</code>、<b>零剪枝</b> —— 「未優化 chipsim」基準線</span></td></tr>
+    <tr><td><b>MetalNES</b></td><td><span class="en">whole NES</span><span class="zh">整台 NES</span></td><td>C++</td><td class="num">~54K</td><td><span class="en"><b>our direct ancestor</b>: flags-OR→256-LUT, double-buffered waves, single-sided turn-on — but no prunes, <code>std::vector</code> data</span><span class="zh"><b>我們的直系祖先</b>:flags-OR→256-LUT、雙緩衝波、單側 turn-on —— 但無剪枝、<code>std::vector</code> 資料</span></td></tr>
+    <tr><td><b>perfect6502</b></td><td><span class="en">6502 only</span><span class="zh">只有 6502</span></td><td>C</td><td class="num">~29K <span class="mut">*</span></td><td><span class="en">a genuinely optimized chipsim rewrite: bitmap states, precomputed dependant lists, single-sided turn-on — but no charge-hold model at all</span><span class="zh">真正最佳化的 chipsim 重寫:bitmap 狀態、預算 dependant 清單、單側 turn-on —— 但完全沒有電荷保持模型</span></td></tr>
+    <tr class="me"><td><b>AprVisual S1</b></td><td><span class="en">whole NES</span><span class="zh">整台 NES</span></td><td>C#</td><td class="num">~108K <span class="mut">(2026-06-08)</span></td><td><span class="en">the MetalNES algorithm + R-1 dynamic singleton + P-1→P-4 prunes + unmanaged SoA layout — bit-exact (golden checksum) throughout</span><span class="zh">MetalNES 演算法 + R-1 動態單例 + P-1→P-4 剪枝 + 非託管 SoA 佈局 —— 全程 bit-exact(golden checksum)</span></td></tr>
+  </table>
+  <p class="mut en">* perfect6502's "hc" is a <b>6502</b>-clock half-cycle; ours is a NES <b>master</b>-clock half-cycle (the 6502 runs at master÷12). The units differ by an order of magnitude, so its 29K must not be ranked against the whole-console rows — it sits on a separate (CPU-only) branch. See the <a href="calculator.html">unit conversions</a>.</p>
+  <p class="mut zh">* perfect6502 的「hc」是 <b>6502</b> 時脈半週期;我們的是 NES <b>主時脈</b>半週期(6502 = 主時脈 ÷12)。單位差一個數量級,29K 不能與整機列並排 —— 它屬於另一條(僅 CPU)分支。換算見<a href="calculator.html">換算器</a>。</p>
+
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>The cleanest finding is a progress bar:</b> <span class="num">24K</span> (VisualNes — unoptimized chipsim) → <span class="num">~54K</span> (MetalNES — a better-engineered ancestor) → <span class="num">~108K</span> (S1 at the time of the comparison). MetalNES→S1 = <b>+100%</b> on the same algorithm, same scope, same unit, same machine, bit-exact — that delta <i>is</i> our prune family + dynamic fast-path + data layout. Nothing in any sibling could be "carried over to beat us"; instead all three independently confirmed our lineage is faithful and our optimizations lead. <span class="mut">(S1 has since reached <b>~135.9K</b> with the range-prune + self-captured key + B1 pair path — ~2.5× the ancestor.)</span></p>
+    <p class="zh" style="margin:.2em 0"><b>最乾淨的發現是一條進度條:</b><span class="num">24K</span>(VisualNes —— 未優化 chipsim)→ <span class="num">~54K</span>(MetalNES —— 工程更好的祖先)→ <span class="num">~108K</span>(比較當時的 S1)。MetalNES→S1 = <b>+100%</b>,同演算法、同範圍、同單位、同機器、bit-exact —— 這段差距「就是」我們的剪枝家族 + 動態 fast-path + 資料佈局。三個近親身上沒有任何「搬過來就能贏我們」的東西;反而各自獨立佐證了我們的血脈忠實、優化領先。<span class="mut">(S1 之後又靠範圍剪枝 + 自捕捉鍵 + B1 成對路徑到達 <b>~135.9K</b> —— 約為祖先的 2.5 倍。)</span></p>
+  </div>
+
+  <h3><span class="en">What we looked for in each sibling (and what we found)</span><span class="zh">我們在每個近親身上找什麼(找到了什麼)</span></h3>
+  <ul>
+    <li class="en"><b>perfect6502</b>: its precomputed per-node dependant lists (flat CSR, rising/falling split) are cache-friendly — but flattening them would destroy the (c1,c2) pairing our P-1 prune needs, and the prune saves more. Its 1-bit bitmap states are 8× denser — but our flags/prunes need bytes, and our own bit-parallel experiments were measured dead ends. It has <b>no</b> charge-hold model at all (floating → 0) — survivable for a bare 6502, impossible for a whole NES.</li>
+    <li class="zh"><b>perfect6502</b>:它預算好的每節點 dependant 清單(扁平 CSR、升/降緣拆分)對快取友善 —— 但扁平化會毀掉我們 P-1 剪枝需要的 (c1,c2) 配對,而剪枝省得更多。它的 1-bit bitmap 狀態密 8 倍 —— 但我們的旗標/剪枝需要 byte,且自家位元平行實驗早已實測判死。它<b>完全沒有</b>電荷保持模型(浮接→0)—— 裸 6502 撐得過,整台 NES 不行。</li>
+    <li class="en"><b>VisualNes</b>: honestly, nothing to take — it is a correctness-reference-grade port. Its value is being the unoptimized baseline that quantifies the family's spread.</li>
+    <li class="zh"><b>VisualNes</b>:坦白說沒有可學的 —— 它是「正確性參考」等級的移植。它的價值是當未優化基準線,把整個家族的差距量化出來。</li>
+    <li class="en"><b>MetalNES</b>: it IS the source of our algorithm, so nothing new to learn — we took everything and kept going. What it uniquely has is the analog video/audio ladder simulation (depth we deliberately scope out).</li>
+    <li class="zh"><b>MetalNES</b>:它「就是」我們演算法的來源,所以沒有新東西 —— 我們全拿了還往前走。它獨有的是類比視訊/音訊 ladder 模擬(我們刻意不納入範圍的深度)。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">What AprVisual added — and the original finale</span><span class="zh">AprVisual 加了什麼 —— 以及原創的終章</span></h2>
+  <p class="en"><b>Correctness first:</b> bit-exact golden checksums (full-state FNV-1a at 300k/400k/1M half-cycles + a 10M-half-cycle SMB1 gate), a C# engine and an independently implemented Rust twin producing bit-identical output, both <code>'+'</code>/<code>'-'</code> pulls kept, and "driven high" explicitly distinguished from "floating hold". Every optimization below shipped only after passing those gates, measured with interleaved-paired A/B.</p>
+  <p class="zh"><b>正確性先行:</b>逐位元黃金檢查(全狀態 FNV-1a,300k/400k/1M 半週期三條 + SMB1 一千萬半週期門)、C# 引擎與獨立實作且輸出逐位元相同的 Rust 攣生、保留 <code>'+'</code>/<code>'-'</code> 兩種 pull、明確區分「驅動為高」與「浮接保值」。以下每一項優化都通過這些門檻(interleaved-paired A/B 量測)才出貨。</p>
+  <table>
+    <tr><th><span class="en">Layer</span><span class="zh">層</span></th><th><span class="en">What</span><span class="zh">項目</span></th><th><span class="en">Gain</span><span class="zh">增益</span></th></tr>
+    <tr><td><span class="en">Data layout</span><span class="zh">資料佈局</span></td><td><span class="en">unmanaged SoA hot data, 16-byte NodeInfo with inline payload, zero bounds checks; lowering (always-on shorts merged)</span><span class="zh">非託管 SoA 熱資料、16B NodeInfo + 行內 payload、零邊界檢查;lowering(常開短路合併)</span></td><td class="num">base +3.7% +4.2%</td></tr>
+    <tr><td><span class="en">Fast path</span><span class="zh">fast-path</span></td><td><span class="en">static singleton O(1); <b>R-1 dynamic singleton</b> (all pass gates OFF ⇒ group is {nn} right now)</span><span class="zh">靜態單例 O(1);<b>R-1 動態單例</b>(通道閘全 OFF ⇒ 群組此刻必為 {nn})</span></td><td class="num"><b>+18.6% / +12.5%</b></td></tr>
+    <tr><td><span class="en">Prunes</span><span class="zh">剪枝</span></td><td><span class="en"><b>P-1</b> same-state turn-on prune + <b>P-2→P-4</b> (isolation + capacitance-guarded extensions) — delete ~21% of all re-evaluations at the source (<a href="prunes.html">how they work</a>)</span><span class="zh"><b>P-1</b> 同態 turn-on 剪枝 + <b>P-2→P-4</b>(隔離 + 電容守衛擴展)—— 從源頭刪掉 ~21% 重算(<a href="prunes.html">運作原理</a>)</span></td><td class="num"><b>+11.85%</b> +7.7%/+10%</td></tr>
+    <tr><td><span class="en">Renumbering</span><span class="zh">重編號</span></td><td><span class="en"><b>range-prune + the self-captured first-touch key</b> — the original RCM-improved design (below)</span><span class="zh"><b>範圍剪枝 + 自我捕捉初次觸碰鍵</b> —— 原創的 RCM 改良版(見下)</span></td><td class="num">+3.6% <b>+6.2%</b></td></tr>
+    <tr><td><span class="en">Fast path</span><span class="zh">fast-path</span></td><td><span class="en"><b>B1 pair path</b> — provably-two-node groups resolved inline (size-2 = 77% of all walks)</span><span class="zh"><b>B1 成對路徑</b> —— 可證明兩節點群組就地解析(size-2 = 77% 走訪)</span></td><td class="num">+0.6% / <b>+14.5%</b></td></tr>
+  </table>
+
+  <h3><span class="en">The finale: the original RCM-improved design</span><span class="zh">終章:原創的 RCM 改良版</span></h3>
+  <p class="en">Classic RCM renumbers nodes by graph adjacency for cache locality — we measured it <b>useless</b> here (the hot set is already cache-resident; the bound is dependent-load chains). The reversal came from changing the <i>objective</i> of renumbering, twice: <b>(1) range-prune</b> — sort by static prune class, so the hottest loop's mask lookups become register range compares, verified against recomputed ground truth at every reset with an automatic safe fallback; <b>(2) the self-captured first-touch key</b> — the engine warms itself up at load and records the production cascade's true first-pop order through a cold instrumented copy of the settle loop, then rebuilds with that order. No file, no flag, any ROM, immune to workload drift. The decisive empirical finding: the key's value is the <b>pruned cascade's order</b>, not cache-line density. <a href="rcm-revival.html"><b>The full story →</b></a></p>
+  <p class="zh">傳統 RCM 按圖鄰接性重排編號以求快取區域性 —— 在這裡實測<b>無效</b>(熱集早已常駐快取;瓶頸是相依載入鏈)。翻盤靠的是兩度換掉重編號的<i>目標函數</i>:<b>(1) 範圍剪枝</b> —— 以靜態剪枝類別排序,讓最熱迴圈的遮罩查表變成暫存器區間比較,每次 reset 對照重算的基準真相驗證、不符自動安全退化;<b>(2) 自我捕捉初次觸碰鍵</b> —— 引擎載入時自己暖機,用 settle 迴圈的冷儀器化副本記錄生產級聯的真實初次彈出順序,再以該順序重建。零檔案、零旗標、任何 ROM 通用、免疫工作負載漂移。決定性的實證:鍵的價值在<b>已剪枝級聯的順序</b>,不是快取行密度。<a href="rcm-revival.html"><b>完整故事 →</b></a></p>
+  <p class="mut en">Where does all this sit relative to MOSSIM II, IRSIM, COSMOS and the academic literature — and which parts are genuinely original? That got its own page: <a href="prior-art.html"><b>prior art &amp; original contributions →</b></a></p>
+  <p class="mut zh">這一切相對於 MOSSIM II、IRSIM、COSMOS 與學術文獻的位置 —— 哪些部分是真正原創?另有專頁:<a href="prior-art.html"><b>文獻定位與原創貢獻 →</b></a></p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="comparison.html"><span class="en">Performance survey of all public netlist sims →</span><span class="zh">公開網表模擬器效能總覽 →</span></a> &nbsp;·&nbsp; <a href="prior-art.html"><span class="en">Prior art &amp; original contributions</span><span class="zh">文獻定位與原創貢獻</span></a> &nbsp;·&nbsp; <a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">Lineage + measured family comparison: VisualNes 24K → MetalNES ~54K → S1 ~108K (2026-06-08, same machine/ROM/unit; S1 since ~135.9K). The MetalNES→S1 delta is exactly our prune + fast-path + layout program, bit-exact throughout.</span><span class="zh">系譜 + 家族實測:VisualNes 24K → MetalNES ~54K → S1 ~108K(2026-06-08,同機/同 ROM/同單位;S1 其後達 ~135.9K)。MetalNES→S1 的差距正是我們的剪枝 + fast-path + 佈局工程,全程 bit-exact。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

@@ -100,8 +100,13 @@ namespace AprVisual.Sim
         // byte* (was int*) — 0/1 only per node, 58 KB → 14 KB. Bitset variant (ulong*) was
         // tested but the shift+mask per-access cost erased the cache benefit. byte* keeps
         // straight-load semantics + same L1d footprint as _inGroup.
-        [ThreadStatic] public static byte* RecalcHash;
-        [ThreadStatic] public static byte* RecalcHashNext;
+        // [thread-experiment] RecalcHash/RecalcHashNext stay SHARED (not [ThreadStatic]): the two
+        // worker threads set DISJOINT byte ranges (CPU side vs PPU side — proven by S1 contested=0), so a
+        // shared dedup hash is race-free, and it lets the orchestrator merge the two per-thread next-lists
+        // by plain concatenation (the bits are already set). The LISTS + counts + group scratch are the
+        // per-thread state. Single-thread = the original shared hash, bit-exact.
+        public static byte* RecalcHash;
+        public static byte* RecalcHashNext;
         [ThreadStatic] public static int RecalcListCount;
         [ThreadStatic] public static int RecalcListNextCount;
 

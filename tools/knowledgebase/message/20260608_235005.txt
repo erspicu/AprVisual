@@ -1,0 +1,93 @@
+Timestamp: 2026-06-08T23:50:05
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a switch-level / behavioral hybrid simulation architect. Be concrete and blunt. If the honest answer is "this is the same thing you already measured as a dead end", say so and explain the structural reason — do not recycle generic advice. Answer in English.
+
+# THE ENGINE
+Event-driven switch-level (Bryant relaxation) transistor-level NES sim (2A03 CPU + 2C02 PPU, ~14,700 live nodes / ~26,800 transistors). Single core, peak ~110K half-cycles/s. The HARD correctness gate is PER-NODE BIT-EXACT: an FNV checksum over EVERY node's 0/1 state at a sampled time must match a golden value. Memory-latency bound. ~94% of the netlist is ONE giant bidirectional pass-transistor-coupled SCC.
+
+# WHAT'S ALREADY BEHAVIORAL (important)
+The BIG memories are ALREADY abstracted to C# arrays via "handlers" (fake transistors / callbacks), NOT simulated at transistor level: CPU RAM (2KB), PRG-ROM, CHR, nametable RAM, palette RAM (32B), sprite/OAM RAM. So the obvious huge win (don't simulate 2KB×6T SRAM cells) is ALREADY taken. The handler presents the memory's data bus outputs to the switch-level fabric and latches writes from it on the right strobe.
+
+# WE CAN DETECT STORAGE/BUS NODES (by physics, not by name)
+- handler-driven DataOut pins (the memory/bus interface nodes)
+- ForceCompute flag (bus nodes where Gnd+Pwr cancel)
+- no-PullUp "dynamic / charge-storage" nodes (these ARE the dynamic latches / register bits / precharged bus lines — found via the capacitance test cap(X) vs cap(neighbours): big-capacitance no-pullup nodes are storage cells)
+
+# THE USER'S IDEA
+"Since we can already detect memory / register / latch / bus nodes, can we EXTRACT those node-classes and abstract them directly into program arrays (like we did for RAM) — i.e. replace the transistor cluster of each register/latch/bus with a single array entry + a behavioral update rule — to remove them from the switch-level BFS and cut simulation work?"
+
+# CRITICAL PRIOR RESULT — read before answering (this is the trap)
+We ALREADY built an automatic logic+register EXTRACTION engine ("Escape-1" / S2): auto-detect the reducible logic and sequential (register/latch) elements, lift them to a behavioral model, relaxation + a Dynamic-Miter equivalence check + state-cut + verify-then-enable. Results:
+- ~98.9% of the chip's ACTIVITY is reducible to logic + registers; only ~1.1% is genuinely analog. (A clean reducibility result.)
+- 100% BEHAVIORAL match to golden on ~66% of activity.
+- BUT single-core SPEED did NOT improve: the oblivious behavioral eval was 45× SLOWER, the compiled version 84× slower (i-cache), macro-event "cone compression" only 1.1×. A best interpreter config hit ~4.3× in a narrow case, with the BUS MODEL (the behavioral↔switch-level boundary) identified as the dominant remaining cost (~20× lever, never realized).
+Root cause of the failure: (1) the event-driven engine already runs at the netlist's NATURAL MINIMUM GRANULARITY (~1.4 nodes touched per dirty event); a behavioral block still has to be driven by, and drive back into, the remaining switch-level fabric at that same granularity. (2) Because of the 94% SCC, a register's INTERNAL nodes are READ by the surrounding combinational logic CONTINUOUSLY (not just at clock edges), so you cannot hide them. (3) Per-node bit-exact: the golden checksum hashes the register's internal nodes too — eliminate them and the checksum breaks unless you RECONSTRUCT their states (which costs exactly what you tried to save). Escape-1 had to switch to BEHAVIORAL equivalence (not per-node bit-exact) to do it at all.
+
+# OTHER MEASURED DEAD ENDS (don't propose)
+IR / codegen / AOT-batch / GPU / dense-bitset / multithread = all slower than the scalar event-driven engine. Per-node maintained runtime-state cache = −15.4% maintenance. Event-count enqueue prunes P-1..P-4 done; remaining ~80% no-change re-evals are structural with no cheap predictor. RCM/cache-renumbering = 1.00× (NodeStates ~15KB already L1-resident; cache is not the bottleneck).
+
+# THE QUESTION
+Is the user's "extract register/latch/bus storage nodes into behavioral arrays" idea anything OTHER than a narrower restatement of Escape-1 — and if narrower, does narrowing actually change the outcome? Specifically evaluate:
+
+1. Does restricting the extraction to ONLY the storage elements (registers/latches/bus precharge lines), keeping ALL combinational logic switch-level, escape the three failure causes above (min-granularity, internal-nodes-read-continuously, per-node-checksum)? Or does the boundary cost just move?
+
+2. Is there a BIT-EXACT-preserving formulation? The checksum hashes the eliminated nodes. Two sub-options: (a) reconstruct the hidden internal node states cheaply enough to keep per-node bit-exact AND still net-save; or (b) the project's real stated goal is an ANALYZABLE/VERIFIABLE behavioral model (not necessarily per-node-bit-exact emulation) — given that, is array-extraction valuable for ANALYSIS even if it doesn't speed single-core emulation?
+
+3. The specific speed angle: a dynamic latch holding a stable value still gets its hold-loop re-settled when nearby nodes wiggle. Could detecting "this storage cell is not being clocked / written this half-cycle" let us SKIP re-settling its internal hold-loop (a targeted storage-loop skip), bit-exact? Or is that just the no-change-prune problem again (which we established has no cheap predictor for the structural residue)?
+
+4. Be blunt: is there ANY version of this that beats the current ~110K hc/s single-core engine while staying per-node bit-exact — or is the honest answer "Escape-1 already proved the reducibility but also that it doesn't buy single-core speed, and your detection just re-finds the same set"?
+
+For each: bit-exact yes/no, beats-current-engine yes/no, and a realistic % or factor. Prefer the structural truth over a speculative win.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the blunt, structural truth. The user’s idea is functionally a **fragmented, worse version of Escape-1**. It will not speed up your single-core simulation if you maintain the per-node bit-exact constraint. 
+
+Here is the exact breakdown of why, mapped to your four questions:
+
+### 1. Does restricting extraction to ONLY storage elements escape the Escape-1 failure causes?
+**No. It makes the boundary cost strictly worse.** 
+In Escape-1, you extracted logic *and* registers, creating macro-blocks. By extracting *only* registers/latches/buses and leaving the logic at switch-level, you are drastically increasing the surface area of the behavioral ↔ switch-level boundary. 
+
+Because 94% of the chip is a giant pass-transistor SCC, a register is rarely cleanly isolated by logic gates. It is coupled to the combinational fabric via pass-transistors (transmission gates). If you abstract the storage nodes into an array:
+* **Failure 1 (Min-granularity):** Worsened. The event engine touches ~1.4 nodes per event. Now, instead of resolving a local topological switch-equation, an event hitting a latch input must trigger a behavioral callback, read the array, compute, and push events back into the switch fabric. The overhead of crossing domains happens *more frequently* than in Escape-1.
+* **Failure 2 (Internal nodes continuously read):** Still exists. The SCC means the logic natively sees the internal impedance/charge of the latch. If you hide the latch in an array, the switch-fabric evaluating an attached pass-transistor still needs to know the state of that node to resolve its own equations.
+* **Failure 3 (Per-node checksum):** Still exists.
+
+### 2. Is there a BIT-EXACT-preserving formulation?
+**For single-core emulation speed: No.**
+**For analysis/verification: Yes, highly valuable.**
+
+**(a) Reconstruction cost vs. Event-driven silence:** 
+To pass your FNV checksum, every node's state must be present in the `NodeStates` array in order. If you pack a 4-node latch into a 1-bit array entry, you must unpack it before the checksum. 
+*The baseline engine does exactly zero memory writes for a sleeping latch.* If you unpack behavioral states every half-cycle to satisfy the checksum, you are trading an O(0) operation (event-driven silence) for an unconditional O(N) memory-scatter operation. Even if you only unpack "on change," the branching and dictionary-lookup overhead to map array indices back to FNV-hashed node IDs will cost more memory bandwidth than you save.
+
+**(b) The Analysis pivot:** 
+If your actual goal is to build an understandable, verifiable behavioral model (e.g., lifting the netlist to C-code for cycle-accurate emulation or formal verification), this extraction is the *only* way to do it. You just have to drop the per-node bit-exact constraint and check equivalence only at the architectural state boundaries (CPU registers, memory buses). But if the goal is to speed up *this specific switch-level engine* running *this specific per-node testbench*, it is a dead end.
+
+### 3. The specific speed angle: Targeted storage-loop skip?
+**Bit-exact: Yes. Beats current engine: No. This is the no-change-prune problem again.**
+
+A dynamic latch hold-loop re-settles because a nearby node (like a pass-transistor gate) wiggled. In your Bryant relaxation solver, evaluating that wiggle is just a few bitwise operations on already-cached L1 data. 
+
+To implement a "targeted skip," the engine must:
+1. Fetch the event.
+2. Look up metadata: "Is this node part of a dynamic latch?"
+3. Fetch the clock/strobe node state for that latch: "Is it currently written to?"
+4. Branch: `if (!clocked) continue;`
+
+You are inserting dependent memory reads (metadata + clock state) and a dynamic branch into your tightest inner loop to avoid computing a simple switch-level boolean equation. On a modern CPU, the branch misprediction risk and cache-line fetches for the metadata will cost more cycles than just doing the redundant math and letting the `if (new_state == old_state)` check naturally terminate the event chain. 
+
+### 4. Blunt Summary
+**Is there ANY version of this that beats the current ~110K hc/s engine while staying per-node bit-exact?**
+**No. 0% chance.**
+
+The honest answer is: **Escape-1 already proved the reducibility but also that it doesn't buy single-core speed, and your detection just re-finds a subset of the exact same reducible elements.** 
+
+You are memory-latency bound. Your event engine runs at the natural minimum granularity of the circuit physics. Any abstraction you build requires bridging a behavioral model back to a switch-level SCC, which introduces boundary-translation overhead and state-reconstruction overhead. Because the baseline engine relies on event-silence (doing nothing when things don't change), replacing that silence with structural array lookups or skip-logic branches will always be a net negative for performance.
+
+Abandon extraction for emulation speed. Keep it strictly if you want to write a static behavioral lifter/compiler.

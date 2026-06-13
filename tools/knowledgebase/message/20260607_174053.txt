@@ -1,0 +1,74 @@
+Timestamp: 2026-06-07T17:40:53
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a CAD/EDA + simulation historian. I need REAL, verifiable academic provenance for techniques used in a switch-level NES simulator. CRITICAL: do NOT invent citations. If you are not confident a paper/author/year is real, say "uncertain — verify" rather than giving a title. Prefer famous, checkable works. Answer in Traditional Chinese (繁體中文); keep author/title/venue/year in English.
+
+# CONTEXT (the techniques I want to attribute)
+An event-driven, bit-exact switch-level (Bryant) simulator. It re-resolves a "dirty" node's connected conducting group each event; a connected group's value comes from OR-ing per-node flags through a priority LUT (Gnd > Pwr > driven > pull-up > previous-state), and a purely-floating group resolves to the state of its **largest-capacitance** member ("charge sharing / largest cap wins"). On top of the base engine it adds several optimizations I want to cite the lineage of:
+
+1. **The switch-level model itself** — strength/signal-strength ordering, the floating "largest-capacitance node holds the value" rule, X handling. (I believe this is R. E. Bryant — MOSSIM 1981 + the IEEE Trans. Computers 1984 switch-level model paper. Confirm exact titles/years if you are sure.)
+
+2. **Event-driven / selective-trace simulation** — only re-evaluate the part of the network whose inputs changed; suppress non-events. (I believe the seminal reference is E. G. Ulrich, ~1969, "exclusive simulation of activity in digital networks" / selective-trace. Confirm.)
+
+3. **Redundant-event / no-change-event filtering at the source** — NOT enqueuing a downstream node when the propagating change provably can't alter its value (e.g. merging two equal-state groups, or isolating a node that just holds its charge). Is there a NAMED technique / standard reference for "event filtering" / "redundant event elimination" / "inertial/zero-event suppression" in logic or switch-level simulation? Or is this just folklore within event-driven simulation (Ulrich lineage)?
+
+4. **Detecting dynamic / storage / register nodes vs static combinational nodes in a switch-level / transistor netlist** — i.e. identifying which nodes are charge-storage (pass-transistor latches, dynamic RAM/register cells: no pull-up, hold state via parasitic capacitance) versus statically-driven logic. Is there literature on "dynamic node detection", "charge-storage node identification", "sequential element / latch recognition from a transistor netlist", or "pre-charged/dynamic logic detection"? This matters because my optimization must EXCLUDE storage cells (pruning them would lose the chip's memory), and I identify them by: no pull-up flag + capacitance (connection count) + a ForceCompute/precharge flag. Are there real papers on recognizing memory/latch/dynamic nodes from transistor-level connectivity (e.g. in transistor-to-gate extraction, or in switch-level timing verifiers like CRYSTAL / Ousterhout, or in static timing / charge-sharing analysis)?
+
+5. **The netlist data itself** — the 2A03/2C02 transistor netlists come from the Visual6502 / Visual2A03 / Visual2C02 projects (visual6502.org, polygon-extracted from die photos); the module/board model + the per-node pull-up / weak-depletion / forceCompute metadata come from the MetalNES project (iaddis). These are project/data sources, not papers — just confirm they're the right attributions to name.
+
+# WHAT I NEED BACK
+For each of 1–5: the REAL canonical reference(s) (author, title, venue, year) IF you are confident they exist, else "uncertain — verify". Be explicit about which of my optimizations are genuinely just *applications* of standard principles (event filtering on a Bryant model) versus things that would be novel/derived (so I attribute them honestly as "derived in this work from X", not falsely cited to a paper). I would rather under-claim than cite a paper that doesn't say what I claim.
+
+========================================================================
+RESPONSE
+========================================================================
+身為 CAD/EDA 與電路模擬領域的歷史研究者，我可以為你提供這些技術在學術界中真實、可供查證的溯源。你對大部分技術的直覺是非常準確的。
+
+以下是針對你提出的 5 個核心議題的學術文獻考證，以及對於「標準原則應用」與「原創/衍生工程」的明確界定：
+
+### 1. 開關級模型 (The Switch-Level Model)
+**學術狀態：** 這是絕對標準的學術成果，你的記憶完全正確。
+**核心文獻：**
+*   **最早發表 (MOSSIM)：** R. E. Bryant, "MOSSIM: A Switch-Level Simulator for MOS LSI", *Proceedings of the 18th Design Automation Conference (DAC)*, 1981.
+*   **理論與數學基礎的權威文獻 (必引)：** R. E. Bryant, "A Switch-Level Model and Simulator for MOS Digital Systems", *IEEE Transactions on Computers*, Vol. C-33, No. 2, 1984.
+
+**說明：** IEEE Trans. Computers 1984 這篇論文是該領域的聖經。它正式定義了狀態集合 {0, 1, X}、訊號強度 (Signal Strength) 排序、節點大小 (Node Size / Capacitance)，以及你提到的「最大電容勝出 (Largest-capacitance wins)」的電荷分享 (Charge sharing) 解析規則。你在引擎中使用的 Gnd > Pwr > driven > pull-up 優先級對照表 (Priority LUT) 是對 Bryant 理論中訊號強度數學模型的**標準查表法實作 (Standard Implementation)**。
+
+### 2. 事件驅動 / 選擇性追蹤模擬 (Event-Driven / Selective-Trace)
+**學術狀態：** 這是標準的學術成果，你的記憶完全正確。
+**核心文獻：**
+*   **權威文獻 (必引)：** E. G. Ulrich, "Exclusive simulation of activity in digital networks", *Communications of the ACM*, Vol. 12, No. 2, 1969.
+
+**說明：** E. G. Ulrich 1969 年的這篇論文被公認為「選擇性追蹤 (Selective-trace)」與現代數位網路事件驅動模擬的鼻祖。只重新評估輸入發生改變的網路區塊，完全歸功於此文獻的奠基。
+
+### 3. 冗餘事件過濾 / 源頭無變化事件抑制 (Redundant-Event Filtering)
+**學術狀態：** 這是事件驅動模擬中的**業界常識 (Folklore)** 與基本演算法的自然延伸，並沒有單一特定的「突破性命名論文」專門針對開關級模擬講述此事。
+**可選的參考文獻：**
+*   *Textbook reference:* M. A. Abramovici, M. A. Breuer, and A. D. Friedman, *Digital Systems Testing and Testable Design*, IEEE Press, 1990. (此類經典教科書在討論 Logic Simulation 時，會將 `if (new_value == old_value) then do_not_schedule()` 列為事件驅動演算法的內建步驟)。
+
+**說明：** 在 EDA 術語中，這通常被泛稱為 **Event Filtering**、**Activity Suppression** 或 **Zero-Delay Event Suppression**。
+**你該如何引用：** 你**不應該**為此尋找一篇特定的開關級論文來宣稱它是某個專有名詞。你應該誠實地將其描述為：「對 Ulrich 事件驅動演算法的標準最佳化應用 (A standard optimization of the selective-trace algorithm)」。在源頭攔截相等狀態或被隔離的節點，是你在實作上為了減少佇列負擔而做的合理工程設計。
+
+### 4. 偵測動態/儲存節點 vs 靜態組合邏輯節點
+**學術狀態：** 「從電晶體網表中識別儲存節點」在學術界有深厚的基礎，但**你所使用的具體啟發式規則（無 pull-up + 電容/連線數 + ForceCompute flag）是你自己的工程衍生 (Derived/Novel Engineering)**。
+**核心文獻：**
+*   **網表儲存節點萃取理論：** R. E. Bryant, "Boolean Analysis of MOS Circuits", *IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems*, Vol. 6, No. 4, 1987. (這篇論文詳細探討了如何從開關級網表中，區分出具有狀態保持能力 (State-retaining/Storage) 的節點與純組合邏輯 (Combinational) 節點)。
+*   **電容與時序分析的節點分類：** J. K. Ousterhout, "Crystal: A timing analyzer for nMOS VLSI circuits", *Proceedings of the Third Caltech Conference on Very Large Scale Integration*, 1983. (Crystal 模擬器利用節點電容來辨識和計算充放電行為)。
+
+**你該如何引用：** 你應該引用 R. E. Bryant (1987) 來支持「在開關級模型中區分動態儲存節點與靜態驅動節點是必要的」這個學術概念。然後，你必須明確宣告：**「受這些概念啟發，本研究衍生出一種基於中繼資料與拓撲的啟發式演算法 (A derived heuristic based on metadata and topology)」** 來實作修剪(Pruning)排除機制。不要讓讀者誤以為 Bryant 或 Ousterhout 的論文裡寫有 `ForceCompute` 這種 Flag。
+
+### 5. 網表資料來源 (Netlist Data Sources)
+**狀態：** 這些是開源專案與社群資料集，並非傳統學術論文，但 Visual6502 團隊確實在頂級圖形學會議有過發表，這可以作為完美的學術引用。
+**應引用的來源：**
+*   **Visual6502 (包含 2A03 / 2C02 的基礎網表提取)：** B. Silverman, B. Silverman, and G. James, "Visualizing a classic CPU in action", *ACM SIGGRAPH 2010 Talks*, 2010. (這是視覺化 6502 專案在學術界/業界最正式的發表紀錄，引用此篇最為得體)。
+*   **MetalNES (模組模型、Pull-up 等中繼資料)：** 由於這完全是個人開源專案，請以標準的軟體/URL 引用格式註明作者與來源：Ian Addis (iaddis), "MetalNES", GitHub repository. (如果有特定年份或 commit hash 最好附上)。
+
+---
+
+### 總結給你的寫作建議
+在你的論文或文件中，你可以這樣建構這段論述（範例）：
+> "本模擬器的基礎引擎實作了 R. E. Bryant 提出的開關級模型 [Bryant 1984]，包含其訊號強度與基於最大電容的電荷分享規則，並結合了 E. G. Ulrich [Ulrich 1969] 奠基的選擇性追蹤 (Selective-trace) 事件驅動演算法。在此基礎上，我們應用了標準的事件過濾 (Event filtering) 技術來抑制無效的狀態傳播。
+> 
+> 為了進一步最佳化效能同時保留晶片的記憶體狀態，我們必須在電晶體網表中區分靜態組合邏輯與電荷儲存 (Charge-storage) 節點 [Bryant 1987]。為此，本研究**衍生**了一套基於拓撲與中繼資料的啟發式方法（透過檢查 pull-up、連線數量與 ForceCompute 標記）來標識並排除儲存節點。本研究所使用的核心 2A03/2C02 網表資料來自 Visual6502 專案的多邊形提取成果 [Silverman et al. 2010]，而節點特定的中繼資料則取自 MetalNES 專案 (Addis)。"

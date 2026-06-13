@@ -1,0 +1,90 @@
+Timestamp: 2026-06-07T15:18:46
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a senior switch-level / EDA simulation engineer. Brutally honest, no encouragement. Answer in Traditional Chinese (繁體中文); technical terms in English.
+
+# SYSTEM
+An event-driven switch-level (Bryant) simulator of the NES 2A03/2C02 (whole NES), from Visual6502 netlists. Single CPU core, heavily optimized C#. A "settle wave" pops dirty nodes from a queue; each node's value = its connected conducting group resolved by OR-ing 8-bit flags into a 256-entry LUT:
+  ForceCompute: if group has BOTH Gnd and Pwr -> cancel both; then Gnd>0, Pwr>1, SetHigh>1, SetLow>0, PullUp>1, State(prev high)>1, else 0.
+  If the OR-ed flags are EMPTY (purely floating group) -> value = NodeStates of the group member with the largest "capacitance" (= connection count). "Largest-cap member holds its previous state."
+SetNodeState(n,v): when n's state flips, walk the transistors GATED by n and enqueue endpoints for the next wave. Turn-ON (n->1) uses SINGLE-SIDED enqueue (only c1; the BFS traverses the now-ON channel to c2). Turn-OFF (n->0) enqueues both c1 and c2 (the group splits).
+
+# WHAT SHIPPED (all bit-exact, whole-NES checksum identical at 300k & 1M half-cycles)
+P-1 (same-state turn-ON enqueue prune): when a transistor turns on merging groups c1,c2, if NodeStates[c1]==NodeStates[c2], skip enqueuing — the monotone driven LUT can't change an equal-state merge. EXCLUSION: nodes with NO PullUp are tainted "unsafe" and never pruned (PruneUnsafe mask), because a no-PullUp node can sit in a purely-FLOATING group resolved by the capacitance hold-previous tie-break, which is NON-monotone. (+11.85%.)
+P-2 (turn-OFF enqueue prune, just shipped, +1.4%): skip enqueuing an endpoint X on turn-off iff X is provably ISOLATED the instant its channel opens — condition (all static): C1c2Count==1 (exactly one normal-node channel), no GND/PWR channel, no PullUp, no ForceCompute, no callback, and not a handler-driven bus pin. Then when its one channel opens, X's group becomes {X} with no driver -> floats -> HOLDS its previous value -> re-eval is a guaranteed no-op. Bit-exact.
+
+# WHAT FAILED — P-3 (the question)
+I tried to also clear the PruneUnsafe taint for exactly the P-2 set (single-channel no-driver no-PullUp nodes), i.e. let P-1's same-state turn-ON prune also fire for them. Reasoning: "merging a single-channel no-driver node, already equal-state, with another group can't change its held value."
+Result: NOT bit-exact. EXACTLY 2 nodes diverge, and it does NOT cascade (still exactly 2 nodes wrong at both 20k and 300k). The 2 divergent nodes are CPU ALU / status-register dynamic nodes (gates named cpu.op-T0-sbc, cpu.op-T0-adc/sbc, cpu.Pout3). Crucially: those 2 visible-divergent nodes each have a GND channel too (C1c2Count==1 + GndCount==1), so they are NOT themselves in the pruned set — they are SYMPTOMS; the real culprit is some upstream single-channel no-driver node that WAS turn-on-pruned and propagated a stale value to them.
+
+# QUESTIONS (be precise and quantitative; this is the necessary-caveats consult)
+1. Is same-state turn-ON enqueue prune EVER bit-exact-safe for a no-PullUp node, or is P-1's blanket no-PullUp exclusion fundamental? Give the PRECISE failure mechanism: why does turn-OFF isolation (P-2) stay exact but turn-ON merge (P-3) break, for the SAME single-channel no-driver node set? My hypothesis: turn-ON MERGES the node into a bigger group where the floating capacitance tie-break can pick a different largest-cap winner / propagate a charge-share value to OTHER members that the same-state(endpoint-only) check doesn't see, whereas turn-OFF only ISOLATES (group shrinks to {X}, trivially holds). Confirm or correct, exactly.
+2. If salvageable: is there a CHEAP STATIC sufficient condition under which turn-ON same-state prune of a no-PullUp node IS provably exact (e.g. the node is a "leaf" that drives no gates AND its single neighbour has a strict capacitance relation)? Or is the safe subset so small it's not worth it? Be blunt.
+3. The bigger prize. Post-P-2 profile of remaining no-change pops (full_palette 300k): ~76% are PullUp/supply-DRIVEN combinational nodes that recompute to the SAME value after an input gate TURN-OFF (one pull-down path opens but another pull-down still holds the node at 0, so it stays 0). Predicting this needs scanning the node's other pull-down channels = exactly the work we want to avoid. Is there ANY cheap, bit-exact, single-core trick to avoid re-evaluating these "still-held-by-another-path" turn-off events? (Counters maintained in SetNodeState = the "state-caching fallacy", already measured -6%, do NOT re-suggest. Also out of scope, already proven slower: IR/codegen, GPU, SIMD, multithread, bitset BFS, netlist lowering, cache-line renumber.)
+
+2b. I am willing to CONSERVATIVELY exclude a SUPERSET of the dangerous nodes (the project owner explicitly authorizes excluding all "register / memory / bus-characteristic" nodes from the turn-ON prune, even with a bit of manual/heuristic intervention). So the practical question is: what cheap STATIC property, computable at load time from {PullUp, ForceCompute, callback, C1c2Count, GndCount, PwrCount, Gates.Count (does it gate any transistor), the single neighbour's same properties, connection-count/capacitance}, identifies "dynamic register/storage/bus" nodes so I can keep them tainted (never turn-on-pruned) while still pruning the genuinely-safe leaf nodes? Or is even that superset essentially "all no-PullUp single-channel nodes" (i.e. P-3's whole candidate set), making P-3 worthless?
+
+Constraints recap: single core, no IR/codegen, must be BIT-EXACT per node, memory-latency-bound hot loop where every per-event add of work tends to be net-negative (only REMOVING events/work wins). If your honest answer to (2)/(2b) is "the safe subset is tiny / P-1's exclusion is fundamental — drop P-3", and to (3) "no cheap predictor exists — that waste is structural", say so plainly.
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個典型的 Bryant 開關級模型在高度最佳化時會撞上的理論牆。以下直接針對你的問題進行拆解與量化回答。
+
+### 1. P-3 失敗的精確機制：Turn-ON Prune 對無 PullUp 節點是否絕對安全？
+
+**結論：絕對不安全，P-1 的 blanket exclusion 是根本性的（Fundamental）。你的假設方向正確，但細節在於「單向入隊（Single-sided enqueue）」與「同波次併發事件（Same-wave concurrent events）」的時序破壞。**
+
+**精確失敗機制：**
+在純浮動網路中，數學上 $S \cup S \to S$ 是成立的（兩個狀態皆為 1 的節點合併，結果必為 1）。但你的引擎依賴單向入隊來觸發 BFS 波，以建立整個 Group 的 **Largest-capacitance Reference**。
+
+假設 P-3 候選節點 $X$ 與相鄰節點 $Y$ 相連，且 `Cap(X) > Cap(Y)`。
+1. $X=1$, $Y=1$。電晶體 $T$ Turn-ON。
+2. 因為狀態相同，你 **Prune** 了 $X$ 的 enqueue。此時 $X \cup Y$ 的 Group 實際上已經形成（電晶體已導通），但引擎並未執行 `SetNodeState` 來結算這個新 Group。
+3. 在**同一個 Settle Wave** 的後續事件中，另一個電晶體 $T_2$ Turn-ON，將 $Y$ 連接到節點 $Z$（$Z=0$, `Cap(Z) > Cap(Y)` 但 `Cap(Z) < Cap(X)`）。
+4. 如果最初沒有 Prune $X$，波的結算會看到 $X, Y, Z$，Largest-cap 是 $X$（狀態 1），整個 Group 贏得 Tie-break 保持 1，ALU 動態鎖存器接收到正確的高電位。
+5. 但因為你 Prune 了 $X$ 且依賴單向入隊，$Y$ 的 BFS 結算可能在事件佇列中產生了時序錯位，或者在 ALU 預充（Precharge）與求值（Evaluate）的極端時序競爭中，$Z$ 的 0 狀態因為 $X$ 未能及時被 Settle Wave 廣播為 Max-cap 基準，導致 $Y$ 暫時翻轉為 0，進而錯誤觸發了其他 Gated transistors。
+
+**為何 Turn-OFF (P-2) 是 Bit-exact 但 Turn-ON (P-3) 會破壞？**
+*   **Turn-OFF (P-2)** 將 $X$ 切割為 $\{X\}$。一個沒有 Driver、沒有 PullUp 的孤立單一節點，其行為是絕對單調且自恰的（Trivially independent），它只能 Hold previous value。
+*   **Turn-ON (P-3)** 將 $X$ **暴露**給了更大的網路。$X$ 帶入了它的 Capacitance。在非單調（Non-monotone）的浮動網路中，引入新的 Capacitance 基準會改變整個 Group 對抗其他 Charge-share 的權重。跳過 Enqueue 等同於「網路拓撲已改變，但引擎的權重基準未更新」，這在 ALU 這種重度依賴 Charge-sharing 決勝負的電路中必定引發隱蔽的 State flip miss。
+
+---
+
+### 2 & 2b. 存在廉價且 Provably Exact 的靜態條件嗎？
+
+**有。解法是：將 $X$ 限制為「絕對的電容奴隸（Strict Capacitance Slave）」。**
+
+你不需要人工標註 Register 或 Bus，只需要在 Load-time 預算一個極其廉價的靜態屬性。
+如果 $X$ 滿足 P-2 條件（`C1c2Count==1`, no PullUp, no Driver, no callback, etc.），再加上以下核心條件，它的 Turn-ON same-state prune 就是 **100% Bit-exact safe** 的：
+
+*   **條件：`Capacitance(X) < Capacitance(Y)`** （即 $X$ 的 Connections count 嚴格小於它唯一相連的鄰居 $Y$）。
+
+**數學證明（為什麼這是安全的）：**
+既然 $X$ 是單通道節點，它合併後只能依附於 $Y$ 的 Group。如果 `Cap(X) < Cap(Y)`，這意味著在任何可能的浮動 Tie-break 競爭中，$X$ **永遠不可能**成為該 Group 的 Largest-cap winner。
+$X$ 既不能提供 Driven flags（無 PullUp/Pwr/Gnd），又無法提供足以扭轉局勢的 Capacitance。將一個同狀態的「奴隸節點」合併進系統，對 Group 的解析結果（Resolution）是絕對的 No-op。
+這個條件會精準且自動地將所有高電容的 Dynamic Registers 和 Bus pins 排除在外（這正是 2b 想要的 Superset），只對真正的邊緣寄生電容 / 邏輯末端葉節點執行 Prune。
+
+---
+
+### 3. 如何避免 Turn-OFF 時「仍被其他路徑 Hold 住」的無效重新評估？
+
+**直白地說：不可能。放棄這個念頭。**
+
+這佔據了 ~76% 的無效 Pops，是效能的終極誘惑，但它是 Event-driven Switch-level 模型的**結構性浪費（Structural waste）**。
+
+你的限制條件已經鎖死了所有可能出路：
+1. 你不能用 Counters / State-caching（因為 `ConductingChannelCount` 的維護成本在每步 SetNodeState 中已證明是 -6% 的淨虧損）。
+2. 你不能用 SIMD, GPU, 或 Multithreading。
+3. 必須 Bit-exact per node。
+
+要知道一個節點在某條 Pull-down 路徑斷開後，是否「仍被另一條並聯 Pull-down 路徑 Hold 在 0」，在資訊理論上只有兩種取得方式：
+*   **Cache it**：提前花費 CPU 週期維護並聯狀態（你已經證明這更慢）。
+*   **Search it**：事件發生時即時 BFS 遍歷（你現在正在做的事，你想避免）。
+
+這是一個不可能的三角（No Cache, No Scan, Know the Global State）。
+在純 Settle Wave BFS 引擎中，一旦邊界條件（Edge）改變，重新評估該 Connected Component 是唯一能保證 Bit-exact 的數學手段。那些「重新評估後值沒變」的節點，是為了保證那少數 1% 真正發生 Flip 的節點能被正確捕捉所必須支付的「稅」。
+
+**結論：** 實作 `Cap(X) < Cap(Y)` 的靜態嚴格小於條件來挽救 P-3 的部分收益（主要在純葉節點），然後把對這 76% Turn-OFF 浪費的執念丟掉。在當前的架構與約束下，那條路是死胡同。

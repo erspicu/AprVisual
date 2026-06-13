@@ -1,0 +1,100 @@
+Timestamp: 2026-06-08T23:31:52
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a switch-level / event-driven simulation performance engineer. Be concrete and blunt. If the honest answer is "no static precomputation can help here, it's structural", say so plainly and explain why — do NOT pad with generic advice. Answer in English.
+
+# THE ENGINE
+Event-driven switch-level (Bryant relaxation) transistor-level NES sim (2A03 CPU + 2C02 PPU, ~14,700 live nodes / ~26,800 transistors after lowering). Single core, BIT-EXACT required (whole-chip FNV checksum is the hard gate). C# (canonical) + a bit-identical Rust port. Already heavily optimized; it is MEMORY-LATENCY BOUND (random loads of per-node data dominate), not compute-bound. Peak ~110K half-cycles/s on a Ryzen 3700X; real-time would need ~43M hc/s (~390x away — that gap is a KNOWN unreachable, not the question).
+
+# THE "BFS" I'm asking about
+Each half-cycle the clock toggles and a relaxation settles to quiescence (mean ~12 waves, max 45). Per dirty node, RecalcNode:
+- builds the CONDUCTING GROUP = the set of nodes connected to it through pass-transistors that are CURRENTLY ON (gate node currently high). This is an iterative BFS (AddNodeToGroup) over ON channels.
+- ORs all group members' flags (Gnd/Pwr/SetHigh/SetLow/PullUp/ForceCompute), resolves the group's 0/1 via a 256-entry LUT (priority Gnd>Pwr>SetHigh>SetLow>PullUp>hold-previous; a purely-floating group holds the largest-capacitance member's previous value).
+- writes the resolved value to every member (SetNodeState), and for each member enqueues the downstream nodes gated by it.
+
+Measured: the group walk averages only ~1.4 nodes. A fast-path classifier (run once at load) splits dirty nodes into:
+- class 1 (~27%): "static pure-logic" — node has NO pass-transistor channel to any normal node, so its group is PROVABLY always {nn} → O(1) resolve, no BFS.
+- class 2 (~73%): "dynamic-singleton candidate" — has channels, but if ALL its channel gates happen to be OFF this half-cycle the group is exactly {nn} → O(1); only if a gate is ON does it fall into the real BFS.
+- class 0 (~16 nodes): callback/forceCompute — always BFS.
+So the real multi-node BFS only runs for class-2 nodes that actually "grow" this cycle + the handful of class-0.
+
+# DATA LAYOUT (already done)
+SoA, native pointers. NodeInfo = 16 bytes (4 per cache line): Flags(byte), Inline(byte), C1c2Count(byte), GndPwr(byte), + a 12-byte union = either InlinePayload[6] ushorts (gates+endpoints inlined for low-fanout nodes — the COMMON case never touches the big transistor array) OR 3 int offsets into a flattened ushort* TransistorList (CSR-style, null-terminated sublists, ~350KB, used only by high-fanout/"overflow" nodes). NodeStates = byte[14.7K] (L1-resident). RecalcHash x2 (queued bitflag, double-buffered), _inGroup (group dedup flag), PruneMask all ~14.7KB byte arrays.
+
+# HARD CONSTRAINTS + ALREADY-TRIED DEAD ENDS (do NOT propose these — they were built and measured)
+1. The conducting group is DYNAMIC per half-cycle: which transistors conduct depends on runtime gate states, which change every wave. So you CANNOT precompute "the group of node X" — it differs each half-cycle.
+2. ALWAYS-ON transistors (wire connections, gate=power) are ALREADY statically merged at load (lowering collapses always-on shorts), so the runtime graph only has gated (data-dependent) channels.
+3. ~94% of the netlist is ONE giant bidirectional pass-transistor-coupled SCC → there is NO useful static topological order. Levelizing the settle by topo-level was built and measured −15% (the counting-sort to maintain order cost more than the redundancy it removed).
+4. IR / codegen-to-C#-or-LLVM / AOT-batch / GPU (D3D11) / dense-bitset-BFS (Ligra-style) / multithread / per-chip-parallel were ALL built and measured SLOWER than this scalar event-driven engine (the event-driven engine already runs at the netlist's natural minimum granularity of ~1.4 nodes; batch/parallel re-evaluate too much).
+5. Per-node MAINTAINED runtime-state caches (e.g. a "dominant driver" cache) cost more to maintain than they save: measured −15.4% just for the maintenance writes.
+6. Memoizing a node's group-resolution across half-cycles fails: downstream state always differs enough.
+7. Event-count enqueue prunes P-1..P-4 (skip enqueuing nodes that provably can't change) are done; the remaining ~80% no-change re-evaluations are structural with no cheap predictor.
+8. L1d is ~32KB and already contended by NodeStates + RecalcHash x2 + _inGroup + PruneMask (each ~14.7KB).
+9. Node renumbering exists (an --rcm reverse-Cuthill-McKee option) but I'm not sure it was ever evaluated specifically for cache locality of the hot walk.
+
+# THE QUESTION
+Given all the above, is there ANY load-time / static PRECOMPUTATION that survives the dynamic-group + bidirectional-SCC + memory-latency constraints and would actually accelerate the per-dirty-node group BFS while staying bit-exact? In particular, evaluate (yes/no + why, with a realistic % if yes):
+
+a) The STATIC "potential group" of a node = all nodes reachable via pass-transistor channels IGNORING gate state (the maximal possible group). Could precomputing per-node potential-group info shortcut the runtime walk (which only includes the ON subset) — e.g. detect "this node's potential group is tiny/huge", or skip the dedup structure, or bound the walk — while staying bit-exact? Or is the ON-subset so variable that the static superset tells you nothing useful?
+
+b) CACHE-LAYOUT precomputation: since the binding cost is random NodeInfo/NodeStates latency, could a static node-id renumbering (RCM / graph-partition / group-co-location so channel-connected nodes are cache-adjacent) measurably cut L2 misses in the walk? Is this worth measuring, and what ordering heuristic would you pick for a "walk follows pass-transistor channels" access pattern?
+
+c) Any OTHER static precomputation specific to this structure I haven't listed (be creative but honest) — or is the blunt truth "the dynamic ON-subset + 94% SCC + memory-latency floor means no static precomputation materially helps; the engine is at its structural floor"?
+
+For each: bit-exact yes/no, and a realistic expected % on this already-optimized engine. Prefer "this won't beat what you have, here's the structural reason" over speculative wins.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the blunt, concrete evaluation of your engine and the proposed static precomputations.
+
+### a) STATIC "Potential Group" Precomputation
+**Bit-exact?** Yes.
+**Will it help?** **NO. (Expected win: 0%)**
+
+**The structural reason:** You noted that 94% of the netlist is one giant bidirectional pass-transistor SCC. In NMOS designs like the 6502/2C02, almost everything eventually connects to the main internal data/address buses via pass transistors. If you ignore gate states (the ON subset), the "potential group" for any node on or adjacent to a bus is effectively the entire 94% SCC. 
+Because the static superset is massive, it provides no useful bounded subset. You cannot use it to size local arrays, skip dedup (`_inGroup`), or shortcut the BFS. The runtime ON-subset is so aggressively pruned by gate states (down to your measured 1.4 nodes) that the static topology is useless for bounding the traversal. 
+
+### b) CACHE-LAYOUT Precomputation (Node Renumbering)
+**Bit-exact?** Yes.
+**Will it help?** **YES. (Expected win: 5% - 12%)**
+
+**The structural reason:** You are memory-latency bound, and `NodeInfo` is 16 bytes (4 per cache line). When Node A’s BFS walks to Node B, or Node A enqueues Node C, fetching the downstream node incurs an L2/L3 penalty if it's not in the same cache line. You want nodes that frequently communicate to live in the same 64-byte chunk.
+*However, do not use standard RCM.* RCM is for minimizing matrix bandwidth in linear solvers; it has no concept of dynamic execution frequency. 
+
+**The Ordering Heuristic:** You need **Profile-Guided Heavy-Edge Matching**. 
+1. Instrument your emulator to dump a trace of Super Mario Bros for a few frames. 
+2. Record a weighted graph of every time Node A reads Node B’s state (channel walk) AND every time Node A enqueues Node B (gate trigger). 
+3. Feed this weighted graph into a static partitioner (like METIS) or a greedy clustering algorithm to pack the heaviest 4-node cliques into contiguous IDs. 
+Since the average BFS is only 1.4 nodes, the *enqueue* edge (gate -> source/drain) is actually where most of your random memory jumps happen. Order for the dynamic hot paths, not the static topology.
+
+### c) OTHER Static Precomputations
+Here are two specific precomputations/structural changes that target your exact bottleneck. 
+
+#### 1. Static Array Packing / Bit-packing (The Smoking Gun)
+**Bit-exact?** Yes.
+**Expected win: 15% - 25%**
+
+You stated: *L1d is ~32KB and already contended by NodeStates + RecalcHash x2 + _inGroup + PruneMask (each ~14.7KB).*
+This is your actual memory-latency floor. Fetching data for a single node requires hitting up to 5 separate cache lines. Because their combined size (~73KB) exceeds L1d, you are guaranteeing L1 thrashing on every random node jump. 
+**The fix:** Statically bit-pack all 5 arrays into a **single 14.7KB `byte[]` array**. 
+*   Bit 0-1: State (0/1/Z)
+*   Bit 2: _inGroup
+*   Bit 3: RecalcHash0
+*   Bit 4: RecalcHash1
+*   Bit 5: PruneMask
+By doing this, a node's entire volatile state fits in **one byte**. The entire 14.7K node state array now permanently locks into L1d, leaving the rest of the L1d cache entirely free for your `NodeInfo` structs. (To clear `_inGroup`, do not memset the array; since your walk is ~1.4 nodes, simply unset the bit on the visited nodes as you finish the BFS).
+
+#### 2. Static Sub-Graph Isomorphism (Standard Cell Merging)
+**Bit-exact?** Yes.
+**Expected win: 8% - 15%**
+
+You lowered always-on transistors, but the netlist is still full of standard NMOS logic structures (e.g., a pull-up to PWR and pull-down to GND via pass transistors forming an inverter or NAND). 
+Write a static load-time pass to detect these rigid standard-cell subgraphs and replace them with a single custom "Macro Node." 
+*Why it works here:* It statically eliminates internal nodes and their associated event queue overhead. If a 3-node inverter becomes 1 node, you've removed two nodes from `NodeStates` and two potential enqueues. 
+*To keep it bit-exact:* You only need the whole-chip checksum to match. When the macro node calculates its state, have it update a dummy array with the deterministic states of the "hidden" internal nodes so the FNV checksum remains identical.
+
+### The Blunt Truth
+If you implement profile-guided renumbering and pack your 5 parallel arrays into a single L1-resident array, you will hit the absolute structural floor of scalar event-driven simulation. Because of the dynamic nature of Bryant relaxation on a 94% SCC, **no static topological precomputation can bypass the event queue or the need to evaluate the ON-subset dynamically.** If you need 390x to reach real-time, no amount of node-level tweaking will get you there; but the cache and layout fixes above will comfortably squeeze out the remaining 20-30% left in this engine.

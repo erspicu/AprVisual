@@ -1,0 +1,129 @@
+Timestamp: 2026-06-07T22:14:25
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a switch-level / gate-level simulation specialist with deep knowledge of the CAD/EDA acceleration literature (1980s–2020s). I am going to be blunt: in past consults you only surfaced the most useful idea (a capacitance-ordering safety condition) AFTER I pushed with a very specific counter-example. So this time: do NOT give me a generic "you've reached the ceiling" answer. I want you to ENUMERATE, by name, every concrete acceleration technique from the switch-level / event-driven / MOS-sim literature you know of, and for EACH rule it in or out for my exact regime with a one-line mechanism + a realistic quantitative estimate. If you genuinely know a technique I have not tried, name it even if you think it's marginal — I will judge and measure. An answer that names <8 specific techniques is a failure. Answer in Traditional Chinese (繁體中文); technique names + author/system names in English.
+
+# MY SYSTEM (exact, measured)
+- Event-driven switch-level (Bryant) simulator of the whole NES (2A03 CPU + 2C02 PPU), NROM, from Visual6502 transistor netlists. ~14,700 live nodes, ~26,800 transistors after a conservative lowering pass.
+- Single CPU core. Bit-exact required (whole-NES NodeStates checksum identical at 300k & 1M half-cycles). C# + a bit-identical Rust port.
+- Hot loop: pop dirty nodes, resolve each one's connected conducting group (flag-OR → 256-LUT; floating group = largest-capacitance member holds previous). MEMORY-LATENCY BOUND: each node re-eval is a random gather; average conducting group = ~1.4 nodes; ~94% of nodes are in ONE giant bidirectional pass-transistor SCC.
+- Current: C# ~109K hc/s, Rust ~101K hc/s. NES real-time needs 42.95M hc/s (~393× away).
+
+# WHAT I HAVE ALREADY DONE OR RULED OUT (do NOT re-propose these as if new)
+- Fast-path: static pure-logic singletons O(1); R-1 dynamic-singleton fast-path (+18%).
+- Event-count prunes P-1..P-4 (the big wins): skip enqueuing a node when a merge/disconnect provably can't change it; same-state turn-on prune; single-channel turn-off isolation; capacitance-guarded turn-on extension. Deletes ~21% of all re-evaluations, bit-exact.
+- Lowering: structural always-on-short merge + dead-transistor drop. Aggressive iterative rail-tied constant-fold = only ~58 foldable nodes (0.38%), and folding renumbers the netlist → breaks the golden checksum, so not worth it. Those constants are already runtime-free (never re-enqueued).
+- Memory layout: hot/cold SoA split, ushort/byte packing, inline node adjacency, register-hoisted BFS, ulong dual-pair wide loads, bit-packed prune mask. (Footprint already L1-resident; further footprint tricks measure neutral/negative.)
+- The remaining ~80% no-change re-evaluations are PullUp/supply-driven combinational nodes that recompute the same value after an input opens (another pull-down still holds them) — runtime/data-dependent, no static signature; a maintained "active pull-down count" counter = state-caching, measured −6%.
+- MEASURED SLOWER / OUT (don't re-suggest): IR / codegen / compiled-cycle (3–84× slower, loses event sparsity), GPU single-instance (~10× slower), bit-parallel/bitset BFS (156× slower), multithreading / per-chip parallel (15× slower), levelized scheduling (−15%, the SCC has no useful topo order), cache-line renumber/RCM (−3–4%), software prefetch (−5%).
+
+# THE INTERROGATION — name techniques, rule each in/out concretely
+1. ENUMERATE the named switch-level / MOS simulation systems & their key acceleration ideas you know — e.g. MOSSIM-II, COSMOS (Bryant/Beatty/Bryant — compiled switch-level), Anamos / symbolic analysis, ESIM, RSIM/IRSIM (Salz/Horowitz — event-driven timing), Cadence/Synopsys switch-level, Verilator-style. For each: is its acceleration idea applicable to a single-core, bit-exact, event-driven NES sim, or does it require something I've excluded (compilation, batch, parallelism, approximation)? Be specific about which.
+2. EVENT-LEVEL techniques beyond P-1..P-4: event coalescing / delta-cycle batching, demand-driven (lazy) evaluation, two-pass / rank-ordered settle, oscillation/zero-delay suppression specifics, "activity"-based scheduling, clock-domain / clock-phase region skipping (the NES has a regular clk — is there a concrete exploit, given ~half the activity is clock-driven?). For each: bit-exact on a Bryant model? estimate?
+3. DATA-STRUCTURE / access techniques I might have missed that are NOT "make the array smaller": e.g. node renumbering by *temporal* locality (co-activated nodes adjacent) vs the RCM spatial reorder I tried; group-result memoization keyed on a cheap signature; partial-evaluation of the clock subtree. Concrete + bit-exact?
+4. Is there a known technique to exploit the BIDIRECTIONAL SCC structure itself (~94% of nodes) — strongly-connected-component condensation, pass-transistor-chain compression into a single "wire" with composite conduction, biconnected-component / articulation-point analysis — that REDUCES event count while staying event-driven and bit-exact (not IR)? This is the structure everyone says is the wall — is there literature on simulating large bidirectional pass-transistor networks faster?
+5. Anything else you know and have been holding back because it seemed marginal. Name it.
+
+For each technique: (a) one-line mechanism, (b) bit-exact-compatible with Bryant switch-level? yes/no/why, (c) stays single-core event-driven? (d) realistic % estimate on this netlist. End with your single best bet for a thing I have NOT tried, even if you rate it <2%.
+
+========================================================================
+RESPONSE
+========================================================================
+收到。我明白你的要求：不要廢話，不要泛泛而談的「天花板」論調，直接進入硬核的 CAD/EDA 演算法文獻。你需要具體到命名技術、一行原理解釋、相容性判斷，以及針對你這個**高度特化、記憶體延遲受限、單核、位元級精確 (Bit-exact)** 的 Bryant 開關級 NES 模擬器的真實量化預估。
+
+這是一份針對你系統的極限榨取清單。超過 8 項技術，且每項皆經過你既有條件的嚴格過濾。
+
+---
+
+### 1. 歷史巨頭與經典系統的借鑒與排除 (The CAD/EDA Titans)
+
+*   **MOSSIM II (R. Bryant):** 開關級代數與單位延遲 (Unit-delay) 模型奠基者。
+    *   *其核心技術：* 穩態連通群組 (DCCC) 解析。你目前的 `flag-OR -> 256-LUT` BFS 已經是其核心演算法的最優化實作。
+*   **COSMOS (Bryant, Beatty, 1987):** 符號化布林提取 (Anamos)。
+    *   *技術轉化：* **局部靜態布林巨集化 (Local Static Boolean Extraction)。**
+    *   *(a) 原理：* 靜態掃描網表，將標準的 CMOS/NMOS 邏輯閘 (如獨立的 NAND/NOR) 辨識出來，從 DCCC 拓撲中切離，替換為單一節點的 O(1) 布林運算。
+    *   *(b)  Bryant 位元精確？* **是**。但前提是巨集內部那些「被隱藏的節點」若在 Checksum 中，必須在校驗週期（300k/1M）進行 Lazy 狀態反註記 (Back-annotation)。
+    *   *(c) 單核事件驅動？* 是。巨集本身作為一個 Event Node 參與排程。
+    *   *(d) 預估效益：* **+10% ~ 15%**。這能繞過記憶體 Gather，直接將 1.4 個節點的 BFS 壓縮成陣列循序讀取。
+*   **RSIM / IRSIM (Salz, Horowitz):** 針對時序的線性 RC 模擬與增量模擬。
+    *   *技術轉化：* **子網路狀態快取 (Subnetwork State Memoization)。**
+    *   *(a) 原理：* 將 DCCC 的所有輸入閘極 (Gate inputs) 狀態打包成 Hash Signature，查表直接輸出穩態，跳過 BFS。
+    *   *(b) Bryant 位元精確？* **是**。
+    *   *(c) 單核事件驅動？* 是。
+    *   *(d) 預估效益：* **-5% ~ 0% (不推薦)**。你已經驗證過 State-caching 是負收益，因為計算 Signature 的記憶體讀取成本高於你那極小的平均 1.4 節點群組。
+*   **SLG (Hajj, Switch-Level Simulation):** 基於圖論的嚴格分割。
+    *   *技術轉化：* **雙連通分量/關節點分解 (Biconnected Component / Articulation Point Decomposition)。**
+    *   *(a) 原理：* 靜態分析將巨大的 DCCC 依據關節點切分為樹狀結構，葉節點獨立求解後向上傳遞，避免全局 BFS。
+    *   *(b) Bryant 位元精確？* **是**。
+    *   *(c) 單核事件驅動？* 是。
+    *   *(d) 預估效益：* **-5% (不推薦)**。你的平均導通群組才 1.4 個節點，這種演算法有巨大的數學拓撲開銷，純屬殺雞用牛刀。
+
+---
+
+### 2. 事件層級的進階榨取 (Event-Level Techniques beyond P-1..P-4)
+
+*   **技術 5: 雙緩衝 Delta-Cycle 批次處理 (Double-Buffered Delta-Cycle Batching)**
+    *   *(a) 原理：* 完全捨棄傳統的 Event Queue (或 Priority Queue)，改用兩個平坦陣列 `Current_Delta` 與 `Next_Delta`。掃描 `Current_Delta` 時將觸發的節點推入 `Next_Delta`，每半週期結束後交換指標，消除所有 Queue 操作與去重 (Deduplication) 的動態開銷。
+    *   *(b) Bryant 位元精確？* **是**。Bryant 模型本質上就是 Delta-cycle levelized 的。
+    *   *(c) 單核事件驅動？* 是。
+    *   *(d) 預估效益：* **+8% ~ +12%**。如果你還在使用鏈結串列或複雜的陣列 Queue，切換到純粹的 Ping-Pong 陣列能顯著降低 L1 Cache 的管理指令數。
+*   **技術 6: 靜態時鐘子樹展開 (Static Clock Subtree Expansion / Bypassing)**
+    *   *(a) 原理：* NES 有高達一半的 Activity 由規律的時鐘驅動。將 `CLK1` / `CLK2` 扇出的 Pass-transistor 直接編譯為靜態的 Bitmask 操作，當 Clock 切換時，**不將 Clock 節點放入 Queue**，而是直接將受影響的 Data 節點推入 Queue，跳過時鐘扇出的遍歷過程。
+    *   *(b) Bryant 位元精確？* **是**。
+    *   *(c) 單核事件驅動？* 是。
+    *   *(d) 預估效益：* **+6% ~ +10%**。
+*   **技術 7: 需求驅動/延遲評估 (Demand-Driven / Lazy Evaluation)**
+    *   *(a) 原理：* 當節點狀態改變，但其扇出到的電晶體閘極，其 Source/Drain 目前都是浮接 (Floating) 狀態時，暫不將該節點推入 Queue 計算。
+    *   *(b) Bryant 位元精確？* **否** (除非你在 Checksum 前強制 Flush 所有 Lazy 狀態)。
+    *   *(c) 單核事件驅動？* 是。
+    *   *(d) 預估效益：* **-8% (不推薦)**。檢查「是否可被觀察 (Observability)」所需的記憶體 Gather，遠比直接執行你那超快的 `flag-OR` 評估還要慢。
+
+---
+
+### 3. 資料結構與記憶體存取 (Data-Structure / Access)
+
+*   **技術 8: 跡線驅動之時間局部性重排 (Temporal Trace-Driven Renumbering)**
+    *   *(a) 原理：* 你試過基於空間拓撲的 RCM (Cuthill-McKee) 並得到負面結果 (-4%)。改用**時間局部性**：記錄 10 萬週期的真實執行跡線 (Trace)，統計「在同一個 Delta-cycle 內被一起放進 Queue」的節點對頻率，輸入圖形切割演算法 (如 METIS)，強制將時間上高度共現的節點塞進同一個 Cache Line。
+    *   *(b) Bryant 位元精確？* **是**。只需在 Checksum 前透過 Look-up table 映射回原始 ID。
+    *   *(c) 單核事件驅動？* 是。內部資料結構最佳化。
+    *   *(d) 預估效益：* **+4% ~ +7%**。這能確實減輕你最痛的 Memory-latency bound (Random gather)。
+
+---
+
+### 4. 針對 94% 巨大雙向 Pass-Transistor SCC 的結構破局
+
+你提到 94% 的節點在同一個巨大雙向 SCC 中。注意：**這不是指單一 DCCC (導通群組) 很大 (你說了平均才 1.4)**，而是指**事件相依圖 (Dependency Graph)** 形成了幾乎覆蓋全晶片的循環。標準的 Topological Levelized Scheduling 會失敗 (-15%) 就是因為雙向開關打破了 DAG。
+
+*   **技術 9: 串聯傳輸閘壓縮 (Pass-Transistor Chain / Series Reduction)**
+    *   *(a) 原理：* 靜態找出那些僅由 Pass-transistor 串聯的長路徑 (A - Tx1 - B - Tx2 - C)，將其融合為單一虛擬開關 (A - Tx12 - C)。當 B 節點不作為任何其他電晶體的 Gate 時，B 不參與動態模擬。
+    *   *(b) Bryant 位元精確？* **是**。在 Checksum 時，透過 A 和 C 的狀態與 Tx1/Tx2 的狀態，套用簡單的電阻分壓邏輯立即重建 B 的精確狀態。
+    *   *(c) 單核事件驅動？* 是。壓縮了事件網路。
+    *   *(d) 預估效益：* **+5% ~ +9%**。直接削減事件總數，且減少 SCC 內部的微小振盪與傳遞階層。
+
+---
+
+### 5. 我一直扣著沒說的極限邊緣技術，以及我的「最佳賭注」
+
+針對你目前的終極瓶頸：「剩下的 ~80% 無變化重新評估，都是 PullUp/電源驅動的組合邏輯節點，在一個輸入斷開後，因為**另一個 Pull-down 仍將它們穩住**而重新計算了相同的值。」
+
+你試過維護 Active Pull-down Count，但 -6% 因為 Write/Cache 污染太重。你需要一個**純讀取 (Read-only)** 且能直接阻斷 Queue 推入的機制。
+
+*   **技術 10: 驅動強度防護的關斷修剪 (Strength-Guarded Turn-Off Prune)**
+    *   *(a) 原理：* 在 Bryant 模型中，每個節點當前的狀態都有一個「主導驅動強度 (Dominant Drive Strength, 例如 0-7)」。當一個電晶體 Tx 關斷 (Turn-off) 時，**如果 Tx 自身的電導強度 (Conductance) 嚴格小於該節點當前紀錄的主導驅動強度**，那麼這個 Tx 的關斷在物理上**絕對不可能**改變該節點目前的狀態。直接跳過 Enqueue！
+    *   *(b) Bryant 位元精確？* **是**。純粹的數學安全性條件。
+    *   *(c) 單核事件驅動？* 是。只需在 Pop 節點後多一個簡單的 Integer Compare。
+    *   *(d) 預估效益：* **+3% ~ +5%**。
+
+#### 🏆 我的單一最佳賭注 (The Best Bet): 支配者 ID 旁路 (Dominant Path Transistor ID Bypass)
+
+這是對上述 80% 瓶頸的最精準打擊。
+*   *(a) 機制：* 在你執行 `flag-OR -> 256-LUT` 並寫入節點新狀態時，如果你發現該節點的狀態是由**單一最強路徑** (例如單一個導通的強力 Pull-down 晶體) 決定的，將該電晶體的 `Tx_ID` 寫入節點結構的 `Dominant_Tx` 欄位 (若並聯驅動則設為 0)。
+    下次，當任何電晶體觸發「Turn-off」事件時，你只需檢查：`if (Turning_Off_Tx_ID != TargetNode.Dominant_Tx) { continue; }`。
+    **如果關掉的不是那個唯一主導者，該節點的狀態絕對不會變！** 不需要算 Count，不需要加減法，只需一個 `uint16` 比對。這將那些「其他 Pull-down 關斷」造成的無效重估直接在最外層迴圈砍掉。
+*   *(b) Bryant 位元精確？* **是**。
+*   *(c) 單核事件驅動？* 是。
+*   *(d) 真實預估：* 如果如你所言 80% 都是這類冗餘評估，這個 O(1) 的比對能將整體效能再推升 **+15% ~ +25%**，且完全相容於你的 Memory-latency 限制，因為 `TargetNode.Dominant_Tx` 和 `TargetNode.State` 可以打包在同一個 `uint32` 中一起被 L1 Cache 讀取。
+
+你已經把能榨的常規汁都榨乾了，現在只能用拓撲壓縮 (技術 1、9) 與狀態支配旁路 (技術 10、Best Bet) 來硬生生拔掉 Event 數量。去實作 Best Bet，然後告訴我測量結果。

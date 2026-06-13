@@ -1,0 +1,113 @@
+Timestamp: 2026-06-07T13:58:20
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a senior compiler/EDA engineer. Brutally honest, no encouragement. Answer in Traditional Chinese (繁體中文), technical terms in English.
+
+# CONTEXT
+A switch-level (Bryant) simulator of the NES 2A03/2C02 (whole NES, NROM), derived from Visual6502 transistor netlists. Event-driven, heavily optimized C# (+ bit-identical Rust). It runs an offline "lowering" pass once at load to compact the netlist; I want to know if a MORE AGGRESSIVE but still bit-exact lowering is possible, given a precise understanding of WHAT breaks correctness.
+
+# HARD CONSTRAINTS (answers violating these are useless)
+1. Single CPU core. No IR, no codegen/JIT-of-netlist, no GPU. (All measured 3-156x SLOWER; not this question.)
+2. Must stay BIT-EXACT per node vs the un-lowered switch-level result (whole-NES state checksum identical at 300k and 1M half-cycles). No approximation.
+3. Lowering is an OFFLINE one-time pass; its ONLY runtime benefit is shrinking the hot working set (smaller NodeStates/NodeInfo/TransistorList arrays -> better cache on a memory-latency-bound hot loop). It does NOT run in the hot loop.
+
+# GROUP RESOLUTION (load-bearing for what's safe to lower)
+A node group (connected via ON transistors) resolves via OR-ed 8-bit flags -> a 256-entry LUT, priority:
+  ForceCompute special: if group has BOTH Gnd and Pwr -> cancel both; then Gnd>0, Pwr>1, SetHigh>1, SetLow>0, PullUp>1, State(prev-high)>1, else 0.
+  PLUS: if the OR-ed flags are EMPTY (purely floating group) -> resolved value = NodeStates of the group member with the largest "capacitance" = NodeConnections (c1c2 + gate count). "Largest-cap member holds its previous state."
+
+# CURRENT LOWERING (conservative, bit-exact) — WireCore.Lower.cs
+1. Static-group merge: two NORMAL nodes joined ONLY by an always-on (gate==Vcc), non-weak transistor are shorted forever (union-find, fold onto one representative). The merged node keeps Connections = MAX over the class — exactly what the floating tie-break would have picked, so even that corner stays bit-exact.
+2. Drop dead transistors (gate==Vss, never conduct) + duplicates + post-merge self-loops.
+3. Compact/renumber survivors to a dense 0..N range.
+Result on the NES netlist: nodes 15164 -> 14723 (merged 441, ~2.9%); transistors 27305 -> 26775 (dropped 530, ~1.9%).
+Explicitly NOT done: merging a normal node permanently tied to a supply rail by an always-on device (left as a TlistC1pwr/gnd entry).
+
+# WHAT BREAKS CORRECTNESS (measured this week — the key new understanding)
+Earlier, a MORE aggressive lowering that REMOVED nodes/stubs broke bit-exactness. Root cause, now precisely understood: it perturbs the **floating-group capacitance tie-break** (removing/merging a node changes its neighbors' NodeConnections -> a purely-floating group's "largest-cap winner" flips -> the held value changes) AND the **ForceCompute Gnd+Pwr cancel**.
+Crucially, BOTH of these only ever fire for a specific "fragile" node set:
+  - NO-PullUp nodes — can sit in a purely-floating group resolved by the capacitance hold-previous tie-break. These are exactly the chip's DYNAMIC LOGIC and MEMORY/STORAGE cells: OAM (sprite) RAM, palette RAM, dynamic CPU nodes.
+  - ForceCompute channel-component nodes (the precharged PPU data bus).
+Measured: of 14,727 live nodes, ~58.7% are "fragile" (8,331 no-PullUp + 709 in the single ForceCompute channel-component). The other ~41% are PullUp-driven pure combinational logic, whose groups are NEVER purely-floating, so their NodeConnections is NEVER read in a tie-break — they can be restructured freely.
+(For reference: we already shipped a same-state-merge prune in the hot loop guarded by exactly this fragile-set mask, +11.85% C#, bit-exact.)
+
+# ALREADY TRIED / FAILED (do not re-suggest)
+- Aggressive stub-removal at lowering: broke bit-exact via the floating tie-break (the <1% truly "closed dead-end" subset is the only safe-to-remove part; most "dead-end" nodes still leak state to observers via group walks).
+- "Dead-end / unobserved node skip": Gates.Count==0 != no observer (leaf state flows to observable nodes via the group walk).
+- IR / codegen / GPU / bitset / multithread: all slower, out of scope.
+
+# THE QUESTION
+Given the precise fragile-set understanding (no-PullUp + ForceCompute-component = ~58.7%; the PullUp-driven ~41% are tie-break-irrelevant), propose MORE AGGRESSIVE but PROVABLY BIT-EXACT lowering transformations. For each:
+1. The exact transformation and why it's bit-exact (esp. how it avoids perturbing the floating tie-break and the ForceCompute cancel — note that removing/merging even a SAFE node changes its neighbors' NodeConnections, so a safe node adjacent to a fragile node is still constrained).
+2. Whether it REMOVES nodes (shrinks arrays) or only restructures.
+3. A realistic, skeptical estimate of how many more nodes/transistors it could remove on this netlist (already lowered to 14,723 nodes), and therefore the realistic hot-loop speedup given the benefit is only via a smaller working set on a memory-latency-bound loop.
+4. Be explicit if your honest conclusion is "the safely-removable set is tiny, not worth it."
+
+Specifically assess: (a) iterative constant-folding (fold rail-tied / constant nodes, simplify the transistors they gate, repeat to fixpoint) — how much does it find on a 6502/PPU netlist? (b) series/parallel transistor reduction — is it bit-exact under this group model, and does it even shrink the node array? (c) any transformation that shrinks the FRAGILE set itself safely.
+
+Be concrete and quantitative. If the realistic upside is sub-2% hot-loop speedup, say so plainly — I would rather hear that than a plausible-but-marginal idea.
+
+========================================================================
+RESPONSE
+========================================================================
+身為資深 Compiler/EDA 工程師，我會直言不諱。你的問題核心在於：**在嚴格限制不能使用 IR / Codegen 的前提下，企圖在純 Switch-level (Bryant) 陣列模型中尋求大幅度的拓撲最佳化。** 
+
+殘酷的現實是：你目前的保守 Lowering（合併 Static-group、剔除死晶體管與自迴圈）已經非常接近這個資料結構能達到的**理論極限**。晶片 Layout 提取出的 Netlist 中，幾乎沒有「純粹冗餘」的邏輯閘。在不改變 `Transistor(c1, c2, gate)` 模型的情況下，你的操作空間極度狹小。
+
+以下是針對你提出的方向進行的具體評估與量化分析，以及如何繞過你目前遇到的 Tie-break 破壞問題。
+
+---
+
+### 突破點：電容解耦 (Capacitance Value Decoupling)
+你提到「移除安全節點會改變相鄰脆弱節點的 `NodeConnections`，進而破壞 Floating tie-break」。這是一個**自我施加的工程缺陷**。
+物理上，節點的寄生電容是 Layout 決定的常數。你的 Lowering 不應該在拓撲改變後重新計算 `NodeConnections`。
+
+**解法**：在執行任何 Lowering 之前，先在最原始的 Pristine Netlist 上計算所有節點的 `NodeConnections`（`c1c2 + gate count`），並將其寫死為一個靜態的 `CapacitanceLUT` 陣列。在 Hot-loop 裡的 Floating tie-break **絕對只讀取這個原始電容值**。
+這能徹底將拓撲精簡與電容 Tie-break 脫鉤，保證即使你刪除了安全節點，脆弱節點在 Floating 狀態下的「勝負關係」依然 Bit-exact。
+
+即使解鎖了這個限制，我們來看看你真正能砍掉多少東西：
+
+---
+
+### 1. 迭代常數折疊 Iterative Constant-Folding (Rail-tied nodes)
+**Transformation**:
+尋找那些透過 Always-on（`gate == Pwr`）且非 Weak 的晶體管，永久連接到 `Gnd` 或 `Pwr` 的 Normal nodes。將這些節點直接 Fold 進入隱含的 `Gnd` / `Pwr` flags 中。
+*   **作法**：若節點 $X$ 永久短路至 `Pwr`，將陣列中所有 $c1/c2 = X$ 或 $gate = X$ 的晶體管端點改寫為 `Pwr`，然後**完全刪除節點 $X$**。改寫 $gate = Pwr$ 會產生新的 Always-on 晶體管，這可能引發進一步的 Static-group merge 或進一步的 Rail-tie。使用 Union-Find 迭代直到 Fixpoint。
+*   **為何 Bit-exact**：這些節點在物理上與 Supply rail 無異。它們的狀態被強勢驅動，不會進入 Floating，也不會被 Pull down（否則會觸發 ForceCompute cancel）。把它們當作 Rail 本身完全符合 Bryant 模型的 Flag OR-ing 規則。
+*   **節點刪除/重構**：直接刪除節點與冗餘的 Always-on 晶體管，縮小 Working set。
+*   **量化預估**：在 Visual6502 的 2A03/2C02 網表中，這類節點主要來自多邊形提取（Polygon extraction）時殘留的 Power distribution network 碎片或未使用的 Pads 綁定。**極限預估能再砍 150 - 300 個節點 (~1% - 2%)**。
+
+### 2. 串聯/並聯晶體管化簡 (Series/Parallel Reduction)
+**Transformation**:
+*   **Parallel**：你已經做了（Duplicates removal）。
+*   **Series**：例如 $A - B - C$ 串聯，且 $B$ 沒有連接其他任何閘極或路徑（純粹的中繼節點）。
+*   **為何不可行**：這在純 Switch-level 中是**不可能的**。串聯的兩個晶體管等同於對 Gate 進行 AND 邏輯。要化簡為單一晶體管 $A - C$，這個新晶體管必須有**兩個 Gate**。你的硬性限制禁止了 IR 與複合節點（Composite gates），因此你現有的 `TransistorList` struct 根本無法表達這種結構。
+*   **結論**：在不違反 Constraint 1 的情況下，Series reduction 貢獻為 **0**。
+
+### 3. 縮減 Fragile Set (No-PullUp + ForceCompute) 本身
+**Transformation**:
+*   **ForceCompute 節點 (PPU Data Bus, 709 nodes)**：這些節點依賴 `Gnd + Pwr` 同時存在來觸發 Cancel 機制，以此模擬 NMOS 預充與下拉的類比競爭。如果你改變了任何連接拓撲，導致在特定半週期內無法正確匯集 `Gnd` 與 `Pwr` flags，PPU 讀取就會立刻損毀。**完全不可動**。
+*   **No-PullUp 動態與記憶體節點 (OAM/Palette/CPU dynamic, ~8300 nodes)**：這些是晶片儲存狀態的物理載體（Pass-transistor latches）。它們的 State 值必須在 Floating tie-break 中作為歷史記憶向回傳遞（Back-propagation via group walk）。如果你刪除了所謂的「死胡同 (Dead-end)」脆弱節點，它的狀態就不會成為 Group 的 Winner，整個 Latch 的記憶就會丟失。**完全不可動**。
+
+### 4. 非脆弱節點 (~41% PullUp-driven) 的「死胡同」剔除
+**為何無效**：
+你以為某些 Combinational logic 節點是「Dead-end」（`Gates.Count == 0`），可以被移除。但這在 NMOS 邏輯中是個謬誤。
+一個 PullUp 節點 $N$ 即使不驅動任何 Gate，只要它連接在某個 Group 中，它的 `PullUp` flag 就會向整個 Group 廣播。如果你移除了這個「無觀察者」的節點，該 Group 就會失去 PullUp 來源，導致整個 Group 錯誤地解析為 0 或 Floating。
+若要安全移除，你必須將 PullUp 屬性轉移到相鄰節點，但如果相鄰節點是 Fragile 的，賦予它 PullUp 會直接改變它的 Resolution 邏輯。這需要極其複雜的布林等價性驗證，在純拓撲操作下幾乎必定打破 Bit-exact。
+
+---
+
+### Brutally Honest Conclusion
+
+你的結論選項 4 是正確的：**「The safely-removable set is tiny, not worth it.」**
+
+在實施了 **Capacitance Value Decoupling** 與 **Iterative Constant-Folding** 之後，你最多只能再從這 14,723 個節點中榨出 **150 到 300 個冗餘節點 (< 2%)**。
+
+因為你的 Hot-loop 效能瓶頸在於 Memory-latency bound（Cache misses on `NodeStates` / `TransistorList`），Working set 減少 2%，考慮到 Cache-line 填充的非線性效益，對 Hot-loop 的實際 Speedup **絕對不到 0.5%**。
+
+**作為 EDA 工程師的最終判定：**
+你試圖在「底層資料結構不可變（No IR/Codegen）」且「必須 100% 物理等效（Bit-exact per node）」的雙重枷鎖下尋求效能突破。這在理論上是死胡同。Visual6502 的 6502/PPU Netlist 高度緊湊，除了早期的提取瑕疵外，幾乎每一個晶體管都在執行必要的邏輯或維持必要的狀態。
+
+如果你不願意打破 Constraint 1 導入 AST/IR 將 NMOS 邏輯閘 Abstract 化，你目前的 `WireCore.Lower.cs` 就已經是這個架構下**盡善盡美的終點**了。別再浪費時間在純粹的 Netlist Lowering 上，這條路已經被你走到了盡頭。去優化你的 Cache-line layout（例如將高頻存取的 Node flag 與 State 打包成 Struct-of-Arrays 或調整記憶體對齊），這會比絞盡腦汁多砍 100 個節點有效得多。

@@ -1,0 +1,126 @@
+Timestamp: 2026-06-14T00:36:40
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are advising on multi-threading a bit-exact, event-driven SWITCH-LEVEL simulator of the
+whole NES (2A03 CPU + 2C02 PPU + board TTL), ~14.7K nodes / ~26.8K NMOS transistors, C#.
+Single-core: ~135K master-clock half-cycles/s (hc/s); real-time NES = 42.95M hc/s (~316x away).
+We just ran a full, measured experiment trying to use a SECOND CPU core. Everything below is
+MEASURED on an AMD Ryzen 7 3700X (Zen 2), two threads pinned to two distinct P-cores, unlocked
+clock. We want your read on whether ANY bottleneck here has a solution we missed. Be skeptical
+and concrete; we have already killed 5+ parallelization attempts and don't want re-treads.
+
+=== HARD STRUCTURAL FACTS (measured, not up for debate) ===
+- The engine settles each half-cycle (hc) by draining "settle waves": mean 12.06 waves/hc
+  (max 45). Each wave = process the currently-enqueued nodes; each node does a group walk over
+  ON pass-transistors (channel-connected component, CCC), flags-OR -> priority LUT resolve.
+- WITHIN a wave, evaluation order is Gauss-Seidel and is OBSERVABLE SEMANTICS: a node's
+  SetNodeState mutates state that defines whether OTHER nodes' channels are ON, so processing
+  order changes the resulting groups. Reordering within a wave changes the simulated result.
+  Bit-exactness (full-state FNV-1a checksum) is non-negotiable.
+- ~418 node re-evaluations ("pops")/hc; mean conducting group 1.13-1.4 nodes; the work per
+  event is tiny (~20 ns). The engine is DEPENDENT-LOAD-LATENCY bound (hot set ~15KB, L1-resident),
+  not compute or cache-miss bound. IPC ~2.3.
+- Cross-core round-trip on this machine (measured, cache-line-padded ping-pong, 2 pinned
+  P-cores): ~115-157 ns (median ~134 ns).
+
+=== THE PARTITION (the CPU‖PPU functional split — clean) ===
+- The 2A03 and 2C02 couple through exactly 14 wires: io_db[7:0]≡cpu.db (data bus), io_ab[2:0]
+  (reg addr), io_ce (PPU chip-select, active-low), cpu.nmi≡ppu.int, cpu.rw≡ppu.io_rw.
+- We flood-filled chip-side ownership: contested = 0 -> the two sides are channel-disjoint
+  EXCEPT through those 14 cut wires (verified). So a clean 2-way partition exists.
+- Work balance (pops): cpu-side 17%, ppu-side 54%, SHARED/neutral 29%. The 29% "shared" is the
+  CLOCK DISTRIBUTION TREE + supply fanout — nodes that gate BOTH chips and change every hc.
+- 2-way Amdahl ceiling (sync-free, perfect): 1.20x (shared work duplicated onto the heavy side).
+  PPU side is the bottleneck; the PPU is one big bidirectional SCC, NOT further splittable.
+- Per-hc activity: PPU active 100% of hc; CPU active only 12.5% of hc; cpu-only = 0% (the CPU
+  chip is NEVER active without the PPU also active).
+- The true CPU<->PPU coupling event (io_ce active, the only time the data bus actually bridges
+  the two sides) is sparse: ~0.007-0.012 /hc.
+
+=== WHAT WE BUILT AND MEASURED (the failures) ===
+1. PER-WAVE BARRIER split (the bit-exact one): main=CPU side, worker=PPU side, lock-free spin
+   barrier each wave; a wave runs parallel only if provably cross-side-free (io_ce inactive +
+   no cut node + no neutral/clock node + both sides have work), else serial.
+   RESULT: bit-exact (golden checksum) BUT parallel waves = 0.0%. Cause: a neutral (clock)
+   node is present in ~92% of waves (clock tree gates both sides, changes every hc), and we
+   cannot reorder it relative to chip nodes (within-wave order = semantics). -> 0.89x (SLOWER
+   than single thread; pure overhead, worker idle).
+2. 3-PHASE variant (process neutral serially first, then cpu‖ppu parallel): BROKE bit-exactness
+   (checksum diverged) — confirming the neutral<->chip within-wave order is load-bearing.
+3. SPEED PROBE (relax neutral: lump clock onto the CPU thread, fire parallel anyway, not
+   guaranteed bit-exact): parallel waves jumped to 53.3%, but speed = 0.68x (EVEN SLOWER).
+   The ~134 ns barrier x ~12 waves/hc swamps the tiny per-wave work — more parallelism = slower.
+   This is the same wall that made an earlier per-chip attempt 15x slower.
+
+=== THE ONLY THEORETICAL >1x PATH WE SEE, AND WHY IT'S HARD ===
+COARSE granularity: ONE barrier per hc (not per wave) — let each thread settle its (own side +
+its own private copy of the clock tree) to quiescence INDEPENDENTLY within an hc, sync only at
+the hc boundary. To be bit-exact this needs:
+  (a) per-thread PRIVATE state (each thread its own NodeStates copy), because the clock tree is
+      read+written by both and a shared copy has a read/write ordering race -> i.e. essentially
+      TWO independent engine instances. The engine is static-global; NodeStates is the hottest
+      array (touched every pop) so making it per-thread adds TLS-access cost to the hot path.
+  (b) io_ce-coupled hc (the ~0.7-1.2% where the bus actually bridges): the CPU thread needs the
+      PPU's just-computed bus value -> optimistic execution with snapshot + rollback + serial
+      redo, or conservative blocking.
+Model ceiling for this coarse path ≈ 1.16x (Stage A "smart"), and we expect the per-thread-
+NodeStates TLS overhead + per-hc snapshot (15KB memcpy for rollback) + merge to eat most/all of
+that 16% margin. So even the best case is marginal.
+
+=== QUESTIONS ===
+1. Is our conclusion correct that per-wave barriers are fundamentally dead here (134 ns sync vs
+   ~0.6 us of per-wave work, x12/hc), and that the ONLY upside is coarse hc-granularity with
+   per-thread state? Did we miss a granularity in between?
+2. Cross-core sync: is ~134 ns the floor for a 2-core round-trip on Zen 2, or is there a
+   materially faster mechanism (e.g. UMWAIT/UMONITOR user-space wait, MWAITX, a specific
+   lock-free pattern) that could drop per-wave sync enough to matter? Realistically how low?
+3. The coarse path needs per-thread NodeStates. Is there a way to get the "private clock tree"
+   without duplicating the WHOLE state array — e.g. duplicate only the ~29% shared/clock nodes
+   into a small per-thread side-array and keep cpu/ppu shared? (Our worry: redirecting just the
+   neutral-node reads/writes touches the hot path pervasively. Is there a clean trick?)
+4. The within-wave Gauss-Seidel order being observable semantics is the root blocker. Is there
+   ANY known technique to parallelize a Gauss-Seidel / chaotic-relaxation iteration bit-exactly
+   when the iteration order itself is part of the defined result? (We believe no, but ask.)
+5. The 1.20x work-imbalance ceiling (PPU 54% + shared 29% on the heavy side, PPU unsplittable
+   SCC): is there any decomposition of a single chip's CCC settling that we're not seeing, OR
+   is per-instance throughput parallelism (many NES instances on many cores — embarrassingly
+   parallel) the only honest way more cores help this workload?
+6. Brutal bottom line: given all the above, is multi-core acceleration of THIS (single-instance,
+   bit-exact, switch-level) workload dead, and should we stop? If you see a genuinely different
+   paradigm we haven't tried, name it concretely; otherwise say "stop".
+
+Answer concisely. We value a clear "stop" over a hopeful re-tread of something we already killed.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the brutal, concrete read you requested. 
+
+**6. BRUTAL BOTTOM LINE (Answering this first to frame the rest):**
+**STOP.** Multi-core acceleration of this single-instance, bit-exact, switch-level workload is dead. You have a theoretical Amdahl ceiling of 1.20x, and you are trying to squeeze it out of an architecture where the synchronization overhead is an order of magnitude larger than the work itself. Even if you executed perfectly on the coarse-grained path, you *might* achieve a 1.05x speedup. You are 316x away from real-time. A 5% gain for massive architectural complexity is a total waste of time. Embarrassingly parallel throughput (e.g., genetic algorithms, fuzzing, or hosting multiple independent game instances) is the *only* honest use of multiple cores for this engine. 
+
+Here are the concrete answers to your specific questions:
+
+**1. Are per-wave barriers dead? Any intermediate granularity?**
+Yes, mathematically dead. Your per-wave work is ~700ns. Your sync is 134ns. Amdahl's law with a ~20% sync tax on a best-case 50/50 split means you can never scale.
+There is no intermediate granularity. At the switch level, the clock edges define the boundaries of causality. The engine settles until quiescence within a half-cycle. You cannot sync mid-settle without violating the Gauss-Seidel semantics, and syncing per-node is obviously absurd. 
+
+**2. Cross-core sync floor on Zen 2?**
+134 ns is very close to the practical floor for a high-level language on this silicon.
+If you pin to two cores *within the same CCX* (sharing the 16MB L3 cache), the hardware L2-to-L2 cache coherency ping-pong is roughly 40-50ns. If you drop to native C/assembly and use `MONITORX`/`MWAITX` to avoid atomic `LOCK` prefixes and cache-line bouncing, you might get the round-trip down to ~70ns. But in C#, standard `Volatile.Read`/`SpinWait` overheads will keep you exactly where you are. Even at 70ns, it is still fatal against your ~700ns of work.
+
+**3. The coarse path and a "private clock tree" trick?**
+Any attempt to branch in your hot loop (`if (node_id < SHARED_THRESHOLD) read_shared() else read_private()`) will introduce pipeline stalls and destroy the dependent-load-latency chain that your engine currently relies on. 
+The only "clean" trick is virtual memory aliasing (mapping two different virtual addresses to the same physical page for shared nodes, and different pages for private nodes), but C# makes this virtually impossible without catastrophic unsafe P/Invoke overhead. 
+Furthermore, duplicating the entire 15KB state per thread every half-cycle (the rollback/merge phase) means copying 15KB * 42.95M times per real-time second. That is ~645 GB/s of L1 bandwidth just for state copying. It will choke your CPU.
+
+**4. Parallelizing observable Gauss-Seidel semantics?**
+No. If the iteration order defines the result (chaotic relaxation), it is mathematically equivalent to a strict dependency chain. The only known computer science technique to parallelize a strict dependency chain is Speculative Execution (predict/execute/rollback). You already modeled this for the coarse path, and as you noted, the rollback overhead (memcpy) and conflict rate make it a net negative.
+
+**5. Splitting the PPU SCC?**
+You cannot spatially decompose a single strongly connected component at the transistor level without introducing "ghost nodes" (overlapping boundary states calculated redundantly by both threads to resolve boundary conflicts). Because the PPU is an unsplittable bidirectional SCC, the ghost-node overlap would approach the size of the PPU itself. You would end up doing 1.5x the total work just to split it in half, completely erasing any parallel advantage.
+
+**Summary:**
+You built a highly optimized, L1-resident, dependent-load-bound state machine. You have successfully hit the single-thread limit of the architecture. You cannot partition the un-partitionable. Take the win on the single-core optimization, drop the multi-threading pursuit for a single instance, and pivot to either pure algorithmic single-core optimizations or multi-instance workloads.

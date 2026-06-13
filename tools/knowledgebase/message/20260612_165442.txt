@@ -1,0 +1,58 @@
+Timestamp: 2026-06-12T16:54:42
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+SHORT FOLLOW-UP on item 2d of your prior-art analysis (our switch-level NES simulator). You rated our methodology — "identify the chip's memory by its physics, not by its name" — as: extraction itself KNOWN in EDA (state-element reverse engineering, Kam et al. 1995 etc.), but NOVEL IN APPLICATION when used to parameterize safe event-culling masks in an event-driven switch-level simulator.
+
+To be concrete, the methodology is: at load time, from the flat transistor netlist alone, derive per-node SAFETY classes for event suppression — (i) pull-up presence flags, (ii) union-find over pass-channel connected components to taint everything that shares a component with a ForceCompute bus node, (iii) capacitance-dominance comparisons against all channel neighbours, (iv) exclusion of handler-driven pins. No node is ever hand-listed; storage/bus cells exclude themselves by their electrical structure. These classes gate which enqueue events may be suppressed (P-1..P-4), and the whole thing is verified bit-exact against the unpruned reference.
+
+THREE QUESTIONS, answer bluntly:
+1. In academic publishing terms, does "known technique, novel application" count as an original contribution? What is the actual bar — when do DAC/ICCAD/TCAD-style venues (or systems venues) accept application novelty as a contribution vs dismiss it as engineering? Name the typical framing that makes it acceptable (e.g. as part of a larger system paper, as an empirical contribution, etc.).
+2. Collision check for the APPLICATION itself: has anyone used automatic state-element/storage extraction to drive EVENT SUPPRESSION or evaluation skipping in a simulator (any level: switch, gate, RTL)? Closest candidates we should check: gate-level "latency" exploitation, RTL clock gating inference applied to simulation, "don't-care"-based simulation pruning, X-pessimism work, anything in fast SPICE (e.g. hierarchical/isomorphism engines like UltraSim/FineSim that detect latent partitions)? Give a verdict: known / variant / plausibly original, and 4-6 precise search queries to verify.
+3. If the honest answer is "this is engineering glue, not a claim", say so — we would then present 2d only as methodology supporting the P-2/P-3 claims, not as a standalone contribution. Which presentation do you recommend?
+
+========================================================================
+RESPONSE
+========================================================================
+Here are the blunt, academically rigorous answers to your three questions.
+
+### 1. The Bar for "Known Technique, Novel Application"
+**Verdict:** It does *not* count as a standalone algorithmic contribution in DAC/ICCAD/TCAD, but it *is* an acceptable and highly valued **systems/methodological contribution** if framed correctly. 
+
+**The Actual Bar:** EDA reviewers are notoriously traditional. If you frame this as "A Novel Algorithm for State Extraction," an older reviewer will cite Randal Bryant’s MOSSIM/COSMOS papers (1980s) or IRSIM, point out that using union-find to identify Channel-Connected Components (CCCs) and using capacitance for state-node identification is 40 years old, and reject the paper. 
+
+**Acceptable Framing:** To survive peer review, you must frame this as an **"Enabling System Architecture"** or a **"Zero-Configuration Methodology."** 
+*   *Systems Venue (ASPLOS, EuroSys, ISCA) Framing:* "Prior highly-optimized simulators require manual, error-prone hardware annotations to safely cull events. We contribute an end-to-end architecture that achieves real-time switch-level simulation directly from flat netlists. A key enabler of our system is an automated, physics-based static analysis phase that maps netlist topology to safe event-suppression masks."
+*   *EDA Venue (DAC) Framing:* Do not claim the *extraction* is novel. Claim the **Static Safety Classification for Speculative Culling** is novel. "While topology extraction is a known reverse-engineering technique, we uniquely apply it at load-time to statically prove the safety bounds of our aggressive runtime event-culling engine."
+
+### 2. Collision Check for the Application
+**Verdict: VARIANT / PLAUSIBLY ORIGINAL.** 
+The exact formulation—using load-time structural physics to build static safety masks that gate discrete queue events—is highly plausible as original in the context of modern event-driven simulators. However, there are adjacent historical collisions you must distinguish yourself from:
+
+*   **Classic Switch-Level (IRSIM / COSMOS):** IRSIM dynamically evaluates nodal capacitance to determine charge-sharing and memory state. COSMOS statically extracted CCCs (using union-find on channels) to compile transistor networks into boolean representations. *Your distinction:* They did this to figure out *what logic to evaluate*; you are doing it to figure out *what events to safely drop entirely* from the queue without breaking the simulation.
+*   **Fast-SPICE (UltraSim, FineSim, HSIM):** These use heavy static analysis (isomorphism, RC reduction) to partition circuits. At runtime, they use "latency bypass" (if the partition's inputs haven't crossed a delta threshold, skip the matrix solve). *Your distinction:* Fast-SPICE bypasses expensive numerical integration dynamically; you are applying static bitmasks to bypass discrete event enqueueing.
+*   **Gate/RTL Simulation:** RTL simulators use "Observability Don't Care" (ODC) or clock-gating inference to skip evaluation. *Your distinction:* At gate/RTL, state elements (DFFs) are explicit library primitives. You are working from a sea of flat transistors where state is implicit.
+
+**Precise Search Queries to Verify (Use IEEE Xplore & Google Scholar):**
+1. `("switch-level" OR "transistor-level") AND ("event-driven" OR "event scheduling") AND ("suppression" OR "culling" OR "bypass")`
+2. `("fast-spice" OR "fast spice") AND ("latency bypass" OR "latent partition") AND "capacitance"`
+3. `"channel connected components" AND "event-driven" AND "simulation"` *(Look for 1990s papers here).*
+4. `("state extraction" OR "memory extraction") AND "event-driven simulation" AND "netlist"`
+5. `"observability don't care" AND "event suppression" AND "gate-level"`
+6. `("IRSIM" OR "COSMOS") AND "static analysis" AND "event queue"`
+
+### 3. Recommendation: Claim vs. Engineering Glue
+**The Honest Answer:** This is **brilliant engineering glue**, not a standalone theoretical claim. 
+
+If you list "Physics-based memory extraction" as Contribution #3 in your introduction, reviewers will attack it for lack of theoretical novelty, distracting them from the actual breakthrough (your P-1..P-4 event culling masks). 
+
+**Recommended Presentation:**
+Present Item 2d strictly as **Methodology supporting the P-2/P-3 claims**. It should be the "implementation reality" that proves your mathematical/algorithmic culling rules actually work in practice without human intervention.
+
+*How to write it in the paper:*
+Do not give it a top-level section. Embed it inside the "Implementation" or "System Architecture" section. 
+> **Section 4: Implementing Safe Event Culling**
+> "To exploit the theoretical event-culling rules (P-1..P-4) defined in Section 3, the simulator must accurately classify network nodes (e.g., distinguishing state-holding parasitic capacitors from driven buses). Rather than relying on manual annotations or heuristic naming conventions, we developed a static, physics-based load-time analysis pass. By performing union-find over pass-channels and evaluating capacitance-dominance against channel neighbors, the simulator autonomously partitions the flat netlist into strict safety classes. This guarantees that our event-culling masks are mathematically safe to apply, achieving bit-exact accuracy against the unpruned reference model with zero human-in-the-loop configuration."
+
+This presentation does exactly what you need it to do: it signals to the reviewers that you are rigorous, that your system is automated, and that your actual novel claims (the culling rules) are built on a rock-solid, practical foundation. It defends against the critique of "how do you know what to cull?" without pretending union-find is a new invention.

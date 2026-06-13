@@ -1,0 +1,102 @@
+Timestamp: 2026-06-12T16:40:39
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+PRIOR-ART CONSULT #2. Same project as before: a single-core, event-driven SWITCH-LEVEL simulator of the whole NES (Visual2A03 + Visual2C02 netlists + board, ~14.7K nodes / ~26.8K NMOS transistors, C# + bit-identical Rust twin, ~127K master-half-cycles/s). The algorithm lineage is visual6502's chipsim.js -> MetalNES's wire_compute -> our port: event-driven settle; per event, build the CONDUCTING GROUP (BFS over ON pass transistors), OR the members' flags, resolve through a 256-entry priority LUT (Gnd > Pwr > external drive > PullUp > hold); a purely-floating group resolves to the LARGEST-CAPACITANCE member's previous state (this tie-break IS the storage mechanism of the chip's dynamic/precharge/SRAM nodes). Bit-exactness against the unmodified reference is absolute (full-state checksums at 300k/400k/1M half-cycles + sprite-heavy 10M gates).
+
+You already analyzed our renumbering work (range-prune + self-captured first-touch locality key) last time and mapped it to the Inspector-Executor lineage. NOW we ask the same blunt question about the OTHER two optimization families we built. For each: what existing work is it the same as or closest to (simulation literature, EDA tools, academic papers), and which components, if any, are genuinely uncommon enough to count as original contributions? We'd rather learn we reinvented MOSSIM-era techniques than claim false novelty.
+
+# FAMILY 1 — group-cardinality-specialized resolution ("dynamic fast-path")
+
+The per-event cost is dominated by the group walk machinery. We added a load-time classification plus run-time dispatch that PROVES small group cardinality cheaply and takes specialized resolution paths:
+
+1a. Static singleton class (cls1): nodes with NO pass-transistor channels at all (typical NMOS gate outputs: pull-up + pull-downs straight to GND). Their conducting group is provably always {nn}, forever. Resolution = OR the node's own gnd/pwr gate states into its flags, one LUT read. No walk. (26.7% of nodes; classification is load-time, from connectivity only.)
+
+1b. DYNAMIC singleton (R-1, our biggest single win, +18.6%): nodes WITH pass channels, but at the moment of the event, if every one of its pass-channel GATES is currently OFF (a short scan of live gate states), the group is exactly {nn} RIGHT NOW, so the same O(1) resolve is bit-identical to the full walk. One ON gate -> fall through to the real walk. So the dispatch is a run-time cardinality proof, not a static property. (73% of nodes are candidates; ~60% of all events resolve through 1a+1b.)
+
+1c. Pair path (B1, newest): when the dispatch scan finds EXACTLY one ON gate, check the neighbour across that channel: if none of the neighbour's other pass gates are ON (i.e. every ON channel of the neighbour leads back to the seed), the group is exactly {seed, neighbour}; resolve the pair inline, replicating the walk byte-for-byte: the pending-queue dedup-hash clear of the absorbed member, flags = both nodes' flags OR both nodes' own gnd/pwr scans, the floating tie-break (strict larger-capacitance wins, seed wins ties = first-seen order), and the writeback ORDER (seed then neighbour - within-wave Gauss-Seidel order is observable semantics). All bail-outs happen before any mutation, so fallback to the walk is exact. Empirics: size-2 groups are 77% of all walks (30% of all events); the path pays +0.6% on C# (whose walk was already iterative + fully inlined) but +14.5% on Rust (whose walk was a recursive call chain) - the same algorithm worth 24x more on one backend.
+
+Questions for family 1: is run-time group-cardinality dispatch (1b/1c) a known technique in switch-level simulators (MOSSIM II, COSMOS, IRSIM, Anamos, TV/Bryant-school, or anything later)? IRSIM and friends partition into channel-connected components STATICALLY - we know that; the question is the DYNAMIC per-event cardinality proof and the size-specialized inline resolution with exact tie-break/order replication. Is there a named concept (e.g. "event locality", "fanout-free path", "single-node relaxation") that covers it?
+
+# FAMILY 2 - provably-null event suppression at the SOURCE ("the prune family", P-1..P-4)
+
+Classic event-driven simulation already skips no-change propagation (selective trace, Ulrich). Our engine inherits that. The prunes go one level earlier: when a transistor's gate toggles, the walk normally enqueues the channel ENDPOINTS for re-evaluation next wave. We suppress the enqueue itself when the re-evaluation is PROVABLY a no-op, using only static structure + the two endpoints' live states:
+
+2a. P-1 same-state turn-ON prune (+11.85%): gate turns ON, the channel will MERGE two groups; if both endpoints currently hold the same state, the merged group resolves to that same state - PROVIDED resolution goes through the monotone driven-priority LUT. The catch (and our first naive version shipped a black screen because of it): for groups that resolve through the FLOATING tie-break, an equal-state merge can still change values (different largest-cap winner, charge-sharing semantics). Fix = a load-time SAFETY CLASSIFICATION from electrical structure only: taint every node with no pull-up (could float -> tie-break) and every node whose pass-channel connected component contains a ForceCompute bus node (non-monotone Gnd+Pwr cancel); the prune only fires on untainted endpoints. No hand-listed nodes - storage cells exclude THEMSELVES by their physics.
+
+2b. P-2 turn-OFF isolation prune: gate turns OFF at an endpoint that statically has exactly ONE pass channel and NO drivers of its own (no gnd/pwr channels, no pull-up, not externally driven): opening its only channel leaves it an isolated driverless singleton, which by definition HOLDS its previous value - the re-evaluation is a guaranteed no-op. Skip the enqueue. Static class, ~26% of all event pops were these no-ops.
+
+2c. P-3/P-4 capacitance-guarded un-taint (+5.96% / +1.71%): P-1's blanket taint of no-pull-up nodes is too conservative. A driverless node whose capacitance is STRICTLY LESS than EVERY one of its channel neighbours can never be the merged group's largest-capacitance member, so it can never flip a floating tie-break; equal-state merges through it are provable no-ops. Un-taint that subset. This auto-excludes the heavy storage cells (they have the LARGEST capacitance - that's what makes them storage) with zero manual identification.
+
+2d. The general methodology we'd claim: "identify the chip's memory by its physics, not by its name" - classification by pull-up flags, channel-component union-find, capacitance comparisons, handler-driven-pin exclusion; every prune is gated on full-state bit-exactness vs the unpruned reference; together P-1..P-4 delete ~21% of all node re-evaluations at the source.
+
+Questions for family 2: in the logic/switch-level simulation literature, is enqueue-side suppression with structural safety classes a known technique? Specifically: (i) the same-state merge skip with a monotonicity condition; (ii) the isolation/float-hold skip; (iii) the capacitance-dominance argument for tie-break immunity (this one feels closest to original - it is a proof about Bryant-style switch-level charge-sharing semantics); (iv) the physics-based self-exclusion of storage nodes. Map each to named prior art (Bryant's switch-level theory, MOSSIM II's unit-delay event model, COSMOS's compiled approach, IRSIM's incremental stepping, "demand-driven" or "lazy" simulation papers, oscillation/glitch suppression literature, anything in ICCAD/DAC/TCAD). Verdict per item: known / variant-of-known / plausibly original.
+
+# OUTPUT WANTED
+1. Per item (1a,1b,1c,2a,2b,2c,2d): closest named prior art with citations, and a blunt verdict: known / variant / plausibly original.
+2. If something IS plausibly original, say exactly which CLAIM is the original part (e.g. "the capacitance-dominance un-taint as a sufficient condition for tie-break immunity in switch-level simulation").
+3. 5-8 precise search keyword combinations to check we're not scooped.
+4. Anything in our descriptions that suggests we MISREAD the literature (e.g. if IRSIM already does dynamic singleton dispatch, tell us where).
+Be blunt and specific. No flattery.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is a blunt, rigorous prior-art analysis of your two optimization families, mapped directly to the switch-level simulation literature (primarily the Bryant school: MOSSIM, COSMOS, and the Salz/Horowitz school: IRSIM). 
+
+### FAMILY 1 — Group-Cardinality-Specialized Resolution
+
+**Context in Literature:** Your "walk" is known formally as the evaluation of a **Channel-Connected Component (CCC)** or **Channel Graph**. In Bryant’s MOSSIM II, the network is statically partitioned into CCCs, and when any event hits a CCC, the whole component is relaxed via a lattice-algebra algorithm. 
+
+*   **1a. Static singleton (cls1):**
+    *   **Closest prior art:** MOSSIM II (Bryant, 1984), COSMOS (Bryant et al., 1987). 
+    *   **Verdict: KNOWN.** This is basic static CCC generation. Nodes with only gate connections are statically extracted as trivial, unidirectional Boolean components. In compiled simulators like COSMOS, these are compiled directly into logic gates (Boolean formulas) rather than switch-level resolution networks.
+*   **1b. Dynamic singleton (R-1):**
+    *   **Closest prior art:** IRSIM (Salz & Horowitz, 1989), specifically its dynamic partitioning of RC trees. Also relates to "Selective Trace" in switch-level models.
+    *   **Verdict: VARIANT OF KNOWN (Implementation Novelty).** The literature concept is **Dynamic CCCs** or **Active Subnetworks**. While MOSSIM II evaluated the whole static CCC regardless of active switch states, IRSIM dynamically maintains "active" trees based on which switches are currently ON. However, checking if local active degree $= 0$ to *bypass* the generic relaxation algorithm via an $O(1)$ fast-path is a specific software JIT/dispatch optimization, not a new theoretical simulation model. 
+*   **1c. Pair path (B1):**
+    *   **Closest prior art:** Compiled switch-level simulation (COSMOS, Anamos). COSMOS performs *static* template matching (recognizing common structures like transmission gates or latches) and generates specialized code for them.
+    *   **Verdict: VARIANT OF KNOWN (with a novel dynamic twist).** You are performing **dynamic topological pattern matching** on the active channel graph. The literature relies heavily on *static* subgraph isomorphism to avoid BFS walks. Doing this at *runtime* based on active switch states to replicate exact Bryant-style Gauss-Seidel resolution semantics inline is an aggressive software optimization. It is not theoretically novel (it is just loop unrolling/inlining the BFS for size=2), but it is a highly effective engineering variant.
+
+### FAMILY 2 — Provably-null Event Suppression (The Prune Family)
+
+**Context in Literature:** Your floating tie-break (largest capacitance wins) is a direct implementation of Bryant’s **node size lattice** for discrete charge-sharing resolution. 
+
+*   **2a. P-1 same-state turn-ON prune (with taint):**
+    *   **Closest prior art:** "Latency" and "Selective Trace" (Ulrich, 1969); IRSIM equipotential bypass.
+    *   **Verdict: VARIANT OF KNOWN.** Skipping switch evaluation when connecting two equipotential nodes is standard (IRSIM does this with voltage/charge). However, your catch—that charge sharing (floating tie-breaks) can still cause a state change if a small node connects to a large node of the *same* state but with a different previous history—is a fundamental quirk of Bryant’s discrete math. Your solution (static structural taint of undriven nodes to protect charge-sharing semantics) is a variant of static node typing.
+*   **2b. P-2 turn-OFF isolation prune:**
+    *   **Closest prior art:** IRSIM charge-preservation rules.
+    *   **Verdict: PLAUSIBLY ORIGINAL (as a static event-suppression rule).** When a switch opens, simulators normally re-evaluate the split subnetworks. If a subnetwork has no drivers, it inherits its state from its capacitance (it holds). You have elevated this from a *runtime evaluation outcome* to a *load-time static proof* (identifying degree-1 driverless leaves) to suppress the enqueue entirely. 
+*   **2c. P-3/P-4 capacitance-guarded un-taint:**
+    *   **Closest prior art:** Bryant's MOSSIM II (1984) formalization of the $\kappa$ (node size) lattice; automated memory extraction in EDA (e.g., Jou & Jou, 1988).
+    *   **Verdict: PLAUSIBLY ORIGINAL.** This is your strongest claim. You are utilizing static capacitance-dominance inequalities to formally prove that a specific node cannot dictate the outcome of a Bryant switch-level charge-sharing resolution. By proving tie-break immunity statically, you safely mask out dynamic events.
+*   **2d. Methodology (Identify memory by physics, not name):**
+    *   **Closest prior art:** "Transistor-level abstraction" / "Logic Extraction". EDA tools (like formal verifiers or ATPG tools) have long used graph algorithms and capacitance rules to reverse-engineer state elements (SRAM cells, latches) from flat transistor netlists without manual annotation (e.g., Kam et al., 1995).
+    *   **Verdict: KNOWN in EDA, but NOVEL in application.** Extracting state elements by physics is standard EDA practice. Using those extractions specifically to parameterize safe event-culling masks in an event-driven discrete switch-level simulator is plausibly original.
+
+### Output 2: The Exact Claims for Plausible Originality
+
+If you write this up, do not claim to have invented dynamic active sub-networks or equipotential bypass. Claim the following specific mechanisms:
+
+1.  **Claim 1 (The P-3/P-4 mechanism):** "The use of static capacitance-dominance inequalities to formally prove tie-break immunity in Bryant-style discrete charge-sharing models, thereby enabling equipotential event suppression on a subset of dynamic storage nodes."
+2.  **Claim 2 (The P-2 mechanism):** "Static structural identification of degree-1 driverless network leaves to suppress disconnect-events (turn-OFF evaluations) prior to the event queue."
+3.  **Claim 3 (The 1b/1c mechanism - lesser claim):** "A runtime cardinality-dispatch architecture for switch-level simulators that bypasses generalized channel-connected component (CCC) relaxation in favor of $O(1)$ inline execution for active active subnetworks of size $\le 2$."
+
+### Output 3: Search Keywords to verify you aren't scooped
+
+Query these exact combinations in IEEE Xplore, ACM Digital Library, and Google Scholar:
+
+1.  `"switch-level simulation" "charge sharing" "event suppression"`
+2.  `"dynamic channel-connected" OR "dynamic active subnetwork" "switch-level"`
+3.  `"equipotential" "switch-level" "selective trace"`
+4.  `"MOSSIM" "capacitance" "charge sharing" "optimization"`
+5.  `"switch-level" "compiled simulation" "dynamic template"`
+6.  `"automatic extraction" "storage nodes" "switch-level simulation"`
+7.  `"bipartite graph" "switch-level" "dynamic partitioning"`
+
+### Output 4: Where you might be misreading the literature
+
+*   **You view Visual6502/chipsim.js as distinct from MOSSIM.** In reality, Visual6502's logic—pull-up/GND/PWR priorities and largest-capacitance floating tie-breaks—is almost exactly Bryant's MOSSIM II mathematical model (using discrete strengths and sizes) stripped of the 'X' (unknown) state. Understanding that your simulator *is* functionally MOSSIM II will help you correctly map your optimizations to the 1980s literature. 
+*   **IRSIM vs. Static Partitioning:** You noted IRSIM partitions statically. IRSIM *does* statically partition into CCCs, but it *dynamically* evaluates them by walking RC trees defined by ON switches. Your 1b/1c dynamic dispatch is essentially doing IRSIM's dynamic tree traversal, but halting early and branching to hardcoded logic if the active tree size is $\le 2$. Frame your 1b/1c not as "inventing dynamic sizing", but as "dynamic sizing applied as an early-out execution filter."

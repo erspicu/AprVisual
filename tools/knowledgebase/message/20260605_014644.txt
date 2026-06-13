@@ -1,0 +1,146 @@
+Timestamp: 2026-06-05T01:46:44
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+Context: C# .NET 10, x64, `unsafe` performance-critical switch-level simulator. Hot per-node arrays are unmanaged (NativeMemory.AlignedAlloc, raw `byte*`/`int*`). I have behavioral RAM/ROM "handlers" implemented as captured lambdas (closures) that run as callbacks during simulation. Each handler needs to read a few small per-instance arrays of node ids (`addr`, `dataOut`) and a per-instance `byte*` memory buffer.
+
+The problem: I want these per-instance arrays to be UNMANAGED (raw pointers), but:
+- C# forbids capturing a pointer-typed LOCAL in a lambda/anonymous method ("Cannot use a pointer ... inside a lambda").
+- There are MULTIPLE handler instances, so I can't use static pointer fields (which work fine for a singleton handler — a lambda can read a static `int*` field directly with zero indirection).
+
+My first implementation parked the per-instance pointers as FIELDS of a captured managed holder object:
+    sealed class Ctx { public int* Addr; public int ALen; public int* DataOut; public int DLen; public Memory Mem; public int Mask; }
+    var ctx = new Ctx { ... };
+    AddCallback(trigger, () => { ... ReadBits(ctx.Addr, ctx.ALen); v = ctx.Mem.Data[address & ctx.Mask]; ... });
+This compiled and was bit-exact, but measured ~0.7% SLOWER than the original managed `int[]`/`byte[]` captured-local version (interleaved-paired A/B). I believe the regression is the extra object-hop indirection: the closure captures the `ctx` reference, then must field-load `ctx.Addr` (and `ctx.Mem.Data` is two hops: ctx -> Mem -> Data), whereas the original captured the `int[] addr` / `byte[] data` references directly as closure display-class fields.
+
+MY CANDIDATE FIX: capture `nint`/`IntPtr` LOCALS (legal to capture — they are integer value types, not pointer types) and cast back to `T*` inside the (unsafe) lambda body:
+    nint addrP = (nint)addr; int alen = ...;   // addr is int* from NativeMemory
+    nint memDataP = (nint)mem.Data; int mask = ...;
+    AddCallback(trigger, () => { ... ReadBits((int*)addrP, alen); v = ((byte*)memDataP)[address & mask]; ... });
+My reasoning: each `nint` is captured DIRECTLY as a field of the closure display class (same as capturing any int/ref local), so there's NO extra object-hop like the holder had; the `(int*)`/`(byte*)` casts are free (reinterpret, no memory access); and indexing the raw pointer drops the bounds check the managed array had. So this should be perf-neutral-or-better vs the managed version, and strictly better than the holder.
+
+QUESTIONS:
+1. Is capturing `nint`/`IntPtr` locals and casting to `T*` inside an unsafe lambda the idiomatic, lowest-overhead way to use per-instance unmanaged buffers in a captured closure in modern .NET? Is it correct/safe (GC can't move NativeMemory, so the address is stable)?
+2. Compared to the managed-holder (`ctx`) approach, will RyuJIT actually generate fewer loads (no second object dereference)? Or does the closure display class end up identical either way?
+3. Are there better/cleaner alternatives I'm missing — e.g. a `readonly struct` captured by value (does that even work for closures?), `delegate*<...>` function pointers + an explicit context pointer, a single static array-of-contexts indexed by a captured int, or something else? Rank them by per-call overhead.
+4. Any correctness pitfalls with `nint` capture (e.g., if the lambda outlives the allocation — in my case the lifetime is managed: the buffers are freed only when all handlers are torn down together)?
+
+Be concrete about the .NET 10 / RyuJIT codegen implications. Keep it focused on the lowest per-call overhead for a hot callback. Assume I will measure interleaved-paired afterward; I want the best DESIGN to try.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is a detailed, performance-focused breakdown of your problem, answers to your questions, and the optimal patterns for .NET 10 / x64.
+
+### 1. Is capturing `nint` and casting to `T*` idiomatic, lowest-overhead, and safe?
+
+**Yes.** For a closure-based architecture, capturing `nint` is the canonical, safe workaround for the C# compiler's restriction against pointer-type capture. 
+
+**Why it is safe:** 
+Because you are using `NativeMemory.AlignedAlloc`, the memory is allocated on the unmanaged heap. The Garbage Collector does not know about it, does not track it, and **will never move it**. The memory address is permanently stable. As long as you manually control the lifetime (which you stated you do) and ensure the lambda doesn't execute after the memory is freed, casting back and forth between `nint` and `T*` is 100% safe.
+
+### 2. RyuJIT Codegen: Will it generate fewer loads than the `Ctx` holder?
+
+**Yes, strictly fewer dependent memory loads.**
+
+To understand why your `Ctx` class caused a 0.7% regression and why `nint` fixes it, look at how the C# compiler generates closure display classes:
+
+*   **The `Ctx` approach (Double Indirection):**
+    The compiler generates a class containing a reference to your `Ctx` object.
+    `this` (Closure instance) -> `ctx` (Heap Object) -> `Addr` (Pointer field).
+    *x64 Codegen:*
+    ```asm
+    mov rcx, [rdi + 8]   ; Load 'ctx' object reference from closure field
+    mov rdx, [rcx + 16]  ; Load 'Addr' pointer from ctx (DEPENDENT LOAD)
+    mov eax, [rdx]       ; Finally read your unmanaged memory
+    ```
+
+*   **The `nint` approach (Single Indirection):**
+    The compiler generates a class containing the `nint` fields directly.
+    `this` (Closure instance) -> `addrP` (Pointer field).
+    *x64 Codegen:*
+    ```asm
+    mov rdx, [rdi + 8]   ; Load 'addrP' directly from closure field
+    mov eax, [rdx]       ; Read your unmanaged memory
+    ```
+
+By capturing `nint` locals, you physically inline the pointers into the compiler-generated closure object. You save a dependent memory fetch (`mov rdx, [rcx...]`), which saves CPU pipeline stalls. Furthermore, compared to your original managed `int[]` version, you completely drop the array bounds check and the array base-offset math. **This makes the `nint` capture strictly faster than both.**
+
+### 3. Better/cleaner alternatives (Ranked by Overhead)
+
+While the `nint` closure is the fastest *delegate-based* approach, delegates themselves impose a virtual call overhead (`Invoke()`). If you are simulating millions of nodes per tick, delegate dispatch is a measurable bottleneck.
+
+Here is the ranking of callback architectures from fastest to slowest in .NET 10:
+
+#### Rank 1: Function Pointers (`delegate*`) + Unmanaged Context (The Absolute Fastest)
+If you are willing to refactor your `AddCallback` infrastructure, drop `Action`/`Func` entirely. Use C# 9+ function pointers. This eliminates the closure object allocation, eliminates GC pressure, and replaces virtual delegate dispatch with a direct native call.
+
+```csharp
+// 1. Define a blittable state struct for each handler instance
+unsafe struct HandlerContext {
+    public int* Addr;
+    public int ALen;
+    public byte* MemData;
+    public int Mask;
+}
+
+// 2. Define your callback list as an array of these tuples:
+unsafe struct CallbackEntry {
+    public delegate* unmanaged[Cdecl]<HandlerContext*, void> Execute;
+    public HandlerContext* Context;
+}
+
+// 3. The Handler (static method, no closure!)
+[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+static unsafe void MyHandler(HandlerContext* ctx) {
+    // Zero overhead access. No classes, no delegates.
+    ReadBits(ctx->Addr, ctx->ALen);
+    var v = ctx->MemData[address & ctx->Mask];
+}
+```
+*Overhead:* Best possible. No objects. 1 cache-friendly read to get the struct, followed by a direct `call rax`. 
+
+#### Rank 2: `nint` wrapped in a captured `readonly struct`
+If you must keep your existing `Action` infrastructure, capturing individual `nint` locals can result in long, messy lambda signatures. You can clean this up by capturing a `readonly struct` by value.
+
+```csharp
+// Struct, NOT a class. 
+readonly struct FastCtx {
+    public readonly nint Addr;
+    public readonly int ALen;
+    public readonly nint MemData;
+    // ...
+}
+
+var ctx = new FastCtx { Addr = (nint)addr, MemData = (nint)mem.Data /*...*/ };
+
+// The lambda captures the struct BY VALUE.
+AddCallback(trigger, () => {
+    // Cast is free. Zero object hops.
+    int* pAddr = (int*)ctx.Addr;
+    byte* pMem = (byte*)ctx.MemData;
+    // ...
+});
+```
+*Overhead:* Identical codegen to capturing raw `nint` locals (Rank 3), but much cleaner code. The compiler embeds the struct directly into the display class. It is `[this + offsetOfStruct + offsetOfField]`, so it retains the single-indirection performance.
+
+#### Rank 3: Capturing individual `nint` locals
+(This is your proposed solution).
+*Overhead:* Excellent, but gets syntactically noisy if you have more than 2-3 pointers/variables to capture.
+
+#### Rank 4: Captured `Ctx` Class (Your measured regression)
+*Overhead:* High due to the extra heap object and dependent load chain.
+
+### 4. Correctness Pitfalls with `nint`
+
+*   **Debugger Experience:** Pointers cast to `nint` show up as integers in the Visual Studio / Rider debugger. You lose the ability to easily view the memory as an array of `int` or `byte` during a breakpoint without setting up explicit watch window casts (e.g., `(int*)addrP`).
+*   **Struct Tearing / Concurrency:** Because `nint` is 64-bit on x64, reads/writes are atomic. You don't have to worry about torn reads if callbacks execute concurrently, provided you aren't mutating the captured variables (which you shouldn't be).
+*   **Accidental `ref struct` limitations:** Do not try to use C# `ref struct` (like `Span<T>`) or `ref` fields inside the closure. The C# compiler strictly forbids capturing `ref struct`s in lambdas because closures live on the heap. `nint` bypasses this precisely because it is a standard value type.
+
+### Summary Recommendation
+
+For an immediate, high-performance fix that keeps your current lambda architecture: **Use Rank 2 (capture a `readonly struct` of `nint` fields by value)**. It will give you the exact same RyuJIT optimization as capturing raw `nint`s, perfectly dropping the array bounds checks and dependent loads, while keeping your C# code highly readable. 
+
+If you are fighting for the absolute last sub-millisecond in your simulator's main loop: **Refactor to Rank 1 (Unmanaged `delegate*`)**. In switch-level simulators, delegate dispatch overhead frequently dwarfs the actual bit-manipulation logic.

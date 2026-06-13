@@ -1,0 +1,148 @@
+Timestamp: 2026-06-10T00:20:10
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a blunt, concrete low-level performance + concurrency expert (cache coherence, lock-free algorithms, NUMA/SMT, .NET threading). Be specific, give real techniques or say plainly "this is hopeless and here's the proof". Answer in English. Do NOT be diplomatic — if the idea is doomed, say so and explain the physics; if there's a real escape, give the concrete mechanism.
+
+# THE ENGINE (context)
+A single-threaded, headless switch-level (transistor/Bryant-relaxation) NES simulator (whole chip: 2A03 CPU + 2C02 PPU, ~14,700 live nodes). It is **memory-latency bound**: each node re-eval is a random gather over native SoA arrays. Event-driven: a double-buffered settle loop (`ProcessQueue`) pops "dirty" nodes, each node resolves its connected conducting group (flag-OR over ON transistors → 256-entry LUT; floating group = largest-capacitance member holds previous). Average conducting group ≈ 1.4 nodes; ~94% of nodes sit in ONE giant bidirectional pass-transistor strongly-connected component. ~14,700 node resolutions per half-cycle, hundreds of thousands of half-cycles per run. Zero managed allocation in the timed loop. HARD REQUIREMENT: bit-exact (a 64-bit FNV checksum over all node states must match a golden value at 300k and 1M half-cycles — any divergence fails).
+
+Hot native arrays (all `NativeMemory`, 64-byte aligned):
+- `byte* NodeStates`     — 0/1 per node, ~14.7 KB, L1-RESIDENT. **The main thread WRITES this constantly (SetNodeState).**
+- `NodeInfo* NodeInfos`  — 16 B/node, ~235 KB (L2). Holds per-node inline payload (channel + gnd/pwr gate lists) or overflow offsets.
+- `ushort* TransistorList` — ~350 KB CSR-style (L2/L3). Read-only after load.
+- `ushort* DominantGate`  — ~29 KB. The P-5 record (see below). **Written during resolution, read during turn-off.**
+- plus PruneMask (byte/node), RecalcHash/RecalcList double-buffers.
+
+# P-5 "DOMINANT-DRIVER TURN-OFF BYPASS" (the optimization we're trying to make pay off)
+Per node `c`, `DominantGate[c]` = the gate node of the single SUPPLY transistor (to GND or VCC) that currently determines c's value, or 0 if not exactly one. Then in the turn-off walk (when a gate node `nn` goes low, we walk the transistors it gates and enqueue their channel endpoints for re-eval), an endpoint `c` can be SKIPPED iff `DominantGate[c] != 0 && DominantGate[c] != nn` — c is pinned by a different single driver, so nn opening can't change it. One uint16 compare deletes a whole re-evaluation.
+
+MEASURED (single-thread, interleaved-paired, bit-exact, AMD Ryzen 7 3700X):
+- The skip itself prunes real work: **+3.4%**.
+- But MAINTAINING DominantGate costs **−15.4%** ⇒ net ~−12 to −18%. The maintenance cost is dominated by (a) the random-access WRITE stream into DominantGate (~one write per resolution, ~14.7k/half-cycle, a fresh latency-bound stream) and (b) turning a branchless OR driver-scan into a branchy count-and-capture. (We confirmed the supply re-scan itself is nearly free — it's L1-hot.)
+
+## The skip, in the main thread's turn-off walk (SetNodeState, gate `nn` went low):
+```csharp
+// for each transistor gated by nn, endpoints c1/c2 (unrolled 4 at a time):
+// domOn = EnableDominantBypass; domGate = DominantGate; nextHash = the next-wave dedup bitmap
+if ((pruneMask[c1a] & PruneTurnOffSkip) == 0
+    && !(domOn && domGate[c1a] != 0 && domGate[c1a] != nn)   // <-- P-5 skip
+    && nextHash[c1a] == 0)
+{ nextList[nextCount++] = c1a; nextHash[c1a] = 1; }   // else: re-eval is skipped
+```
+
+## The capture (fused into the singleton resolver; same for BFS group members):
+```csharp
+// RecalcNodeFastDom(nn): resolve nn's value AND its dominant supply gate in one pass.
+int gndCount=0, gndLast=0, pwrCount=0, pwrLast=0;
+// scan nn's GND-channel gates: for each gate g, if (NodeStates[g]!=0){gndCount++; gndLast=g;}
+// scan nn's PWR-channel gates: likewise into pwrCount/pwrLast
+if (gndCount!=0) flags |= 1<<5;  // Gnd bit
+if (pwrCount!=0) flags |= 1<<4;  // Pwr bit
+if (flags!=0) SetNodeState(nn, FlagsToState[flags]);   // <-- writes NodeStates
+DominantGate[nn] = gndCount!=0 ? (gndCount==1 ? gndLast : 0)   // <-- the maintenance write
+                 : pwrCount!=0 ? (pwrCount==1 ? pwrLast : 0)
+                 : 0;
+// BFS path: after resolving a multi-node group to `newState`, loop every group member m and
+// DominantGate[m] = (its own single ON supply gate matching newState, else 0).
+```
+
+# THE PROPOSAL WE WANT YOU TO STRESS-TEST
+Split into TWO threads pinned (hard affinity) to two different physical P-cores:
+- MAIN core: runs the simulation (ProcessQueue/RecalcNode/SetNodeState), READS DominantGate to apply the +3.4% skip, but does NOT do the maintenance writes.
+- WORKER core: computes & writes DominantGate.
+Hope: main runs near baseline speed + keeps the +3.4% skip ⇒ net positive.
+
+# THE WALLS WE ALREADY SEE (tell us if any are escapable)
+1. **Per-node, same-wave data dependency.** DominantGate[c] is a function of c's JUST-resolved value + its supply states, which the MAIN thread produces in RecalcNode. And the main thread needs DominantGate to make the skip decision IN THE SAME settle wave. So the worker is a consumer of the main thread's per-node output, and the consumer point (skip) is microseconds behind the producer point (resolve). This is not "offload an independent block" — it's slicing a tight per-node producer→consumer chain.
+2. **Wait → serialize, or stale → unsound.** When main reaches a skip decision and the worker hasn't computed that node yet (it lags), main must either WAIT (ping-pong serialize, slower than single-thread) or read a STALE DominantGate (breaks bit-exact — forbidden).
+3. **Cross-core MESI traffic on a latency-bound loop.** DominantGate is worker-write / main-read (read-write sharing → cache-line transfer on every read-after-write). Worse, the WORKER must read `NodeStates` to compute DominantGate, but `NodeStates` is main-write / L1-resident — so worker-read of main-written NodeStates bounces the hottest array's cache lines between cores. False sharing too (29 KB DominantGate = 32 nodes per 64 B line).
+4. **Prior parallel attempts here both lost badly**: per-chip parallel (rayon::join) = 15× SLOWER; bit-parallel dense-BFS = 156× SLOWER. Root cause both: per-wave work too small to amortize sync; latency-bound ⇒ extra cores add coherence traffic, not throughput.
+5. The prize is only +3.4%; the offload machinery must cost less than that AND less than the −15.4% it removes.
+
+# QUESTIONS
+1. Is there ANY lock-free / wait-free / decoupled scheme that makes a two-core split of THIS (per-node, same-wave, latency-bound, bit-exact) producer→consumer pay off? Be concrete (double-buffering with a lag bound? a one-half-cycle-stale DominantGate that's provably still sound? partitioning nodes so main/worker touch disjoint cache lines despite both needing NodeStates? a SPSC ring of "resolved (node,value)" tuples the worker drains? helper-thread prefetch instead of compute?). For each, say whether it stays bit-exact and whether it beats single-thread.
+2. Specifically: can the staleness in wall #2 EVER be made sound? i.e., is there a provable invariant under which reading a DominantGate that's up to N half-cycles old still yields a correct skip (never skips a node that actually changed)? If yes, state the invariant precisely.
+3. Is wall #3 (worker reading main-written NodeStates) fundamentally fatal on a latency-bound loop, or is there a layout/snapshot trick (per-core shadow copy synced at wave boundaries, etc.) that dodges the coherence traffic without costing more than +3.4%?
+4. Given prior 15×/156× parallel failures from the same root cause, is the honest verdict "don't bother"? If you think it's worth a shot, give the SINGLE cheapest go/no-go microbenchmark to run first and the pass/fail number.
+5. ORTHOGONAL: forget threads — is there a way to make the SINGLE-THREAD maintenance itself cheap enough to flip P-5 positive? e.g., only maintain DominantGate for the static subset of nodes that can ever trigger a skip (nodes with their own single supply AND a pass channel), shrinking the ~14.7k write stream to that subset; or pack DominantGate into the same cache line as NodeStates/NodeInfo to remove the separate write stream; or a lazy/incremental update that doesn't rewrite on every resolution. Which of these is most likely to turn −15.4% maintenance into < +3.4%, and why?
+
+Be blunt. We have a strong prior that this is a dead end, but we want either a real escape or a crisp proof that it isn't worth it.
+
+========================================================================
+RESPONSE
+========================================================================
+This is hopeless, and here is the proof. You must abandon the multithreaded offload. I will explain exactly why the physics of the hardware and the logic of your algorithm forbid it, and then I will give you the concrete, single-threaded data-oriented escapes that actually have a chance to flip your −15.4% overhead into a net positive.
+
+### 1 & 2. The Unsoundness of Staleness (Why Wall #1 and #2 are Fatal)
+There is **no lock-free/wait-free decoupled scheme** for this, and staleness can **never** be made sound. 
+
+Here is the exact proof of why reading a stale `DominantGate` breaks your hard bit-exact requirement:
+1. At wave step $T_0$, node `C` is resolved. The Main thread determines its actual dominant driver is `G2`.
+2. The Worker thread lags. `DominantGate[C]` still holds the stale value from the previous wave: `G1`.
+3. At wave step $T_1$ (same wave, microseconds later), gate `G2` turns off. The Main thread walks `G2`'s gated transistors, looking at endpoint `C`. 
+4. Main evaluates the skip: `DominantGate[C] != 0 && DominantGate[C] != nn`.
+5. Since it reads the stale value, it evaluates: `G1 != 0 && G1 != G2`. This evaluates to **TRUE**.
+6. Main **SKIPS** the re-evaluation of `C`. 
+7. **DIVERGENCE:** `C` was actually driven by `G2`. Because `G2` turned off, `C` should have lost its supply and either floated or changed state. Because you skipped it, `C` remains erroneously powered. Your 64-bit checksum just failed.
+
+To prevent this, Main *must* wait for Worker to process `C`. Because `C` was resolved just microseconds ago, you introduce a synchronous inter-core handshake on a microsecond loop. You will lose 1000% performance, not 15%.
+
+### 3. Cross-Core MESI Destruction (Wall #3 is Fatal)
+Even if you could solve the logic (you can't), the silicon will punish you.
+You are running an AMD Ryzen 7 3700X (Zen 2). Zen 2 cores live in 4-core CCXs. 
+If Main and Worker are on the same CCX, an L1 Modified cache line transfer (Main writes `NodeStates`, Worker reads it) takes **~35–45ns** via the shared L3. If they are on different CCXs, it goes over the Infinity Fabric and takes **~75–80ns**.
+
+`NodeStates` is ~14.7 KB (about 230 cache lines). Main is writing to it constantly. If Worker reads it simultaneously, you trigger the MESI protocol's Read-For-Ownership (RFO) / Downgrade cycle. Main's L1 lines are ripped out to Shared state. When Main writes again, it must issue an Invalidate, waiting ~40ns. You are injecting ~40ns of stall into a loop that currently runs in sub-nanoseconds per node. A shadow copy doesn't fix this—synchronizing the shadow copy still pays the bandwidth and synchronization barriers at wave boundaries, costing more than the 3.4% you are trying to save. 
+
+### 4. The Verdict & Microbenchmark
+**Do not bother with threading here.** You are trying to parallelize an operation that takes fewer CPU cycles than the hardware latency of communicating the intent to do the operation. 
+
+If you don't believe the MESI math, run this 5-minute single-threaded microbenchmark: 
+Replace `SetNodeState`'s array write with an `_InterlockedExchange` (or `Volatile.Write`), and put a `Thread.MemoryBarrier()` inside your tight loop. This simulates the minimum hardware cost of forcing the store buffer to flush and wait for cache coherence, without even spinning up a second thread. You will see your engine speed drop by 30–50% instantly. Your +3.4% margin is annihilated.
+
+---
+
+### 5. THE REAL ESCAPE: Single-Threaded Data Layout & Domain Shrinking
+You are losing 15.4% because you are doing **100% of the maintenance work** to dodge a tiny fraction of the graph, and you are paying cache penalties to do it. You must fix the single-threaded memory physics.
+
+Here are the specific ways to turn P-5 positive, in order of likelihood to work:
+
+#### Escape A: AoS Packing (Eliminate the Write Stream Cost)
+Your `DominantGate` maintenance cost is heavily driven by writing to a completely separate 29 KB array (`ushort* DominantGate`). Every write is a potential cache miss and a separate hardware prefetch stream. 
+
+**The Fix:** Pack `NodeStates`, `PruneMask`, and `DominantGate` into a single 4-byte struct.
+```csharp
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct NodeHotData {
+    public byte State;       // 1 byte
+    public byte PruneMask;   // 1 byte
+    public ushort DomGate;   // 2 bytes
+}
+```
+Allocate a single 58.8 KB `NodeHotData*` array. 
+*Why this wins:* When the Main thread's turn-off walk reads `pruneMask[c1a]`, the CPU pulls the 64-byte cache line containing that node. Because `DomGate` is in the **same 4-byte struct**, `DomGate[c1a]` is already in the L1 register. During `RecalcNode`, when you write the new `State` and the new `DomGate`, they hit the exact same cache line simultaneously. You have completely eliminated the secondary memory stream.
+
+#### Escape B: Statically Shrink the Domain (Don't compute what can't be skipped)
+Why are you executing the branchy count-and-capture for all 14,700 nodes? 
+A node can *only* benefit from the P-5 skip if it is a channel endpoint of a pass-transistor that gets turned off. Many nodes in your graph are purely gates, or sit in static pull-up/pull-down paths that never get skipped this way.
+
+**The Fix:** At load time, flag nodes that can *actually* be skipped. Steal a bit in `NodeInfos` or `PruneMask` (e.g., `IsBypassCandidate`).
+Inside `RecalcNodeFastDom`:
+```csharp
+if ((NodeInfos[nn].Flags & IsBypassCandidate) != 0) {
+    // DO the branchy count-and-capture and write DominantGate
+} else {
+    // Just do the branchless OR. Skip DominantGate entirely.
+}
+```
+If only 40% of your nodes are valid targets for this skip, you just deleted 60% of the -15.4% overhead while keeping 100% of the +3.4% gain.
+
+#### Escape C: Bitwise Count-and-Capture (Kill the Branches)
+If `RecalcNodeFastDom` turned your branchless OR into a branchy count, use SWAR (SIMD Within A Register) or bit-tricks to remove the branches.
+Assuming your gate max count per node is small (e.g., ≤ 8), you can read the states of all GND supply gates into a single `ulong` (one byte per state, 0x00 or 0x01).
+A simple bitwise population count (e.g., `ulong gndVector = ...; int gndCount = BitOperations.PopCount(gndVector);`) gives you the count branchlessly. If `gndCount == 1`, you can use `BitOperations.TrailingZeroCount(gndVector)` to mathematically derive the index of the single active gate, mapping it back to the node ID via a lookup, entirely branch-free.
+
+**Action Plan:**
+Implement **Escape A** first. It takes 20 minutes to change the array initialization and update the pointers. It directly attacks the memory-latency bound nature of your engine. If it doesn't push you into the green, add **Escape B** to prune the arithmetic overhead. Leave the Worker thread in the graveyard where it belongs.

@@ -1,0 +1,60 @@
+Timestamp: 2026-06-12T16:48:54
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+SHORT FOLLOW-UP to your prior-art analysis of our switch-level NES simulator optimizations. You rated two mechanisms "plausibly original":
+
+(A) P-2: load-time static identification of degree-1 driverless network leaves to suppress disconnect (turn-OFF) re-evaluation events BEFORE the event queue.
+(B) P-3/P-4 (our strongest claim): static capacitance-dominance inequalities (node cap strictly < ALL channel neighbours' caps) proving tie-break immunity in Bryant-style discrete charge-sharing resolution, enabling safe equipotential event suppression on a subset of dynamic nodes.
+(C) (from the earlier consult) self-captured first-touch execution-trace renumbering: an in-process Inspector-Executor pass at load that captures the production event cascade's first-pop order and rebuilds the simulator's node id space with it.
+
+For EACH of A, B, C give 4-6 PRECISE search query strings (quoted phrases + AND terms) tuned for Google Scholar / IEEE Xplore / ACM DL title+abstract search, designed to surface a collision IF one exists. Prefer queries an author of a colliding paper would have used in their title/abstract. Also list for each claim the 2-3 most likely venues/authors where a collision would hide (e.g., specific MOSSIM/IRSIM follow-up papers, DAC/ICCAD years). Output only the query lists and venue hints — no re-analysis.
+
+========================================================================
+RESPONSE
+========================================================================
+**(A) Static Identification of Degree-1 Leaves for Disconnect Event Suppression**
+
+**Search Queries:**
+1. `"switch-level" AND ("leaf node" OR "dangling node" OR "degree-1") AND "event"`
+2. `"switch-level simulation" AND "static analysis" AND "event suppression"`
+3. `"event queue" AND "switch-level" AND ("turn-off" OR "disconnect" OR "floating")`
+4. `"network simplification" AND "switch-level simulator"`
+5. `"dead branch" AND "switch-level"`
+
+**Likely Venues & Authors:**
+*   **Venues:** DAC (Design Automation Conference) 1984–1995; ICCAD (Intl. Conference on Computer-Aided Design) 1985–1996; IEEE Transactions on CAD of Integrated Circuits and Systems (TCAD).
+*   **Authors:** Randal E. Bryant, Christopher J. Terman, John P. Hayes.
+
+***
+
+**(B) Capacitance-Dominance Inequalities for Equipotential Event Suppression**
+
+**Search Queries:**
+1. `"charge sharing" AND "switch-level" AND "equipotential"`
+2. `"switch-level" AND "charge resolution" AND "capacitance"`
+3. `"charge sharing" AND "event suppression" AND "switch-level"`
+4. `"discrete charge" AND "switch-level simulator"`
+5. `"MOSSIM" AND "charge sharing" AND "tie-break"`
+6. `"node capacitance" AND "switch-level" AND "static"`
+
+**Likely Venues & Authors:**
+*   **Venues:** DAC 1987–1994; ICCAD 1988–1995; IEEE TCAD. (Particularly papers analyzing or extending MOSSIM II / MOSSIM III / IRSIM).
+*   **Authors:** Randal E. Bryant, Arturo Salz, Mark Horowitz, Derek Beatty.
+
+***
+
+**(C) Self-Captured First-Touch Execution-Trace Node Renumbering**
+
+**Search Queries:**
+1. `"event-driven simulation" AND "node renumbering" AND "cache"`
+2. `"inspector-executor" AND "event-driven simulation"`
+3. `"cache locality" AND "event queue" AND "renumbering"`
+4. `"execution trace" AND "renumbering" AND "cache locality"`
+5. `"first-touch" AND "renumbering" AND "simulation"`
+6. `"data layout" AND "event-driven simulator" AND "trace"`
+
+**Likely Venues & Authors:**
+*   **Venues:** ACM SIGSIM PADS (Principles of Advanced Discrete Simulation) 1995–2010; MASCOTS; DAC (late 90s/early 2000s transition to software-accelerated simulation).
+*   **Authors:** Richard M. Fujimoto, David M. Nicol, Peter Sewell (or general researchers in parallel/discrete event simulation focusing on CPU cache bounds).

@@ -1,0 +1,82 @@
+Timestamp: 2026-06-07T17:10:23
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a senior logic-synthesis / EDA + simulator engineer. Brutally honest, no encouragement. Answer in Traditional Chinese (繁體中文); technical terms in English. If the honest answer is "the exploitable space is small / not worth it", say so plainly and quantitatively.
+
+# SYSTEM
+An event-driven switch-level (Bryant) simulator of the NES 2A03/2C02 (whole NES, NROM), from Visual6502 transistor netlists (~14,700 live nodes, ~26,800 transistors after lowering). Single CPU core, heavily optimized C# + bit-identical Rust. The engine settles each half-cycle by popping dirty nodes and resolving each one's connected conducting group (OR-ed 8-bit flags → 256-entry LUT; floating groups resolve by largest-capacitance member holds-previous). It is MEMORY-LATENCY BOUND: each node re-evaluation is a random gather; only REMOVING work wins.
+
+# THE OBSERVATION
+A profiler shows ~84% of all node re-evaluations recompute to the SAME value (wasted). We already shipped 4 STATIC, bit-exact "enqueue prunes" (P-1..P-4) that delete the provably-redundant ones: same-state turn-on merge skip, single-channel turn-off isolation skip, and a capacitance-guarded extension (a node whose capacitance < all its neighbours can never win a floating tie-break, so an equal-state merge is a no-op). These delete ~21% of all re-evaluations and are provably input-independent.
+
+The REMAINING ~80% of the waste is: PullUp / supply-driven COMBINATIONAL nodes that recompute the same value after an input gate turns OFF (one pull-down path opens but another pull-down still holds the node, so it stays 0). Whether a given event changes the node is RUNTIME/data-dependent, so it has no static per-event signature — a profile-guided "skip nodes that didn't change in a 1M trace" mask is NOT bit-exact (a different ROM / longer run / controller input flips them).
+
+# THE PROJECT OWNER'S HYPOTHESIS (assess this)
+"Those remaining nodes mostly exist to express LOGIC-LAYER computation. Any logic has some equivalence-reduction space, and that reduction is INVARIANT (a property of the Boolean function, independent of the input trace). So unlike a profile-guided mask, a logic-equivalence reduction would be bit-exact. How do we detect it statically, and is the space large?"
+
+# WHAT'S ALREADY KNOWN / TRIED (do not re-propose)
+- S2 "Escape-1": automatic logic extraction → IR / oblivious / compiled evaluator. Measured ~98.9% of the chip is reducible to logic+registers (huge reduction space IN PRINCIPLE) — BUT running the reduced form single-core was SLOWER (IR interpreter −2.5%, AOT/codegen 3–6× slower, oblivious 45× slower, compiled 84× slower; cone/macro-event compression only 1.1×). Root cause: a batch/compiled form LOSES the event-driven sparsity (the engine already only evaluates the few hundred nodes that change per half-cycle) and pays i-cache / dispatch.
+- Lowering: STRUCTURAL merge of always-on (gate==Vcc), non-weak normal↔normal shorts (union-find) + dead-transistor drop. +3.7%. It does NOT do functional/Boolean-equivalence merging.
+- Rail-tied iterative constant-fold: only ~58 nodes on this netlist (extraction artifacts).
+- Fast-path: pure-logic-gnd nodes already resolve O(1).
+- Graph structure: ~94% of nodes are in a single bidirectional SCC (pass-transistor networks, NOT clean unidirectional combinational functions); only ~6% is feed-forward.
+
+# THE QUESTION
+Is there a STATIC, bit-exact, and crucially EVENT-DRIVEN-COMPATIBLE (i.e. it shrinks the netlist the existing event engine runs, does NOT convert to a batch/IR/compiled evaluator) logic-equivalence reduction that would reduce the NODE count (and hence the EVENT/re-evaluation count) on this netlist? Specifically assess each:
+
+1. **Functional node merging (structural hashing / SAT-sweeping / redundancy removal):** merge two combinational nodes that compute the same Boolean function (even if not structurally shorted) into one, rewiring fanout. Is this even well-defined when ~94% of nodes are in a BIDIRECTIONAL pass-transistor SCC (where a "node" is not a unidirectional Boolean function of fixed inputs)? On the ~6% feed-forward fraction, how many merges realistically, and does it reduce events or just nodes?
+
+2. **Combinational redundancy elimination within the switch-level model:** removing a transistor/node that is logically redundant (e.g., a pull-down that is covered by another under all input combinations). Can this be proven bit-exact against the un-reduced switch-level resolution (NOT just Boolean-equivalent — the switch-level model has floating/charge-share/ForceCompute semantics that pure Boolean logic doesn't capture)? Is the safe subset non-trivial?
+
+3. **Any way to remove the ~80% no-change re-evaluations that stays event-driven + bit-exact + single-core** that we haven't named — without a maintained runtime counter (state-caching, measured −6%) and without converting to IR/batch (measured 3–84× slower).
+
+Be quantitative: a realistic node/event reduction estimate on a 6502/PPU netlist, and therefore the realistic single-core speedup given the loop is memory-latency-bound (so ~event-count-proportional). If your honest conclusion is "the invariant logic-reduction space is real but, under the event-driven + bit-exact + single-core + 94%-bidirectional-SCC constraints, the EXPLOITABLE part is small / already captured by lowering+fast-path / only realisable by going to IR (which is slower)", say exactly that, with the reasoning.
+
+========================================================================
+RESPONSE
+========================================================================
+專案負責人的假設是錯的。他將現代 Gate-level / RTL 的布林邏輯合成（Boolean Synthesis）概念，錯誤地套用在 Switch-level 的雙向傳遞電晶體網路（Pass-transistor network）上。
+
+在你的嚴格限制條件下（Event-driven, bit-exact, single-core, 必須維持現有 engine 架構、無狀態快取、無 IR 轉換），這個所謂的「Invariant logic-equivalence reduction space」**極度微小，完全不具備開發價值 (Not worth it)。**
+
+以下是針對每個問題的量化與技術評估：
+
+### 1. Functional node merging (Structural Hashing / SAT-sweeping / Redundancy Removal)
+**評估結果：無效。可利用空間 < 0.1% (預估少於 10 個節點)。**
+
+*   **94% 位於 Bidirectional SCC 的部分：** 在這裡談論 "Boolean function of fixed inputs" 是沒有定義的。Switch-level 節點的解析依賴於整個 Connected conducting group 的動態拓樸、驅動強度（Drive strength）與電容（Capacitance）。兩個節點即使在穩態下呈現相同的邏輯值，它們在動態切換時的 Charge-sharing 路徑與浮接（Floating）時的 Tie-break 權重也完全不同。你無法在不破壞 Bryant semantics 的前提下，將兩個位於 SCC 中的節點「邏輯合併」並 Rewiring fanout，因為這會徹底改變網路的電氣拓樸與等效電容，直接導致 Bit-exactness 破功。
+*   **6% 的 Feed-forward 部分：** 即使針對這 ~880 個單向節點執行 SAT-sweeping，你也找不到多少冗餘。這是一顆 1970 年代人工手繪 Layout 的 NMOS 晶片（6502/PPU），設計師會為了時序、Fan-out 驅動能力或 Layout 限制去複製邏輯路徑（例如 Buffers），但這些節點的「電容值」與「驅動能力」是不同的。它們在布林代數上等價，但在 Switch-level 模擬中不等價。
+*   **結論：** 無法減少 Event count，因為根本沒有節點可以給你合併。
+
+### 2. Combinational redundancy elimination within the switch-level model
+**評估結果：無效。安全的子集 (Safe subset) 趨近於零。**
+
+*   **布林等價 $\neq$ Switch-level 等價：** 假設你有兩個並聯的 Pull-down 電晶體，在布林邏輯上其中一個可能被另一個 Cover（永遠不會發生只有它導通的情況）。但在 Bryant model 中，浮接節點的解析規則是 "largest-capacitance member holds-previous"。
+*   如果你移除了一個「邏輯上」冗餘的電晶體，當輸入閘極關閉、網路進入 Floating 狀態並進行 Charge-share 時，你實質上切斷了某個原本應該連通的電容。這會改變該 Connected group 的總電容值或最大電容成員，進而改變 Tie-break 的勝出者。
+*   要證明一個電晶體的移除是 **Bit-exact against un-reduced switch-level resolution**，你必須證明它在 *所有可能的動態路徑與 Charge-share 組合下* 都不影響最大電容的決議。在高度互連的 6502 NMOS 網路中，滿足此條件且邏輯冗餘的電晶體數量微乎其微。
+*   **結論：** 理論上存在，但實務上能安全移除的電晶體極少，對降低那 80% 的 Re-evaluation 毫無幫助。
+
+### 3. 如何移除那 ~80% 的 no-change re-evaluations？
+**評估結果：在你的限制下，這是不可能達成的 (Provably impossible without dynamic state)。**
+
+分析這 80% 浪費發生的物理過程：
+一個 Pull-up 節點被兩個 Pull-down 路徑 (A 與 B) 接地。事件觸發 A 關閉。Simulator 將該節點放入 Dirty list 並重新評估 (Re-evaluate)。因為 B 仍然開啟，節點狀態保持 0（Wasted evaluation）。
+
+專案負責人認為這可以透過 Static logic reduction 消除，這是邏輯上的謬誤。因為「B 是否開啟」是 **Runtime / Data-dependent** 的。
+*   你不可能透過任何 **Static (Input-independent)** 的結構修改，來預知一個 Data-dependent 的遮蔽效應 (Masking effect)。
+*   為了在 Event 觸發 A 關閉時「提早知道」不需評估該節點，你唯一的方法就是知道 B 的狀態。
+*   但「讀取 B 的狀態」本身就是一個 Random gather memory access —— **這正是你現在 Event engine 在做的事情，也是導致 Memory-latency bound 的元凶。**
+
+你已經窮盡了所有非 Static 的手段：
+1.  **維護狀態計數器 (Maintained runtime counter)：** 記錄 Active pull-down 的數量。你已經測試過，更新這個 Counter 的 Overhead 會讓整體變慢 6%。
+2.  **提取為 Macro-gate / IR (Compiled evaluator)：** 讓節點具備布林邏輯的總體認知。你已經測試過，這會破壞 Event-driven 的 Sparsity，帶來 I-cache miss 與 Dispatch overhead，導致變慢 3 倍到 84 倍。
+
+### 總結與最終判定 (The Brutally Honest Conclusion)
+
+專案負責人的假設在理論與實務上皆不成立。在堅持 **Event-driven** + **Bit-exact (Bryant semantics)** + **Single-core** + **~14.7k nodes** 的架構下，你已經撞到了這套演算法的 Pareto frontier。
+
+現有的 Lowering (Structural shorting) 與 Fast-path 已經榨乾了靜態分析能帶來的極限。那 80% 所謂的 "Wasted re-evaluations"，實際上是你為了保持 Event-driven 帶來的極高 Sparsity (每半週期只算幾百個節點) 所必須支付的「局部性無知 (Local ignorance) 稅」。不計算整個 Boolean cone 就無法得知 Masking effect，而計算整個 Boolean cone 就會失去 Sparsity。
+
+**The exploitable invariant logic-reduction space is fundamentally incompatible with the topological capacitance rules of the Bryant switch-level model. Quantitatively, you would reduce nodes by < 0.1% and see 0% measurable single-core speedup. Tell the project owner the space is not worth pursuing.**

@@ -1,0 +1,109 @@
+Timestamp: 2026-06-10T00:47:32
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a blunt low-level performance engineer (cache behaviour, data-oriented design, event-driven sim). FOLLOW-UP consult — you already advised us once on this. Be specific; give a NOVEL lever or a crisp proof it's dead. Answer in English. Do NOT repeat advice we've already implemented (listed below) — we need something new or a clear "stop".
+
+# RECAP — the engine + P-5
+Single-threaded, headless switch-level NES simulator (~14,700 live nodes), **memory-latency bound** (each node re-eval is a random gather over native SoA arrays). Event-driven double-buffered settle loop. Avg conducting group ~1.4 nodes. HARD bit-exact requirement (64-bit checksum vs golden at 300k/1M half-cycles).
+
+P-5 "dominant-driver turn-off bypass": per node `c`, store the gate of the single SUPPLY transistor that determines c's value (0 if not exactly one). In the turn-off walk (gate `nn` went low), skip re-evaluating endpoint `c` iff `dom(c) != 0 && dom(c) != nn`. The skip prunes real work (+3.4%) but MAINTAINING `dom` cost −15.4% ⇒ net negative. You previously (correctly) killed our idea of offloading the maintenance to a 2nd core (data dependency + MESI), and recommended single-thread escapes: (A) pack dom into the same cache line as the prune-mask / state, (B) only maintain dom for nodes that can ever be skipped, (C) branchless SWAR count.
+
+# WHAT WE'VE NOW BUILT AND MEASURED (all bit-exact, golden held, AMD Ryzen 7 3700X, interleaved-paired)
+- **Escape B (domain shrink):** statically flag "skip-candidate" nodes = has a pass (c1c2) channel AND its own supply (gnd/pwr) channel AND not Gnd/Pwr/ForceCompute/HasCallback. Only candidates maintain `dom`; all others stay 0 (provably never skipped). Candidates = **8,077 / 14,729 = 54.8%** (NOT the 40% you guessed — most NMOS logic nodes have both a pull-down AND pass channels). Result: net **−18% → −13%**. Helped ~5pp but still negative.
+- **Fused capture:** compute the value AND the dom-gate in ONE pass over the supply gates (no re-scan). +2.4% over the re-scan version (the re-scan was L1-hot, nearly free — so the scan is NOT the cost).
+- **Escape A (co-locate):** packed prune-mask(1B)+dom(2B) into one 4-byte `BypassCell{ushort Dom; byte Mask;}` array, so the turn-off walk reads mask+dom from ONE cache line. Result: **no improvement, still −13.36% (0/12 paired).**
+- **Hardcoded P-5 on** (removed the runtime flag branch). No measurable change.
+
+So after B + fused + A + hardcode, we are STUCK at **−13%** net vs the P-4 baseline.
+
+# WHY ESCAPE A DIDN'T HELP (our diagnosis — confirm or refute)
+1. The real cost is the **WRITE stream during resolution**: every resolved candidate does `Bypass[nn].Dom = ...` — a random store into a ~44-59 KB array, ~8k/half-cycle, on a latency-bound loop. Escape A co-located dom with the PRUNE-MASK, which is read in the turn-off walk but is NOT written during resolution — so the write still has no warm line to land in. Co-location helped the READ, not the WRITE.
+2. Worse, packing the prune-mask 1B→4B widened the ALWAYS-ON P-2/P-4 prune-mask footprint from 14.7 KB (fit L1) to ~59 KB (spills L1), so the turn-off/turn-on mask reads got slower — cancelling the read-merge win.
+3. The only co-location that gives a WRITE win is packing dom with `NodeStates` (which IS written during resolution via SetNodeState, so its line is already hot) — but `NodeStates` is the engine's HOTTEST gather array (1 byte, 14.7 KB, L1-resident); widening it to 4 B (59 KB, L1 spill) would slow EVERY random gather in AddNodeToGroup/RecalcNodeFast → tank the whole engine, baseline included.
+
+# KEY CODE (current state)
+```csharp
+internal struct BypassCell { public ushort Dom; public byte Mask; }   // 4 B
+internal static BypassCell* Bypass;        // [Escape A] mask + dom, one cell/node
+internal static byte* IsBypassCandidate;   // [Escape B] 1 = maintain dom for this node
+
+// Capture, fused into the singleton resolver (and a sibling per-member loop after a BFS group resolve):
+private static void RecalcNodeFastDom(int nn) {              // only called when IsBypassCandidate[nn]
+    int gndCount=0, gndLast=0, pwrCount=0, pwrLast=0;
+    // one pass over nn's gnd-channel gates: if (NodeStates[g]!=0){gndCount++; gndLast=g;}
+    // one pass over nn's pwr-channel gates: likewise
+    int flags=(int)ns->Flags; if(gndCount!=0)flags|=1<<5; if(pwrCount!=0)flags|=1<<4;
+    if(flags!=0) SetNodeState(nn, FlagsToState[flags]);     // writes NodeStates[nn]
+    Bypass[nn].Dom = gndCount!=0 ? (gndCount==1?gndLast:0)  // <-- THE MAINTENANCE WRITE (random store)
+                   : pwrCount!=0 ? (pwrCount==1?pwrLast:0) : 0;
+}
+
+// The skip, in the turn-off walk (gate nn went low; 4 endpoints unrolled):
+if ((bypass[c].Mask & PruneTurnOffSkip)==0
+    && !(bypass[c].Dom != 0 && bypass[c].Dom != nn)   // P-5 skip
+    && nextHash[c]==0) { enqueue c; }
+```
+
+# THE QUESTIONS (give NOVEL levers or a crisp "dead")
+1. **Cut the resolution-time WRITE stream WITHOUT bloating a hot read array.** Is there an INCREMENTAL / event-driven maintenance: instead of rewriting `dom(c)` on every resolution of c, update it only when a SUPPLY gate toggles (in SetNodeState's existing per-gate transistor walk, which already touches each affected transistor)? i.e. shift maintenance from "per node resolution" to "per supply-gate edge". Would that be fewer writes, and can it stay bit-exact (the dom must be current at every turn-off)? Sketch the update rule.
+2. **Conditional write:** only `Bypass[nn].Dom = x` when x != the current value, to avoid dirtying/streaming unchanged lines — does skipping unchanged stores actually reduce the coherence/writeback traffic on a single thread, or is a store to an already-resident line free anyway (so this saves nothing)?
+3. Is there a CHEAPER per-node invariant than "the dominant gate id" that still enables a sound turn-off skip? e.g. a 1-bit "pinned by my own single supply" flag (lossy — can't compare against nn, so when ANY incident gate of a pinned node turns off we'd still skip — is THAT sound? a node pinned low by its own gnd stays low when ANY other gate opens; the only unsound case is the pinning gate itself turning off — can a 1-bit scheme exclude that case cheaply?). If a 1-bit scheme is sound, it shrinks the write to a bit and may pack into existing NodeInfo flags for free.
+4. Given B+fused+A+hardcode all land at −13%, and the prize ceiling is only +3.4%: is the honest verdict that the maintenance is irreducible on a latency-bound engine (the write of ANY per-node runtime fact, however packed, costs more than the +3.4%)? If you still see ONE more lever, name it and the expected number; otherwise say "stop, it's structurally dead" and give the one-line reason.
+
+Be blunt. We have a strong prior it's dead but want either a genuinely new mechanism or a crisp stop.
+
+========================================================================
+RESPONSE
+========================================================================
+Your diagnosis of why Escape A failed is **100% correct**. You bloated your hottest L1 array (`NodeStates`/Prune-mask) from 14.7 KB to 59 KB. Zen 2 has a 32 KB L1d cache. You forced your absolute highest-traffic random reads to spill to L2 (12 cycle penalty vs 4 cycle). No amount of instruction reduction can outrun a geometric increase in L1 capacity misses on a latency-bound loop. 
+
+Here are the crisp answers to your questions, including the **only remaining novel lever (Q3)**. If Q3 doesn't get you in the green, it is structurally dead.
+
+### 1. Shift maintenance to event-driven (supply-gate edge)?
+**CRISP NO.** 
+To incrementally maintain `dom`, you'd need to store the running count of ON supply transistors for each node (another array). When a gate toggles, you'd walk its transistors, do a read-modify-write on those counts, and conditionally update `dom`. 
+In event-driven switch-level sims, nodes evaluate *because* gates toggled. Toggling gates touch roughly the same order of nodes as the resolution loop. You are just trading a random gather (reading supply gates during resolution) for a random scatter (RMW on counts/dom during gate toggle). Scattered RMWs are strictly worse for your store buffers and cache than gathers.
+
+### 2. Conditional write (`if (dom != x) dom = x`)?
+**CRISP NO.**
+On Zen 2 (and all modern x86), a write to a cold cache line triggers a Read-For-Ownership (RFO). A read miss *also* fetches the line. 
+If `Bypass[nn]` is not in L1, the conditional read stalls the pipeline for 12-40 cycles to fetch it from L2/L3. If you just did the store, the hardware would fetch it (RFO) with the same latency (though slightly more decoupled via the store buffer). Because you are single-threaded, there is zero MESI invalidation traffic to other cores to save. You pay the miss latency either way, but now you've added a branch and a dependent load.
+
+### 3. A cheaper 1-bit invariant? (THE NOVEL LEVER)
+**YES. This is your silver bullet for the memory problem.**
+You can entirely drop the `dom` gate ID, drop the `Bypass` array, and achieve a sound skip using a 1-bit `IsPinned` flag packed into your existing 1-byte `NodeStates` array. **Zero cache bloat, zero new writes.**
+
+**The Logic:**
+An `IsPinned` node is one driven by exactly ONE supply transistor, and NO opposing supply transistors. 
+When gate `nn` turns off, the walk iterates over the transistors `T` controlled by `nn`. 
+Suppose `T` connects endpoint `c` to `d`.
+*   **Case A (`d` is GND/PWR):** `T` is a supply transistor. Since it is turning off, `nn` *might* be the single gate pinning `c`. You **CANNOT** skip. Enqueue `c`.
+*   **Case B (`d` is a regular node):** `T` is a pass transistor. Because it's a pass transistor, `T` is *not* connecting `c` to supply. Therefore, `nn` is mathematically **NOT** the gate pinning `c` via this specific connection. If `c` has `IsPinned == 1`, you are 100% certain it is pinned by some *other* gate. You **CAN** safely skip enqueuing `c`.
+*(Note: If `nn` controls BOTH a pass transistor and a supply transistor connected to `c`, Case A will enqueue it and Case B will skip it. The node still gets evaluated, which is sound).*
+
+**The Implementation:**
+1. Revert `NodeStates` back to 1 byte (restore your 14.7 KB L1 footprint).
+2. Steal 1 bit in `NodeStates` for `Pinned` (e.g., `0x80`).
+3. In `RecalcNodeFastDom`, maintain it for free in registers before the state write:
+   ```csharp
+   bool pinned = (gndCount == 1 && pwrCount == 0) || (gndCount == 0 && pwrCount == 1);
+   if (pinned) flags |= 0x80; // or fold it into your FlagsToState lookup table!
+   SetNodeState(nn, FlagsToState[flags]); // Writes state + pinned bit simultaneously
+   // REMOVE the Bypass[nn].Dom write entirely.
+   ```
+4. In the turn-off walk (gate `nn` went low, processing pass-transistor to `c`):
+   ```csharp
+   // Only for PASS transistors (not supply transistors)
+   if ((NodeStates[c] & PinnedBit) != 0) { /* SKIP */ }
+   ```
+
+### 4. The Honest Verdict
+If the 1-bit `IsPinned` trick above does not yield a net positive, **STOP. It is structurally dead.**
+
+**The One-Line Reason:** 
+*The architectural cost of fetching a cold cache line (~12-40 cycles) or executing branchy metadata-maintenance instructions strictly exceeds the compute cycles saved by a 3.4% prune rate.*
+
+You are hunting for a +3.4% win. That means for every 100 nodes you evaluate, you save 3.4 evaluations. If an evaluation costs ~30 cycles, you are saving ~100 cycles per 100 nodes. That gives you an overhead budget of exactly **1 cycle per node**. 
+You cannot write *any* runtime metadata to a separate array in 1 cycle per node due to L1 spills and RFOs. The only mathematically possible way to win is if the metadata is updated *in the exact same instruction/cache-line* as the mandatory state update, which the 1-bit `IsPinned` trick does. If that still fails, your engine is too fast and the P-5 branch is just overhead. Rip it out.

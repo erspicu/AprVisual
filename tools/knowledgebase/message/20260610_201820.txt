@@ -1,0 +1,82 @@
+Timestamp: 2026-06-10T20:18:20
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+FOLLOW-UP consult (you already evaluated my "S2 gate-abstraction" plan and correctly said the LOGIC-gate node reduction is small). I've now MEASURED it. New question: can I reduce MORE — beyond logic-gate extraction — while staying event-driven and behaviorally correct? Be blunt and specific; give realistic ceilings + the cheapest measurement for each lever.
+
+# RECAP + MEASURED NUMBERS (full_palette, 14,684 live nodes, ~26,775 transistors, NMOS NES 2A03+2C02)
+The engine (S1) is event-driven switch-level; a per-node fast-path already resolves logic nodes O(1) (no BFS); only pass-transistor groups hit the BFS (avg conducting group 1.4 nodes). ~115K half-cycles/s; NES real-time = 42.95M (≈370x gap). Goal relaxed to BEHAVIORAL equivalence (validation ROMs + screenshots pass), not per-node bit-exact.
+
+Node breakdown I measured:
+- 6,373 (43%) pull-up gate outputs. Of these 3,382 (23%) are static pure-NOR (parallel pull-down, **0 internal nodes** ⇒ extracting them eliminates nothing); 2,988 have a pass channel.
+- **8,311 (57%) have NO pull-up** = dynamic/storage/bus/internal nodes (hold charge ⇒ currently kept switch-level).
+- LOGIC-gate node-reduction ceiling I measured: safe internal-wire elimination = 1,315 (9%, over-counted since most are dynamic-memory internals); aggressive AOI cell-fold of fanout-1 gates that feed a pure-logic consumer's pull-down = +807 (5.5%). **Realistic total ≈ 2,122 (14.5%)** ⇒ ~15% compute ⇒ ~15% speedup (115K→~131K). Confirmed: the logic half is nearly exhausted.
+- Channel-connected components over the pass graph: 5,159; the biggest is 1,076 nodes (a bus/decoder).
+
+So logic-gate abstraction tops out ~15%. The user has accepted that and wants both the ~15% AND a gate-level view. **But the obvious untapped mass is the 57% no-pull-up nodes (dynamic/memory/bus). That's where I'm asking if more reduction lives.**
+
+# THE QUESTIONS — can I cut MORE?
+1. **Sequential / register / latch abstraction (the big one).** Instead of keeping all 8,311 no-pull-up nodes switch-level, can I recognize SEQUENTIAL cells — dynamic latches, the 2A03/2C02 register bits, the register file — where a group of nodes implements "hold value, update on clock phase from a data input" — and collapse each multi-node cell into ONE state/register primitive whose update is a clean function of (data-in, clock)? That would cut node count AND replace the expensive BFS group-resolution of those cells with a cheap clocked state update, while staying event-driven. Is this achievable + behaviorally correct? Roughly how many of the 8,311 are recognizable latch/register cells vs irreducible analog/bus? What's the node-reduction potential — is it bigger than the logic 14.5%?
+   - CRITICAL: my project already tried an AOT/compiled "macro-block" route (register file as array, ALU as a block) and it was 3-6x SLOWER on a single instance (lost event-driven sparsity, i-cache). Is an EVENT-DRIVEN sequential-cell abstraction (collapse a latch's nodes into one state element, update only on its clock-edge events) fundamentally different from that failed AOT route, or the same dead end?
+2. **The 1,076-node biggest channel component** (bus/decoder): can it be abstracted as a structured unit — a decoder as a one-hot function, a bus as a mux/tristate net — cutting its internal nodes? Or is it irreducibly bidirectional/dynamic?
+3. **Deeper logic folding**: I only folded fanout-1 gates. Can fanout-2 (1,110 nodes) or multi-level gate-chain collapse (recognizing a whole XOR/adder cell, not just one inverter) push the logic reduction past 14.5%? Realistic additional %?
+4. **Event-count reduction without node reduction**: clock-phase region gating (skip evaluating a sub-net that can't change this phase), activity-based partial evaluation, or "constant for N cycles" detection — anything that cuts EVENTS (the real cost) even if node count stays? Stays event-driven + bit-correct?
+5. For each lever above: a realistic node/event-reduction ceiling, and the single cheapest LOAD-TIME measurement I can run in the current engine to estimate it before building.
+
+Be brutally honest. If the 57% memory/bus is fundamentally irreducible event-driven (same reason Escape-1's macro-block route lost), say so and tell me the realistic total ceiling across ALL levers. If sequential-cell abstraction is genuinely different and could cut, say so and how much.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the brutally honest, engineering-focused assessment of where your remaining performance lives.
+
+First, the reality check: **Even if you eliminate 70% of your nodes and cut events in half, you will speed up by roughly 3x to 5x.** That takes you from 115K to ~500K half-cycles/s. **You will still be ~80x short of 42.95M real-time.** Bridging a 370x gap requires moving off dynamic event-driven switch-level simulation entirely (e.g., statically scheduled compiled C++ for the logic, leaving only the buses event-driven). 
+
+However, if your goal right now is to push the event-driven behavior-correct model to its absolute limit, here are the answers to your specific levers.
+
+---
+
+### 1. Sequential / Latch Abstraction (The 8,311 no-pull-up nodes)
+**The Verdict:** **DO IT.** This is your biggest untapped goldmine. 
+**Why it's different from your failed AOT approach:** Your AOT macro-block approach failed because it lost sparsity—it forced you to evaluate the *entire* register file or ALU every cycle, ruining the I-cache and doing useless work. An **Event-Driven Sequential Primitive** retains sparsity. You collapse a 4-transistor dynamic latch into one state-holding node. You only queue an event for it when its specific `clock` or `data_in` toggles. It is sparse execution of dense state. 
+**What's hiding in the 8,311 nodes:** The 2C02 (PPU) contains 256 bytes of OAM (2048 bits) and 32 bytes of Palette RAM (256 bits). The 2A03 contains CPU registers. Because NMOS dynamic memory relies on pass-transistors trapping charge on gate capacitance, these act as switch-level nodes. OAM alone is likely chewing up ~6,000 to 8,000 nodes.
+*   **Realistic Node Ceiling:** **~30% to 40% (4,000 - 5,500 nodes).** Collapsing OAM, Palette RAM, and CPU registers into array-backed primitive nodes will gut your no-pull-up node count.
+*   **Realistic Compute Ceiling:** Huge. You eliminate the expensive BFS group-resolution for thousands of memory pass-transistors.
+*   **Cheapest Load-Time Measurement:** Iterate your pass-transistors. Find every pass-transistor where: 1) the gate is connected to a known clock/control line, and 2) the drain connects *exclusively* to the gate input of a pull-down transistor (pure capacitance). Count these drains. Multiply by the typical bit-cell node count.
+
+### 2. The 1,076-Node Channel Component (Bus/Decoder)
+**The Verdict:** **ABSTRACT IT.** 
+**Why:** A 1,076-node Channel-Connected Component (CCC) is fatal for an event-driven switch simulator. Whenever a node in this component toggles, your engine likely fires a BFS that touches up to 1,000 nodes to resolve charge sharing and drive strength. This is almost certainly the main data bus + register file read/write pass-network, or OAM evaluation buses.
+*   **How:** Abstract it as a **Tristate/Mux Bus Primitive**. Instead of a switch-graph, treat the bus as a single behavioral entity with `N` writers and `M` readers. When a writer's pass-gate control (e.g., `read_enable`) goes high, O(1) propagate the writer's value to the bus, and queue events for the currently connected readers. 
+*   **Realistic Node Ceiling:** Only cuts ~1,000 nodes (**~7%**), but drastically reduces BFS time complexity.
+*   **Cheapest Load-Time Measurement:** Run a mock BFS from a bus line in that component. Count how many nodes are purely pass-transistor sources/drains that never drive a gate. That’s your extractable bus fabric.
+
+### 3. Deeper Logic Folding (Fanout-2, Multi-level chains)
+**The Verdict:** **DEAD END. SKIP IT.**
+**Why:** As you noted, pure logic abstraction tops out at ~15%. You have 1,110 fanout-2 nodes. Even if you aggressively fold half of them, you save ~500 nodes. Extracting a full 8-bit adder block (like the 2A03 ALU) saves maybe 150 nodes. The pattern-matching complexity (recognizing carry-lookahead chains in NMOS) is monumental, and the runtime payoff is negligible.
+*   **Realistic Node Ceiling:** **2% to 4%** max. Diminishing returns hit hard here.
+*   **Cheapest Load-Time Measurement:** Count fanout-2 nodes where *both* consumers are purely pure-logic pull-down inputs.
+
+### 4. Event-Count Reduction (Clock Phase Gating)
+**The Verdict:** **HIGHLY LUCRATIVE.** 
+**Why:** The NES uses a strict two-phase non-overlapping clock (Phi1 / Phi2). In authentic NMOS, logic transitions ripple through a combinatorial block, causing glitches (multiple events per node) before settling at a pass-transistor that is currently turned OFF by the clock. Your simulator is currently evaluating all those intermediate glitches.
+*   **How (Phase-Region Gating):** If you know a sub-net ends at a Phi2 pass-transistor, and the system is currently in Phi1, *you don't need to evaluate that sub-net yet*. Better yet: delay the propagation of events through logic gates until the clock phase that actually samples them opens. Alternatively, use **Activity-based evaluation**: if an event reaches a pass-transistor that is OFF, drop the event. Do not BFS.
+*   **Realistic Event Ceiling:** **20% to 35% fewer events.**
+*   **Cheapest Load-Time/Run-Time Measurement:** Add a counter to your event loop. Every time an event is popped, check if the node's only consumers are pass-transistors whose gate control is currently 0. If yes, increment a `Wasted_Events` counter. Run for 1 frame. `Wasted_Events / Total_Events` is your exact ceiling.
+
+---
+
+### Summary of Your Absolute Ceilings
+
+If you implement the best of these (Latches + Bus Abstraction + Clock Gating):
+1.  **Nodes:** You will drop from 14.6K nodes down to ~6K - 7K nodes (mostly by nuking OAM/RAM into behavioral arrays and killing the giant bus CCC).
+2.  **Events:** You will cut event traffic by ~30% via clock-phase awareness and eliminating memory-refresh glitches.
+3.  **Speedup:** Because you are destroying the massive BFS components (the 1K bus and the OAM pass-graphs), your time-per-event will plummet. 
+
+**Total expected speedup from current 115K:** Roughly **300K to 500K half-cycles/sec.** 
+
+**The Brutal Honesty:** 
+You have squeezed the event-driven switch-level rock completely dry. To hit 42.95M, you cannot rely on an event queue dynamically firing 6,000 individual gates. At 42.95M Hz, the overhead of `push()`, `pop()`, and branch mispredictions in the event loop takes longer than just statically evaluating an `A = ~(B | C)` boolean equation. 
+
+Get the 500K for an incredibly fast, behaviorally-perfect "reference" or debugging mode, but know that hitting real-time will eventually require topologically sorting your pure logic and compiling it to straight-line C code, updating it exactly once per clock phase.

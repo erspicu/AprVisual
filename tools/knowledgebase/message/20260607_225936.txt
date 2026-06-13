@@ -1,0 +1,141 @@
+Timestamp: 2026-06-07T22:59:36
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a switch-level simulation engineer. Be concrete and give pseudocode — no hand-waving. Answer in Traditional Chinese (繁體中文); code/identifiers in English. If your honest conclusion is "this only reorganizes work / won't beat what's already there", say so plainly.
+
+# CONTEXT — my exact clock path
+Event-driven switch-level (Bryant) NES sim, single core, BIT-EXACT required (whole-NES checksum). Each half-cycle:
+```
+StepCycle():
+    clk.Flags = set SetHigh or SetLow (external drive, alternating)   // toggle clk's driven flag
+    EnqueueNode(clk)                                                  // put clk on the settle queue
+    ProcessQueue()                                                    // settle to quiescence
+```
+ProcessQueue pops clk first; RecalcNode(clk) resolves clk and calls SetNodeState(clk, newval), which walks clk's **gated-transistor sub-list** (NodeTlistGates[clk]) and, for each transistor T=(gate=clk, c1, c2), enqueues the endpoints for the next wave. **clk is the single highest-fanout gate in the chip** — it gates a large fraction of all pass transistors — so this per-half-cycle walk is long.
+
+# WHAT'S ALREADY DONE (so don't propose these)
+- The endpoint enqueues from SetNodeState(clk) are ALREADY pruned by static masks: P-1 same-state turn-on skip, P-2 single-channel turn-off isolation skip, P-3/P-4 capacitance-guarded turn-on skip. So clk's walk already enqueues only the endpoints that can actually change.
+- "Clock-phase partitioning" (R-2: skip whole settle phases by clock phase) was estimated and measured at <1% useful work in our engine — clock Wave-0 is a tiny fraction once pruning is in.
+- IR/codegen/compiled, GPU, multithread, bitset = all measured slower; out.
+- A maintained-runtime-state cache (e.g. per-node "dominant driver") was just measured: bit-exact and it DID prune (+3.4%), but maintaining the runtime state cost −15.4% ⇒ net −12%. So any scheme that adds per-half-cycle WRITES proportional to clk's fanout is suspect.
+
+# THE QUESTION — "Static Clock Subtree Expansion / Bypass"
+You earlier proposed (+6–10%): "compile clk's pass-transistor fanout into a static bitmask; when the clock toggles, DON'T put the clock node in the queue, directly push the affected DATA nodes into the queue, skipping the clock-fanout traversal."
+
+Give the CONCRETE implementation for my exact path above:
+1. What static structure do you precompute at load, exactly? (e.g. a flat array of clk's endpoint node-ids, split by rising/falling edge?)
+2. What does StepCycle do INSTEAD of `EnqueueNode(clk); ProcessQueue()` — write the pseudocode.
+3. **Bit-exactness:** the per-endpoint enqueue currently runs the P-1/P-2/P-3/P-4 prune checks, which are RUNTIME (depend on current NodeStates). If you "directly push the affected data nodes", do you still run those per-endpoint prune checks? If yes, you're still iterating clk's fanout + checking each — so what work did you actually remove vs the current walk? If no, how do you stay bit-exact (the prunes are what keeps the enqueue set correct)?
+4. Is the only saving the indirection of reading (c1,c2) pairs from the transistor array (i.e. a flat endpoint list is more cache-friendly than the gate sub-list walk)? Quantify: clk gates ~N transistors; the walk is ~N iterations/half-cycle either way — so is this a constant-factor cache win, not an event-count reduction?
+5. Could the clock be special because it's PERIODIC/deterministic — is there a bit-exact way to MEMOIZE clk's settle result across half-cycles (the clock subtree's response is the same every rising edge, given the same downstream state)? Or does downstream state always differ enough to defeat memoization?
+
+For each: bit-exact yes/no, stays event-driven yes/no, and a realistic % on a netlist where clk's enqueues are ALREADY P-1..P-4 pruned. Be blunt if it's a <2% constant-factor reorg.
+
+========================================================================
+RESPONSE
+========================================================================
+直接給出結論：**這個方案只是重新組織了工作流程（Reorganizes work），它本質上是一個「常數級別的快取最佳化（Constant-factor cache win）」，絕對無法大幅減少事件數量。如果你的 P-1 到 P-4 剪枝已經做得很徹底，這個改動的淨收益可能只有 +1% 到 +3%，甚至不到 2%。**
+
+以下是針對你五個問題的具體拆解與 Pseudocode。
+
+---
+
+### 1. 預先計算的靜態結構 (Static Structure)
+
+在載入階段，我們不再讓時脈（`clk`）依賴通用的 `NodeTlistGates[clk]` 陣列。為了配合 P-1 ~ P-4 的運行時剪枝，我們必須將 `clk` 扇出（Fanout）展開為**兩個完全展平的陣列**（分別對應 Rising 和 Falling 邊緣）。
+
+你需要將每個受影響的端點（$c1$ 和 $c2$）獨立打包，只保留剪枝所需的最少資料，以達到最大的快取密度：
+
+```c
+// Precomputed at load time
+struct ClockFanoutEndpoint {
+    NodeId target;      // The node to conditionally enqueue
+    NodeId peer;        // The opposite side of the transistor (needed for P-1..P-4)
+    uint8_t prune_mask; // Precompiled rules: is this NMOS/PMOS? Cap-guarded? etc.
+};
+
+// Two linear, flat arrays
+ClockFanoutEndpoint ClkRisingList[NUM_RISING_ENDPOINTS];
+ClockFanoutEndpoint ClkFallingList[NUM_FALLING_ENDPOINTS];
+```
+*注意：一個電晶體會產生兩個 Endpoint 條目（分別檢查 $c1$ 和 $c2$），這能避免在迴圈內做 `if (target == c1)` 的分支判斷。*
+
+### 2. 取代 `StepCycle` 的具體 Pseudocode
+
+我們將跳過 `EnqueueNode(clk)`，直接強行修改 `clk` 的狀態，並直接掃描預先編譯好的陣列來把資料節點推入佇列。
+
+```c
+StepCycle():
+    // 1. Toggle Clock directly (Bypass enqueue & ProcessQueue pop)
+    bool is_rising = !NodeStates[clk];
+    NodeStates[clk] = is_rising; // Set raw state immediately
+    
+    // 2. Iterate flat array based on edge
+    if (is_rising) {
+        ProcessClockEdge(ClkRisingList, NUM_RISING_ENDPOINTS);
+    } else {
+        ProcessClockEdge(ClkFallingList, NUM_FALLING_ENDPOINTS);
+    }
+
+    // 3. Normal settle for the rest of the chip
+    ProcessQueue();
+
+
+// The dedicated loop for Clock Bypass
+function ProcessClockEdge(ClockFanoutEndpoint[] list, int count):
+    for i = 0 to count - 1:
+        endpoint = list[i]
+        
+        // --- RUNTIME PRUNING (MUST still be done) ---
+        state_target = NodeStates[endpoint.target]
+        state_peer   = NodeStates[endpoint.peer]
+        
+        // Evaluate precompiled P-1..P-4 rules using current state
+        if CheckStaticPruneRules(endpoint.prune_mask, state_target, state_peer):
+            continue // Pruned!
+            
+        // If it survived pruning, enqueue it for Wave-1
+        EnqueueNode(endpoint.target)
+```
+
+### 3. Bit-Exactness 與運行時剪枝 (Runtime Pruning)
+
+**回答：是的，你必須保留 P-1 ~ P-4 的運行時剪枝檢查。** 
+
+如果你「不加條件直接推入所有 Data Nodes」，你會導致佇列在 Wave-1 暴增幾千個節點，這會引發嚴重的效能災難，反而比原來慢非常多。
+因為必須保留剪枝，**你並沒有減少任何「事件數量」**。你依然在遍歷 `clk` 的扇出，並且對每一個端點執行檢查。
+
+**你實際移除的工作只有：**
+1. 將 `clk` 推進佇列與彈出佇列的開銷（極小）。
+2. `RecalcNode(clk)` 重新計算 `clk` 狀態的邏輯（極小）。
+3. 從 `NodeTlistGates[clk]` 讀取完整 `Transistor` 結構（包含不必要的欄位），然後再分支判斷 $c1$ 與 $c2$ 的開銷。
+
+### 4. 效能量化 (Quantify: Cache Win vs Event Reduction)
+
+**回答：這純粹是一個 Data-Oriented Design (DOD) 的記憶體快取最佳化 (Cache-friendly win)，不是算法上的事件縮減。**
+
+*   **複雜度：** 原本是 $O(N)$，現在依然是 $O(N)$ （$N$ 為 `clk` 控制的電晶體數量）。
+*   **效能差異：**
+    *   原本：讀取 `Transistor` 陣列（可能有 16 bytes），提取 $c1, c2$，根據類型判斷導通狀態，然後執行 P-1~P-4。
+    *   現在：讀取緊湊的 `ClockFanoutEndpoint` 陣列（8 bytes），循序存取 (Sequential Access)，完美命中 CPU Prefetcher，並且移除了分支（NMOS/PMOS 的邊緣差異已經在編譯期被分開到兩個陣列了）。
+*   **真實比例估算：** 在一個已經實作 P-1 到 P-4 的 NES 引擎中，這個改動頂多讓你每個半週期省下幾萬個 CPU 指令。對於 3MHz 的模擬器，**這大約只能帶來 +1% 到 +3% 的淨效能提升**。如果你期待的是突破性的 >10% 提升，這個方案**做不到**。
+
+### 5. 時脈子樹的回應可以被記憶化 (Memoization) 嗎？
+
+**回答：絕對不行（Dead on arrival）。**
+
+*   **位元精確 (Bit-exact) 是否允許？** 理論上可以，前提是你的 Cache Key 包含所有依賴狀態。
+*   **為什麼不可行？** 時脈子樹下一層的反應，完全取決於下游節點（Data lines, registers, buses）**當前**的狀態組合。
+    在 NES 運行時，下游狀態的變化是極度混亂且不可預測的（取決於 CPU 指令、PPU 掃描線、匯流排競爭等）。這意味著：
+    1. 你無法預期相同的下游狀態會頻繁出現。
+    2. 要構建一個 Cache Key 來代表「當前下游狀態」，你必須去讀取那 $N$ 個端點的 `NodeStates`。
+    3. **致命傷：** 「讀取這 $N$ 個端點狀態來計算 Cache Key」的記憶體存取成本，**已經完全等同於**「直接執行一次 P-1~P-4 剪枝」的成本！
+*   如同你自己剛測試過的 dominant driver 快取（成本 -15.4%），為了維護或比對這種動態狀態，額外的讀寫開銷會徹底吃掉任何可能省下的計算時間。
+
+### 總結你的下一步
+
+誠實的結論是：**不要在這個方向上浪費太多時間。** 
+
+既然你已經把 P-1 ~ P-4 的靜態遮罩剪枝做到了極致，針對 `clk` 本身的遍歷已經被壓榨到只剩硬體的 Cache Miss 瓶頸。將它展平為線性陣列（上述 Pseudocode）確實是正確的工程做法，可以拿那 2% 的微小提升，但這只是「重新整理資料結構」，它**不會**顛覆你現有引擎的速度限制。

@@ -1,0 +1,163 @@
+Timestamp: 2026-06-06T23:58:00
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are a senior performance engineer and computer architect. I need a brutally honest, expert assessment — not encouragement. Please answer in Traditional Chinese (繁體中文), but keep technical terms in English.
+
+# CONTEXT
+
+I have a switch-level (Bryant-style, gate/transistor-level) simulator of the NES's two chips: the 2A03 (a 6502 CPU variant) and 2C02 (PPU), derived from Visual6502/Visual2A03/Visual2C02 transistor netlists, integrated as a whole NES (NROM). It is an event-driven simulator descended from Visual6502's chipsim.js and MetalNES's wire_compute. It is already heavily optimized in C# (and a bit-identical Rust port).
+
+I want your assessment of ONE question only (see THE QUESTION at the end). First, the hard constraints and the current design, then everything already tried and PROVEN to fail (do NOT re-suggest these).
+
+# HARD CONSTRAINTS (non-negotiable — answers violating these are useless to me)
+
+1. SINGLE CPU CORE only. No multithreading, no SIMD-across-instances, no GPU. (Per-chip threading was measured 15x SLOWER; bit-parallel BFS 156x slower — the per-event work is far too small to amortize any parallelism/vectorization overhead.)
+2. NO IR, NO codegen, NO AOT compilation, NO JIT-of-the-netlist. (An IR interpreter measured -2.5%; ahead-of-time codegen 3-6x slower; the whole point of this question is the *interpreted, event-driven* algorithm.)
+3. Must stay BIT-EXACT per node vs the reference switch-level result (whole-NES state checksum must be identical). Any approximation, behavioral abstraction, or "good enough" model is out of scope. (A separate project "Escape-1" already explored automatic logic abstraction; not this question.)
+4. The work must be reduced AUTOMATICALLY by the program from the netlist alone — no hand-written per-chip special-casing, no manual modeling.
+
+# THE CURRENT ALGORITHM (this is what's already running)
+
+Data model (Structure-of-Arrays, unmanaged arrays, indexed by node id 0..N-1, N ~= 14,000 live nodes; ~? transistors):
+- NodeStates[n]: byte 0/1, current logical value.
+- NodeInfo[n]: 16-byte struct = flags + adjacency. Flags (8-bit, OR-ed across a connected group): State, PullUp, SetHigh, SetLow, Pwr, Gnd, ForceCompute, HasCallback. Adjacency is either INLINE (<=6 ushort slots in the struct: [ (gate,other) channel pairs ][ gnd-gates ][ pwr-gates ]) for ~96% of nodes, or for high-fanout nodes an index into a flattened ushort[] TransistorList (0-terminated sublists). A "channel" pair (gate,other) means: if NodeStates[gate]==1 the transistor conducts and this node is connected to `other`.
+- Double-buffered recalc queue: RecalcList/RecalcListNext (int node ids) + RecalcHash/RecalcHashNext (byte presence flag per node for O(1) dedup). Swapped by pointer each settle wave.
+- _groupBuf (group node list = BFS work queue) + _inGroup (O(1) dedup flag).
+- FlagsToState[256]: precomputed LUT mapping OR-ed group flags -> resolved 0/1 using NMOS priority (ForceCompute Gnd+Pwr cancel; then Gnd>Pwr>SetHigh>SetLow>PullUp>State>0; empty flags = floating => largest-capacitance member holds previous value).
+
+Main loop, one half-cycle (StepCycle):
+1. Toggle the master clock node, enqueue it.
+2. ProcessQueue (settle): wave-by-wave BFS until the next-wave queue is empty.
+   - For each node nn in the current wave: RecalcNode(nn).
+   - RecalcNode dispatch by a precomputed per-node class (IsPureLogic[nn]):
+       class 1 = "static pure-logic": node has NO channel to a normal node, so its conducting group is PROVABLY always {nn}. Resolve O(1) via RecalcNodeFast (OR the gnd/pwr gate states, index FlagsToState). ~Covers nodes that are depletion-load gate outputs.
+       class 2 = "dynamic-singleton candidate": has channels, but if ALL its channel gates happen to be OFF this half-cycle the group is exactly {nn}; runtime-check "are all channel gates off?" -> if yes RecalcNodeFast, else fall to BFS.
+       class 0 = must use full BFS (has callback / forceCompute / supply).
+   - Full path: ComputeNodeGroup(nn) = iterative BFS over ON transistors, accumulating OR-ed flags, then GetNodeValue() = FlagsToState[flags] (or floating tie-break). Then SetNodeState(member, value) for each group member.
+   - SetNodeState(n,v): if value unchanged, do nothing (this is what makes the ripple converge). If changed, enqueue downstream nodes (those gated by n) into the NEXT wave.
+3. Time++.
+Measured: settle converges in <=~45 waves; the average conducting group is ~1.4 nodes; ~26% of nodes hit the O(1) fast path.
+
+# STRUCTURAL FACTS (measured on this exact netlist)
+
+- The hot path is MEMORY-LATENCY BOUND, not compute bound. The cost is random gathers into NodeStates/NodeInfo/TransistorList. Data-instruction cache-miss ratio ~805:1. L1d is 32KB. Anything that adds per-access work (shift/mask, RMW, extra indirection) to shrink data has historically LOST because the added ops aren't hidden under the latency stalls only when the structure is already tiny — but bigger structures' misses dominate. So both directions are constrained.
+- ~94% of the live nodes are in a single giant bidirectional strongly-connected component (SCC) via pass-transistor / bus structures: state flows both ways, so there is NO static topological order / no feed-forward DAG to exploit for most of the chip. Only ~6% is genuinely feed-forward (compressible). This kills levelization / static scheduling.
+- Event count per half-cycle is already at the netlist's natural minimum: only nodes whose inputs actually changed get re-evaluated, and SetNodeState's unchanged-check prunes non-propagating ripples. Macro-event "cone compression" gave only 1.1x.
+
+# ALREADY TRIED AND PROVEN TO FAIL — DO NOT RE-SUGGEST ANY OF THESE
+
+- IR interpreter (per-node truth-table LUTs dispatched through an IR): -2.5% (slower), bit-exact.
+- Ahead-of-time codegen / compiling the netlist to straight-line code: 3-6x slower (code bloat, lost the event-driven pruning, batch re-eval redundancy).
+- GPU kernel (single instance): ~10.7x slower. GPU many-instance throughput is explicitly NOT a goal.
+- Bit-parallel / bitset dense-frontier BFS (Ligra-style): 156x slower (walks average 1.4 nodes; bit-parallel overhead crushes the tiny walks).
+- Per-chip / per-region multithreading (rayon::join etc.): 15x slower (per-wave work too small to amortize sync).
+- "Counter fast-path": maintaining active_gnd_count/active_pwr_count per node in SetNodeState's transistor walk to make recalc O(1): -6% (the SetNodeState walk happens ~10x more often than the fast-path scan, which already early-breaks).
+- Dead-end / unobserved-node skipping (skip nodes with no observers): broke correctness — leaf state still flows to observable nodes via the group walk; true closed dead-ends are <1%.
+- Stub removal / node-merging at lowering: broke bit-exactness via floating-group tie-break changes; <1% cold-path gain anyway.
+- RCM / node-renumbering for locality, dispatcher tables, micro-branch fast-paths beyond the current ones: all measured neutral or negative.
+- Levelize / static topological scheduling: impossible because of the 94% bidirectional SCC above.
+- Bitset for the RecalcHash/presence arrays (ulong* instead of byte*): shift+mask per access erased the cache benefit.
+- Macro-event cone compression: only 1.1x.
+
+The recurring lesson (independently matching what the Visual NES author found in 2017): gains come ONLY from less work + smaller cache-fitting data + tighter codegen, NOT from cleverer data structures or asymptotic tricks. Most "obviously should be faster" ideas lose on a memory-latency-bound, tiny-walk workload.
+
+# THE QUESTION
+
+Given ALL the above constraints and the proven dead-ends: purely at the ALGORITHM level (not micro-optimization, not IR/codegen, single core, bit-exact), is there ANY remaining lever to reduce the AMOUNT OF COMPUTATION — i.e. either (a) reduce the number of node re-evaluations per half-cycle (the event count / total node-visits across all settle waves), or (b) reduce the per-event work (group BFS size or resolution cost) — WITHOUT violating bit-exactness and WITHOUT any technique already listed as failed?
+
+For each idea you propose:
+1. State the precise algorithmic insight (what redundant work it removes, and WHY that work is provably redundant on a bidirectional switch-level network).
+2. State whether it preserves per-node bit-exactness, and the argument for why.
+3. Estimate the fraction of current work it could remove (be quantitative and skeptical — given ~1.4-node groups, 26% already fast-pathed, 94% bidirectional SCC).
+4. State how it interacts with the memory-latency-bound reality (does it add per-access work / indirection / data growth that would erase the gain?).
+5. Rank your ideas by expected real-world payoff, and be explicit if your honest conclusion is "no meaningful lever remains" — I would rather hear that than a plausible-but-doomed idea.
+
+Be concrete and specific to switch-level / event-driven simulation of a bidirectional MOS network. Generic "profile it / use better data structures / cache-optimize" advice is not useful. If you propose something, explain why it would survive where the listed dead-ends did not.
+
+========================================================================
+RESPONSE
+========================================================================
+這是一個極具挑戰性且已經被高度優化的系統。基於你提供的硬性約束（單核、無 IR/JIT、Bit-exact、自動化、Memory-latency bound），你之前所經歷的失敗嘗試（SIMD 負收益、多執行緒同步開銷大於收益、拓樸排序失敗）在開關級模擬（Switch-level simulation）的領域中是非常典型的。
+
+當平均 BFS Group 大小只有 1.4，且 94% 節點處於雙向連通圖（SCC）時，**任何試圖「加速 BFS 過程」或「壓縮拓樸資料結構」的方法都會因為額外的解碼/位元運算開銷而死於 L1 Cache Miss**。
+
+在純演算法層面，你唯一的出路是：**從數學與圖論上證明某些事件或遍歷是絕對冗餘的，從源頭阻止它們進入 RecalcList，或在進入 BFS 前將其截斷。**
+
+以下我為你提供 3 個尚未被你列入失敗清單、嚴格遵守 Bit-exact、且專注於減少事件數量與 L1 Miss 的演算法槓桿。按預期真實收益與安全性排序：
+
+---
+
+### 1. 同波次連通圖的 BFS 冗餘去重 (Intra-Wave Component Deduplication)
+
+**精確的演算法洞見：**
+在同一個 Settle Wave 中，整個網路的閘極（Gates）狀態是**靜態固定**的。如果某個電晶體導通，導致 `Node A` 和 `Node B` 合併成同一個 Group，按照現有邏輯，若 A 和 B 的閘極在上一波都發生了變化，它們會被**同時**推入當前波次的 `RecalcList`。
+當你的主迴圈 pop 出 `A` 並執行 BFS 時，它會遍歷並計算出完整的 Group `{A, B}`，然後呼叫 `SetNodeState` 更新兩者。然而，當主迴圈繼續走到 `B` 時，它會**再次觸發一次完全相同的 BFS**，重複計算 `{A, B}`。這不僅是純粹的運算冗餘，更會造成無謂的 `NodeInfo` L1 Miss。
+
+**實作與 Bit-exact 保證：**
+*   **作法**：在你的 `ProcessQueue` 迴圈中，利用現有的 `RecalcHash` 作為「本波次已處理」的標記。
+    *   在主迴圈開頭檢查：`if (RecalcHash[nn] == 0) continue;`
+    *   在 `ComputeNodeGroup(nn)` 的 BFS 過程中，每當你將一個節點 `member` 加入當前 Group 並結算時，立刻清空它的標記：`RecalcHash[member] = 0;`
+*   **Bit-exact 保證**：100% 安全。在同一個 Wave 中，連通圖的拓樸不會改變。從連通圖中任何一個節點發起的 BFS 都會覆蓋整個 Group。後續針對該 Group 其他節點的 BFS 在數學上注定會得出相同的 Flags 組合。
+
+**預期減少的 Work**：
+保守估計可減少 **15% ~ 25%** 的 Class 0 BFS 呼叫。由於平均 Group size 為 1.4（這意味著約 40% 的節點處於 size >= 2 的 Group 中），消除這些多節點 Group 在同波次中的重複求值，將直接消除最昂貴的那批 L1 Miss。
+
+**Memory-latency 交互**：
+**完美。** 檢查與清除 `RecalcHash` 的操作作用於現存、高度 Cache-resident 的陣列上，完全不增加任何記憶體負擔，且省下了後續重複讀取 `NodeInfo` 的 L2 Miss。
+
+---
+
+### 2. 閘極導通時的單側入隊優化 (Single-Sided Turn-On Enqueue)
+
+**精確的演算法洞見：**
+當 `SetNodeState(n, v)` 發現狀態改變，它會遍歷由 `n` 控制的電晶體並將下游節點推入下一波的隊列。
+如果電晶體 `T(c1, c2)` 因為 `n` 變成 1 而**導通 (Turn-ON)**，現有邏輯會將 `c1` 和 `c2` 雙雙推入 `RecalcListNext`。
+但請思考圖論：既然 `T` 已經導通，在下一波的拓樸中，`c1` 和 `c2` 必定屬於同一個連通圖。只要我們確保該連通圖中有**任何一個**節點被加入隊列，下一波的 BFS 就一定會穿越 `T` 並更新所有的節點。因此，同時入隊 `c1` 和 `c2` 是絕對多餘的。
+
+**實作與 Bit-exact 保證：**
+*   **作法**：在 `SetNodeState` 掃描 Gated nodes 時：
+    *   若 `n == 1`（電晶體導通）：只將 `T.c1` 加入隊列，**忽略 `T.c2`**。
+    *   若 `n == 0`（電晶體斷開）：必須維持原樣，將 `c1` 和 `c2` 都加入隊列（因為它們被切分成了兩個獨立的子圖，必須分別重新求值以找出隱藏的弱驅動源如 PullUp）。
+*   **Bit-exact 保證**：100% 安全。即使 `T` 在同一波次內經歷了 OFF->ON->OFF 的震盪，OFF 的事件依然會確保兩端都被入隊；只要它的最終穩態是 ON，單側入隊就足以保證整個 Group 被正確結算。如果 `T.c1` 是純邏輯 (Class 1) 節點呢？只要它連接了通道，它的 `IsPureLogic` 就不成立，必定會正確 fallback 到 BFS。
+
+**預期減少的 Work**：
+將所有 Turn-ON 事件的 Queue Pushes 精準**砍半**。這將直接減少約 25% 的 RecalcListNext 寫入動作，並與上述的 Idea 1 完美互補。
+
+**Memory-latency 交互**：
+**極佳。** 少寫入一個節點，就少一次隊列長度增加、少一次 `RecalcHashNext` 寫入，直接降低 L1/L2 data cache 寫入壓力。
+
+---
+
+### 3. 閘極導通的「同態免入隊」剪枝 (Same-State Turn-On Enqueue Pruning)
+
+**精確的演算法洞見：**
+這是最激進的一招。當一個電晶體導通並將兩個 Group (c1 與 c2) 合併時，如果 `c1` 和 `c2` **目前的邏輯狀態完全相同**（例如都是 1 或都是 0），將它們合併能否改變它們的布林輸出？
+根據 Visual6502 的 NMOS 優先權規則（`Gnd > Pwr > SetHigh > SetLow > PullUp > State > 0`），優先權是嚴格單調遞增的。兩個解析為 1 的 Flag 集合進行 OR 運算，結果必定仍是 1；兩個解析為 0 的集合合併，必定仍是 0。（浮接節點的電容比對同態合併也沒有影響，因為先前的狀態都是相同的）。
+
+**實作與 Bit-exact 保證：**
+*   **作法**：在 `SetNodeState` 中：
+    `if (NewState == 1 && NodeStates[T.c1] == NodeStates[T.c2]) continue;` // 直接跳過，什麼都不入隊！
+*   **Bit-exact 保證與唯一例外**：99.9% 安全，但有一個極端理論例外，即 `ForceCompute Gnd+Pwr cancel` 規則。如果 `c1` 解析為 1，但它暗中攜帶了 `Gnd+Pwr` (因取消而無效) 加上 `PullUp` (1)；而 `c2` 攜帶 `Pwr` (1) 和 `SetLow` (0)。兩者合併後，`Gnd` 與所有的 `Pwr` 抵消，剩下的最高優先權變成 `SetLow`，導致兩個 1 合併後變成 0。
+    *   **現實是**：在標準的 NES 2A03/2C02 網表中，內部節點不會自然產生 `Gnd+Pwr` 的取消現象（這通常只發生在外部 Pad 被強制覆寫，或匯流排惡意衝突時）。如果你能確認你的模擬中不需要處理這種「兩個 1 相撞變成 0」的病態短路，這個剪枝是**數學上絕對成立**的。
+
+**預期減少的 Work**：
+在已穩定的邏輯路徑中（例如傳遞 1 的 Pass-transistor 鏈），相鄰節點狀態相同的機率極高。這可以直接抹除 **15% ~ 30%** 的開關事件，將它們扼殺在搖籃裡，根本不進入下一個半週期的運算。
+
+**Memory-latency 交互**：
+**獲利豐厚。** 只需讀取 `NodeStates[c1]` 和 `NodeStates[c2]`。因為 `NodeStates` 只有 14KB，是極度 Hot 的 L1-resident 資料，而 `T.c1` 和 `T.c2` 的 index 剛剛才從 adjacency list 讀出來。我們用一次廉價的 L1 Read + Predictable Branch，換取了昂貴的 Queue Push + 未來必然發生的 BFS（L2 Miss）。
+
+---
+
+### 總結你的現狀與選擇
+
+你已經在資料結構與微觀優化上做到了極致。那些所謂的 Bitset BFS、SIMD、多執行緒，在這個 **Event per half-cycle 已達自然極限、且單步走訪僅 1.4 個節點**的系統中，全部都是過度工程（Over-engineering），它們的 Setup 成本永遠蓋不過 L1 Cache Miss。
+
+你的系統是 Memory-latency bound，唯一能贏的方法是**「連 L1 Miss 都不去觸發」**。
+上述三個方案，沒有增加任何複雜的資料結構（如 Counters 或 Bitsets），純粹利用了**雙向網路波次推進的數學特性**。
+
+建議的實作順序：
+1.  先實作 **Idea 1 (冗餘 BFS 剪枝)**：無痛、100% 安全，立刻減少 BFS 總量。
+2.  加入 **Idea 2 (單側入隊)**：100% 安全，將 Turn-ON Queue Pushes 減半。
+3.  測試 **Idea 3 (同態免入隊)**：極度激進，加上去後跑全系統 Checksum 驗證。如果 NES 網表沒有觸發 `Gnd+Pwr cancel` 邊角案例，這將會是你降低 Event Count 的最後一把神兵利器。

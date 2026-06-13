@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — can a second core help? (a measured thread experiment)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Can a second core help?</span><span class="zh">第二顆核心能幫上忙嗎?</span></h1>
+  <p class="sub en">The engine is single-threaded and ~316&times; from real time, so the obvious question is: split the chip across two CPU cores. We built it for real — a bit-exact CPU&#8214;PPU split, two threads pinned to two P-cores, zero locks — and measured every variant. Verdict: <b>it is slower, every way we cut it</b>, and the reason is exact and falsifiable. This is the boundary-map chapter for parallelism.</p>
+  <p class="sub zh">引擎是單執行緒、離即時約 316 倍,所以最直覺的問題是:把晶片拆到兩顆 CPU 核心上跑。我們真的把它做出來了 —— 位元精確的 CPU&#8214;PPU 切分、兩條執行緒各釘一顆 P-core、零鎖 —— 並量了每一種變體。結論:<b>怎麼切都更慢</b>,而原因是精確、可證偽的。這是平行化的「邊界地圖」一章。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">Why this is hard at all</span><span class="zh">為什麼這件事本來就難</span></h2>
+  <p class="en">The simulator advances one master-clock <b>half-cycle (hc)</b> at a time. Each hc it drains a chain of <b>settle waves</b> (mean <span class="num">12.06</span>, max 45): a wave re-evaluates the currently-dirty nodes, each doing a tiny <b>group walk</b> over the on pass-transistors. Two properties of that loop govern everything below:</p>
+  <p class="zh">模擬器一次推進一個主時脈<b>半週期(hc)</b>。每個 hc 排空一串<b>安定波(settle wave)</b>(平均 <span class="num">12.06</span> 個、最多 45):一個波重算當下 dirty 的節點,每個節點沿導通的 pass-transistor 做一次極小的<b>群組走訪</b>。這個迴圈的兩個性質主宰了底下一切:</p>
+  <ul>
+    <li class="en"><b>Tiny work per event.</b> ~418 node re-evaluations per hc; the average conducting group is ~1.4 nodes; per-event work is ~20&nbsp;ns. The engine is <b>dependent-load-latency bound</b> (hot set ~15&nbsp;KB, L1-resident), not compute-bound.</li>
+    <li class="zh"><b>每個事件的工作極小。</b>每 hc 約 418 次節點重算;平均導通群組 ~1.4 個節點;每事件約 20&nbsp;ns。引擎受限於<b>相依載入延遲</b>(熱資料集 ~15&nbsp;KB、L1 常駐),不是計算受限。</li>
+    <li class="en"><b>Within-wave order is observable semantics.</b> Processing a node mutates the states that decide whether <i>other</i> nodes' channels are on, so the Gauss-Seidel order within a wave changes the resulting groups. Reorder it and the simulation diverges. Bit-exactness (a full-state checksum) is non-negotiable. <b>Remember this — it is the wall.</b></li>
+    <li class="zh"><b>波內順序是可觀察語意。</b>處理一個節點會改動「決定其他節點通道是否導通」的狀態,所以波內的 Gauss-Seidel 順序會改變最終的群組。一旦重排,模擬就發散。位元精確(全狀態 checksum)不可妥協。<b>記住這點 —— 它就是那道牆。</b></li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="en">Step 1 — does a clean split even exist?</span><span class="zh">第一步 —— 乾淨的切分存在嗎?</span></h2>
+  <p class="en">The NES is two big chips (2A03 CPU, 2C02 PPU) plus board glue. They couple through exactly <b>14 wires</b>: the 8-bit data bus, 3 register-address bits, the PPU chip-select <code>io_ce</code>, <code>nmi</code>, and <code>rw</code>. We flood-filled chip ownership through the transistor channels and got the key result:</p>
+  <p class="zh">NES 是兩顆大晶片(2A03 CPU、2C02 PPU)加上主機板膠合邏輯。它們只透過 <b>14 條線</b>耦合:8 位元資料匯流排、3 條暫存器位址、PPU 晶片選擇 <code>io_ce</code>、<code>nmi</code>、<code>rw</code>。我們沿電晶體通道做了 flood-fill 歸屬,得到關鍵結果:</p>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>contested = 0.</b> Apart from those 14 cut wires, the CPU side and PPU side are completely channel-disjoint. A clean two-way partition genuinely exists — and because the sides are disjoint, two threads can write the shared state arrays with <b>no lock at all</b> (disjoint bytes; hardware coherence handles the rest). The only synchronization a split needs is a barrier.</p>
+    <p class="zh" style="margin:.2em 0"><b>contested = 0。</b>除了那 14 條 cut 線,CPU 側與 PPU 側在通道上完全不相連。乾淨的二分切分確實存在 —— 而且因為兩側 disjoint,兩條執行緒寫共用狀態陣列<b>完全不需要鎖</b>(寫不同 byte;其餘交給硬體一致性)。切分唯一需要的同步是一個 barrier。</p>
+  </div>
+  <p class="en">But the same census exposes the catch. Work splits <b>17% CPU&nbsp;/ 54% PPU&nbsp;/ 29% shared</b> — the "shared" 29% is the <b>clock distribution tree</b>, which gates both chips and toggles every hc. The PPU is one big bidirectional SCC that can't be split further. And per hc, the PPU is active 100% of the time while the CPU is active only 12.5% — <b>there is never an hc where the CPU works alone.</b> So the perfect, sync-free Amdahl ceiling is only <span class="num">1.20&times;</span>, with the PPU as the permanent bottleneck.</p>
+  <p class="zh">但同一份普查也暴露了陷阱。工作分布是 <b>CPU 17%&nbsp;/ PPU 54%&nbsp;/ 共用 29%</b> —— 那 29% 的「共用」是<b>時鐘分配樹</b>,它 gate 兩顆晶片、每個 hc 都翻。PPU 是一整塊不可再分的雙向 SCC。而且每個 hc,PPU 100% 都在工作、CPU 只有 12.5% —— <b>從來沒有哪個 hc 是 CPU 單獨工作的。</b>所以完美、零同步的 Amdahl 上限只有 <span class="num">1.20&times;</span>,PPU 是永久瓶頸。</p>
+</section>
+
+<section>
+  <h2><span class="en">Step 2 — the cost of talking between cores</span><span class="zh">第二步 —— 兩核之間「對話」的成本</span></h2>
+  <p class="en">A two-thread settle has to synchronize. We measured the raw cost on this machine (AMD Ryzen 7 3700X): two threads pinned to two P-cores, a cache-line-padded ping-pong, the round-trip latency of "signal the other core and wait for its reply":</p>
+  <p class="zh">兩執行緒的安定必須同步。我們在本機(AMD Ryzen 7 3700X)量了這個原始成本:兩條執行緒各釘一顆 P-core、做 cache-line padding 的 ping-pong,量「通知另一顆核心並等它回覆」的 round-trip 延遲:</p>
+  <div class="boxes">
+    <div class="box"><div class="n">~134 ns</div><div class="l"><span class="en">cross-core round-trip (1 barrier)</span><span class="zh">跨核 round-trip(一次屏障)</span></div></div>
+    <div class="box"><div class="n">~0.6 µs</div><div class="l"><span class="en">work in one settle wave</span><span class="zh">一個安定波的工作量</span></div></div>
+    <div class="box"><div class="n">12 /hc</div><div class="l"><span class="en">waves (= barriers) per hc</span><span class="zh">每 hc 的波數(= 屏障數)</span></div></div>
+  </div>
+  <p class="en">Already the arithmetic looks grim: if you barrier once per wave, that is ~134&nbsp;ns of pure sync against ~600&nbsp;ns of work, twelve times per hc — a ~20% tax on a split whose best case is only 1.20&times;. (Gemini, consulted independently, put the C# floor at ~134&nbsp;ns; native <code>MWAITX</code> might reach ~70&nbsp;ns, same-CCX hardware ~40-50&nbsp;ns — all still fatal against sub-microsecond work.)</p>
+  <p class="zh">光看算術就不妙:若每波都同步,那是 ~134&nbsp;ns 純同步 vs ~600&nbsp;ns 工作,每 hc 十二次 —— 對一個最佳只有 1.20&times; 的切分課了 ~20% 的稅。(獨立諮詢 Gemini 也把 C# 的地板定在 ~134&nbsp;ns;原生 <code>MWAITX</code> 或許到 ~70&nbsp;ns、同 CCX 硬體 ~40-50&nbsp;ns —— 對次微秒的工作全都一樣致命。)</p>
+</section>
+
+<section>
+  <h2><span class="en">Step 3 — build it anyway, bit-exact</span><span class="zh">第三步 —— 還是把它做出來,位元精確</span></h2>
+  <p class="en">We implemented the real thing: main thread = CPU side, worker thread = PPU side, each pinned to its own P-core, sharing the read-mostly arrays, with a lock-free per-wave barrier. A wave runs <b>parallel</b> only when it is provably cross-side-free (<code>io_ce</code> inactive, no cut node, no clock/shared node, both sides have work); otherwise it falls back to serial so the result stays exact.</p>
+  <p class="zh">我們把真版做出來了:主執行緒 = CPU 側、worker = PPU 側,各釘一顆 P-core,共用唯讀陣列,搭配一個無鎖的每波 barrier。一個波只在「可證明無跨側耦合」時才<b>平行</b>(<code>io_ce</code> 未啟用、無 cut 節點、無時鐘/共用節點、兩側都有工作);否則退回序列,結果才會精確。</p>
+  <table>
+    <tr><th><span class="en">Variant</span><span class="zh">變體</span></th><th>hc/s</th><th>vs 1-thread</th><th><span class="en">parallel waves</span><span class="zh">平行波</span></th><th>checksum</th></tr>
+    <tr><td><b><span class="en">1 thread</span><span class="zh">單執行緒</span></b> <span class="mut">(baseline)</span></td><td class="num">133,512</td><td>1.00&times;</td><td>—</td><td class="num" style="color:#7ee0a8">golden</td></tr>
+    <tr><td><b><span class="en">2 threads, per-wave barrier</span><span class="zh">2 執行緒、每波屏障</span></b></td><td class="num">118,300</td><td class="tagN">0.89&times;</td><td class="num" style="color:#ff7676">0.0%</td><td class="num" style="color:#7ee0a8">golden ✓</td></tr>
+  </table>
+  <p class="en">It is <b>bit-exact</b> (checksum matches the golden value). But <b>0.0% of waves ran in parallel</b> — so the two-thread engine is pure overhead and runs <b>11% slower</b>. Why zero? The cause breakdown: <b>~92% of waves contain a clock/shared node</b>, ~7% have <code>io_ce</code> active, ~0.2% a cut node. The clock tree is in almost every wave, and it gates both sides — so almost every wave is "coupled" and must run serially.</p>
+  <p class="zh">它是<b>位元精確</b>的(checksum 對到 golden)。但<b>平行波 = 0.0%</b> —— 所以兩執行緒引擎純粹是額外開銷,反而<b>慢 11%</b>。為什麼是零?原因分解:<b>~92% 的波含有時鐘/共用節點</b>、~7% 是 <code>io_ce</code> 啟用、~0.2% 含 cut 節點。時鐘樹幾乎在每個波裡、又 gate 兩側 —— 所以幾乎每個波都「耦合」,只能序列。</p>
+  <div class="note">
+    <p class="en" style="margin:.2em 0">We tried to rescue it: process the clock/shared nodes serially <i>first</i>, then run CPU&#8214;PPU in parallel (a "3-phase" wave). <b>The checksum diverged immediately.</b> That is the wall from Step 1 biting back — moving a clock node before the chip nodes changes the order in which it gates them, and within-wave order <i>is</i> the semantics. The 3-phase variant proved, by breaking, exactly why the safe version can't fire.</p>
+    <p class="zh" style="margin:.2em 0">我們試圖搶救:把時鐘/共用節點<i>先</i>序列處理,再平行跑 CPU&#8214;PPU(「三相」波)。<b>checksum 立刻發散。</b>這正是第一步那道牆反咬 —— 把時鐘節點移到晶片節點之前,就改變了它 gate 它們的順序,而波內順序<i>就是</i>語意。三相變體用「壞掉」精確證明了:為什麼安全版一個波都平行不起來。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Step 4 — what if we let it fire anyway?</span><span class="zh">第四步 —— 那如果硬讓它平行呢?</span></h2>
+  <p class="en">To find out whether parallelism has <i>any</i> upside before investing more, we ran a speed probe: relax the clock-node rule (lump it onto the CPU thread, fire the wave in parallel anyway — not guaranteed bit-exact, measuring speed only).</p>
+  <p class="zh">為了在投入更多之前先確認平行<i>到底</i>有沒有上檔空間,我們跑了一個速度探針:放寬時鐘節點規則(把它併到 CPU 執行緒、硬讓波平行 —— 不保證位元精確,只量速度)。</p>
+  <table>
+    <tr><th><span class="en">Variant</span><span class="zh">變體</span></th><th>hc/s</th><th>vs 1-thread</th><th><span class="en">parallel waves</span><span class="zh">平行波</span></th></tr>
+    <tr><td><b><span class="en">2 threads, speed probe</span><span class="zh">2 執行緒、速度探針</span></b></td><td class="num">90,100</td><td class="tagN">0.68&times;</td><td class="num">53.3%</td></tr>
+  </table>
+  <p class="en">Parallel waves jumped from 0% to <b>53%</b> — and the engine got <b>even slower</b> (0.68&times;). This is the decisive measurement: <b>more parallelism made it slower.</b> Each fired wave pays a ~134&nbsp;ns barrier on ~600&nbsp;ns of work, twelve times per hc; the sync tax simply swamps the work saved. This is the exact same wall that made an earlier per-chip threading attempt <b>15&times; slower</b> — now pinned to a number with a clean partition.</p>
+  <p class="zh">平行波從 0% 跳到 <b>53%</b> —— 引擎卻<b>更慢了</b>(0.68&times;)。這是決定性的量測:<b>越平行越慢。</b>每個觸發的波要在 ~600&nbsp;ns 的工作上付 ~134&nbsp;ns 屏障,每 hc 十二次;同步稅直接淹掉省下的工作。這正是先前 per-chip 嘗試慢 <b>15 倍</b>的同一道牆 —— 現在用乾淨切分釘成了一個數字。</p>
+</section>
+
+<section>
+  <h2><span class="en">The two walls (and why coarse-grain doesn't escape them)</span><span class="zh">兩道牆(以及粗粒度為何也逃不掉)</span></h2>
+  <p class="en">There are only two granularities, and each dies its own way:</p>
+  <p class="zh">只有兩種粒度,而每一種都用自己的方式死掉:</p>
+  <div class="bad">
+    <p class="en" style="margin:.2em 0"><b>Fine grain (barrier per wave): dies on sync cost.</b> Measured 0.68–0.89&times;. The per-wave barrier (~134&nbsp;ns &times; 12/hc) is bigger than the work it coordinates. There is no granularity between "per wave" and "per hc" — clock edges define the boundaries of causality.</p>
+    <p class="zh" style="margin:.2em 0"><b>細粒度(每波一個屏障):死於同步成本。</b>實測 0.68–0.89&times;。每波屏障(~134&nbsp;ns &times; 12/hc)比它協調的工作還大。「每波」與「每 hc」之間沒有中間粒度 —— 時鐘邊界就是因果邊界。</p>
+  </div>
+  <div class="bad">
+    <p class="en" style="margin:.2em 0"><b>Coarse grain (one barrier per hc): dies on imbalance + state-copy.</b> The only &gt;1&times; path is to give each thread a <i>private copy of the clock tree</i> so it settles independently within an hc (the "two copies" idea) and sync only at hc boundaries. But that needs a private copy of the hottest state array per thread (TLS cost on every access), plus snapshot/rollback for the ~1% of hc where <code>io_ce</code> actually bridges the bus. The model ceiling is ~1.16&times;, and those overheads very likely eat all 16%. You would also still be capped by the 1.20&times; work imbalance, since the PPU SCC can't be split (splitting it needs "ghost nodes" whose overlap approaches the size of the PPU itself — net more work).</p>
+    <p class="zh" style="margin:.2em 0"><b>粗粒度(每 hc 一個屏障):死於工作不平衡 + 狀態複製。</b>唯一 &gt;1&times; 的路是給每條執行緒<i>一份私有的時鐘樹</i>,讓它在一個 hc 內獨立安定(「兩份複本」構想),只在 hc 邊界同步。但那需要每執行緒一份最熱狀態陣列的私有複本(每次存取都有 TLS 成本),外加在 <code>io_ce</code> 真正橋接匯流排的那 ~1% hc 做快照/rollback。模型上限 ~1.16&times;,而這些開銷極可能把 16% 全吃光。而且你仍被 1.20&times; 的工作不平衡卡住,因為 PPU 那塊 SCC 切不開(切它需要「ghost node」,重疊量趨近 PPU 本身 —— 淨增工作)。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">The verdict</span><span class="zh">裁決</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>Under bit-exactness, this single-instance switch-level simulation cannot be multi-core-accelerated.</b> The partition is clean (contested&nbsp;=&nbsp;0) and needs no locks — but fine-grain dies on barrier cost, and coarse-grain dies on the 1.20&times; work imbalance plus state-replication overhead. The root cause is the engine's own defining property: the within-wave Gauss-Seidel order <i>is</i> the result, which makes each hc a strict dependency chain that the shared clock tree threads through nearly every wave. The only honest use of more cores here is running many <i>independent</i> NES instances — which was never this project's goal.</p>
+    <p class="zh" style="margin:.2em 0"><b>在維持位元精確下,這個單實例開關級模擬無法用多核加速。</b>切分是乾淨的(contested&nbsp;=&nbsp;0)、不需要任何鎖 —— 但細粒度死於屏障成本,粗粒度死於 1.20&times; 工作不平衡加狀態複製開銷。根因正是引擎自身的定義性質:波內 Gauss-Seidel 順序<i>就是</i>結果,這讓每個 hc 成為一條嚴格相依鏈,而共用時鐘樹幾乎穿過每一個波。這裡多核唯一誠實的用法是跑許多<i>獨立的</i> NES 實例 —— 而那從來不是本專案的目標。</p>
+  </div>
+  <p class="en">This is the parallelism entry in the engine's <a href="ceiling.html">boundary map</a>: not "we couldn't be bothered", but a chain of measured, falsifiable, bit-exact-verified results — every path priced with a real number, including an independent "stop" from Gemini. It is the multi-core companion to the single-core walls in <a href="frontier.html">the frontier</a> and <a href="dominant-bypass.html">the P-5 case</a>.</p>
+  <p class="zh">這是引擎<a href="ceiling.html">邊界地圖</a>裡的平行化條目:不是「懶得做」,而是一連串實測、可證偽、位元精確驗證過的結果 —— 每條路都標上了真實數字,還包含 Gemini 獨立給出的「停」。它是單核那幾道牆(<a href="frontier.html">前緣</a>、<a href="dominant-bypass.html">P-5 案例</a>)的多核版姊妹篇。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">All measured on an AMD Ryzen 7 3700X (Zen 2), two threads pinned to two distinct top-class P-cores, unlocked clock. The 2-thread engine is a real implementation (<code>WireCore.ThreadRun.cs</code>) on a dedicated <code>thread-experiment</code> branch, gated against the golden full-state checksum; it is not merged into the shipping single-thread engine. Work-balance and cause breakdowns come from in-engine instrumentation; the ~134&nbsp;ns barrier from a standalone two-core ping-pong microbenchmark. Bottleneck analysis cross-checked with an independent Gemini consult. Companion pages: <a href="frontier.html">the frontier</a>, <a href="dominant-bypass.html">a correct optimization that still lost (P-5)</a>, <a href="bfs-dfs.html">BFS vs DFS</a>, <a href="ceiling.html">the ceiling</a>.</p>
+  <p class="zh">全部量測於 AMD Ryzen 7 3700X(Zen 2),兩條執行緒各釘一顆最高級別 P-core、不鎖頻。兩執行緒引擎是真實作(<code>WireCore.ThreadRun.cs</code>),放在獨立的 <code>thread-experiment</code> 分支、以 golden 全狀態 checksum 把關;沒有併入出貨的單執行緒引擎。工作平衡與原因分解來自引擎內建的儀器化;~134&nbsp;ns 屏障來自獨立的兩核 ping-pong 微基準。瓶頸分析另以 Gemini 獨立諮詢交叉驗證。延伸頁面:<a href="frontier.html">前緣</a>、<a href="dominant-bypass.html">一個正確卻仍然輸的優化(P-5)</a>、<a href="bfs-dfs.html">BFS vs DFS</a>、<a href="ceiling.html">天花板</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html"><span class="en">Home</span><span class="zh">回首頁</span></a></p>
+  <p class="mut"><span class="en">A real bit-exact CPU‖PPU two-thread split (clean partition, contested=0, zero locks): per-wave barrier = 0% parallel → 0.89×; relaxed speed probe = 53% parallel → 0.68×. More parallelism, slower engine. Fine grain dies on barrier cost, coarse grain on the 1.20× imbalance + state-copy. Within-wave order is semantics. 2026-06-14.</span><span class="zh">真實的位元精確 CPU‖PPU 雙執行緒切分(乾淨切分、contested=0、零鎖):每波屏障 = 0% 平行 → 0.89×;放寬的速度探針 = 53% 平行 → 0.68×。越平行、引擎越慢。細粒度死於屏障成本、粗粒度死於 1.20× 不平衡加狀態複製。波內順序即語意。2026-06-14。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

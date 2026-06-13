@@ -12,6 +12,8 @@ etc/
 *.docx
 *.doc
 *.pdf
+
+
 *.zip
 *.7z
 *.rar

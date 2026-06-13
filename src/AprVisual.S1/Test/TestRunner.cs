@@ -35,6 +35,7 @@ namespace AprVisual.Test
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
             bool pin = false; int pinCore = -1;   // --pin [N]: pin hot thread (N = force logical core; absent = auto best P-core)
+            bool threadRun = false; int threadRunHc = 400000;   // [thread-experiment] --thread-run [hc]
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -63,6 +64,7 @@ namespace AprVisual.Test
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--thread-bench":    { long it = 0; if (i + 1 < args.Length && long.TryParse(args[i + 1], out it)) i++; return Sim.ThreadExp.RunBarrierBench(it); }   // [thread-experiment] cross-core barrier-cost microbenchmark + model
+                    case "--thread-run":      threadRun = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _trhc)) { threadRunHc = _trhc; i++; } break;   // [thread-experiment] real 2-thread CPU||PPU settle
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
@@ -112,6 +114,7 @@ namespace AprVisual.Test
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
+            if (threadRun     && benchPath != null) return BenchmarkThreaded(benchPath, threadRunHc);
             if (benchPath     != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount, logDir);
             if (benchPath     != null) return Benchmark(benchPath, shotFrames);
 
@@ -526,6 +529,24 @@ namespace AprVisual.Test
                 return 0;
             }
             finally { WireCore.Shutdown(); }
+        }
+
+        // ── --thread-run: real 2-thread CPU‖PPU parallel settle (thread-experiment Stage B) ──
+        public static int BenchmarkThreaded(string romPath, int hcCount)
+        {
+            if (hcCount < 1) hcCount = 1000;
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# thread-run: {Path.GetFileName(romPath)} — {hcCount:N0} master half-cycles (2-thread CPU||PPU split)");
+            WireCore.LoadSystem(rom);
+            WireCore.BuildThreadPartition();   // BEFORE the name maps are freed
+            System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            System.GC.WaitForPendingFinalizers();
+            long t0 = WireCore.Time;
+            int rc = WireCore.RunThreaded(hcCount);
+            ulong stateHash = WireCore.NodeStatesChecksum();
+            Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (must match the single-thread golden for this ROM/horizon)");
+            return rc;
         }
 
         // ── --bench-hc: time exactly N raw master-half-cycles (finer than --frames; for slow variants) ──

@@ -279,6 +279,56 @@ namespace AprVisual.Sim
             Tag("ppu.io_ce", 3);
             Tag("cpu.nmi", 4);
             Tag("cpu.rw", 5);
+            BuildPartition();
+        }
+
+        // [thread-experiment] exact CPU/PPU partition: seed every NAMED node from SideOf(), then
+        // flood the side label to nameless internal nodes through channel adjacency, NOT crossing the
+        // cut nodes (CutNodeKind!=0) or supply. A node reached from BOTH chips becomes "contested" (3)
+        // — its count VALIDATES the cut: if ~0, the cut is complete (the two sides are channel-disjoint
+        // except through the named coupling wires); if large, there is an unmodelled cross-chip channel.
+        internal static byte[]? PartSide;   // 0 neutral/unreached, 1 cpu, 2 ppu, 3 contested
+        internal static long PartCpu, PartPpu, PartNeutral, PartContested, PartCutNodes;
+
+        private static void PropagateSide(int o, byte s, System.Collections.Generic.Queue<int> q)
+        {
+            if (o == Npwr || o == Ngnd) return;
+            if (CutNodeKind![o] != 0) return;        // never cross the chip-to-chip cut
+            byte os = PartSide![o];
+            if (os == 0) { PartSide[o] = s; q.Enqueue(o); }
+            else if (os != s && os != 3) PartSide[o] = 3;   // reached from both chips → contested
+        }
+
+        internal static void BuildPartition()
+        {
+            PartSide = new byte[NodeCount];
+            for (int i = 0; i < NodeCount; i++) PartSide[i] = NodeSide![i];   // 0/1/2 from names
+            var q = new System.Collections.Generic.Queue<int>();
+            for (int i = 0; i < NodeCount; i++) if (PartSide[i] == 1 || PartSide[i] == 2) q.Enqueue(i);
+            while (q.Count > 0)
+            {
+                int nn = q.Dequeue();
+                byte s = PartSide[nn];
+                if (s != 1 && s != 2) continue;          // only chip sides propagate
+                if (CutNodeKind![nn] != 0) continue;     // don't propagate out of a cut node
+                NodeInfo* d = NodeInfos + nn;
+                if (d->Inline != 0)
+                {
+                    ushort* pay = d->InlinePayload; int n2 = d->C1c2Count << 1;
+                    for (int k = 0; k < n2; k += 2) PropagateSide(pay[k + 1], s, q);
+                }
+                else
+                {
+                    ushort* p = TransistorList + d->TlistC1c2s;
+                    while (*p != 0) { PropagateSide(p[1], s, q); p += 2; }
+                }
+            }
+            for (int i = 0; i < NodeCount; i++)
+            {
+                if (i == Npwr || i == Ngnd) continue;
+                if (CutNodeKind![i] != 0) { PartCutNodes++; continue; }
+                switch (PartSide[i]) { case 1: PartCpu++; break; case 2: PartPpu++; break; case 3: PartContested++; break; default: PartNeutral++; break; }
+            }
         }
 
         private static void BoundaryPopTally(int nn)
@@ -287,7 +337,7 @@ namespace AprVisual.Sim
             byte d = NodeDomain[nn];
             if (d == 1) DiagPopCpu++; else if (d == 2) DiagPopPpu++; else DiagPopBoard++;
             DiagModulePops![NodeModule![nn]]++;
-            DiagSidePops[NodeSide![nn]]++;
+            { byte ps = PartSide![nn]; DiagSidePops[ps == 3 ? 0 : ps]++; }   // contested counted as neutral/shared
             if (Time != _bndCurHc)
             {
                 if (_bndCurHc >= 0)

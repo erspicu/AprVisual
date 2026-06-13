@@ -671,8 +671,9 @@ namespace AprVisual.Test
                         long heavy = System.Math.Max(sC, sP);
                         double ceilExcl = tot > 0 && heavy > 0 ? (double)tot / heavy : 0;            // neutral free
                         double ceilDup = tot > 0 && (heavy + sN) > 0 ? (double)tot / (heavy + sN) : 0; // neutral duplicated on both
-                        Console.WriteLine($"#   PDES side split: cpu-side={sC:N0} ({pc(sC):F1}%) ppu-side={sP:N0} ({pc(sP):F1}%) neutral={sN:N0} ({pc(sN):F1}%)");
-                        Console.WriteLine($"#   2-way speedup CEILING (sync-free, perfect): {ceilExcl:F2}x (neutral free) .. {ceilDup:F2}x (neutral on both)  [heavy side = {(sP>=sC?"PPU":"CPU")}]");
+                        Console.WriteLine($"#   PDES side split (pops, flood-fill partition): cpu-side={sC:N0} ({pc(sC):F1}%) ppu-side={sP:N0} ({pc(sP):F1}%) shared={sN:N0} ({pc(sN):F1}%)");
+                        Console.WriteLine($"#   2-way speedup CEILING (sync-free, perfect): {ceilExcl:F2}x (shared free) .. {ceilDup:F2}x (shared on both)  [heavy side = {(sP>=sC?"PPU":"CPU")}]");
+                        Console.WriteLine($"#   partition NODES (cut completeness check): cpu={WireCore.PartCpu:N0} ppu={WireCore.PartPpu:N0} cut={WireCore.PartCutNodes:N0} contested={WireCore.PartContested:N0} neutral/unreached={WireCore.PartNeutral:N0}  (contested≈0 ⇒ cut is complete)");
                     }
                 }
 #endif

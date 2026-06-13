@@ -90,15 +90,20 @@ namespace AprVisual.Sim
         public static ushort* TransistorList;
 
         // ── Double-buffered recalc queue (see WireCore.Recalc.cs) ──
-        public static int* RecalcList;
-        public static int* RecalcListNext;
+        // [thread-experiment] [ThreadStatic]: each settle thread owns its own wave lists + dedup hash +
+        // group scratch, so the CPU and PPU worker threads never race on them. Main thread's slot is
+        // allocated in Reset() (runs on main) and is what the single-thread path uses unchanged — so the
+        // single-thread build stays bit-exact (same logic, thread-local storage). The worker allocates
+        // its slot via EnsureWorkerScratch(). On main this is a normal-fast static for all existing paths.
+        [ThreadStatic] public static int* RecalcList;
+        [ThreadStatic] public static int* RecalcListNext;
         // byte* (was int*) — 0/1 only per node, 58 KB → 14 KB. Bitset variant (ulong*) was
         // tested but the shift+mask per-access cost erased the cache benefit. byte* keeps
         // straight-load semantics + same L1d footprint as _inGroup.
-        public static byte* RecalcHash;
-        public static byte* RecalcHashNext;
-        public static int RecalcListCount;
-        public static int RecalcListNextCount;
+        [ThreadStatic] public static byte* RecalcHash;
+        [ThreadStatic] public static byte* RecalcHashNext;
+        [ThreadStatic] public static int RecalcListCount;
+        [ThreadStatic] public static int RecalcListNextCount;
 
         // ── Counts (set during parse/build) ──
         public static int NodeCount;

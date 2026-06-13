@@ -24,11 +24,15 @@ namespace AprVisual.Sim
         //    S1 improvement TODO: have a variant that returns NodeValue.HoldPrevious explicitly
         //    for the floating case, so callers can tell "driven high" from "held high".
 
-        // Scratch state for the current addNodeToGroup walk (single-threaded).
-        private static NodeFlags _groupFlags;
-        private static int _groupCount;       // number of nodes currently in _groupBuf
-        private static ushort* _groupBuf;     // node ids in the current group (alloc'd in Reset, sized NodeCount). ushort* (was int*) — node count <65K so 16 bit suffices, 29KB vs 58KB
-        private static byte* _inGroup;        // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup. byte* (was int*) — 0/1 only, 14KB vs 58KB fits L1d alongside NodeStates
+        // Scratch state for the current addNodeToGroup walk.
+        // [thread-experiment] [ThreadStatic]: per-thread group-walk scratch so the CPU + PPU worker
+        // threads each run an independent BFS without racing (no lock needed — separate buffers). Main's
+        // slot is allocated in Reset(); the worker's via EnsureWorkerScratch(). Single-thread = main slot,
+        // bit-exact unchanged.
+        [ThreadStatic] private static NodeFlags _groupFlags;
+        [ThreadStatic] private static int _groupCount;       // number of nodes currently in _groupBuf
+        [ThreadStatic] private static ushort* _groupBuf;     // node ids in the current group (alloc'd in Reset, sized NodeCount). ushort* (was int*) — node count <65K so 16 bit suffices, 29KB vs 58KB
+        [ThreadStatic] private static byte* _inGroup;        // O(1) dedup flag per node (1 = currently in _groupBuf); cleared each ComputeNodeGroup. byte* (was int*) — 0/1 only, 14KB vs 58KB fits L1d alongside NodeStates
 
         /// <summary>Build the 256-entry FlagsToState lookup table from FlagsToStateOf().</summary>
         public static void BuildFlagsToStateTable()

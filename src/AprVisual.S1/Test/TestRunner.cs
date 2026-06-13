@@ -65,6 +65,7 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--thread-bench":    { long it = 0; if (i + 1 < args.Length && long.TryParse(args[i + 1], out it)) i++; return Sim.ThreadExp.RunBarrierBench(it); }   // [thread-experiment] cross-core barrier-cost microbenchmark + model
                     case "--thread-run":      threadRun = true; if (i + 1 < args.Length && int.TryParse(args[i + 1], out int _trhc)) { threadRunHc = _trhc; i++; } break;   // [thread-experiment] real 2-thread CPU||PPU settle
+                    case "--thread-probe":    WireCore.TR_Probe = true; break;   // [thread-experiment] S4 speed probe (neutral lumped to cpu; NOT bit-exact)
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)

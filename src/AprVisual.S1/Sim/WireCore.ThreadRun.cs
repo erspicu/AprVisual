@@ -33,6 +33,12 @@ namespace AprVisual.Sim
         private static int TR_IoCeNode = EmptyNode;
         internal static long TR_WavesSerial, TR_WavesParallel, TR_WavesEmpty;   // accounting
         internal static long TR_SerIoCe, TR_SerCut, TR_SerNeutral;   // why a wave went serial-coupled
+        // S4 SPEED PROBE: when true, neutral (clock) nodes do NOT force a serial wave — they are lumped
+        // onto the CPU thread (main does side!=2) so the wave fires parallel. This is NOT bit-exact (the
+        // within-wave neutral<->ppu order is broken and neutral is read across threads), it ONLY measures
+        // whether the parallel split has any speed upside before investing in the correct per-thread-state
+        // build. Checksum WILL diverge — that's expected and reported.
+        internal static bool TR_Probe;
 
         private static byte TR_SideOfName(string nm)
         {
@@ -153,7 +159,7 @@ namespace AprVisual.Sim
                         int nn = cur[i];
                         if (TR_IsCut![nn] != 0) { bad = true; why = 2; break; }
                         byte s = TR_Side![nn];
-                        if (s == 0) { bad = true; why = 3; break; }     // neutral (clock/shared) — order is semantics
+                        if (s == 0) { if (TR_Probe) { cc++; continue; } bad = true; why = 3; break; }   // neutral: probe lumps onto cpu thread; correct mode bails
                         if (s == 2) TR_PpuSub[pc++] = nn; else cc++;
                     }
 
@@ -167,7 +173,7 @@ namespace AprVisual.Sim
                     TR_WavesParallel++;
                     TR_WCount = pc;
                     Volatile.Write(ref _trToWorker, ++seq);     // release worker on ppuSub
-                    for (int i = 0; i < N; i++) { int nn = cur[i]; if (TR_Side![nn] == 1 && RecalcHash[nn] != 0) { RecalcNode(nn); RecalcHash[nn] = 0; } }
+                    for (int i = 0; i < N; i++) { int nn = cur[i]; if (TR_Side![nn] != 2 && RecalcHash[nn] != 0) { RecalcNode(nn); RecalcHash[nn] = 0; } }
                     var spin = new SpinWait();
                     while (Volatile.Read(ref _trToMain) != seq) spin.SpinOnce(-1);
                     int* mn = RecalcListNext; int mc = RecalcListNextCount;

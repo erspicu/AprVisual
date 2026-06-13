@@ -146,6 +146,65 @@ namespace AprVisual.Sim
             catch (Exception ex) { return $"pin: macOS QoS not applied ({ex.GetType().Name}); OS scheduling"; }
         }
 
+        // [thread-experiment] Pin the CALLING thread to one logical core (+ forbid CLR remap). Returns
+        // status. Used to put the two experiment worker threads on two distinct P-cores.
+        public static string PinCurrentThreadTo(int core)
+        {
+            if (!OperatingSystem.IsWindows()) return $"pin-thread {core}: non-Windows no-op";
+            try { Thread.CurrentThread.Priority = ThreadPriority.Highest; } catch { }
+            Thread.BeginThreadAffinity();
+            nuint prev = SetThreadAffinityMask(GetCurrentThread(), (nuint)1 << core);
+            return prev == 0 ? $"pin-thread {core}: FAILED (err {Marshal.GetLastWin32Error()})" : $"pinned thread to core {core}";
+        }
+
+        // [thread-experiment] Two distinct top-EfficiencyClass physical cores (each its first logical
+        // proc = skip the SMT sibling), highest-numbered first. For the 2-thread split: main on a, worker
+        // on b. Returns (-1,-1) if topology query fails or fewer than 2 top-class cores exist.
+        public static (int a, int b) TwoBestCores()
+        {
+            if (!OperatingSystem.IsWindows()) return (-1, -1);
+            uint len = 0;
+            GetLogicalProcessorInformationEx(RelationProcessorCore, IntPtr.Zero, ref len);
+            if (len == 0) return (-1, -1);
+            IntPtr buf = Marshal.AllocHGlobal((int)len);
+            try
+            {
+                if (!GetLogicalProcessorInformationEx(RelationProcessorCore, buf, ref len)) return (-1, -1);
+                byte maxEff = 0;
+                var firstBits = new System.Collections.Generic.List<int>();
+                // pass 1: find top EfficiencyClass; pass 2: collect first-logical-proc bit of each top core
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    byte* ptr = (byte*)buf; byte* end = ptr + len;
+                    if (pass == 1) firstBits.Clear();
+                    while (ptr < end)
+                    {
+                        int rel = *(int*)ptr; uint size = *(uint*)(ptr + 4);
+                        if (rel == RelationProcessorCore)
+                        {
+                            byte eff = *(ptr + 9);
+                            nuint coreMask = *(nuint*)(ptr + 32);
+                            if (coreMask != 0)
+                            {
+                                if (pass == 0) { if (eff > maxEff) maxEff = eff; }
+                                else if (eff == maxEff)
+                                {
+                                    nuint first = coreMask & (nuint)(-(nint)coreMask);
+                                    firstBits.Add(System.Numerics.BitOperations.TrailingZeroCount((ulong)first));
+                                }
+                            }
+                        }
+                        ptr += size;
+                    }
+                }
+                if (firstBits.Count < 2) return (-1, -1);
+                firstBits.Sort();
+                int n = firstBits.Count;
+                return (firstBits[n - 1], firstBits[n - 2]);   // two highest-numbered top-class cores
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+        }
+
         // Highest-EfficiencyClass physical core, its highest-numbered instance, first logical proc.
         // Also reports topClassCount = how many physical cores share that top EfficiencyClass (so the
         // status line can say "1 of N" — N == all physical cores on a uniform CPU, == P-core count on hybrid).

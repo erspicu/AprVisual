@@ -62,6 +62,7 @@ namespace AprVisual.Test
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
+                    case "--thread-bench":    { long it = 0; if (i + 1 < args.Length && long.TryParse(args[i + 1], out it)) i++; return Sim.ThreadExp.RunBarrierBench(it); }   // [thread-experiment] cross-core barrier-cost microbenchmark + model
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)

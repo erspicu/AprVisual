@@ -196,6 +196,62 @@ namespace AprVisual.Sim
             if (_coLastLine![line] == -1) CoGlobalLines++;
             if (_coLastLine[line] != Time) { _coLastLine[line] = Time; _coWinLines++; }
         }
+
+        // ── CPU/PPU boundary profiler (DEBUG ONLY) — feasibility test for the "split the two chips
+        // onto two threads with coarse step-granularity sync" (PDES) idea. Two questions:
+        //   (1) How often do the CPU<->PPU COUPLING WIRES change state? The nes-001 cut is exactly
+        //       io_db[7:0]≡cpu.db (data), io_ab[2:0]≡cpu.ab (reg addr), io_ce (PPU select),
+        //       cpu.nmi≡ppu.int, cpu.rw≡ppu.io_rw. db/ab/rw also carry CPU<->RAM traffic (change every
+        //       CPU cycle) so they OVER-count; io_ce + nmi transitions are the TRUE CPU<->PPU exchange
+        //       rate — if those are sparse per hc, a thread can run ahead and sync only at them.
+        //   (2) Per hc, are BOTH chips active (a cpu.* AND a ppu.* node popped)? If most hc fire both,
+        //       the chips are entangled hc-by-hc and time-decoupling buys nothing.
+        // All deterministic ⇒ event counts identical to Release. Init via InitBoundaryDiag() before the
+        // bench loop; read the [cpu-ppu-boundary] line in TestRunner.
+        internal static int[]? CutNodeKind;   // [NodeCount] 0=none 1=db 2=ab 3=io_ce 4=nmi 5=rw
+        internal static byte[]? NodeDomain;   // [NodeCount] 0=board 1=cpu 2=ppu
+        internal static readonly long[] DiagCut = new long[6];      // state-changes per cut kind
+        internal static readonly int[]  CutResolved = new int[6];   // how many node ids got each kind
+        internal static long DiagPopCpu, DiagPopPpu, DiagPopBoard;
+        internal static long DiagHcSeen, DiagHcBothChips, DiagHcCpuOnly, DiagHcPpuOnly;
+        private static long _bndCurHc = -1; private static bool _bndCpu, _bndPpu;
+
+        internal static void InitBoundaryDiag()
+        {
+            NodeDomain = new byte[NodeCount];
+            CutNodeKind = new int[NodeCount];
+            for (int i = 0; i < NodeCount; i++)
+            {
+                string nm = GetNodeName(i);
+                NodeDomain[i] = (byte)(nm.StartsWith("cpu.", StringComparison.Ordinal) ? 1
+                                     : nm.StartsWith("ppu.", StringComparison.Ordinal) ? 2 : 0);
+            }
+            void Tag(string name, int kind) { int n = LookupNode(name); if (n != EmptyNode && n != Npwr && n != Ngnd) { CutNodeKind[n] = kind; CutResolved[kind]++; } }
+            for (int b = 0; b <= 7; b++) Tag($"cpu.db{b}", 1);
+            for (int b = 0; b <= 2; b++) Tag($"cpu.ab{b}", 2);
+            Tag("ppu.io_ce", 3);
+            Tag("cpu.nmi", 4);
+            Tag("cpu.rw", 5);
+        }
+
+        private static void BoundaryPopTally(int nn)
+        {
+            if (NodeDomain == null) return;
+            byte d = NodeDomain[nn];
+            if (d == 1) DiagPopCpu++; else if (d == 2) DiagPopPpu++; else DiagPopBoard++;
+            if (Time != _bndCurHc)
+            {
+                if (_bndCurHc >= 0)
+                {
+                    DiagHcSeen++;
+                    if (_bndCpu && _bndPpu) DiagHcBothChips++;
+                    else if (_bndCpu) DiagHcCpuOnly++;
+                    else if (_bndPpu) DiagHcPpuOnly++;
+                }
+                _bndCurHc = Time; _bndCpu = false; _bndPpu = false;
+            }
+            if (d == 1) _bndCpu = true; else if (d == 2) _bndPpu = true;
+        }
 #endif
 
         // Hard cap on settle passes — DEBUG builds only (Release omits the cap entirely; see ProcessQueue:
@@ -264,6 +320,7 @@ namespace AprVisual.Sim
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);
                         CoActivityTally(nn);
+                        BoundaryPopTally(nn);   // cpu/ppu boundary profiler (DEBUG only)
 #endif
                     }
                 }
@@ -389,6 +446,7 @@ namespace AprVisual.Sim
             NodeStates[nn] = newState;
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
+            if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
 #endif
             int tlistGates = NodeTlistGates[nn];
             if (tlistGates != 0)

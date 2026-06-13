@@ -544,6 +544,9 @@ namespace AprVisual.Test
                 // never touches, then force a final compacting Gen2 GC so no collection can fire mid-
                 // measurement. Hot data is unmanaged (NodeStates/NodeInfos/TransistorList/...), so this is
                 // timing-stability hygiene + minimum resident heap, not a throughput change.
+#if DEBUG
+                WireCore.InitBoundaryDiag();   // cpu/ppu boundary profiler — BEFORE ReleaseBenchResidualState frees the name maps
+#endif
                 WireCore.ReleaseBenchResidualState();
                 System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
                 System.GC.WaitForPendingFinalizers();
@@ -634,6 +637,24 @@ namespace AprVisual.Test
                         // (the --co-profile per-node dump was removed 2026-06-11 with the --renumber file
                         //  mode — the locality key is now SELF-CAPTURED at load; see WireCore.Renumber.cs.)
                     }
+                }
+                {
+                    // CPU/PPU boundary profiler (DEBUG only) — PDES "split the two chips" feasibility.
+                    // See WireCore.Recalc.cs InitBoundaryDiag / BoundaryPopTally.
+                    long hc = halfCycles > 0 ? halfCycles : 1;
+                    var cut = WireCore.DiagCut; var cr = WireCore.CutResolved;
+                    double Ph(long x) => (double)x / hc;
+                    Console.WriteLine($"# [cpu-ppu-boundary] over {halfCycles:N0} hc — cut-wire state-changes (per hc):");
+                    Console.WriteLine($"#   data-bus db[7:0] (ids={cr[1]}): {cut[1]:N0} ({Ph(cut[1]):F4}/hc)  [also CPU<->RAM traffic — over-counts]");
+                    Console.WriteLine($"#   reg-addr ab[2:0] (ids={cr[2]}): {cut[2]:N0} ({Ph(cut[2]):F4}/hc)  [also CPU bus — over-counts]");
+                    Console.WriteLine($"#   rw line (ids={cr[5]}): {cut[5]:N0} ({Ph(cut[5]):F4}/hc)  [also CPU bus]");
+                    Console.WriteLine($"#   *** io_ce PPU-select (ids={cr[3]}): {cut[3]:N0} ({Ph(cut[3]):F4}/hc)  <-- TRUE CPU<->PPU exchange trigger");
+                    Console.WriteLine($"#   *** nmi PPU->CPU (ids={cr[4]}): {cut[4]:N0} ({Ph(cut[4]):F4}/hc)  <-- PPU->CPU coupling");
+                    long both = WireCore.DiagHcBothChips, cpuO = WireCore.DiagHcCpuOnly, ppuO = WireCore.DiagHcPpuOnly, seen = WireCore.DiagHcSeen;
+                    long quiet = hc - both - cpuO - ppuO;
+                    double Pc(long x) => seen > 0 ? 100.0 * x / hc : 0;
+                    Console.WriteLine($"#   per-hc chip activity: both={both:N0} ({Pc(both):F1}%) cpu-only={cpuO:N0} ({Pc(cpuO):F1}%) ppu-only={ppuO:N0} ({Pc(ppuO):F1}%) neither~={quiet:N0}");
+                    Console.WriteLine($"#   total pops by domain: cpu={WireCore.DiagPopCpu:N0} ppu={WireCore.DiagPopPpu:N0} board={WireCore.DiagPopBoard:N0}");
                 }
 #endif
                 PrintRealtimeGap(stepsHz);

@@ -655,6 +655,25 @@ namespace AprVisual.Test
                     double Pc(long x) => seen > 0 ? 100.0 * x / hc : 0;
                     Console.WriteLine($"#   per-hc chip activity: both={both:N0} ({Pc(both):F1}%) cpu-only={cpuO:N0} ({Pc(cpuO):F1}%) ppu-only={ppuO:N0} ({Pc(ppuO):F1}%) neither~={quiet:N0}");
                     Console.WriteLine($"#   total pops by domain: cpu={WireCore.DiagPopCpu:N0} ppu={WireCore.DiagPopPpu:N0} board={WireCore.DiagPopBoard:N0}");
+                    // per-module pop histogram (which modules carry the work) — sorted desc.
+                    var mn = WireCore.ModuleNames; var mp = WireCore.DiagModulePops;
+                    if (mn != null && mp != null)
+                    {
+                        long tot = 0; foreach (var x in mp) tot += x;
+                        var ord = new int[mn.Length];
+                        for (int z = 0; z < ord.Length; z++) ord[z] = z;
+                        System.Array.Sort(ord, (a, b) => mp[b].CompareTo(mp[a]));
+                        Console.WriteLine($"#   pops by module (of {tot:N0} total):");
+                        foreach (int k in ord) { if (mp[k] == 0) continue; Console.WriteLine($"#     {mn[k],-12} {mp[k],14:N0}  {(tot>0?100.0*mp[k]/tot:0),5:F1}%"); }
+                        // PDES 2-way work balance + Amdahl ceiling under the SideOf() assignment.
+                        long sN = WireCore.DiagSidePops[0], sC = WireCore.DiagSidePops[1], sP = WireCore.DiagSidePops[2];
+                        double pc(long x) => tot > 0 ? 100.0 * x / tot : 0;
+                        long heavy = System.Math.Max(sC, sP);
+                        double ceilExcl = tot > 0 && heavy > 0 ? (double)tot / heavy : 0;            // neutral free
+                        double ceilDup = tot > 0 && (heavy + sN) > 0 ? (double)tot / (heavy + sN) : 0; // neutral duplicated on both
+                        Console.WriteLine($"#   PDES side split: cpu-side={sC:N0} ({pc(sC):F1}%) ppu-side={sP:N0} ({pc(sP):F1}%) neutral={sN:N0} ({pc(sN):F1}%)");
+                        Console.WriteLine($"#   2-way speedup CEILING (sync-free, perfect): {ceilExcl:F2}x (neutral free) .. {ceilDup:F2}x (neutral on both)  [heavy side = {(sP>=sC?"PPU":"CPU")}]");
+                    }
                 }
 #endif
                 PrintRealtimeGap(stepsHz);

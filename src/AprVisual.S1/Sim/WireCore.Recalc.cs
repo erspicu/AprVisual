@@ -216,16 +216,63 @@ namespace AprVisual.Sim
         internal static long DiagHcSeen, DiagHcBothChips, DiagHcCpuOnly, DiagHcPpuOnly;
         private static long _bndCurHc = -1; private static bool _bndCpu, _bndPpu;
 
+        // per-module pop histogram (visibility) + per-side pop totals (the PDES work-balance / ceiling).
+        internal static string[]? ModuleNames; private static int[]? NodeModule; internal static long[]? DiagModulePops;
+        private static byte[]? NodeSide;   // 0 neutral, 1 cpu-side, 2 ppu-side
+        internal static readonly long[] DiagSidePops = new long[3];
+
+        private static string ModuleKey(string nm)
+        {
+            int dot = nm.IndexOf('.');
+            if (dot > 0) return nm.Substring(0, dot);
+            int e = nm.Length; while (e > 0 && char.IsDigit(nm[e - 1])) e--;   // BD0->BD, BA13->BA
+            return e > 0 ? nm.Substring(0, e) : nm;
+        }
+
+        // Assign a board/chip module to a PDES side. CPU side: 2A03 + work-RAM + addr decoder +
+        // controller buffers/ports + CIC. PPU side: 2C02 + addr latch + VRAM + a13 inverter + the
+        // BD/BA video bus. Cartridge straddles (PRG=CPU, CHR=PPU) so it's split by pin name; pure
+        // supply/clock/reset are neutral (the clock is broadcast — each thread ticks its own).
+        private static byte SideOf(string nm)
+        {
+            if (nm.StartsWith("cpu.", StringComparison.Ordinal)) return 1;
+            if (nm.StartsWith("ppu.", StringComparison.Ordinal)) return 2;
+            if (nm.StartsWith("u1.", StringComparison.Ordinal) || nm.StartsWith("u3.", StringComparison.Ordinal)
+             || nm.StartsWith("u7.", StringComparison.Ordinal) || nm.StartsWith("u8.", StringComparison.Ordinal)
+             || nm.StartsWith("port0.", StringComparison.Ordinal) || nm.StartsWith("port1.", StringComparison.Ordinal)
+             || nm.StartsWith("u10.", StringComparison.Ordinal)) return 1;
+            if (nm.StartsWith("u2.", StringComparison.Ordinal) || nm.StartsWith("u4.", StringComparison.Ordinal)
+             || nm.StartsWith("u9.", StringComparison.Ordinal)
+             || nm.StartsWith("BD", StringComparison.Ordinal) || nm.StartsWith("BA", StringComparison.Ordinal)) return 2;
+            if (nm.StartsWith("cart", StringComparison.Ordinal))
+            {
+                if (nm.Contains("ppu", StringComparison.OrdinalIgnoreCase) || nm.Contains("chr", StringComparison.OrdinalIgnoreCase)) return 2;
+                if (nm.Contains("cpu", StringComparison.OrdinalIgnoreCase) || nm.Contains("prg", StringComparison.OrdinalIgnoreCase)) return 1;
+                return 0;
+            }
+            return 0;   // vcc/vss/clk/res/func<...>
+        }
+
         internal static void InitBoundaryDiag()
         {
             NodeDomain = new byte[NodeCount];
             CutNodeKind = new int[NodeCount];
+            NodeModule = new int[NodeCount];
+            NodeSide = new byte[NodeCount];
+            var idx = new System.Collections.Generic.Dictionary<string, int>(StringComparer.Ordinal);
+            var names = new System.Collections.Generic.List<string>();
             for (int i = 0; i < NodeCount; i++)
             {
                 string nm = GetNodeName(i);
                 NodeDomain[i] = (byte)(nm.StartsWith("cpu.", StringComparison.Ordinal) ? 1
                                      : nm.StartsWith("ppu.", StringComparison.Ordinal) ? 2 : 0);
+                NodeSide[i] = SideOf(nm);
+                string key = ModuleKey(nm);
+                if (!idx.TryGetValue(key, out int gi)) { gi = names.Count; idx[key] = gi; names.Add(key); }
+                NodeModule[i] = gi;
             }
+            ModuleNames = names.ToArray();
+            DiagModulePops = new long[ModuleNames.Length];
             void Tag(string name, int kind) { int n = LookupNode(name); if (n != EmptyNode && n != Npwr && n != Ngnd) { CutNodeKind[n] = kind; CutResolved[kind]++; } }
             for (int b = 0; b <= 7; b++) Tag($"cpu.db{b}", 1);
             for (int b = 0; b <= 2; b++) Tag($"cpu.ab{b}", 2);
@@ -239,6 +286,8 @@ namespace AprVisual.Sim
             if (NodeDomain == null) return;
             byte d = NodeDomain[nn];
             if (d == 1) DiagPopCpu++; else if (d == 2) DiagPopPpu++; else DiagPopBoard++;
+            DiagModulePops![NodeModule![nn]]++;
+            DiagSidePops[NodeSide![nn]]++;
             if (Time != _bndCurHc)
             {
                 if (_bndCurHc >= 0)

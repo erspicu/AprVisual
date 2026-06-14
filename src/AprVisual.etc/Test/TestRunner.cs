@@ -24,6 +24,7 @@ namespace AprVisual.Test
             string? payloadHistPath = null, fcTaintPath = null, namesArg = null;
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
+            string? cpuBenchDir = null; string cpuChip = "6502"; int cpuWarmup = 100000; int cpuRounds = 5;   // raw bare-CPU bench (--cpu-bench)
             string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
@@ -55,6 +56,10 @@ namespace AprVisual.Test
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
+                    case "--cpu-bench":       if (i + 1 < args.Length) cpuBenchDir = args[++i]; break;   // raw visual6502 bare-CPU netlist dir
+                    case "--chip":            if (i + 1 < args.Length) cpuChip     = args[++i]; break;   // 6502 | 6800 | z80
+                    case "--warmup":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuWarmup); break;
+                    case "--rounds":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuRounds); break;   // --cpu-bench timed rounds
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
@@ -91,6 +96,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
+            if (cpuBenchDir   != null) return WireCore.RunRawCpuBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds);
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);
@@ -1060,6 +1066,10 @@ namespace AprVisual.Test
 
                   AprVisual.etc --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS, raw step rate (default N=12; Release build recommended)
                   AprVisual.etc --benchmark <rom> --bench-hc <N>   headless throughput: time exactly N raw master-half-cycles
+                  AprVisual.etc --cpu-bench <dir> --chip 6502|6800|z80 [--bench-hc N] [--warmup N]
+                                                           bare-CPU throughput: load a RAW visual6502 netlist (segdefs/transdefs/
+                                                           nodenames in <dir>), power-on, NOP-sled via the pins, time N half-cycles
+                                                           (our engine vs tools/visual6502-node; see src/.../netlists/)
                   AprVisual.etc --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual.etc --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                     timeout per test (default 15)

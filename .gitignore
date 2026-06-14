@@ -79,3 +79,5 @@ tools/wla-dx/
 
 # PerfView (Microsoft profiler, ~24 MB binary + unpacked support files) — tool, not source
 tools/perfview/
+
+__pycache__/

@@ -75,15 +75,23 @@ namespace AprVisual.Sim
             FinishRawLoad(cfg);
         }
 
+        // parse the three raw .js files into a flat ModuleDef (no global state touched, no instancing).
+        // Shared by BuildRawNetlist (our engine) and NaiveSim (the C# port of the original algorithm).
+        internal static ModuleDef ParseRawModuleDef(string dir, string name)
+        {
+            var def = new ModuleDef { Name = name, Path = dir };
+            LoadExternalArray(Path.Combine(dir, "nodenames.js"), r => r.ReadObject((k, nr) => def.NodeNames[k] = nr.ReadInt()), "nodenames");
+            LoadExternalArray(Path.Combine(dir, "segdefs.js"),   r => r.ReadArray(ar => def.Segs.Add(ReadSegDef(ar))),  "segdefs");
+            LoadExternalArray(Path.Combine(dir, "transdefs.js"), r => r.ReadArray(ar => def.Trans.Add(ReadTransDef(ar))), "transdefs");
+            return def;
+        }
+
         // compose only: parse the raw files + instantiate + lower (deterministic ids — safe to repeat)
         private static void BuildRawNetlist(string dir, RawCpuConfig cfg)
         {
             ResetBuild();   // registers Npwr=vcc / Ngnd=vss
 
-            var def = new ModuleDef { Name = cfg.Name, Path = dir };
-            LoadExternalArray(Path.Combine(dir, "nodenames.js"), r => r.ReadObject((k, nr) => def.NodeNames[k] = nr.ReadInt()), "nodenames");
-            LoadExternalArray(Path.Combine(dir, "segdefs.js"),   r => r.ReadArray(ar => def.Segs.Add(ReadSegDef(ar))),  "segdefs");
-            LoadExternalArray(Path.Combine(dir, "transdefs.js"), r => r.ReadArray(ar => def.Trans.Add(ReadTransDef(ar))), "transdefs");
+            var def = ParseRawModuleDef(dir, cfg.Name);
 
             // AddInstance folds the locals named "vss"/"vcc" onto Ngnd/Npwr. If this chip names its
             // supplies differently (6800 = gnd), alias them so the fold still happens.

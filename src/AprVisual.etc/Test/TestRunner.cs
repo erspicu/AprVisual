@@ -24,7 +24,7 @@ namespace AprVisual.Test
             string? payloadHistPath = null, fcTaintPath = null, namesArg = null;
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
-            string? cpuBenchDir = null; string cpuChip = "6502"; int cpuWarmup = 100000; int cpuRounds = 5;   // raw bare-CPU bench (--cpu-bench)
+            string? cpuBenchDir = null; string cpuChip = "6502"; int cpuWarmup = 100000; int cpuRounds = 5; bool cpuNaive = false;   // raw bare-CPU bench (--cpu-bench)
             string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
@@ -62,6 +62,7 @@ namespace AprVisual.Test
                     case "--rounds":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuRounds); break;   // --cpu-bench timed rounds
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--no-renumber":     WireCore.RawRenumber = false; break;   // --cpu-bench A/B (class-major renumber off)
+                    case "--naive":           cpuNaive = true; break;                // --cpu-bench runs the C# port of the ORIGINAL visual6502 algorithm
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
@@ -97,7 +98,9 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
-            if (cpuBenchDir   != null) return WireCore.RunRawCpuBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds);
+            if (cpuBenchDir   != null) return cpuNaive
+                                           ? NaiveSim.RunBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds)
+                                           : WireCore.RunRawCpuBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds);
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);

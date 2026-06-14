@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual — is it overfit to the NES? (6502 / 6800 / Z80, and language vs algorithm)</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.75;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 26px; max-width:920px; margin:0 auto;}
+  header.top h1{font-size:clamp(28px,6vw,40px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:920px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .2em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.5; font-family:Consolas,"SF Mono",monospace;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 14px; margin:14px 0;}
+  .note{border-left:3px solid #ffb454; background:#1c1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .big{border-left:3px solid var(--acc2); background:#13201a; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .bad{border-left:3px solid #ff7676; background:#1f1414; padding:10px 16px; border-radius:0 8px 8px 0; margin:14px 0;}
+  .tagN{color:#ff7676; font-weight:700;}
+  .tagY{color:var(--acc2); font-weight:700;}
+  .num{font-family:Consolas,"SF Mono",monospace; color:#ffd479;}
+  .boxes{display:flex; gap:12px; flex-wrap:wrap; margin:14px 0;}
+  .boxes .box{flex:1; min-width:150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:12px 14px; text-align:center;}
+  .boxes .box .n{font-size:26px; font-weight:700; font-family:Consolas,monospace;}
+  .boxes .box .l{font-size:12.5px; color:var(--mut); margin-top:2px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:920px; margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Is it overfit to the NES?</span><span class="zh">它只是對 NES 過擬合嗎?</span></h1>
+  <p class="sub en">Everything else on this site measures one console — the NES's 2A03 and 2C02. So the fair question is: does the engine, with all its prunes and its self-derived memory layout, secretly only work for <i>this</i> netlist? We answered it by pointing the engine at silicon it had never seen — the bare MOS 6502, Motorola 6800, and Zilog Z80 — with <b>zero changes to the simulation core</b>. And by porting the original reference algorithm to the same language, we could finally split the headline speedup into its two real parts: <b>~70–85× is the language</b> (JavaScript vs C#) and only <b>~5–8× is our algorithm</b>.</p>
+  <p class="sub zh">本站其他頁面量的都是同一台主機——NES 的 2A03 與 2C02。所以公正的問題是:這個帶著一身剪枝、又自己推導記憶體佈局的引擎,是不是其實只對<i>這一張</i>網表有效?我們的回答,是把引擎指向它從未見過的矽——裸的 MOS 6502、Motorola 6800、Zilog Z80——而且<b>模擬核心一行都沒改</b>。再把原始參考演算法移植成同一種語言,我們終於能把頭條加速拆成兩個真實成分:<b>~70–85× 是語言</b>(JavaScript vs C#),只有 <b>~5–8× 是我們的演算法</b>。</p>
+</header>
+
+<main>
+
+<section>
+  <h2><span class="en">The overfitting test: three more chips, same engine</span><span class="zh">過擬合測試:多三顆晶片,同一引擎</span></h2>
+  <p class="en">We took three standalone netlists straight from the <a href="https://www.visual6502.org">Visual&nbsp;6502</a> project and ran them on the same <code>WireCore</code> engine. None has a cartridge, a PPU, or a test ROM, so there is nothing to load. Instead we drive each chip at the <b>pin boundary</b> with an <b>infinite NOP sled</b>: whenever the CPU asserts a read, the harness forces the data bus to that chip's NOP opcode (<code>0xEA</code> for the 6502, <code>0x01</code> for the 6800, <code>0x00</code> for the Z80) rather than consulting memory. The program counter then walks forever through an endless field of no-ops — a clean, perfectly reproducible workload that exercises fetch, decode, and the entire timing state machine without any program at all.</p>
+  <p class="zh">我們直接從 <a href="https://www.visual6502.org">Visual&nbsp;6502</a> 專案取三張獨立網表,跑在同一個 <code>WireCore</code> 引擎上。它們都沒有卡匣、沒有 PPU、也沒有測試 ROM,所以根本沒東西可載入。取而代之,我們在<b>引腳邊界</b>用一條<b>無限 NOP sled</b> 驅動:每當 CPU 發出讀取,測試平台就把資料匯流排強制成該晶片的 NOP 指令值(6502 是 <code>0xEA</code>、6800 是 <code>0x01</code>、Z80 是 <code>0x00</code>),而不去查記憶體。程式計數器於是永遠走在無止盡的 no-op 田野上——一個乾淨、完全可重現的工作負載,不需要任何程式就能操練取指、解碼與整個時序狀態機。</p>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>The simulation core never changed.</b> The existing parser already understood raw <code>segdefs</code>/<code>transdefs</code>/<code>nodenames</code> arrays, so loading a new chip needed only a small loader plus a ~20-line per-chip clock/bus driver (the 6800's two-phase φ1/φ2 clock and the Z80's <code>_rd</code>/<code>_mreq</code>/<code>_wr</code> protocol differ from the 6502's). The whole pipeline — lowering, the <a href="prunes.html">P-1…P-4 prunes</a>, the class-major renumber, the <a href="rcm-revival.html">self-captured relayout</a>, the unmanaged hot path — applies <b>unchanged</b>. All three power on and execute (the address bus advances as the program counter increments). The engine is not specialized to the NES 6502.</p>
+    <p class="zh" style="margin:.2em 0"><b>模擬核心從未改動。</b>既有解析器本來就看得懂 raw 的 <code>segdefs</code>/<code>transdefs</code>/<code>nodenames</code> 陣列,所以載入新晶片只需要一個小載入器,加上一個約 20 行的每晶片時鐘/匯流排驅動(6800 的兩相 φ1/φ2 時鐘、Z80 的 <code>_rd</code>/<code>_mreq</code>/<code>_wr</code> 協定都與 6502 不同)。整條管線——lowering、<a href="prunes.html">P-1…P-4 剪枝</a>、class-major 重排、<a href="rcm-revival.html">自我捕捉重佈局</a>、非託管熱路徑——<b>原封不動</b>套用。三顆都成功上電並執行(位址匯流排隨程式計數器遞增而前進)。引擎並非對 NES 6502 特化。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Splitting language from algorithm</span><span class="zh">把語言與演算法分開</span></h2>
+  <p class="en">A headline like "584× faster than the original" is almost meaningless, because it mixes two completely different things: the original sim is JavaScript, ours is C#. To separate them we transliterated the <i>reference algorithm itself</i> — the recursive group-walk of <code>chipsim.js</code>, object-per-node, no prunes, no fast path, no struct-of-arrays — into C#. Its transistor counts match the JavaScript original <b>exactly</b> (3510 / 3923 / 6781), so it is a faithful port, not a strawman. Now three engines run the identical NOP sled, on the same machine, thread-pinned:</p>
+  <p class="zh">「比原版快 584×」這種頭條幾乎沒有意義,因為它混了兩件完全不同的事:原版模擬是 JavaScript、我們是 C#。為了分離,我們把<i>參考演算法本身</i>——<code>chipsim.js</code> 的遞迴 group-walk,object-per-node、無剪枝、無 fast path、無 struct-of-arrays——移植成 C#。它的電晶體數與 JavaScript 原版<b>完全相同</b>(3510 / 3923 / 6781),所以是忠實移植、不是稻草人。現在三個引擎跑同一條 NOP sled、同機、釘核:</p>
+  <table>
+    <tr>
+      <th><span class="en">Chip</span><span class="zh">晶片</span></th>
+      <th><span class="en">Nodes</span><span class="zh">節點</span></th>
+      <th><span class="en">Visual 6502 JS</span><span class="zh">Visual 6502 JS</span></th>
+      <th>C# naive</th>
+      <th>AprVisual</th>
+      <th><span class="en">Language</span><span class="zh">語言</span></th>
+      <th><span class="en">Algorithm</span><span class="zh">演算法</span></th>
+    </tr>
+    <tr><td>MOS 6502</td><td class="num">1704</td><td class="num">249</td><td class="num">17,914</td><td class="num">145,337</td><td class="num">~72&times;</td><td class="num">~8.1&times;</td></tr>
+    <tr><td>Motorola 6800</td><td class="num">2012</td><td class="num">149</td><td class="num">12,582</td><td class="num">89,233</td><td class="num">~84&times;</td><td class="num">~7.1&times;</td></tr>
+    <tr><td>Zilog Z80</td><td class="num">3595</td><td class="num">166</td><td class="num">12,255</td><td class="num">62,491</td><td class="num">~74&times;</td><td class="num">~5.1&times;</td></tr>
+  </table>
+  <p class="en mut">Half-cycles per second. "Language" = JavaScript→C# at the <i>same</i> (naive) algorithm; "Algorithm" = naive→AprVisual in the <i>same</i> (C#) language. Every configuration is bit-exact: the per-node checksum is invariant across no-renumber / renumber / BFS-key / self-capture, so the renumber and locality machinery is performance-only.</p>
+  <p class="zh mut">每秒半週期數。「語言」=<i>同一</i>(naive)演算法下的 JavaScript→C#;「演算法」=<i>同一</i>(C#)語言下的 naive→AprVisual。每種設定皆位元精確:每節點 checksum 在 no-renumber / renumber / BFS-key / self-capture 之間不變,故重排與局部性機制純屬效能。</p>
+</section>
+
+<section>
+  <h2><span class="en">The honest headline</span><span class="zh">誠實的頭條</span></h2>
+  <div class="big">
+    <p class="en" style="margin:.2em 0">The raw JavaScript→AprVisual ratio is enormous — <b>376× to 599×</b> — but it factors cleanly: roughly <b>70–85× is just JavaScript versus C#</b> at the identical algorithm, and only about <b>5–8× is our algorithm</b>, measured in a single controlled language. That ~5–8× is the number to believe and cite — and it agrees with the ~2.5× our engine beats its optimized <i>C++</i> ancestor (MetalNES), since a tuned C++ baseline is itself several times faster than the naive port. It would have been easy, and wrong, to sell the 584× as the contribution.</p>
+    <p class="zh" style="margin:.2em 0">原始的 JavaScript→AprVisual 比值很驚人——<b>376× 到 599×</b>——但它乾淨地因式分解:其中約 <b>70–85× 只是同演算法下的 JavaScript 對 C#</b>,真正屬於我們演算法、在單一受控語言裡量到的,只有約 <b>5–8×</b>。那個 ~5–8× 才是該相信、該引用的數字——它也與我們引擎相對已優化的 <i>C++</i> 祖先(MetalNES)快約 2.5× 一致,因為一個調優過的 C++ 基線本身就比 naive 移植快上數倍。把 584× 當成貢獻會很容易、卻是錯的。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">How fast is that, in kilohertz?</span><span class="zh">換算成 kHz,有多快?</span></h2>
+  <p class="en">A bare CPU needs none of the NES's master-clock division (the 2A03 runs at the master clock over twelve), so one CPU cycle is just two half-cycles and the simulated clock is the half-cycle rate halved. Against the home computers these chips actually powered, one modern core gets surprisingly close:</p>
+  <p class="zh">裸 CPU 不需要 NES 的主時鐘分頻(2A03 跑在主時鐘的十二分之一),所以一個 CPU 週期就只是兩個半週期,模擬時脈就是半週期速率除以二。對照這些晶片當年實際驅動的家用電腦,單顆現代核心其實近得驚人:</p>
+  <table>
+    <tr>
+      <th><span class="en">Chip</span><span class="zh">晶片</span></th>
+      <th><span class="en">Simulated clock</span><span class="zh">模擬時脈</span></th>
+      <th><span class="en">1980s host (real clock)</span><span class="zh">1980s 宿主(實機時脈)</span></th>
+      <th><span class="en">Gap to the real machine</span><span class="zh">距實機</span></th>
+    </tr>
+    <tr><td>MOS 6502</td><td class="num">~72.7 kHz</td><td><span class="en">Apple II / C64 (1.0 MHz)</span><span class="zh">Apple II / C64(1.0 MHz)</span></td><td class="num">~14&times;</td></tr>
+    <tr><td>Motorola 6800</td><td class="num">~44.6 kHz</td><td><span class="en">SWTPC 6800 (~1 MHz)</span><span class="zh">SWTPC 6800(約 1 MHz)</span></td><td class="num">~22&times;</td></tr>
+    <tr><td>Zilog Z80</td><td class="num">~31.2 kHz</td><td><span class="en">ZX Spectrum / MSX / CPC (3.5–4 MHz)</span><span class="zh">ZX Spectrum / MSX / CPC(3.5–4 MHz)</span></td><td class="num">~112–128&times;</td></tr>
+  </table>
+  <p class="en">A single core is thus far closer to interactively re-running these vintage machines — transistor by transistor — than it is to the whole NES (which is <a href="ceiling.html">~316× from real time</a>), simply because there's one die instead of two and no clock divider in the way. Matching the originals outright stays out of reach on one core, but the gap is now a concrete number rather than an abstraction.</p>
+  <p class="zh">因此單顆核心要逐電晶體地互動重跑這些古董機器,比起整台 NES(距即時 <a href="ceiling.html">約 316×</a>)近得多,純粹因為只有一顆晶粒而非兩顆、且中間沒有分頻器擋路。要在單核上完全追平原機仍不可達,但這個差距如今是個具體數字,而非抽象。</p>
+</section>
+
+<section>
+  <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
+  <p class="en">Same machine (AMD Ryzen 7 3700X, thread-pinned), NOP-sled workload, 1,000,000 half-cycles per round, steady-state median of 6 rounds (the first .NET rounds run below steady state during JIT tiering / PGO warm-up). The Visual&nbsp;6502 JS figures are the unmodified <code>chipsim.js</code> core run headless under Node 24 (its expert-mode UI is a separate layer; <code>chipsim.js</code> is the actual simulation core). The C# naive port and the AprVisual engine live in <code>src/AprVisual.etc/</code> (<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive]</code>); the 6800 and Z80 follow the original harness in skipping the weak (depletion) transistors. Full study notes: <code>MD/note/2026-06-15-…</code>. Companion pages: <a href="study.html">the reducibility study (S2)</a>, <a href="prunes.html">the event-count prunes</a>, <a href="rcm-revival.html">self-captured relayout</a>, <a href="comparison.html">the netlist-family comparison</a>.</p>
+  <p class="zh">同機(AMD Ryzen 7 3700X、釘核)、NOP-sled 工作負載、每輪 100 萬半週期,取 6 輪穩態中位數(.NET 前幾輪因 JIT 分層 / PGO 暖機而低於穩態)。Visual&nbsp;6502 JS 數字是未改的 <code>chipsim.js</code> 核心在 Node 24 下 headless 跑出(它的 expert 模式 UI 是另一層;<code>chipsim.js</code> 才是真正的模擬核心)。C# naive 移植與 AprVisual 引擎都在 <code>src/AprVisual.etc/</code>(<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive]</code>);6800 與 Z80 比照原始測試平台跳過 weak(depletion)電晶體。完整研究筆記:<code>MD/note/2026-06-15-…</code>。延伸頁面:<a href="study.html">可化約性研究(S2)</a>、<a href="prunes.html">事件數剪枝</a>、<a href="rcm-revival.html">自我捕捉重佈局</a>、<a href="comparison.html">網表家族比較</a>。</p>
+</section>
+
+</main>
+
+<footer>
+  <p><a href="index.html"><span class="en">&larr; Home</span><span class="zh">&larr; 回首頁</span></a></p>
+  <p class="mut"><span class="en">Generalization across the NMOS era: the engine runs the 6502, 6800, and Z80 unchanged. A same-language port of the reference algorithm splits the speedup — ~70–85× language (JS→C#), ~5–8× algorithm (naive→ours). All bit-exact. 2026-06-15.</span><span class="zh">跨 NMOS 時代的泛化:引擎原封不動跑 6502、6800、Z80。把參考演算法移植成同語言後,加速拆成 ~70–85× 語言(JS→C#)、~5–8× 演算法(naive→ours)。皆位元精確。2026-06-15。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

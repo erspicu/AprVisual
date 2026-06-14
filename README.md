@@ -44,6 +44,18 @@ On an AMD Ryzen 7 3700X (at boost clock, hot thread pinned to a P-core), benchma
 
 > **Measurement note.** The hot loop is **memory-latency-bound** (dependent-load chains, not cache misses), so throughput scales with CPU clock and is sensitive to boost/thermal state (e.g. the same engine peaks ~135.9K at boost on a cool machine — ~132K typical, ~10% lower on a heat-soaked day, pinned to a P-core — and drops, clock-proportionally, when pinned to base 3.6 GHz). For trustworthy A/B, **use same-day interleaved-paired (or round-robin) runs with the median** — absolute single-run numbers drift too much to compare. (Correction 2026-06-12: we previously recommended locking the clock for sub-1% A/B; on our dev machine the locked state itself proved unrepresentative — a locked session read a +7–9% change as +0.6% — so we now measure unlocked and cross-check any locked reading.) Both engines accept a **`--pin [N]`** flag that cuts run-to-run variance — **bit-exact** (pure scheduling); what it did is printed on the run's `# [perf]` line. On **Windows** it **auto-detects the best P-core** (highest EfficiencyClass → highest-numbered such physical core → first logical proc, so it never lands on a slow E-core) and hard-pins the hot thread there, raises priority, and disables Win11 EcoQoS throttling; `--pin N` forces logical core N. On **macOS** (Apple Silicon has no hard core-affinity API) it instead requests `USER_INTERACTIVE` QoS, biasing the scheduler onto the performance cores. **All bundled launchers (`run_*.bat` and `run_*.sh`) turn it on by default.** **Got a faster CPU? [Run the benchmark and share your numbers.](https://baxermux.org/myemu/AprVisual/)**
 
+### Generalization across the NMOS era
+
+The engine is not specialized to the NES. We run it **unchanged** on three standalone [Visual 6502](https://www.visual6502.org) netlists — the bare **MOS 6502**, **Motorola 6800**, and **Zilog Z80** — driven by an *infinite NOP sled* at the pin boundary (no test ROM needed). Only a raw-netlist loader and a per-chip clock/bus driver were added; lowering, the prunes, the class-major renumber, and the self-captured relayout all apply as-is, and all three boot and execute. Porting the *reference* algorithm (chipsim.js's recursive group-walk) to C# then splits the headline speedup honestly:
+
+| Chip | Visual 6502 JS | C# naive | AprVisual | Language (JS→C#) | Algorithm (naive→ours) |
+|---|---|---|---|---|---|
+| MOS 6502 | 249 hc/s | 17,914 | 145,337 | ~72× | ~8.1× |
+| Motorola 6800 | 149 | 12,582 | 89,233 | ~84× | ~7.1× |
+| Zilog Z80 | 166 | 12,255 | 62,491 | ~74× | ~5.1× |
+
+(same machine, NOP-sled, pinned; all bit-exact across the renumber/locality variants.) The ~376–599× JS→ours headline factors into **~70–85× language × ~5–8× algorithm** — so the algorithmic contribution, measured in one controlled language, is **~5–8× over a naive switch-level simulator** (consistent with ~2.5× over the optimized C++ ancestor). Expressed as a clock these bare CPUs simulate at ~31–73 kHz, within ~14–128× of their 1980s home computers (vs ~316× for the whole NES). Full write-up: **[WebSite/cross-cpu.html](https://erspicu.github.io/AprVisual/cross-cpu.html)**; the bare-CPU bench is `src/AprVisual.etc` (`--cpu-bench <dir> --chip 6502|6800|z80 [--naive]`) and the original-JS baseline is `tools/visual6502-node`.
+
 ## Run the benchmark
 
 The easiest path is the prebuilt, self-contained package (no .NET install needed; Windows + macOS, both engines):
@@ -70,10 +82,11 @@ The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless con
 | `src/AprVisual.S1/` | The S1 switch-level engine — C#, the golden/canonical artifact and focus of optimization. |
 | `experiment/rust-s1/` | The Rust port of the S1 engine (bit-identical). |
 | `src/AprVisual.S2/` | The Escape-1 investigation engine (automatic logic extraction; `--miter`/`--compile`/`--cones`) — concluded; the negative-result record. |
+| `src/AprVisual.etc/` | An S1 fork for validating **other** CPUs: a raw Visual 6502 netlist loader + pin-level NOP-sled bench for the 6502 / 6800 / Z80 (`--cpu-bench`), plus a faithful C# port of the reference chipsim.js algorithm (`--naive`) for the language-vs-algorithm split. See `cross-cpu.html`. |
 | `src/AprVisual.Deprecated/` | The original WinForms engine + tooling (rendering, ROM parsing) + the S2/S3/S4 IR/codegen/GPU experiments — reference only. |
 | `WebSite/` | The GitHub Pages project site (served at the link above). |
 | `MD/` | Design & analysis docs (Traditional Chinese). |
-| `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query). |
+| `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query) — incl. `visual6502-node/`, the headless Node.js baseline that runs the original Visual 6502 JS sim. |
 
 ## Credits & license
 

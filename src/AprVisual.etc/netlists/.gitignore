@@ -1,0 +1,4 @@
+# Licensed visual6502 netlist data (CC-BY-NC-SA / MIT) — local working copy only,
+# NOT committed, mirroring the repo's ref/ policy (see README.md). The directory
+# structure (.gitkeep) and README.md stay tracked; repopulate the .js from ref/.
+**/*.js

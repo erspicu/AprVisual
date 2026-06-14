@@ -19,18 +19,15 @@ namespace AprVisual.Test
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null;
-            string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
+            string? dumpModule = null, tracePath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
-            string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            string? payloadHistPath = null, fcTaintPath = null, namesArg = null;
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
-            string shotOut = "screenshot.png";
-            string frameOutDir = "frames";
             string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
             int shotFrames = 3;
-            int frameDumpCount = 50;
             int benchHcCount = 0;
             string region = "ntsc";
             bool benchmark = false, dumpSystem = false;
@@ -45,16 +42,11 @@ namespace AprVisual.Test
                     case "--test-dir":        if (i + 1 < args.Length) testDir      = args[++i]; break;
                     case "--trace":           if (i + 1 < args.Length) tracePath    = args[++i]; break;
                     case "--cycles":          if (i + 1 < args.Length) int.TryParse(args[++i], out traceCycles); break;
-                    case "--screenshot":      if (i + 1 < args.Length) shotPath     = args[++i]; break;
-                    case "--frame-dump":      if (i + 1 < args.Length) frameDumpPath = args[++i]; break;   // per-frame PNG dump w/ progress + timing
-                    case "--frame-count":     if (i + 1 < args.Length) int.TryParse(args[++i], out frameDumpCount); break;
-                    case "--out-dir":         if (i + 1 < args.Length) frameOutDir  = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
                     case "--dump-node":       if (i + 1 < args.Length) dumpNodeName = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
-                    case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
                     case "--dump-module":     if (i + 1 < args.Length) dumpModule   = args[++i]; break;
                     case "--dump-system":     dumpSystem = true; break;
                     case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
@@ -81,7 +73,7 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         if (romPath is null && testPath is null && testDir is null && dumpModule is null
-                            && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null
+                            && tracePath is null && ppuDumpPath is null && probePath is null
                             && probeVblPath is null && dumpNodeName is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
@@ -105,8 +97,6 @@ namespace AprVisual.Test
             if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
             if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
-            if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
-            if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
@@ -116,10 +106,11 @@ namespace AprVisual.Test
 
             if (romPath != null)
             {
-                // S1 is headless-only (the live WinForms window was removed). Treat a bare ROM
-                // path as "give me a quick screenshot" so it still does something useful.
-                Console.Error.WriteLine($"# (headless build) no GUI — rendering 3 frames of {Path.GetFileName(romPath)} to screenshot.png");
-                return Screenshot(romPath, 3, "screenshot.png");
+                // etc is a headless perf / validation workbench with NO frame output (the S1
+                // screenshot / frame-dump PNG features were removed). A bare ROM path is ambiguous,
+                // so point at the throughput / correctness entry points instead of guessing.
+                Console.Error.WriteLine($"# {Path.GetFileName(romPath)}: a bare ROM path does nothing in etc. Use --benchmark <rom> [--bench-hc N] for throughput, or --test <rom>.");
+                return 2;
             }
 
             if (testDir != null)
@@ -413,75 +404,6 @@ namespace AprVisual.Test
             WireCore.Shutdown();
             WireCore.EnableLowering = savedLower;
             return f;
-        }
-
-        // ── --screenshot: run N frames headless and PNG the FrameBuffer ──
-        private static int Screenshot(string romPath, int frames, string outPath)
-        {
-            var rom = NesRom.LoadFromFile(romPath);
-            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
-            Console.WriteLine($"# {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, CHR {rom.ChrRom.Length / 1024} KB, mapper {rom.Mapper}) — running {frames} frame(s)");
-            try
-            {
-                WireCore.LoadSystem(rom);
-                for (int f = 0; f < frames; f++)
-                {
-                    long hc = WireCore.RunFrame();
-                    Console.WriteLine($"#  frame {f + 1}/{frames}: {hc} half-cycles  |  {WireCore.DumpCpuState()}");
-                }
-                unsafe
-                {
-                    if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
-                    AprVisual.Render.PngWriter.Write(outPath, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
-                }
-                Console.WriteLine($"# wrote {outPath}  ({WireCore.ScreenW}x{WireCore.ScreenH}, {WireCore.Time} half-cycles total)");
-                return 0;
-            }
-            finally { WireCore.Shutdown(); }
-        }
-
-        // ── --frame-dump: render N frames, save EACH frame as frame_NNN.png into outDir,
-        //    printing per-frame progress + wall-clock time. (--frame-count N, --out-dir DIR) ──
-        private static int FrameDump(string romPath, int frameCount, string outDir)
-        {
-            if (frameCount < 1) frameCount = 50;
-            var rom = NesRom.LoadFromFile(romPath);
-            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
-            Directory.CreateDirectory(outDir);
-            Console.WriteLine($"# frame-dump: {Path.GetFileName(romPath)}  (PRG {rom.PrgRom.Length / 1024} KB, mapper {rom.Mapper})");
-            Console.WriteLine($"# rendering {frameCount} frame(s) -> {Path.GetFullPath(outDir)}");
-            try
-            {
-                var swLoad = System.Diagnostics.Stopwatch.StartNew();
-                WireCore.LoadSystem(rom);
-                swLoad.Stop();
-                Console.WriteLine($"# load (compose netlist + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
-
-                double totalSecs = 0;
-                for (int f = 1; f <= frameCount; f++)
-                {
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    WireCore.RunFrame();
-                    sw.Stop();
-                    double secs = sw.Elapsed.TotalSeconds;
-                    totalSecs += secs;
-
-                    string outPath = Path.Combine(outDir, $"frame_{f:D4}.png");
-                    unsafe
-                    {
-                        if (WireCore.FrameBuffer == null) { Console.Error.WriteLine("no FrameBuffer"); return 2; }
-                        AprVisual.Render.PngWriter.Write(outPath, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
-                    }
-                    Console.WriteLine($"# frame {f,4}/{frameCount}  done in {secs,6:F2} s  ->  frame_{f:D4}.png");
-                    Console.Out.Flush();
-                }
-                Console.WriteLine($"# =============================================");
-                Console.WriteLine($"#  {frameCount} frames in {totalSecs:F1} s  (avg {totalSecs / frameCount:F2} s/frame, {frameCount / totalSecs:F3} fps)");
-                Console.WriteLine($"#  output dir: {Path.GetFullPath(outDir)}");
-                Console.WriteLine($"# =============================================");
-                return 0;
-            }
-            finally { WireCore.Shutdown(); }
         }
 
         // ── --benchmark: simulated FPS, MIPS, raw step rate over N frames ──
@@ -1134,34 +1056,33 @@ namespace AprVisual.Test
         private static void PrintUsage()
         {
             Console.WriteLine("""
-                AprVisual.S1 — switch-level NES (clean S1 fork)
+                AprVisual.etc — switch-level CPU perf / validation workbench (S1 engine fork, NO frame output)
 
-                  AprVisual.S1 --rom <game.nes>            show a window for that ROM
-                  AprVisual.S1 --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
-                  AprVisual.S1 --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3)
-                  AprVisual.S1 --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pclk1 samples
-                  AprVisual.S1 --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS, raw step rate (default N=12; Release build recommended)
-                  AprVisual.S1 --benchmark <rom> --bench-hc <N>   headless throughput: time exactly N raw master-half-cycles
-                  AprVisual.S1 --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
-                  AprVisual.S1 --test-dir <dir>            headless: batch-run *.nes under <dir>
+                  AprVisual.etc --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS, raw step rate (default N=12; Release build recommended)
+                  AprVisual.etc --benchmark <rom> --bench-hc <N>   headless throughput: time exactly N raw master-half-cycles
+                  AprVisual.etc --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
+                  AprVisual.etc --test-dir <dir>            headless: batch-run *.nes under <dir>
                     [--max-wait <sec>]                     timeout per test (default 15)
                     [--region ntsc|pal|dendy]
                     [--benchmark]                          also time each test
-                  AprVisual.S1 --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
-                  AprVisual.S1 --dump-system               compose the full nes-001 + cart netlist and print counts + probes
-                  AprVisual.S1 --dump-node <name>          introspect one node (pull-up / gated trans / channel-end trans)
-                  AprVisual.S1 --probe2002 <rom>           trace bus/PPU signals at the next $2002 read after vblank
-                  AprVisual.S1 --probe-vbl <rom>           trace the 2C02 vbl flag latch through the $2002 read path
-                  AprVisual.S1 --selftest                  run hand-built inverter/NAND/pass/callback/static-merge circuits
+                  AprVisual.etc --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
+                  AprVisual.etc --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pclk1 samples
+                  AprVisual.etc --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
+                  AprVisual.etc --dump-system               compose the full nes-001 + cart netlist and print counts + probes
+                  AprVisual.etc --dump-node <name>          introspect one node (pull-up / gated trans / channel-end trans)
+                  AprVisual.etc --probe2002 <rom>           trace bus/PPU signals at the next $2002 read after vblank
+                  AprVisual.etc --probe-vbl <rom>           trace the 2C02 vbl flag latch through the $2002 read path
+                  AprVisual.etc --selftest                  run hand-built inverter/NAND/pass/callback/static-merge circuits
 
                 Diagnostic flags (compose with the above):
-                    [--system-def-dir <dir>]               default: data/system-def
+                    [--system-def-dir <dir>]               netlist load path (default: data/system-def). See netlists/ for other-CPU data.
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
-                    [--fast-path]                          no-op (fast-path is always on in S1)
+                    [--fast-path]                          no-op (fast-path is always on)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
 
-                  (no args)                                open an empty window
+                  NB: etc has no live window and no PNG frame output (--screenshot / --frame-dump were removed);
+                      its purpose is measuring engine throughput on the netlist.
                 """);
         }
     }

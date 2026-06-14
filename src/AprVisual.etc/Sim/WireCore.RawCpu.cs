@@ -23,16 +23,20 @@ namespace AprVisual.Sim
         {
             public string Name = "";
             public string Vss = "vss", Vcc = "vcc";
+            public string Clock = "clk0";   // root for the locality-BFS renumber key (per-chip main clock)
             public int Nop;
             public bool SkipWeak;   // 6800 / z80 ignore the weak (7th-column) transistors — match visual6502
         }
 
         internal static readonly Dictionary<string, RawCpuConfig> RawCpus = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["6502"] = new RawCpuConfig { Name = "6502", Vss = "vss", Vcc = "vcc", Nop = 0xEA, SkipWeak = false },
-            ["6800"] = new RawCpuConfig { Name = "6800", Vss = "gnd", Vcc = "vcc", Nop = 0x01, SkipWeak = true },
-            ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Nop = 0x00, SkipWeak = true },
+            ["6502"] = new RawCpuConfig { Name = "6502", Vss = "vss", Vcc = "vcc", Clock = "clk0", Nop = 0xEA, SkipWeak = false },
+            ["6800"] = new RawCpuConfig { Name = "6800", Vss = "gnd", Vcc = "vcc", Clock = "phi2", Nop = 0x01, SkipWeak = true },
+            ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Clock = "clk",  Nop = 0x00, SkipWeak = true },
         };
+
+        // class-major renumber (range-prune + BFS-locality key); --no-renumber for an A/B
+        public static bool RawRenumber = true;
 
         private static RawCpuConfig _rawCfg = null!;
         private static int[] _abNodes = Array.Empty<int>();
@@ -44,9 +48,36 @@ namespace AprVisual.Sim
 
         // ───────────────────────────── load ─────────────────────────────
 
+        private static int _rawSkippedWeak;
+
         public static void LoadRawCpu(string dir, RawCpuConfig cfg)
         {
             _rawCfg = cfg;
+            if (RawRenumber)
+            {
+                // PASS 0 — classify prune bits under identity ids (no renumber yet).
+                BuildRawNetlist(dir, cfg);
+                Reset();
+                CapturePruneClasses();           // PendingClassBits = StashedClassBits
+
+                // FINAL PASS — rebuild, apply class-major renumber + a BFS-from-clock locality key.
+                // (The NES self-capture first-touch key needs ClockNode + callback-fed bus, which the
+                //  bare-CPU harness doesn't use; the BFS key is the same one the Rust port ships.)
+                BuildRawNetlist(dir, cfg);
+                BuildRawLocalityOrder(cfg);       // PendingLocalityOrder (identity ids)
+                PendingClassBits = StashedClassBits;
+                ApplyRenumber();                  // consumes class bits + locality order; sets range-prune blocks
+            }
+            else
+            {
+                BuildRawNetlist(dir, cfg);
+            }
+            FinishRawLoad(cfg);
+        }
+
+        // compose only: parse the raw files + instantiate + lower (deterministic ids — safe to repeat)
+        private static void BuildRawNetlist(string dir, RawCpuConfig cfg)
+        {
             ResetBuild();   // registers Npwr=vcc / Ngnd=vss
 
             var def = new ModuleDef { Name = cfg.Name, Path = dir };
@@ -65,9 +96,13 @@ namespace AprVisual.Sim
 
             AddInstance(def, "");
             if (EnableLowering) LowerNetlist(); else LastLowerStats = "(lowering disabled — --no-lower)";
+        }
 
+        // post-build: power on + resolve the bus/clock pins + NOP-sled memory + half-step dispatch
+        private static void FinishRawLoad(RawCpuConfig cfg)
+        {
             Reset();              // alloc hot arrays + power-on state + build fast-path / P-2/3/4 prune masks
-            RecomputeAllNodes();  // settle the raw power-on state
+            RecomputeAllNodes();  // settle the raw power-on state (perm-ordered if renumbered)
 
             _abNodes = ResolveBusNodes("ab", 16);
             _dbNodes = ResolveBusNodes("db", 8);
@@ -94,7 +129,37 @@ namespace AprVisual.Sim
             };
         }
 
-        private static int _rawSkippedWeak;
+        // Locality key for the class-major renumber: BFS from the chip's main clock along the
+        // gate→channel-endpoint edges (the same signal-flow edges SetNodeState enqueues through),
+        // producing a per-identity-id first-reach order. ApplyRenumber consumes PendingLocalityOrder.
+        private static void BuildRawLocalityOrder(RawCpuConfig cfg)
+        {
+            int n = NodeArrayCount;
+            var order = new uint[n];
+            for (int i = 0; i < n; i++) order[i] = uint.MaxValue;
+            int clk = LookupNode(cfg.Clock);
+            if (clk == EmptyNode) { PendingLocalityOrder = order; return; }
+
+            var q = new Queue<int>();
+            var seen = new bool[n];
+            uint seq = 0;
+            seen[clk] = true; q.Enqueue(clk);
+            while (q.Count > 0)
+            {
+                int u = q.Dequeue();
+                order[u] = seq++;
+                var un = _nodes[u];
+                if (un == null) continue;
+                foreach (int t in un.Gates)
+                {
+                    var tr = _transistors[t];
+                    int e1 = tr.C1, e2 = tr.C2;
+                    if (e1 > Ngnd && e1 < n && !seen[e1]) { seen[e1] = true; q.Enqueue(e1); }
+                    if (e2 > Ngnd && e2 < n && !seen[e2]) { seen[e2] = true; q.Enqueue(e2); }
+                }
+            }
+            PendingLocalityOrder = order;
+        }
 
         private static int[] ResolveBusNodes(string prefix, int n)
         {
@@ -244,7 +309,8 @@ namespace AprVisual.Sim
             Console.WriteLine($"# AprVisual.etc raw-CPU bench (our event-driven engine) — chip {cfg.Name}");
             Console.WriteLine($"#   netlist dir: {dir}");
             Console.WriteLine($"#   nodes: {nodes}   transistors: {trans}" + (cfg.SkipWeak ? $"   (skipped {_rawSkippedWeak} weak)" : ""));
-            Console.WriteLine($"#   workload: Infinite NOP Sled (opcode 0x{cfg.Nop:X2})   lowering: {(EnableLowering ? "on" : "off")}");
+            Console.WriteLine($"#   workload: Infinite NOP Sled (opcode 0x{cfg.Nop:X2})   lowering: {(EnableLowering ? "on" : "off")}   renumber: {(RawRenumber ? "on" : "off")}");
+            if (RawRenumber) Console.WriteLine($"#   {LastRenumberStats}  (range-prune verified: {RangePruneOk})");
             Console.WriteLine($"#   load (parse + compose + lower + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
 
             InitRawCpu();

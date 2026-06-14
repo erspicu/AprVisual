@@ -61,6 +61,7 @@ namespace AprVisual.Test
                     case "--warmup":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuWarmup); break;
                     case "--rounds":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuRounds); break;   // --cpu-bench timed rounds
                     case "--no-lower":        WireCore.EnableLowering = false; break;
+                    case "--no-renumber":     WireCore.RawRenumber = false; break;   // --cpu-bench A/B (class-major renumber off)
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;

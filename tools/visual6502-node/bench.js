@@ -37,11 +37,15 @@ const ROUNDS  = parseInt(argval('--rounds', '3'), 10);
 
 const REF = path.resolve(__dirname, '../../ref/visual6502-master');
 
-// chip -> { dir for netlist data, NOP opcode, reset/clock node names }
+// chip -> { netlist data dir, NOP opcode, optional chip-specific support.js }.
+// 6502 uses the root macros.js harness directly; 6800 / z80 each ship a support.js that
+// OVERRIDES setupTransistors / halfStep / initChip (different clocks + bus protocol), loaded
+// last so its definitions win. The driver below is chip-agnostic — it just calls the global
+// setupNodes / setupTransistors / initChip / halfStep, which resolve to the right versions.
 const CHIPS = {
-  '6502': { dataDir: REF, nop: 0xEA },
-  // '6800': { dataDir: path.join(REF,'chip-6800'), nop: 0x01 },  // TODO: chip-6800/support.js harness
-  // 'z80' : { dataDir: path.join(REF,'chip-z80'),  nop: 0x00 },  // TODO: chip-z80/support.js harness
+  '6502': { dataDir: REF,                        nop: 0xEA, support: null },
+  '6800': { dataDir: path.join(REF, 'chip-6800'), nop: 0x01, support: path.join(REF, 'chip-6800', 'support.js') },
+  'z80':  { dataDir: path.join(REF, 'chip-z80'),  nop: 0x00, support: path.join(REF, 'chip-z80',  'support.js') },
 };
 const cfg = CHIPS[chip];
 if (!cfg) { console.error(`unsupported chip '${chip}' (have: ${Object.keys(CHIPS).join(', ')})`); process.exit(2); }
@@ -49,14 +53,17 @@ if (!cfg) { console.error(`unsupported chip '${chip}' (have: ${Object.keys(CHIPS
 function read(p) { return fs.readFileSync(p, 'utf8'); }
 
 // ---- build a single source blob: data + original core, all VERBATIM ----
-const core = [
-  ['nodenames.js', read(path.join(cfg.dataDir, 'nodenames.js'))],
-  ['segdefs.js',   read(path.join(cfg.dataDir, 'segdefs.js'))],
-  ['transdefs.js', read(path.join(cfg.dataDir, 'transdefs.js'))],
-  ['chipsim.js',   read(path.join(REF, 'chipsim.js'))],
-  ['wires.js',     read(path.join(REF, 'wires.js'))],
-  ['macros.js',    read(path.join(REF, 'macros.js'))],
-].map(([n, s]) => `/* ===== ${n} ===== */\n${s}`).join('\n');
+const files = [
+  ['nodenames.js', path.join(cfg.dataDir, 'nodenames.js')],
+  ['segdefs.js',   path.join(cfg.dataDir, 'segdefs.js')],
+  ['transdefs.js', path.join(cfg.dataDir, 'transdefs.js')],
+  ['chipsim.js',   path.join(REF, 'chipsim.js')],
+  ['wires.js',     path.join(REF, 'wires.js')],
+  ['macros.js',    path.join(REF, 'macros.js')],
+];
+// chip-specific harness LAST (overrides setupTransistors / halfStep / initChip / ngnd / npwr)
+if (cfg.support) files.push([`support.js (${chip})`, cfg.support]);
+const core = files.map(([n, p]) => `/* ===== ${n} ===== */\n${read(p)}`).join('\n');
 
 // ---- headless driver appended to the SAME scope (uses the original functions) ----
 const driver = `

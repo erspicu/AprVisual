@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 
 namespace AprVisual.Sim
 {
@@ -35,13 +36,23 @@ namespace AprVisual.Sim
             ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Clock = "clk",  Nop = 0x00, SkipWeak = true },
         };
 
-        // class-major renumber (range-prune + BFS-locality key); --no-renumber for an A/B
+        // class-major renumber (range-prune + locality key); --no-renumber for an A/B
         public static bool RawRenumber = true;
+        // self-captured first-touch locality key (S1's peak method); off → BFS-from-clock key. --no-capture for an A/B
+        public static bool RawSelfCapture = true;
+        private const int RawCaptureWarmupHc = 1024;     // warm past the reset transient before capturing
+        private const int RawCaptureHc = 32768;          // first-touch capture span
+
+        // first-touch capture state (active only during the pass-1 capture; zero cost in the bench)
+        private static bool _rawCapturing;
+        private static uint[]? _captureOrder;
+        private static uint _captureSeq;
 
         private static RawCpuConfig _rawCfg = null!;
-        private static int[] _abNodes = Array.Empty<int>();
-        private static int[] _dbNodes = Array.Empty<int>();
-        private static byte[] _rawMem = Array.Empty<byte>();
+        // HOT PATH reads these — UNMANAGED (handler-lifetime pool; no bounds checks, no GC tracking).
+        private static int* _abNodes;   // 16 address-bus node ids
+        private static int* _dbNodes;   // 8 data-bus node ids
+        private static byte* _rawMem;   // flat 64K NOP-sled memory
         // cached pin node ids (resolved at load; EmptyNode if the chip lacks one)
         private static int _pRw, _pClk0, _pClk, _pPhi1, _pPhi2, _pDbe, _pRd, _pMreq, _pWr, _pM1, _pIorq;
         private static Action _rawHalfStep = null!;
@@ -55,18 +66,34 @@ namespace AprVisual.Sim
             _rawCfg = cfg;
             if (RawRenumber)
             {
-                // PASS 0 — classify prune bits under identity ids (no renumber yet).
+                // Mirrors LoadSystem's 3-pass auto-renumber for a bare CPU.
+                // PASS 0 — classify the prune bits under identity ids.
                 BuildRawNetlist(dir, cfg);
                 Reset();
                 CapturePruneClasses();           // PendingClassBits = StashedClassBits
 
-                // FINAL PASS — rebuild, apply class-major renumber + a BFS-from-clock locality key.
-                // (The NES self-capture first-touch key needs ClockNode + callback-fed bus, which the
-                //  bare-CPU harness doesn't use; the BFS key is the same one the Rust port ships.)
+                if (RawSelfCapture)
+                {
+                    // PASS 1 — build class-major with a temporary BFS key (ranges VERIFY → prunes ON),
+                    // power the CPU on, warm past the reset transient, then RUN the production (pruned)
+                    // cascade and record each node's TRUE first-touch order through an instrumented
+                    // settle copy (RawSettle → ProcessQueueCapturing). This is S1's self-capture, made
+                    // to work for the bare CPU by driving the real halfStep + bus instead of ClockNode.
+                    BuildRawNetlist(dir, cfg);
+                    BuildRawLocalityOrder(cfg);
+                    PendingClassBits = StashedClassBits;
+                    ApplyRenumber();
+                    FinishRawLoad(cfg);
+                    InitRawCpu();
+                    RawCaptureFirstTouch(RawCaptureWarmupHc, RawCaptureHc);   // → PendingLocalityOrder (identity ids)
+                    PendingClassBits = StashedClassBits;                // re-arm for the final pass
+                }
+
+                // FINAL PASS — class-major + the captured (or BFS) locality key.
                 BuildRawNetlist(dir, cfg);
-                BuildRawLocalityOrder(cfg);       // PendingLocalityOrder (identity ids)
+                if (!RawSelfCapture) BuildRawLocalityOrder(cfg);   // BFS key when capture is disabled
                 PendingClassBits = StashedClassBits;
-                ApplyRenumber();                  // consumes class bits + locality order; sets range-prune blocks
+                ApplyRenumber();
             }
             else
             {
@@ -114,8 +141,8 @@ namespace AprVisual.Sim
 
             _abNodes = ResolveBusNodes("ab", 16);
             _dbNodes = ResolveBusNodes("db", 8);
-            _rawMem = new byte[65536];
-            for (int i = 0; i < _rawMem.Length; i++) _rawMem[i] = (byte)cfg.Nop;   // Infinite NOP Sled
+            _rawMem = AllocHandlerArray<byte>(65536);                              // unmanaged 64K (hot path)
+            for (int i = 0; i < 65536; i++) _rawMem[i] = (byte)cfg.Nop;            // Infinite NOP Sled
 
             _pRw   = LookupNode("rw");
             _pClk0 = LookupNode("clk0");
@@ -169,9 +196,9 @@ namespace AprVisual.Sim
             PendingLocalityOrder = order;
         }
 
-        private static int[] ResolveBusNodes(string prefix, int n)
+        private static int* ResolveBusNodes(string prefix, int n)
         {
-            var a = new int[n];
+            int* a = AllocHandlerArray<int>(n);   // unmanaged; freed at the next ResetBuild
             for (int i = 0; i < n; i++) a[i] = LookupNode(prefix + i);
             return a;
         }
@@ -185,10 +212,11 @@ namespace AprVisual.Sim
             if (high) SetHigh(nn); else SetLow(nn);
         }
 
-        private static int ReadBusNodes(int[] nodes)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int ReadBusNodes(int* nodes, int len)
         {
             int v = 0;
-            for (int i = 0; i < nodes.Length; i++)
+            for (int i = 0; i < len; i++)
             {
                 int nn = nodes[i];
                 if (nn != EmptyNode && NodeStates[nn] != 0) v |= 1 << i;
@@ -196,54 +224,124 @@ namespace AprVisual.Sim
             return v;
         }
 
+        // settle indirection: production ProcessQueue in the bench; the instrumented capturing copy
+        // during the pass-1 first-touch capture. _rawCapturing is false everywhere except that span.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void RawSettle() { if (_rawCapturing) ProcessQueueCapturing(); else ProcessQueue(); }
+
+        // a COPY of ProcessQueue's double-buffered wave loop that records each node's first pop
+        // (mirrors WarmupCaptureFirstTouch's inner settle; runs ONLY at load, never in the bench).
+        private static unsafe void ProcessQueueCapturing()
+        {
+            var order = _captureOrder!;
+            while (RecalcListNextCount != 0)
+            {
+                int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
+                byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+                RecalcListCount = RecalcListNextCount;
+                RecalcListNextCount = 0;
+                for (int i = 0; i < RecalcListCount; i++)
+                {
+                    int nn = RecalcList[i];
+                    if (RecalcHash[nn] != 0)
+                    {
+                        if (order[nn] == uint.MaxValue) order[nn] = _captureSeq++;
+                        RecalcNode(nn);
+                        RecalcHash[nn] = 0;
+                    }
+                }
+                RecalcListCount = 0;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void RawDrive(int nn, bool high)
+        {
+            if (nn == EmptyNode) return;
+            bool changed = high ? SetHighQueued(nn) : SetLowQueued(nn);
+            if (changed) RawSettle();
+        }
+
         // External memory drives the data bus on a read (CPU's db drivers are tristated). Batched: one settle.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void WriteDataBus(int value)
         {
-            for (int i = 0; i < _dbNodes.Length; i++)
+            for (int i = 0; i < 8; i++)
             {
                 int nn = _dbNodes[i];
                 if (nn == EmptyNode) continue;
                 if (((value >> i) & 1) != 0) SetHighQueued(nn); else SetLowQueued(nn);
             }
-            ProcessQueue();
+            RawSettle();
+        }
+
+        // PASS-1 self-capture: warm past the reset transient (not recorded), then run the production
+        // cascade for CaptureHc half-cycles recording first-touch order, translated back to identity ids.
+        private static unsafe void RawCaptureFirstTouch(int warmupHc, int captureHc)
+        {
+            for (int i = 0; i < warmupHc; i++) _rawHalfStep();
+
+            int n = NodeCount;
+            _captureOrder = new uint[n];
+            for (int i = 0; i < n; i++) _captureOrder[i] = uint.MaxValue;
+            _captureSeq = 0;
+
+            _rawCapturing = true;
+            for (int i = 0; i < captureHc; i++) _rawHalfStep();
+            _rawCapturing = false;
+
+            // pass-1 ids are renumbered → translate the captured order back to identity ids for the
+            // final pass's ApplyRenumber (which runs pre-renumber): identity[orig] = order[perm[orig]].
+            ushort* perm = RenumberPerm;
+            int permLen = RenumberPermLen;
+            var identityOrder = new uint[n];
+            for (int orig = 0; orig < n; orig++)
+                identityOrder[orig] = _captureOrder[orig < permLen ? perm[orig] : orig];
+            PendingLocalityOrder = identityOrder;
+            _captureOrder = null;
         }
 
         // ──────────────────────── half-step models ──────────────────────
 
         // 6502: clk0 low phase = read (CPU drives ab/rw, we feed db); high phase = write.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HalfStep6502()
         {
-            if (NodeStates[_pClk0] != 0) { SetLow(_pClk0); BusReadRwAbDb(); }
-            else                         { SetHigh(_pClk0); BusWriteRwAbDb(); }
+            if (NodeStates[_pClk0] != 0) { RawDrive(_pClk0, false); BusReadRwAbDb(); }
+            else                         { RawDrive(_pClk0, true);  BusWriteRwAbDb(); }
         }
 
         // 6800: two-phase phi1/phi2 + dbe data-bus-enable.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HalfStep6800()
         {
-            if (NodeStates[_pPhi2] != 0) { SetLow(_pPhi2); SetLow(_pDbe); SetHigh(_pPhi1); BusReadRwAbDb(); }
-            else { SetHigh(_pPhi1); SetLow(_pPhi1); SetHigh(_pPhi2); SetHigh(_pDbe); BusWriteRwAbDb(); }
+            if (NodeStates[_pPhi2] != 0) { RawDrive(_pPhi2, false); RawDrive(_pDbe, false); RawDrive(_pPhi1, true); BusReadRwAbDb(); }
+            else { RawDrive(_pPhi1, true); RawDrive(_pPhi1, false); RawDrive(_pPhi2, true); RawDrive(_pDbe, true); BusWriteRwAbDb(); }
         }
 
         // z80: single clk; read AND write evaluated each half-step (as visual6502 chip-z80/support.js does).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HalfStepZ80()
         {
-            if (NodeStates[_pClk] != 0) SetLow(_pClk); else SetHigh(_pClk);
+            RawDrive(_pClk, NodeStates[_pClk] == 0);
             // read: active when _rd & _mreq both low; else drive 0xe9 (int-ack) or 0xff (idle)
-            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes)]);
+            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes, 16)]);
             else if (_pM1 != EmptyNode && _pIorq != EmptyNode && NodeStates[_pM1] == 0 && NodeStates[_pIorq] == 0) WriteDataBus(0xE9);
             else WriteDataBus(0xFF);
             // write: when _wr low
-            if (_pWr != EmptyNode && NodeStates[_pWr] == 0) _rawMem[ReadBusNodes(_abNodes)] = (byte)ReadBusNodes(_dbNodes);
+            if (_pWr != EmptyNode && NodeStates[_pWr] == 0) _rawMem[ReadBusNodes(_abNodes, 16)] = (byte)ReadBusNodes(_dbNodes, 8);
         }
 
         // shared rw/ab/db bus for 6502 + 6800
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusReadRwAbDb()
         {
-            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes)]);
+            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes, 16)]);
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusWriteRwAbDb()
         {
-            if (_pRw != EmptyNode && NodeStates[_pRw] == 0) _rawMem[ReadBusNodes(_abNodes)] = (byte)ReadBusNodes(_dbNodes);
+            if (_pRw != EmptyNode && NodeStates[_pRw] == 0) _rawMem[ReadBusNodes(_abNodes, 16)] = (byte)ReadBusNodes(_dbNodes, 8);
         }
 
         // ────────────────────────── power-on ────────────────────────────
@@ -317,16 +415,23 @@ namespace AprVisual.Sim
             Console.WriteLine($"# AprVisual.etc raw-CPU bench (our event-driven engine) — chip {cfg.Name}");
             Console.WriteLine($"#   netlist dir: {dir}");
             Console.WriteLine($"#   nodes: {nodes}   transistors: {trans}" + (cfg.SkipWeak ? $"   (skipped {_rawSkippedWeak} weak)" : ""));
-            Console.WriteLine($"#   workload: Infinite NOP Sled (opcode 0x{cfg.Nop:X2})   lowering: {(EnableLowering ? "on" : "off")}   renumber: {(RawRenumber ? "on" : "off")}");
+            string rn = RawRenumber ? (RawSelfCapture ? "on (self-capture locality)" : "on (BFS-key locality)") : "off";
+            Console.WriteLine($"#   workload: Infinite NOP Sled (opcode 0x{cfg.Nop:X2})   lowering: {(EnableLowering ? "on" : "off")}   renumber: {rn}");
             if (RawRenumber) Console.WriteLine($"#   {LastRenumberStats}  (range-prune verified: {RangePruneOk})");
-            Console.WriteLine($"#   load (parse + compose + lower + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
+            Console.WriteLine($"#   load (parse + compose + lower + capture + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
 
             InitRawCpu();
 
+            // Entering the hot path: free ALL build-time managed state so the timed loop touches ONLY
+            // unmanaged arrays (NodeStates / NodeInfos / TransistorList / _abNodes / _dbNodes / _rawMem) —
+            // same hygiene S1's LoadSystem applies (ClearPostLoadBuildState + ReleaseBenchResidualState).
+            ClearPostLoadBuildState();     // drop Node.Gates/C1c2s + the transistor list + parsed defs (+ GC)
+            ReleaseBenchResidualState();   // drop the name maps + Node shells (no name lookups past here)
+
             // sanity: with a NOP sled the address bus should advance — sample it across the warmup
-            int ab0 = ReadBusNodes(_abNodes);
+            int ab0 = ReadBusNodes(_abNodes, 16);
             for (int i = 0; i < warmup; i++) _rawHalfStep();
-            int ab1 = ReadBusNodes(_abNodes);
+            int ab1 = ReadBusNodes(_abNodes, 16);
             bool advancing = ab0 != ab1;
 
             // Multiple timed rounds: the .NET tiered JIT + dynamic PGO leave the FIRST round(s) below
@@ -339,7 +444,7 @@ namespace AprVisual.Sim
                 for (int i = 0; i < benchHc; i++) _rawHalfStep();
                 sw.Stop();
                 rates[r] = benchHc / sw.Elapsed.TotalSeconds;
-                advancing |= ReadBusNodes(_abNodes) != ab1;
+                advancing |= ReadBusNodes(_abNodes, 16) != ab1;
             }
 
             Console.WriteLine($"#   AB sample: post-reset=0x{ab0:X4}  post-warmup=0x{ab1:X4}  " +

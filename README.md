@@ -16,7 +16,7 @@ The real value here is the **translation pipeline** — silicon connectivity →
 
 ## The honest story
 
-The original plan was a four-stage pipeline (S1 switch-level engine → S2 netlist→IR → S3 CPU proof → S4 codegen + GPU) to push the simulation toward real time. We built and verified those stages — and found the counter-intuitive result that the "obvious" abstractions (**IR + codegen, or a GPU kernel**) ended up **slower** than the direct switch-level interpreter (code bloat, lost timing/correctness, algorithmic redundancy in batch re-evaluation). Real time is **~470× out of reach** and known-unreachable via this route.
+The original plan was a four-stage pipeline (S1 switch-level engine → S2 netlist→IR → S3 CPU proof → S4 codegen + GPU) to push the simulation toward real time. We built and verified those stages — and found the counter-intuitive result that the "obvious" abstractions (**IR + codegen, or a GPU kernel**) ended up **slower** than the direct switch-level interpreter (code bloat, lost timing/correctness, algorithmic redundancy in batch re-evaluation). Real time is **~316× out of reach** and known-unreachable via this route.
 
 So the focus became **pushing S1 — the pure switch-level engine — to its limit**, in both **C#** and **Rust**, and documenting the wins and the (many) dead-ends. The recurring lesson, which independently matches what the Visual NES author found in 2017: the gains come from **less work + smaller (cache-fitting) data + tighter codegen**, *not* from a cleverer data structure. The biggest "less work" wins (R-1, and the P-1 → P-4 event-count prunes) *are* algorithmic — but in exactly that spirit: provably **doing less** on the conduction graph, never a fancier structure or a new general algorithm.
 
@@ -46,15 +46,15 @@ On an AMD Ryzen 7 3700X (at boost clock, hot thread pinned to a P-core), benchma
 
 ### Generalization across the NMOS era
 
-The engine is not specialized to the NES. We run it **unchanged** on three standalone [Visual 6502](https://www.visual6502.org) netlists — the bare **MOS 6502**, **Motorola 6800**, and **Zilog Z80** — driven by an *infinite NOP sled* at the pin boundary (no test ROM needed). Only a raw-netlist loader and a per-chip clock/bus driver were added; lowering, the prunes, the class-major renumber, and the self-captured relayout all apply as-is, and all three boot and execute. Porting the *reference* algorithm (chipsim.js's recursive group-walk) to C# then splits the headline speedup honestly:
+The engine is not specialized to the NES. We run it **unchanged** on three standalone [Visual 6502](https://www.visual6502.org) netlists — the bare **MOS 6502**, **Motorola 6800**, and **Zilog Z80** — driven by an *infinite NOP sled* at the pin boundary (no test ROM needed). Only a raw-netlist loader and a per-chip clock/bus driver were added; lowering, the prunes, the class-major renumber, and the self-captured relayout all apply as-is, and all three boot and execute. Porting the *reference* algorithm (chipsim.js's recursive group-walk) to **both C# and C++** then splits the headline speedup honestly:
 
-| Chip | Visual 6502 JS | C# naive | AprVisual | Language (JS→C#) | Algorithm (naive→ours) |
+| Chip | JS naive | C# naive | C++ naive | AprVisual | Algorithm (naive→ours) |
 |---|---|---|---|---|---|
-| MOS 6502 | 249 hc/s | 17,914 | 145,337 | ~72× | ~8.1× |
-| Motorola 6800 | 149 | 12,582 | 89,233 | ~84× | ~7.1× |
-| Zilog Z80 | 166 | 12,255 | 62,491 | ~74× | ~5.1× |
+| MOS 6502 | 249 hc/s | 17,914 | 26,239 | 145,337 | ~8.1× |
+| Motorola 6800 | 149 | 12,582 | 17,137 | 89,233 | ~7.1× |
+| Zilog Z80 | 166 | 12,255 | 18,452 | 62,491 | ~5.1× |
 
-(same machine, NOP-sled, pinned; all bit-exact across the renumber/locality variants.) The ~376–599× JS→ours headline factors into **~70–85× language × ~5–8× algorithm** — so the algorithmic contribution, measured in one controlled language, is **~5–8× over a naive switch-level simulator** (consistent with ~2.5× over the optimized C++ ancestor). Expressed as a clock these bare CPUs simulate at ~31–73 kHz, within ~14–128× of their 1980s home computers (vs ~316× for the whole NES). Full write-up: **[WebSite/cross-cpu.html](https://erspicu.github.io/AprVisual/cross-cpu.html)**; the bare-CPU bench is `src/AprVisual.etc` (`--cpu-bench <dir> --chip 6502|6800|z80 [--naive]`) and the original-JS baseline is `tools/visual6502-node`.
+(same machine, NOP-sled, pinned; all bit-exact across the renumber/locality variants — and the full C++ engine port matches C# per-node checksums on all three chips.) The ~376–599× JS→ours headline factors cleanly: the two compiled naive baselines land within **~1.4×** of each other, so the **~70–85×** step from JavaScript is a one-time *language dividend* (interpreter→compiled), and our methods add a further **~5–8× over a naive switch-level simulator in the same language** (consistent with ~2.5× over the optimized C++ ancestor). We also ported the **full** optimized engine to C++: at the naive algorithm native C++ is ~1.4–1.5× faster than C#, but the fully-tuned C# engine is ~1.27–1.56× faster than a faithful C++ port — an inversion driven by the .NET JIT + dynamic PGO and a shared packed cache layout, **not** a language ceiling. Across JS→C#→C++ the language never moves the needle more than ~1.5×; the contribution is the algorithm. Expressed as a clock these bare CPUs simulate at ~31–73 kHz, within ~14–128× of their 1980s home computers (vs ~316× for the whole NES). Full write-up: **[WebSite/cross-cpu.html](https://erspicu.github.io/AprVisual/cross-cpu.html)**; the bare-CPU bench is `src/AprVisual.etc` (`--cpu-bench <dir> --chip 6502|6800|z80 [--naive]`), the original-JS baseline is `tools/visual6502-node`, and the C++ ports are `tools/cpp-naive` + `tools/cpp-ours`.
 
 ## Run the benchmark
 
@@ -86,7 +86,7 @@ The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless con
 | `src/AprVisual.Deprecated/` | The original WinForms engine + tooling (rendering, ROM parsing) + the S2/S3/S4 IR/codegen/GPU experiments — reference only. |
 | `WebSite/` | The GitHub Pages project site (served at the link above). |
 | `MD/` | Design & analysis docs (Traditional Chinese). |
-| `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query) — incl. `visual6502-node/`, the headless Node.js baseline that runs the original Visual 6502 JS sim. |
+| `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query) — incl. `visual6502-node/` (headless Node.js baseline running the original Visual 6502 JS sim) and `cpp-naive/` + `cpp-ours/` (C++ ports of the reference and the full engine, for the language-vs-algorithm split). |
 
 ## Credits & license
 

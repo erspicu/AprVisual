@@ -88,7 +88,7 @@
     <tr>
       <th><span class="en">Chip</span><span class="zh">晶片</span></th>
       <th><span class="en">Nodes</span><span class="zh">節點</span></th>
-      <th><span class="en">Visual 6502 JS</span><span class="zh">Visual 6502 JS</span></th>
+      <th><span class="en">Visual 6502 JS (Node.js)</span><span class="zh">Visual 6502 JS(Node.js)</span></th>
       <th>C# naive</th>
       <th>AprVisual</th>
       <th><span class="en">Language</span><span class="zh">語言</span></th>
@@ -108,6 +108,50 @@
     <p class="en" style="margin:.2em 0">The raw JavaScript→AprVisual ratio is enormous — <b>376× to 599×</b> — but it factors cleanly: roughly <b>70–85× is just JavaScript versus C#</b> at the identical algorithm, and only about <b>5–8× is our algorithm</b>, measured in a single controlled language. That ~5–8× is the number to believe and cite — and it agrees with the ~2.5× our engine beats its optimized <i>C++</i> ancestor (MetalNES), since a tuned C++ baseline is itself several times faster than the naive port. It would have been easy, and wrong, to sell the 584× as the contribution.</p>
     <p class="zh" style="margin:.2em 0">原始的 JavaScript→AprVisual 比值很驚人——<b>376× 到 599×</b>——但它乾淨地因式分解:其中約 <b>70–85× 只是同演算法下的 JavaScript 對 C#</b>,真正屬於我們演算法、在單一受控語言裡量到的,只有約 <b>5–8×</b>。那個 ~5–8× 才是該相信、該引用的數字——它也與我們引擎相對已優化的 <i>C++</i> 祖先(MetalNES)快約 2.5× 一致,因為一個調優過的 C++ 基線本身就比 naive 移植快上數倍。把 584× 當成貢獻會很容易、卻是錯的。</p>
   </div>
+</section>
+
+<section>
+  <h2><span class="en">Native or managed? We ported the algorithms to C++ too</span><span class="zh">native 還是 managed?我們也把演算法移植成 C++</span></h2>
+  <p class="en">The "language" factor above bundles JavaScript and C# together — so we asked the obvious question directly: is <i>managed</i> C# the slow part, and would <i>native</i> C++ be much faster? We transliterated the <i>same</i> naive algorithm into C++ (clang&nbsp;-O3), and separately ported our <i>optimized</i> engine's architecture to C++ as well — each loading the identical netlist, and the optimized port <b>validated bit-exact</b> against C# (the per-node checksum matched on all three chips).</p>
+  <p class="zh">上面那個「語言」因子把 JavaScript 和 C# 綁在一起——所以我們直接問那個顯而易見的問題:<i>managed</i> 的 C# 是不是慢的那一塊,換成 <i>native</i> 的 C++ 會快很多嗎?我們把<i>同一個</i> naive 演算法移植成 C++(clang&nbsp;-O3),也另外把我們<i>最佳化</i>引擎的架構移植成 C++——各自載入同一份網表,而最佳化版還<b>通過 bit-exact 驗證</b>(三顆晶片的每節點 checksum 都與 C# 相同)。</p>
+  <table>
+    <tr>
+      <th><span class="en">Chip</span><span class="zh">晶片</span></th>
+      <th>C# naive</th><th>C++ naive</th><th>C++/C#</th>
+      <th><span class="en">C++ ours-core</span><span class="zh">C++ 我們(核心)</span></th>
+      <th><span class="en">C# ours (full)</span><span class="zh">C# 我們(完整)</span></th>
+    </tr>
+    <tr><td>MOS 6502</td><td class="num">17,914</td><td class="num">26,239</td><td class="num">1.46&times;</td><td class="num">69,319</td><td class="num">145,337</td></tr>
+    <tr><td>Motorola 6800</td><td class="num">12,582</td><td class="num">17,137</td><td class="num">1.36&times;</td><td class="num">36,828</td><td class="num">89,233</td></tr>
+    <tr><td>Zilog Z80</td><td class="num">12,255</td><td class="num">18,452</td><td class="num">1.51&times;</td><td class="num">25,603</td><td class="num">62,491</td></tr>
+  </table>
+  <div class="big">
+    <p class="en" style="margin:.2em 0"><b>Two findings.</b> <b>(1) Native buys almost nothing here:</b> at the <i>same</i> naive algorithm, C++ is only ~1.4–1.5× faster than managed C#. So C# is <i>not</i> the bottleneck — the slow JavaScript original is purely the interpreter (~70–85× slower than C#, ~105× slower than C++). <b>(2) The micro-optimizations matter more than the language:</b> our optimized algorithm's architecture ported to C++ runs at ~25–69K hc/s — <i>slower</i> than the full C# engine — because the C++ port deliberately omits the bit-exact-neutral micro-op stack (the inline-payload node layout, the fast path, the two-node pair path, the class-major range-prune, self-capture). A fully-tuned <i>managed</i> engine beats an architecture-only <i>native</i> port; closing that would mean porting the whole micro-op stack to C++ (project-scale, like the existing Rust engine).</p>
+    <p class="zh" style="margin:.2em 0"><b>兩個發現。</b> <b>(1) native 在這裡幾乎沒賺頭:</b>同一個 naive 演算法下,C++ 只比 managed C# 快 ~1.4–1.5×。所以 C# <i>不是</i>瓶頸——慢的 JavaScript 原版純粹是直譯器(比 C# 慢 ~70–85×、比 C++ 慢 ~105×)。<b>(2) 微優化比語言更重要:</b>把我們最佳化演算法的架構移植成 C++,只跑 ~25–69K hc/s——<i>比</i>完整 C# 引擎<i>慢</i>——因為這個 C++ 版刻意省略了那一整套 bit-exact 中性的微優化(inline-payload 節點佈局、fast path、兩節點 pair path、class-major range-prune、self-capture)。一個微優化齊全的 <i>managed</i> 引擎,贏過只移植了架構的 <i>native</i> 版;要補上這個差距,得把整套微優化也移植到 C++(專案級工程,就像現有的 Rust 引擎)。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="en">Three ways to stress a chip with no ROM</span><span class="zh">三種無 ROM 壓測晶片的方法</span></h2>
+  <p class="en">With no program to run, we drive the chip at the pin boundary three ways: the <b>NOP sled</b> (steady and regular), <b>random-bus fuzzing</b> (maximum entropy), and <b>reset-hold</b> (the chip frozen in reset, so only the clock tree toggles).</p>
+  <p class="zh">沒有程式可跑,我們就在引腳邊界用三種方式驅動:<b>NOP sled</b>(規律穩定)、<b>隨機匯流排 fuzzing</b>(最大熵)、<b>reset-hold</b>(把晶片凍在 reset、只剩時鐘樹翻動)。</p>
+  <div class="note">
+    <p class="en" style="margin:.3em 0"><b>Fuzzing has a trap.</b> Random opcodes include ones that <i>halt</i> the CPU — the 6502's KIL/JAM (×12), the 6800's HCF "halt and catch fire" (×5), the Z80's HALT (×1). Feed one and the processor locks up, so you end up timing a <i>dead</i> chip, not stress. Unfiltered, the 6502 fuzz reads a misleadingly-fast <b>232K hc/s</b> jammed (address bus stuck at 0xFFFF); excluding the 12 KIL opcodes drops it to a real <b>71K</b>. We exclude every halt/lock opcode (list confirmed with Gemini) so the program counter keeps advancing.</p>
+    <p class="zh" style="margin:.3em 0"><b>fuzzing 有個陷阱。</b>隨機 opcode 裡有會讓 CPU <i>停擺</i>的碼——6502 的 KIL/JAM(×12)、6800 的 HCF「halt and catch fire」(×5)、Z80 的 HALT(×1)。餵到一個,處理器就鎖死,於是你量到的是<i>死掉</i>的晶片、不是壓力。沒過濾時,6502 的 fuzz 假快到 <b>232K hc/s</b>(位址匯流排卡在 0xFFFF);排除那 12 個 KIL 後掉到真實的 <b>71K</b>。我們排除所有 halt/lock 碼(清單經 Gemini 確認),讓程式計數器持續前進。</p>
+  </div>
+  <table>
+    <tr>
+      <th><span class="en">Chip</span><span class="zh">晶片</span></th>
+      <th><span class="en">NOP sled</span><span class="zh">NOP sled</span></th>
+      <th><span class="en">Random fuzz (jam-excluded)</span><span class="zh">隨機 fuzz(排除鎖死碼)</span></th>
+      <th><span class="en">Reset-hold</span><span class="zh">Reset-hold</span></th>
+    </tr>
+    <tr><td>MOS 6502</td><td class="num">149,736</td><td class="num">70,941</td><td class="num">155,915</td></tr>
+    <tr><td>Motorola 6800</td><td class="num">88,313</td><td class="num">114,222</td><td class="num">165,764</td></tr>
+    <tr><td>Zilog Z80</td><td class="num">62,952</td><td class="num">43,955</td><td class="num">161,838</td></tr>
+  </table>
+  <p class="en mut">Our engine, hc/s, same machine, thread-pinned. <b>Reset-hold</b> is fastest and nearly chip-independent (~156–166K) — it measures the engine's base clock-tree overhead. <b>Fuzz vs NOP</b> is chip-dependent, and the JavaScript and C# engines agree on the sign: the 6502 and Z80 run <i>slower</i> under fuzz (genuine stress — varied execution churns more nodes), but the 6800 runs <i>faster</i> (its NOP, 0x01, is an unusually heavy instruction). So the a-priori "fuzz = worst case" expectation only holds for two of the three chips.</p>
+  <p class="zh mut">我們引擎,hc/s,同機、釘核。<b>Reset-hold</b> 最快且近乎與晶片無關(~156–166K)——量的是引擎的基礎時鐘樹開銷。<b>Fuzz vs NOP</b> 隨晶片而異,而且 JavaScript 與 C# 引擎同號:6502 與 Z80 在 fuzz 下<i>較慢</i>(真壓力——隨機執行翻動更多節點),但 6800 反而<i>更快</i>(它的 NOP=0x01 是相對重的指令)。所以「fuzz = 最壞情況」的先驗預期,只對三顆裡的兩顆成立。</p>
 </section>
 
 <section>
@@ -131,15 +175,19 @@
 
 <section>
   <h2><span class="en">Where the numbers come from</span><span class="zh">數字的出處</span></h2>
-  <p class="en">Same machine (AMD Ryzen 7 3700X, thread-pinned), NOP-sled workload, 1,000,000 half-cycles per round, steady-state median of 6 rounds (the first .NET rounds run below steady state during JIT tiering / PGO warm-up). The Visual&nbsp;6502 JS figures are the unmodified <code>chipsim.js</code> core run headless under Node 24 (its expert-mode UI is a separate layer; <code>chipsim.js</code> is the actual simulation core). The C# naive port and the AprVisual engine live in <code>src/AprVisual.etc/</code> (<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive]</code>); the 6800 and Z80 follow the original harness in skipping the weak (depletion) transistors. Full study notes: <code>MD/note/2026-06-15-…</code>. Companion pages: <a href="study.html">the reducibility study (S2)</a>, <a href="prunes.html">the event-count prunes</a>, <a href="rcm-revival.html">self-captured relayout</a>, <a href="comparison.html">the netlist-family comparison</a>.</p>
-  <p class="zh">同機(AMD Ryzen 7 3700X、釘核)、NOP-sled 工作負載、每輪 100 萬半週期,取 6 輪穩態中位數(.NET 前幾輪因 JIT 分層 / PGO 暖機而低於穩態)。Visual&nbsp;6502 JS 數字是未改的 <code>chipsim.js</code> 核心在 Node 24 下 headless 跑出(它的 expert 模式 UI 是另一層;<code>chipsim.js</code> 才是真正的模擬核心)。C# naive 移植與 AprVisual 引擎都在 <code>src/AprVisual.etc/</code>(<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive]</code>);6800 與 Z80 比照原始測試平台跳過 weak(depletion)電晶體。完整研究筆記:<code>MD/note/2026-06-15-…</code>。延伸頁面:<a href="study.html">可化約性研究(S2)</a>、<a href="prunes.html">事件數剪枝</a>、<a href="rcm-revival.html">自我捕捉重佈局</a>、<a href="comparison.html">網表家族比較</a>。</p>
+  <p class="en">Same machine (AMD Ryzen 7 3700X, thread-pinned). NOP-sled workload, 1,000,000 half-cycles per round, steady-state median of 6 rounds (the first .NET rounds run below steady state during JIT tiering / PGO warm-up).</p>
+  <p class="en"><b>Toolchains & versions.</b> The "JavaScript" engine is <i>not</i> a browser run — it is the original Visual&nbsp;6502 <code>chipsim.js</code> + <code>wires.js</code> + <code>macros.js</code> loaded <b>verbatim and run headless under Node.js&nbsp;24.13.0 (V8)</b> by our <code>tools/visual6502-node</code> harness, which stubs only the DOM/UI functions — so it is the genuine site's simulation <i>core</i>, just without a browser (the expert-mode UI is a separate layer). <b>C#</b> (the naive port and the AprVisual engine) is built <b>Release on .NET&nbsp;11</b> (x64). <b>C++</b> (both the naive port and the ours-core port) is <b>clang/LLVM&nbsp;22.1.6, <code>-O3 -std=c++17</code></b>. The C# benches are thread-pinned (<code>--pin</code>); the C++ binaries are not (no such flag), but the language gaps here dwarf the ~10% pinning effect. The two C++ programs load a netlist <i>exported</i> from C# (<code>--export-netlist</code> / <code>--export-engine</code>) so the data is provably identical — no <code>.js</code> parser in C++.</p>
+  <p class="en">Tools: <code>src/AprVisual.etc/</code> (<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive] [--workload nop|fuzz|reset]</code>), <code>tools/visual6502-node</code> (JS), <code>tools/cpp-naive</code> + <code>tools/cpp-ours</code> (C++). 6800 and Z80 follow the original harness in skipping the weak (depletion) transistors. Full study notes: <code>MD/note/2026-06-15-…</code>. Companion pages: <a href="study.html">the reducibility study (S2)</a>, <a href="prunes.html">the event-count prunes</a>, <a href="rcm-revival.html">self-captured relayout</a>, <a href="comparison.html">the netlist-family comparison</a>.</p>
+  <p class="zh">同機(AMD Ryzen 7 3700X、釘核)、NOP-sled 工作負載、每輪 100 萬半週期,取 6 輪穩態中位數(.NET 前幾輪因 JIT 分層 / PGO 暖機而低於穩態)。</p>
+  <p class="zh"><b>工具鏈與版本。</b>這裡的「JavaScript」引擎<i>不是</i>瀏覽器跑的——而是把原始 Visual&nbsp;6502 的 <code>chipsim.js</code>+<code>wires.js</code>+<code>macros.js</code> <b>原封不動載入、在 Node.js&nbsp;24.13.0(V8)下 headless 跑</b>(我們的 <code>tools/visual6502-node</code> 測試平台只 stub 掉 DOM/UI),所以它就是官網真正的模擬<i>核心</i>、只是沒有瀏覽器(expert 模式 UI 是另一層)。<b>C#</b>(naive 移植與 AprVisual 引擎)以 <b>.NET&nbsp;11、x64 Release</b> 編譯。<b>C++</b>(naive 移植與 ours-core 移植)為 <b>clang/LLVM&nbsp;22.1.6、<code>-O3 -std=c++17</code></b>。C# benchmark 有釘核(<code>--pin</code>);C++ 二進位沒有(無此旗標),但這裡的語言差距遠大於釘核 ~10% 的效應。兩個 C++ 程式載入的是從 C# <i>匯出</i>的網表(<code>--export-netlist</code> / <code>--export-engine</code>),保證資料完全相同——C++ 端沒有 <code>.js</code> parser。</p>
+  <p class="zh">工具:<code>src/AprVisual.etc/</code>(<code>--cpu-bench &lt;dir&gt; --chip 6502|6800|z80 [--naive] [--workload nop|fuzz|reset]</code>)、<code>tools/visual6502-node</code>(JS)、<code>tools/cpp-naive</code>+<code>tools/cpp-ours</code>(C++)。6800 與 Z80 比照原始測試平台跳過 weak(depletion)電晶體。完整研究筆記:<code>MD/note/2026-06-15-…</code>。延伸頁面:<a href="study.html">可化約性研究(S2)</a>、<a href="prunes.html">事件數剪枝</a>、<a href="rcm-revival.html">自我捕捉重佈局</a>、<a href="comparison.html">網表家族比較</a>。</p>
 </section>
 
 </main>
 
 <footer>
   <p><a href="index.html"><span class="en">&larr; Home</span><span class="zh">&larr; 回首頁</span></a></p>
-  <p class="mut"><span class="en">Generalization across the NMOS era: the engine runs the 6502, 6800, and Z80 unchanged. A same-language port of the reference algorithm splits the speedup — ~70–85× language (JS→C#), ~5–8× algorithm (naive→ours). All bit-exact. 2026-06-15.</span><span class="zh">跨 NMOS 時代的泛化:引擎原封不動跑 6502、6800、Z80。把參考演算法移植成同語言後,加速拆成 ~70–85× 語言(JS→C#)、~5–8× 演算法(naive→ours)。皆位元精確。2026-06-15。</span></p>
+  <p class="mut"><span class="en">Generalization across the NMOS era: the engine runs the 6502, 6800, and Z80 unchanged. Porting the reference algorithm to C# and C++ splits the speedup — ~70–85× is the JavaScript interpreter (Node.js/V8), only ~5–8× is our algorithm, and native C++ is just ~1.4–1.5× over managed C# at the same algorithm, so the micro-optimizations matter more than the language. All bit-exact. 2026-06-15.</span><span class="zh">跨 NMOS 時代的泛化:引擎原封不動跑 6502、6800、Z80。把參考演算法移植成 C# 與 C++ 後拆解加速:~70–85× 是 JavaScript 直譯器(Node.js/V8)、只有 ~5–8× 是我們的演算法,而同演算法下 native C++ 只比 managed C# 快 ~1.4–1.5×——所以微優化比語言更重要。皆位元精確。2026-06-15。</span></p>
 </footer>
 
 <script>

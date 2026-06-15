@@ -34,6 +34,7 @@ const chip    = argval('--chip', '6502');
 const HC      = parseInt(argval('--hc', '8000'), 10);
 const WARMUP  = parseInt(argval('--warmup', '2000'), 10);
 const ROUNDS  = parseInt(argval('--rounds', '3'), 10);
+const WORKLOAD = String(argval('--workload', 'nop')).toLowerCase();   // nop | fuzz | reset
 
 const REF = path.resolve(__dirname, '../../ref/visual6502-master');
 
@@ -42,10 +43,15 @@ const REF = path.resolve(__dirname, '../../ref/visual6502-master');
 // OVERRIDES setupTransistors / halfStep / initChip (different clocks + bus protocol), loaded
 // last so its definitions win. The driver below is chip-agnostic — it just calls the global
 // setupNodes / setupTransistors / initChip / halfStep, which resolve to the right versions.
+// jam[] = opcodes that halt/lock the CPU (excluded from fuzz so the PC keeps advancing) —
+// per Gemini 2026-06-15: 6502 KIL/JAM x12, 6800 WAI+HCF x5, z80 HALT x1.
 const CHIPS = {
-  '6502': { dataDir: REF,                        nop: 0xEA, support: null },
-  '6800': { dataDir: path.join(REF, 'chip-6800'), nop: 0x01, support: path.join(REF, 'chip-6800', 'support.js') },
-  'z80':  { dataDir: path.join(REF, 'chip-z80'),  nop: 0x00, support: path.join(REF, 'chip-z80',  'support.js') },
+  '6502': { dataDir: REF,                        nop: 0xEA, support: null,
+            jam: [0x02,0x12,0x22,0x32,0x42,0x52,0x62,0x72,0x92,0xB2,0xD2,0xF2] },
+  '6800': { dataDir: path.join(REF, 'chip-6800'), nop: 0x01, support: path.join(REF, 'chip-6800', 'support.js'),
+            jam: [0x3E,0x9D,0xDD,0xED,0xFD] },
+  'z80':  { dataDir: path.join(REF, 'chip-z80'),  nop: 0x00, support: path.join(REF, 'chip-z80',  'support.js'),
+            jam: [0x76] },
 };
 const cfg = CHIPS[chip];
 if (!cfg) { console.error(`unsupported chip '${chip}' (have: ${Object.keys(CHIPS).join(', ')})`); process.exit(2); }
@@ -89,16 +95,43 @@ var __transCount = 0; for (var __t in transistors) __transCount++;
 __BENCH__.nodeCount = __nodeCount;
 __BENCH__.transCount = __transCount;
 
+var __WL = ${JSON.stringify(WORKLOAD)};
+var __CHIP = ${JSON.stringify(chip)};
+
+// Random Bus Fuzzing: feed a fixed-seed LCG byte on every read instead of memory (max entropy),
+// re-rolling past halt/lock opcodes so the CPU keeps executing (real stress, not a jam).
+if (__WL === 'fuzz') {
+  var __jamArr = ${JSON.stringify(cfg.jam || [])};
+  var __jam = {}; for (var __jj = 0; __jj < __jamArr.length; __jj++) __jam[__jamArr[__jj]] = 1;
+  var __fz = 0x1357BD2F >>> 0;
+  mRead = function(a){ var __b; do { __fz = (Math.imul(__fz, 1664525) + 1013904223) >>> 0; __b = (__fz >>> 16) & 0xFF; } while (__jam[__b]); return __b; };
+}
+
+// Reset-Hold clock-only step: toggle just the clock tree, no bus handling (mirrors the C# harness).
+function __clockOnly(){
+  if (__CHIP === '6800') {
+    if (isNodeHigh(nodenames['phi2'])) { setLow('phi2'); setLow('dbe'); setHigh('phi1'); }
+    else { setHigh('phi1'); setLow('phi1'); setHigh('phi2'); setHigh('dbe'); }
+  } else {
+    var __ck = (__CHIP === 'z80') ? 'clk' : 'clk0';
+    if (isNodeHigh(nodenames[__ck])) setLow(__ck); else setHigh(__ck);
+  }
+}
+
 initChip();
 
-// warm-up (past reset transient + JIT warm)
-for (var __i = 0; __i < ${WARMUP}; __i++) { halfStep(); cycle++; }
+// pick the per-half-cycle step; reset-hold re-asserts reset (initChip released it) and runs clock-only
+var __step = halfStep;
+if (__WL === 'reset') { setLow(nodenamereset); __step = __clockOnly; }
 
-// timed rounds — the original macros.js goForN inner loop: halfStep(); cycle++;
+// warm-up (past reset transient + JIT warm)
+for (var __i = 0; __i < ${WARMUP}; __i++) { __step(); cycle++; }
+
+// timed rounds — the original macros.js goForN inner loop: step(); cycle++;
 __BENCH__.rates = [];
 for (var __r = 0; __r < ${ROUNDS}; __r++) {
   var __t0 = process.hrtime.bigint();
-  for (var __k = 0; __k < ${HC}; __k++) { halfStep(); cycle++; }
+  for (var __k = 0; __k < ${HC}; __k++) { __step(); cycle++; }
   var __t1 = process.hrtime.bigint();
   var __secs = Number(__t1 - __t0) / 1e9;
   __BENCH__.rates.push(${HC} / __secs);
@@ -133,7 +166,7 @@ console.log(`# visual6502 (original JS, chipsim.js recursive group-walk) — Nod
 console.log(`#   chip:        ${chip}`);
 console.log(`#   nodes:       ${sandbox.__BENCH__.nodeCount}`);
 console.log(`#   transistors: ${sandbox.__BENCH__.transCount}`);
-console.log(`#   workload:    Infinite NOP Sled (opcode 0x${cfg.nop.toString(16).toUpperCase()})`);
+console.log(`#   workload:    ${WORKLOAD === 'fuzz' ? 'Random Bus Fuzzing (fixed-seed LCG)' : WORKLOAD === 'reset' ? 'Reset-Hold (clock tree only)' : 'Infinite NOP Sled (opcode 0x' + cfg.nop.toString(16).toUpperCase() + ')'}`);
 console.log(`#   per round:   ${HC.toLocaleString()} half-cycles, warmup ${WARMUP.toLocaleString()}, ${ROUNDS} rounds`);
 console.log('#   ' + '-'.repeat(50));
 rates.forEach((r, i) => console.log(`#   round ${i + 1}: ${Math.round(r).toLocaleString()} hc/s`));

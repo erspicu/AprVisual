@@ -27,19 +27,36 @@ namespace AprVisual.Sim
             public string Clock = "clk0";   // root for the locality-BFS renumber key (per-chip main clock)
             public int Nop;
             public bool SkipWeak;   // 6800 / z80 ignore the weak (7th-column) transistors — match visual6502
+            // opcodes that HALT/LOCK the CPU (excluded from fuzz so the PC keeps advancing). Per Gemini
+            // 2026-06-15 (refs: 6502 undocumented-opcode lit / Visual6502; Wheeler M6800 BYTE 1977; Young Z80):
+            //   6502 KIL/JAM ×12, 6800 WAI+HCF ×5, z80 HALT ×1.
+            public int[] Jam = Array.Empty<int>();
         }
 
         internal static readonly Dictionary<string, RawCpuConfig> RawCpus = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["6502"] = new RawCpuConfig { Name = "6502", Vss = "vss", Vcc = "vcc", Clock = "clk0", Nop = 0xEA, SkipWeak = false },
-            ["6800"] = new RawCpuConfig { Name = "6800", Vss = "gnd", Vcc = "vcc", Clock = "phi2", Nop = 0x01, SkipWeak = true },
-            ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Clock = "clk",  Nop = 0x00, SkipWeak = true },
+            ["6502"] = new RawCpuConfig { Name = "6502", Vss = "vss", Vcc = "vcc", Clock = "clk0", Nop = 0xEA, SkipWeak = false,
+                       Jam = new[] { 0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2 } },   // KIL/JAM
+            ["6800"] = new RawCpuConfig { Name = "6800", Vss = "gnd", Vcc = "vcc", Clock = "phi2", Nop = 0x01, SkipWeak = true,
+                       Jam = new[] { 0x3E, 0x9D, 0xDD, 0xED, 0xFD } },   // WAI + HCF (halt-and-catch-fire)
+            ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Clock = "clk",  Nop = 0x00, SkipWeak = true,
+                       Jam = new[] { 0x76 } },   // HALT
         };
 
         // class-major renumber (range-prune + locality key); --no-renumber for an A/B
         public static bool RawRenumber = true;
         // self-captured first-touch locality key (S1's peak method); off → BFS-from-clock key. --no-capture for an A/B
         public static bool RawSelfCapture = true;
+
+        // pin-level synthetic workload (no test ROM): NOP sled (steady regular), random-bus fuzz
+        // (max-entropy event-queue stress), or reset-hold (chip held in reset, clock tree only).
+        public enum RawWorkload { NopSled, Fuzz, ResetHold }
+        public static RawWorkload Workload = RawWorkload.NopSled;
+        private static bool _fuzz;          // read feed = LCG byte instead of memory
+        private static bool _resetHold;     // skip the bus + keep reset asserted (clock-only)
+        private const uint FuzzSeed = 0x1357_BD2Fu;   // fixed → reproducible
+        private static uint _fuzzState;
+        private static readonly bool[] _jamMask = new bool[256];   // fuzz excludes these (halt/lock opcodes)
         private const int RawCaptureWarmupHc = 1024;     // warm past the reset transient before capturing
         private const int RawCaptureHc = 32768;          // first-touch capture span
 
@@ -64,6 +81,11 @@ namespace AprVisual.Sim
         public static void LoadRawCpu(string dir, RawCpuConfig cfg)
         {
             _rawCfg = cfg;
+            _fuzz = Workload == RawWorkload.Fuzz;
+            _resetHold = Workload == RawWorkload.ResetHold;
+            _fuzzState = FuzzSeed;
+            Array.Clear(_jamMask);
+            foreach (int j in cfg.Jam) _jamMask[j & 0xFF] = true;   // fuzz re-rolls past these
             if (RawRenumber)
             {
                 // Mirrors LoadSystem's 3-pass auto-renumber for a bare CPU.
@@ -224,6 +246,18 @@ namespace AprVisual.Sim
             return v;
         }
 
+        // Byte the external "memory" drives on a read: NOP-sled reads the flat array; Fuzz returns a
+        // fixed-seed LCG byte (reproducible max-entropy garbage). _fuzz is constant during a run.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int ReadFeed(int addr)
+        {
+            if (!_fuzz) return _rawMem[addr];
+            int b;   // re-roll past halt/lock opcodes so the CPU keeps executing (real stress, not a jam)
+            do { _fuzzState = _fuzzState * 1664525u + 1013904223u; b = (int)(_fuzzState >> 16) & 0xFF; }
+            while (_jamMask[b]);
+            return b;
+        }
+
         // settle indirection: production ProcessQueue in the bench; the instrumented capturing copy
         // during the pass-1 first-touch capture. _rawCapturing is false everywhere except that span.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -307,6 +341,7 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HalfStep6502()
         {
+            if (_resetHold) { RawDrive(_pClk0, NodeStates[_pClk0] == 0); return; }   // clock tree only
             if (NodeStates[_pClk0] != 0) { RawDrive(_pClk0, false); BusReadRwAbDb(); }
             else                         { RawDrive(_pClk0, true);  BusWriteRwAbDb(); }
         }
@@ -315,8 +350,8 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void HalfStep6800()
         {
-            if (NodeStates[_pPhi2] != 0) { RawDrive(_pPhi2, false); RawDrive(_pDbe, false); RawDrive(_pPhi1, true); BusReadRwAbDb(); }
-            else { RawDrive(_pPhi1, true); RawDrive(_pPhi1, false); RawDrive(_pPhi2, true); RawDrive(_pDbe, true); BusWriteRwAbDb(); }
+            if (NodeStates[_pPhi2] != 0) { RawDrive(_pPhi2, false); RawDrive(_pDbe, false); RawDrive(_pPhi1, true); if (!_resetHold) BusReadRwAbDb(); }
+            else { RawDrive(_pPhi1, true); RawDrive(_pPhi1, false); RawDrive(_pPhi2, true); RawDrive(_pDbe, true); if (!_resetHold) BusWriteRwAbDb(); }
         }
 
         // z80: single clk; read AND write evaluated each half-step (as visual6502 chip-z80/support.js does).
@@ -324,8 +359,9 @@ namespace AprVisual.Sim
         private static void HalfStepZ80()
         {
             RawDrive(_pClk, NodeStates[_pClk] == 0);
+            if (_resetHold) return;   // clock tree only
             // read: active when _rd & _mreq both low; else drive 0xe9 (int-ack) or 0xff (idle)
-            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes, 16)]);
+            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, 16)));
             else if (_pM1 != EmptyNode && _pIorq != EmptyNode && NodeStates[_pM1] == 0 && NodeStates[_pIorq] == 0) WriteDataBus(0xE9);
             else WriteDataBus(0xFF);
             // write: when _wr low
@@ -336,7 +372,7 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusReadRwAbDb()
         {
-            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(_rawMem[ReadBusNodes(_abNodes, 16)]);
+            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, 16)));
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusWriteRwAbDb()
@@ -362,7 +398,7 @@ namespace AprVisual.Sim
                     {
                         SetLow(_pPhi1); SetHigh(_pPhi2); SetHigh(_pDbe); SetLow(_pPhi2); SetLow(_pDbe); SetHigh(_pPhi1);
                     }
-                    DriveName("reset", true);
+                    if (!_resetHold) DriveName("reset", true);   // reset-hold: keep asserted
                     for (int i = 0; i < 6; i++) _rawHalfStep();
                     break;
 
@@ -372,7 +408,7 @@ namespace AprVisual.Sim
                     DriveName("_busrq", true); DriveName("_int", true); DriveName("_nmi", true); DriveName("_wait", true);
                     RecomputeAllNodes();
                     for (int i = 0; i < 31; i++) _rawHalfStep();
-                    DriveName("_reset", true);
+                    if (!_resetHold) DriveName("_reset", true);   // reset-hold: keep asserted
                     break;
 
                 default: // 6502
@@ -382,7 +418,7 @@ namespace AprVisual.Sim
                     DriveName("irq", true); DriveName("nmi", true);
                     RecomputeAllNodes();
                     for (int i = 0; i < 8; i++) { SetHigh(_pClk0); SetLow(_pClk0); }
-                    DriveName("res", true);
+                    if (!_resetHold) DriveName("res", true);   // reset-hold: keep asserted
                     for (int i = 0; i < 18; i++) _rawHalfStep();
                     break;
             }
@@ -416,7 +452,13 @@ namespace AprVisual.Sim
             Console.WriteLine($"#   netlist dir: {dir}");
             Console.WriteLine($"#   nodes: {nodes}   transistors: {trans}" + (cfg.SkipWeak ? $"   (skipped {_rawSkippedWeak} weak)" : ""));
             string rn = RawRenumber ? (RawSelfCapture ? "on (self-capture locality)" : "on (BFS-key locality)") : "off";
-            Console.WriteLine($"#   workload: Infinite NOP Sled (opcode 0x{cfg.Nop:X2})   lowering: {(EnableLowering ? "on" : "off")}   renumber: {rn}");
+            string wl = Workload switch
+            {
+                RawWorkload.Fuzz      => $"Random Bus Fuzzing (fixed-seed LCG)",
+                RawWorkload.ResetHold => $"Reset-Hold (reset asserted, clock tree only)",
+                _                     => $"Infinite NOP Sled (opcode 0x{cfg.Nop:X2})",
+            };
+            Console.WriteLine($"#   workload: {wl}   lowering: {(EnableLowering ? "on" : "off")}   renumber: {rn}");
             if (RawRenumber) Console.WriteLine($"#   {LastRenumberStats}  (range-prune verified: {RangePruneOk})");
             Console.WriteLine($"#   load (parse + compose + lower + capture + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
 
@@ -447,8 +489,10 @@ namespace AprVisual.Sim
                 advancing |= ReadBusNodes(_abNodes, 16) != ab1;
             }
 
-            Console.WriteLine($"#   AB sample: post-reset=0x{ab0:X4}  post-warmup=0x{ab1:X4}  " +
-                              (advancing ? "(advancing — CPU running)" : "(NOT advancing — check harness)"));
+            // reset-hold deliberately keeps the chip in reset, so a static address bus is EXPECTED there.
+            string abMsg = _resetHold ? "(held in reset — clock tree only, as intended)"
+                                      : (advancing ? "(advancing — CPU running)" : "(NOT advancing — check harness)");
+            Console.WriteLine($"#   AB sample: post-reset=0x{ab0:X4}  post-warmup=0x{ab1:X4}  {abMsg}");
             Console.WriteLine("#   " + new string('-', 50));
             for (int r = 0; r < rounds; r++)
                 Console.WriteLine($"#   round {r + 1}: {rates[r]:N0} hc/s");
@@ -459,7 +503,7 @@ namespace AprVisual.Sim
             Console.WriteLine("#   " + new string('-', 50));
             Console.WriteLine($"#   median: {median:N0} hc/s   best: {best:N0}   mean: {mean:N0}   ({benchHc:N0} hc/round, warmup {warmup:N0})");
             Console.WriteLine($"#   NodeStates checksum 0x{NodeStatesChecksum():X16}");
-            return advancing ? 0 : 1;
+            return (_resetHold || advancing) ? 0 : 1;
         }
     }
 }

@@ -272,6 +272,30 @@ namespace AprVisual.Sim
 
         // ───────────────────────── bench ─────────────────────────
 
+        // Dump the raw naive netlist (same nodes / transistors / pin map the C# naive sim builds) so a
+        // C++ port can load identical data — apples-to-apples language comparison, no .js parser in C++.
+        public static int ExportNetlist(string dir, string chipName, string outPath)
+        {
+            if (!WireCore.RawCpus.TryGetValue(chipName, out var cfg))
+            {
+                Console.Error.WriteLine($"unknown chip '{chipName}'"); return 2;
+            }
+            var sim = new NaiveSim(cfg);
+            sim.Build(dir);
+            using var w = new StreamWriter(outPath);
+            w.WriteLine($"META {sim._ngnd} {sim._npwr} {sim._n} {sim._trans.Length} {cfg.Nop}");
+            var pu = new List<int>();
+            for (int i = 0; i < sim._n; i++) if (sim._nodes[i] != null && sim._nodes[i]!.Pullup) pu.Add(i);
+            w.WriteLine($"PULLUPS {pu.Count}");
+            w.WriteLine(string.Join(' ', pu));
+            w.WriteLine($"TRANS {sim._trans.Length}");
+            foreach (var t in sim._trans) w.WriteLine($"{t.Gate} {t.C1} {t.C2}");
+            w.WriteLine($"NAMES {sim._names.Count}");
+            foreach (var kv in sim._names) w.WriteLine($"{kv.Key} {kv.Value}");
+            Console.WriteLine($"# exported {chipName}: {sim._n} nodes, {sim._trans.Length} transistors, {pu.Count} pull-ups, {sim._names.Count} names -> {outPath}");
+            return 0;
+        }
+
         public static int RunBench(string dir, string chipName, int benchHc, int warmup, int rounds)
         {
             if (!WireCore.RawCpus.TryGetValue(chipName, out var cfg))

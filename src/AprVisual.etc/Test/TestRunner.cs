@@ -25,6 +25,7 @@ namespace AprVisual.Test
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string? cpuBenchDir = null; string cpuChip = "6502"; int cpuWarmup = 100000; int cpuRounds = 5; bool cpuNaive = false;   // raw bare-CPU bench (--cpu-bench)
+            string? exportNetlist = null;   // --export-netlist <path>: dump the raw naive netlist for the C++ port
             string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
@@ -63,7 +64,10 @@ namespace AprVisual.Test
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--no-renumber":     WireCore.RawRenumber = false; break;     // --cpu-bench A/B (class-major renumber off)
                     case "--no-capture":      WireCore.RawSelfCapture = false; break;  // --cpu-bench A/B (BFS-key locality instead of self-capture)
+                    case "--workload":        if (i + 1 < args.Length) WireCore.Workload = args[++i].ToLowerInvariant() switch   // --cpu-bench synthetic workload
+                                              { "fuzz" => WireCore.RawWorkload.Fuzz, "reset" or "reset-hold" => WireCore.RawWorkload.ResetHold, _ => WireCore.RawWorkload.NopSled }; break;
                     case "--naive":           cpuNaive = true; break;                // --cpu-bench runs the C# port of the ORIGINAL visual6502 algorithm
+                    case "--export-netlist":  if (i + 1 < args.Length) exportNetlist = args[++i]; break;   // dump raw naive netlist for the C++ port
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
@@ -99,6 +103,7 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
+            if (exportNetlist != null) return NaiveSim.ExportNetlist(cpuBenchDir ?? $"src/AprVisual.etc/netlists/{cpuChip}", cpuChip, exportNetlist);
             if (cpuBenchDir   != null) return cpuNaive
                                            ? NaiveSim.RunBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds)
                                            : WireCore.RunRawCpuBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds);

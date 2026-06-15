@@ -1,0 +1,9 @@
+# Generated / licensed-derived artifacts — not committed.
+# Netlist dumps are derived from the CC-BY-NC-SA Visual6502 data (mirrors the repo's ref/ policy);
+# the binary is a local build. Regenerate the netlists with:
+#   AprVisual.etc --export-netlist tools/cpp-naive/<chip>.netlist.txt --chip <chip>
+*.netlist.txt
+*.exe
+*.o
+*.obj
+naive

@@ -2,6 +2,7 @@
 # Regenerate the engine dump with:
 #   AprVisual.etc --export-engine tools/cpp-ours/<chip>.engine.txt --chip <chip>
 *.engine.txt
+*.full.txt
 *.exe
 *.o
 *.obj

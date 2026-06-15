@@ -112,22 +112,26 @@
 
 <section>
   <h2><span class="en">Native or managed? We ported the algorithms to C++ too</span><span class="zh">native 還是 managed?我們也把演算法移植成 C++</span></h2>
-  <p class="en">The "language" factor above bundles JavaScript and C# together — so we asked the obvious question directly: is <i>managed</i> C# the slow part, and would <i>native</i> C++ be much faster? We transliterated the <i>same</i> naive algorithm into C++ (clang&nbsp;-O3), and separately ported our <i>optimized</i> engine's architecture to C++ as well — each loading the identical netlist, and the optimized port <b>validated bit-exact</b> against C# (the per-node checksum matched on all three chips).</p>
-  <p class="zh">上面那個「語言」因子把 JavaScript 和 C# 綁在一起——所以我們直接問那個顯而易見的問題:<i>managed</i> 的 C# 是不是慢的那一塊,換成 <i>native</i> 的 C++ 會快很多嗎?我們把<i>同一個</i> naive 演算法移植成 C++(clang&nbsp;-O3),也另外把我們<i>最佳化</i>引擎的架構移植成 C++——各自載入同一份網表,而最佳化版還<b>通過 bit-exact 驗證</b>(三顆晶片的每節點 checksum 都與 C# 相同)。</p>
+  <p class="en">The "language" factor above bundles JavaScript and C# together — so we asked the obvious question directly: is <i>managed</i> C# the slow part, and would <i>native</i> C++ be much faster? We transliterated the <i>same</i> naive algorithm into C++ (clang&nbsp;-O3), and then ported our <b>full</b> optimized engine to C++ too — the whole hot path, <i>including</i> the cache layout (a packed 16-byte node struct), the fast-path dispatch, the two-node pair path, and the class-major range-prune. Both load the identical netlist; the full port is <b>validated bit-exact</b> against C# (the per-node checksum matched on all three chips).</p>
+  <p class="zh">上面那個「語言」因子把 JavaScript 和 C# 綁在一起——所以我們直接問那個顯而易見的問題:<i>managed</i> 的 C# 是不是慢的那一塊,換成 <i>native</i> 的 C++ 會快很多嗎?我們把<i>同一個</i> naive 演算法移植成 C++(clang&nbsp;-O3),接著把我們<b>完整</b>的最佳化引擎也移植成 C++——整條熱路徑,<i>連 cache 佈局</i>(packed 16-byte 節點結構)、fast-path 派發、兩節點 pair path、class-major range-prune 都包含。兩者載入同一份網表;完整版<b>通過 bit-exact 驗證</b>(三顆晶片的每節點 checksum 都與 C# 相同)。</p>
   <table>
     <tr>
       <th><span class="en">Chip</span><span class="zh">晶片</span></th>
-      <th>C# naive</th><th>C++ naive</th><th>C++/C#</th>
-      <th><span class="en">C++ ours-core</span><span class="zh">C++ 我們(核心)</span></th>
+      <th>C# naive</th><th>C++ naive</th>
+      <th><span class="en">C++ ours-full</span><span class="zh">C++ 我們(完整)</span></th>
       <th><span class="en">C# ours (full)</span><span class="zh">C# 我們(完整)</span></th>
     </tr>
-    <tr><td>MOS 6502</td><td class="num">17,914</td><td class="num">26,239</td><td class="num">1.46&times;</td><td class="num">69,319</td><td class="num">145,337</td></tr>
-    <tr><td>Motorola 6800</td><td class="num">12,582</td><td class="num">17,137</td><td class="num">1.36&times;</td><td class="num">36,828</td><td class="num">89,233</td></tr>
-    <tr><td>Zilog Z80</td><td class="num">12,255</td><td class="num">18,452</td><td class="num">1.51&times;</td><td class="num">25,603</td><td class="num">62,491</td></tr>
+    <tr><td>MOS 6502</td><td class="num">17,914</td><td class="num">26,239</td><td class="num">118,918</td><td class="num">151,561</td></tr>
+    <tr><td>Motorola 6800</td><td class="num">12,582</td><td class="num">17,137</td><td class="num">61,630</td><td class="num">89,924</td></tr>
+    <tr><td>Zilog Z80</td><td class="num">12,255</td><td class="num">18,452</td><td class="num">40,255</td><td class="num">62,631</td></tr>
   </table>
   <div class="big">
-    <p class="en" style="margin:.2em 0"><b>Two findings.</b> <b>(1) Native buys almost nothing here:</b> at the <i>same</i> naive algorithm, C++ is only ~1.4–1.5× faster than managed C#. So C# is <i>not</i> the bottleneck — the slow JavaScript original is purely the interpreter (~70–85× slower than C#, ~105× slower than C++). <b>(2) The micro-optimizations matter more than the language:</b> our optimized algorithm's architecture ported to C++ runs at ~25–69K hc/s — <i>slower</i> than the full C# engine — because the C++ port deliberately omits the bit-exact-neutral micro-op stack (the inline-payload node layout, the fast path, the two-node pair path, the class-major range-prune, self-capture). A fully-tuned <i>managed</i> engine beats an architecture-only <i>native</i> port; closing that would mean porting the whole micro-op stack to C++ (project-scale, like the existing Rust engine).</p>
-    <p class="zh" style="margin:.2em 0"><b>兩個發現。</b> <b>(1) native 在這裡幾乎沒賺頭:</b>同一個 naive 演算法下,C++ 只比 managed C# 快 ~1.4–1.5×。所以 C# <i>不是</i>瓶頸——慢的 JavaScript 原版純粹是直譯器(比 C# 慢 ~70–85×、比 C++ 慢 ~105×)。<b>(2) 微優化比語言更重要:</b>把我們最佳化演算法的架構移植成 C++,只跑 ~25–69K hc/s——<i>比</i>完整 C# 引擎<i>慢</i>——因為這個 C++ 版刻意省略了那一整套 bit-exact 中性的微優化(inline-payload 節點佈局、fast path、兩節點 pair path、class-major range-prune、self-capture)。一個微優化齊全的 <i>managed</i> 引擎,贏過只移植了架構的 <i>native</i> 版;要補上這個差距,得把整套微優化也移植到 C++(專案級工程,就像現有的 Rust 引擎)。</p>
+    <p class="en" style="margin:.2em 0"><b>The language gap is small — and it flips with tuning.</b> At the <i>naive</i> algorithm, native C++ is ~1.4–1.5× <i>faster</i> than managed C#. But at the <i>full optimized engine</i>, C# is ~1.27–1.56× <i>faster</i> than a faithful C++ port — an inversion. The reason: the C# hot path is heavily micro-tuned for the .NET JIT + dynamic PGO (the inline cascade, 64-bit dual-loads, profile-ordered branches); the straightforward clang&nbsp;-O3 port replicates the algorithm <i>and</i> the cache layout, but not that instruction-level tuning and has no PGO. So this is "heavily-tuned <i>managed</i> beats faithful-but-untuned <i>native</i>" — <b>not a language ceiling</b>; equal tuning effort would likely flip it back. Across JS→C#→C++ the language never moves the needle more than ~1.5×; the ~70–85× outlier is purely the JavaScript interpreter, and our algorithm contributes ~5–8×.</p>
+    <p class="zh" style="margin:.2em 0"><b>語言差距很小——而且隨微調而反轉。</b>在 <i>naive</i> 演算法下,native C++ 比 managed C# <i>快</i> ~1.4–1.5×。但在<i>完整最佳化引擎</i>,C# 反而比忠實的 C++ 移植<i>快</i> ~1.27–1.56×——反轉了。原因:C# 熱路徑是針對 .NET JIT + 動態 PGO 重度微調的(inline cascade、64-bit 雙對讀、按剖析排序的分支);clang&nbsp;-O3 的忠實移植複製了演算法<i>與</i> cache 佈局,卻沒做那層指令級微調、也沒 PGO。所以這是「重度微調的 <i>managed</i> 贏過忠實但未微調的 <i>native</i>」——<b>不是語言天花板</b>;同等微調投入很可能再反轉回來。綜觀 JS→C#→C++,語言這軸從不超過 ~1.5×;~70–85× 的離群值純粹是 JavaScript 直譯器,而我們的演算法貢獻 ~5–8×。</p>
+  </div>
+  <div class="note">
+    <p class="en" style="margin:.3em 0"><b>A side-lesson: the cache layout <i>is</i> an optimization.</b> Our first C++ port used split per-field arrays (one for flags, one for the channel payload, …) and lost to C#. It only caught up once it used the <i>same</i> packed 16-byte node struct (four per cache line) — reading one node then touches one cache line, not five. A faithful port of "our algorithm" has to port the <i>layout</i>, not just the logic.</p>
+    <p class="zh" style="margin:.3em 0"><b>附帶教訓:cache 佈局<i>本身</i>就是優化。</b>我們第一版 C++ 用<i>分離</i>的逐欄位陣列(flags 一條、通道 payload 一條……),輸給 C#;直到改用<i>同樣</i>的 packed 16-byte 節點結構(一條 cache line 裝四個)才追上——讀一個節點只碰一條 cache line、不是五條。忠實移植「我們的演算法」必須連<i>佈局</i>一起移植,不只邏輯。</p>
   </div>
 </section>
 

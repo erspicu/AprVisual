@@ -1,9 +1,37 @@
 # tools/cpp-ours — C++ port of AprVisual's OWN (optimized) algorithm
 
-`ours.cpp` ports AprVisual's event-driven engine — **not** the naive group-walk (that's
-`tools/cpp-naive`) — to C++: SoA arrays, a double-buffered event-driven settle, the 256-entry
-NMOS-priority group-resolution LUT, the floating largest-capacitance tie-break, and the P-1..P-4
-event-count prunes (mask form). It loads the engine state exported by the C# tool, so the data is
+Two C++ ports of AprVisual's event-driven engine (**not** the naive group-walk — that's
+`tools/cpp-naive`), both loading engine state exported by the C# tool (identical data) and
+**validated bit-exact**:
+
+- **`ours_full.cpp`** — the FULL engine (peak vs peak): the packed 16-byte NodeInfo struct, the
+  cls1/cls2 fast-path + RecalcNodeFast, the B1 two-node pair path, the class-major range-prune, the
+  double-buffered settle, and the permutation (original-id-order) checksum. `--export-engine-full`.
+- **`ours.cpp`** — the architecture CORE only (SoA + event-driven settle + group LUT + floating
+  tie-break + P-1..P-4 mask-prune), no micro-op stack. `--export-engine`. A stepping stone.
+
+### Result (2026-06-15, same machine, NOP sled) — all bit-exact
+
+| Chip | C# naive | C++ naive | **C++ ours-full** | C# ours (full) |
+|------|---------:|----------:|------------------:|---------------:|
+| 6502 | 17,914 | 26,239 | **118,918** | 151,561 |
+| 6800 | 12,582 | 17,137 | **61,630**  | 89,924  |
+| z80  | 12,255 | 18,452 | **40,255**  | 62,631  |
+
+**The inversion.** At the *naive* algorithm native C++ is ~1.4–1.5× **faster** than C#; at the
+*full* engine C# is ~1.27–1.56× **faster** than the faithful C++ port — because the C# hot path is
+heavily micro-tuned for the .NET JIT + dynamic PGO (inline cascade, 64-bit dual-loads,
+profile-ordered branches) and the clang `-O3` port replicates the algorithm + cache layout but not
+that instruction-level tuning. So it's "heavily-tuned managed beats faithful-but-untuned native",
+not a language ceiling. **Side-lesson:** the C++ port only caught up to C# once it used the *same*
+packed 16-byte node struct (one cache line per 4 nodes) instead of split per-field arrays — the
+cache layout is itself an optimization. Full write-up: `MD/note/2026-06-15-…前置研究.md` §8.9–8.10.
+
+---
+
+## `ours.cpp` (the CORE port)
+
+`ours.cpp` loads the engine state exported by the C# tool, so the data is
 provably identical and the port can be **validated bit-exact**.
 
 ```sh

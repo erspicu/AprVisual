@@ -463,6 +463,42 @@ namespace AprVisual.Sim
             return 0;
         }
 
+        // FULL export: the post-renumber, fully-optimized engine (renumber + self-capture + range-prune)
+        // so a C++ port can replicate the ENTIRE hot path bit-exactly — NodeInfos (inline payload + Tlist
+        // union), TransistorList, NodeTlistGates, IsPureLogic (cls), NodeConnections, range bounds, the
+        // renumber permutation (for the original-id-order checksum), and post-init NodeStates.
+        public static int ExportOursEngineFull(string dir, string chipName, string outPath)
+        {
+            if (!RawCpus.TryGetValue(chipName, out var cfg)) { Console.Error.WriteLine($"unknown chip '{chipName}'"); return 2; }
+            LoadRawCpu(dir, cfg);   // full: renumber + self-capture (RawRenumber default true)
+            InitRawCpu();
+
+            int n = NodeCount;
+            int permLen = RenumberPerm != null ? RenumberPermLen : 0;
+            using var w = new StreamWriter(outPath);
+            w.WriteLine($"META {Ngnd} {Npwr} {n} {cfg.Nop} {TransistorListLength} {RangePruneA} {RangePruneS} {RangePruneB} {permLen}");
+            w.WriteLine($"NODES {n}");
+            for (int nn = 0; nn < n; nn++)
+            {
+                NodeInfo* ns = NodeInfos + nn;
+                int fl = (int)ns->Flags, inl = ns->Inline, c1c2 = ns->C1c2Count, gc = ns->GndCount, pc = ns->PwrCount;
+                int p0=0,p1=0,p2=0,p3=0,p4=0,p5=0, tc=0,tg=0,tp=0;
+                if (inl != 0) { p0=ns->InlinePayload[0]; p1=ns->InlinePayload[1]; p2=ns->InlinePayload[2]; p3=ns->InlinePayload[3]; p4=ns->InlinePayload[4]; p5=ns->InlinePayload[5]; }
+                else { tc=ns->TlistC1c2s; tg=ns->TlistC1gnd; tp=ns->TlistC1pwr; }
+                int tlg = NodeTlistGates[nn], ipl = IsPureLogic[nn], cn = NodeConnections[nn], st = NodeStates[nn];
+                w.WriteLine($"{fl} {inl} {c1c2} {gc} {pc} {p0} {p1} {p2} {p3} {p4} {p5} {tc} {tg} {tp} {tlg} {ipl} {cn} {st}");
+            }
+            w.WriteLine($"TLIST {TransistorListLength}");
+            { var sb = new System.Text.StringBuilder(); for (int i = 0; i < TransistorListLength; i++) { sb.Append(TransistorList[i]); sb.Append(i+1<TransistorListLength?' ':'\n'); } w.Write(sb.ToString()); }
+            w.WriteLine($"PERM {permLen}");
+            if (permLen > 0) { var sb = new System.Text.StringBuilder(); for (int i = 0; i < permLen; i++) { sb.Append(RenumberPerm[i]); sb.Append(i+1<permLen?' ':'\n'); } w.Write(sb.ToString()); }
+            int nameCount = 0; foreach (var _ in _nodeByName) nameCount++;
+            w.WriteLine($"NAMES {nameCount}");
+            foreach (var kv in _nodeByName) w.WriteLine($"{kv.Key} {kv.Value}");
+            Console.WriteLine($"# exported OURS-FULL {chipName}: {n} nodes, range A={RangePruneA} S={RangePruneS} B={RangePruneB}, checksum 0x{NodeStatesChecksum():X16} -> {outPath}");
+            return 0;
+        }
+
         // ─────────────────────────── bench ──────────────────────────────
 
         public static int RunRawCpuBench(string dir, string chipName, int benchHc, int warmup, int rounds)

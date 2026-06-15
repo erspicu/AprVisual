@@ -1,0 +1,8 @@
+# Generated / licensed-derived artifacts — not committed (mirrors the repo's ref/ policy).
+# Regenerate the engine dump with:
+#   AprVisual.etc --export-engine tools/cpp-ours/<chip>.engine.txt --chip <chip>
+*.engine.txt
+*.exe
+*.o
+*.obj
+ours

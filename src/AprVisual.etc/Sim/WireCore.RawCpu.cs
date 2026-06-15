@@ -425,6 +425,44 @@ namespace AprVisual.Sim
             Time = 0;
         }
 
+        // Export the FULLY-BUILT OURS engine state (post-lower, identity ids = --no-renumber, post-init)
+        // so a C++ port can replicate the canonical hot path bit-exactly without re-running the build
+        // pipeline. We dump the lowered transistor list + per-node {flags, state, pruneMask&3, connections}
+        // + the name→id map + supply/NOP. The C++ rebuilds the channel/gate adjacency (as Reset does) and
+        // runs ProcessQueue + ComputeNodeGroup + SetNodeState — no renumber / fast-path / inline-payload
+        // (all bit-exact-neutral perf-only), so its checksum must equal the C# ours run.
+        public static int ExportOursEngine(string dir, string chipName, string outPath)
+        {
+            if (!RawCpus.TryGetValue(chipName, out var cfg)) { Console.Error.WriteLine($"unknown chip '{chipName}'"); return 2; }
+            bool saved = RawRenumber; RawRenumber = false;       // identity ids (mask-form prune, checksum-equivalent)
+            LoadRawCpu(dir, cfg);
+            InitRawCpu();
+            RawRenumber = saved;
+
+            int n = NodeArrayCount;
+            using var w = new StreamWriter(outPath);
+            w.WriteLine($"META {Ngnd} {Npwr} {n} {TransistorBuildCount} {cfg.Nop}");
+            // per-node: flags(post-init) state pruneMask&3 connections
+            w.WriteLine($"NODES {n}");
+            for (int nn = 0; nn < n; nn++)
+            {
+                byte fl = Nodes[nn] != null ? (byte)NodeInfos[nn].Flags : (byte)0;
+                int st = NodeStates[nn];
+                int pm = PruneMask != null ? (PruneMask[nn] & 3) : 0;
+                int cn = NodeConnections[nn];
+                w.WriteLine($"{fl} {st} {pm} {cn}");
+            }
+            // lowered transistors (gate, c1, c2) — supply already normalised onto c2 by AddTransistor
+            w.WriteLine($"TRANS {TransistorBuildCount}");
+            foreach (var t in Transistors) w.WriteLine($"{t.Gate} {t.C1} {t.C2}");
+            // name → id (for pin resolution)
+            int nameCount = 0; foreach (var _ in _nodeByName) nameCount++;
+            w.WriteLine($"NAMES {nameCount}");
+            foreach (var kv in _nodeByName) w.WriteLine($"{kv.Key} {kv.Value}");
+            Console.WriteLine($"# exported OURS engine {chipName}: {n} nodes, {TransistorBuildCount} transistors (lowered), checksum 0x{NodeStatesChecksum():X16} -> {outPath}");
+            return 0;
+        }
+
         // ─────────────────────────── bench ──────────────────────────────
 
         public static int RunRawCpuBench(string dir, string chipName, int benchHc, int warmup, int rounds)

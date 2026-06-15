@@ -26,6 +26,7 @@ namespace AprVisual.Test
             string systemDefDir = WireCore.SystemDefDir;
             string? cpuBenchDir = null; string cpuChip = "6502"; int cpuWarmup = 100000; int cpuRounds = 5; bool cpuNaive = false;   // raw bare-CPU bench (--cpu-bench)
             string? exportNetlist = null;   // --export-netlist <path>: dump the raw naive netlist for the C++ port
+            string? exportEngine = null;    // --export-engine <path>: dump the built OURS engine for the C++ ours port
             string logDir = "log";
             int maxWait = 15;
             int traceCycles = 64;
@@ -68,6 +69,7 @@ namespace AprVisual.Test
                                               { "fuzz" => WireCore.RawWorkload.Fuzz, "reset" or "reset-hold" => WireCore.RawWorkload.ResetHold, _ => WireCore.RawWorkload.NopSled }; break;
                     case "--naive":           cpuNaive = true; break;                // --cpu-bench runs the C# port of the ORIGINAL visual6502 algorithm
                     case "--export-netlist":  if (i + 1 < args.Length) exportNetlist = args[++i]; break;   // dump raw naive netlist for the C++ port
+                    case "--export-engine":   if (i + 1 < args.Length) exportEngine = args[++i]; break;    // dump built OURS engine for the C++ ours port
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
@@ -104,6 +106,7 @@ namespace AprVisual.Test
             }
 
             if (exportNetlist != null) return NaiveSim.ExportNetlist(cpuBenchDir ?? $"src/AprVisual.etc/netlists/{cpuChip}", cpuChip, exportNetlist);
+            if (exportEngine  != null) return WireCore.ExportOursEngine(cpuBenchDir ?? $"src/AprVisual.etc/netlists/{cpuChip}", cpuChip, exportEngine);
             if (cpuBenchDir   != null) return cpuNaive
                                            ? NaiveSim.RunBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds)
                                            : WireCore.RunRawCpuBench(cpuBenchDir, cpuChip, benchHcCount, cpuWarmup, cpuRounds);

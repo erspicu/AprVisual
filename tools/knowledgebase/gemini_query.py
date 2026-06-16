@@ -13,35 +13,53 @@ def load_config():
     with open(config_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def call_gemini(api_key, model, prompt):
+def call_gemini(api_key, model, prompt, system=None, temperature=None, max_tokens=None):
     host = "generativelanguage.googleapis.com"
     endpoint = f"/v1beta/models/{model}:generateContent?key={api_key}"
-    
+
     payload = {
         "contents": [{
             "parts": [{"text": prompt}]
         }]
     }
-    
+    if system:
+        payload["systemInstruction"] = {"parts": [{"text": system}]}
+    gen = {}
+    if temperature is not None:
+        gen["temperature"] = temperature
+    if max_tokens is not None:
+        gen["maxOutputTokens"] = max_tokens
+    if gen:
+        payload["generationConfig"] = gen
+
     headers = {"Content-Type": "application/json"}
-    
-    conn = http.client.HTTPSConnection(host)
+
+    conn = http.client.HTTPSConnection(host, timeout=600)
     conn.request("POST", endpoint, body=json.dumps(payload), headers=headers)
-    
+
     response = conn.getresponse()
     data = response.read()
     conn.close()
-    
+
     if response.status != 200:
         print(f"API Error: HTTP {response.status}")
         print(data.decode('utf-8'))
         sys.exit(1)
-        
+
     result = json.loads(data.decode('utf-8'))
     try:
-        return result['candidates'][0]['content']['parts'][0]['text']
+        cand = result['candidates'][0]
+        parts = cand.get('content', {}).get('parts', [])
+        text = "".join(p.get('text', '') for p in parts if 'text' in p)
+        if not text:
+            fr = cand.get('finishReason', 'UNKNOWN')
+            print(f"Empty response (finishReason={fr}).")
+            print(json.dumps(cand, ensure_ascii=False)[:2000])
+            sys.exit(1)
+        return text
     except (KeyError, IndexError):
         print("Unexpected response format.")
+        print(json.dumps(result, ensure_ascii=False)[:2000])
         sys.exit(1)
 
 def list_models(api_key):
@@ -80,8 +98,16 @@ def main():
     parser.add_argument("-f", "--prompt-file", help="Read the prompt from a UTF-8 file (avoids argv length/encoding limits). If a positional prompt is also given, it is appended after the file content.")
     parser.add_argument("-o", "--output", help="Save output to a text file")
     parser.add_argument("-l", "--list-models", action="store_true", help="List available models and save to models_list.txt")
+    parser.add_argument("-m", "--model", help="Override the model from config.json (e.g. gemini-2.5-pro)")
+    parser.add_argument("--system", help="Optional system instruction (role/context)")
+    parser.add_argument("--system-file", help="Read the system instruction from a UTF-8 file")
+    parser.add_argument("--temperature", type=float, help="Sampling temperature, 0-2 (omitted = model default)")
+    parser.add_argument("--max-tokens", type=int, help="maxOutputTokens cap (omitted = model default/max)")
 
     args = parser.parse_args()
+    if args.system_file:
+        with open(args.system_file, 'r', encoding='utf-8') as f:
+            args.system = f.read()
 
     if args.prompt_file:
         with open(args.prompt_file, 'r', encoding='utf-8') as f:
@@ -103,9 +129,10 @@ def main():
         parser.print_help()
         return
         
-    model = config.get("model", "gemini-1.5-flash")
+    model = args.model or config.get("model", "gemini-1.5-flash")
     print(f"Querying Gemini ({model})...")
-    answer = call_gemini(api_key, model, args.prompt)
+    answer = call_gemini(api_key, model, args.prompt, system=args.system,
+                         temperature=args.temperature, max_tokens=args.max_tokens)
 
     # Log every query + response to message/ with a timestamped filename
     msg_dir = os.path.join(os.path.dirname(__file__), 'message')

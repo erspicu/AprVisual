@@ -70,6 +70,9 @@ WebSitePHP/
 # release/update workflow notes — holds deployment credentials (FTP etc.); NEVER commit
 workflow/
 
+# private working copy (local snapshots) — not version-controlled
+private/
+
 # WLA DX — third-party assembler (binaries + docs); vendored locally, not version-controlled
 # (exception to "all of tools/ is tracked"; it's an external tool, like ref/)
 tools/wla-dx/

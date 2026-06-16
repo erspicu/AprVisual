@@ -543,6 +543,7 @@ namespace AprVisual.Sim
                     // its successor (the supply-skip mask fold) are both subsumed. Boundaries verified against
                     // the freshly computed PruneMask at every Reset. Bit-exact.
                     int rS = RangePruneS;
+                    int rA = RangePruneA, rB = RangePruneB;   // [group-flags-skip fix] turn-on-unsafe (memory) ⇔ c<A || c>=B
                     byte* groupFlags = GroupFlags;
                     byte* offStates = NodeStates;
                     while (true)
@@ -551,17 +552,19 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-                        // [group-flags-skip] additionally skip when c's last component Λ held no opposite-
-                        // polarity driver (provable no-op on disconnect). Order: c>=rS (cheap register
-                        // compare; supply + P-2 class) -> Λ test (2 byte loads) -> dedup hash.
-                        if (c1a >= rS && (groupFlags[c1a] & (offStates[c1a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0 && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        // [group-flags-skip] skip the enqueue when c's last component Λ held no opposite-polarity
+                        // driver (provable no-op on disconnect) — but ONLY for nodes that resolve MONOTONICALLY.
+                        // Memory / no-PullUp / ForceCompute nodes (turn-on-unsafe ⇔ c<A || c>=B) can re-resolve via
+                        // the floating capacitance tie-break, so the Λ-monotonicity argument fails for them → they
+                        // must always enqueue. All register compares (no PruneMask — freed before the hot path).
+                        if (c1a >= rS && (c1a < rA || c1a >= rB || (groupFlags[c1a] & (offStates[c1a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a >= rS && (groupFlags[c2a] & (offStates[c2a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0 && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        if (c2a >= rS && (c2a < rA || c2a >= rB || (groupFlags[c2a] & (offStates[c2a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-                        if (c1b >= rS && (groupFlags[c1b] & (offStates[c1b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0 && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b >= rS && (groupFlags[c2b] & (offStates[c2b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0 && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if (c1b >= rS && (c1b < rA || c1b >= rB || (groupFlags[c1b] & (offStates[c1b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (c2b >= rS && (c2b < rA || c2b >= rB || (groupFlags[c2b] & (offStates[c2b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }

@@ -318,6 +318,8 @@ namespace AprVisual.Sim
 
             // flags == 0 ⇒ floating singleton ⇒ hold previous (NodeStates[nn] unchanged) ⇒ SetNodeState would
             // be a pure no-op, so skip the call entirely (saves the operand read + the call). Bit-exact.
+            // [group-flags-skip] record this singleton's Λ (= flags) for the turn-off enqueue prune.
+            GroupFlags[nn] = (byte)flags;
             if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
         }
 

@@ -79,6 +79,13 @@ namespace AprVisual.Sim
         public static int* NodeConnections;
         public static int* NodeTlistGates;
 
+        // [group-flags-skip prototype — branch group-flags-skip] GroupFlags[nn] = the OR-ed drive
+        // flags (Λ) of the connected component nn was last resolved in; written in EVERY resolution
+        // writeback (RecalcNodeFast / B1 pair / BFS). Read by SetNodeState's turn-off enqueue prune:
+        // a component split can only flip nn's value if Λ held an opposite-polarity driver, so when
+        // it held none the turn-off enqueue is a provable no-op. Init 0xFF = "unknown -> never skip".
+        public static byte* GroupFlags;
+
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
         public static byte* FlagsToState;
@@ -140,6 +147,8 @@ namespace AprVisual.Sim
             RecalcHashNext = AllocArray<byte>(NodeCount);
             _groupBuf      = AllocArray<ushort>(NodeCount);
             _inGroup       = AllocArray<byte>(NodeCount);
+            GroupFlags     = AllocArray<byte>(NodeCount);
+            new Span<byte>(GroupFlags, NodeCount).Fill(0xFF);   // unknown until first resolution -> never skip
             FlagsToState   = AllocArray<byte>(256);
             BuildFlagsToStateTable();   // WireCore.Group.cs
 

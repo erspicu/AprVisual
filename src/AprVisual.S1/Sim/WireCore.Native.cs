@@ -85,6 +85,7 @@ namespace AprVisual.Sim
             RecalcHash = RecalcHashNext = null;
             _groupBuf = null;
             _inGroup = null;
+            GroupFlags = null;   // [group-flags-skip] Λ cache (always re-alloc'd + 0xFF-filled by Reset)
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
             PruneMask = null;   // enqueue-prune safety mask (bit0 turn-on / bit1 turn-off; always re-built by Reset)
             FrameBuffer = null;

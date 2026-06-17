@@ -56,3 +56,23 @@ JIT 的 inline 啟發式是看**「被呼叫者的 IL 大小」**。原本 `Reca
 ## 處置
 
 `manual-fuse-setnodestate` 分支保留五個變體與本分析作為實驗紀錄,**不併入 main**。main 的 `SetNodeState`/`RecalcNode`/`ProcessQueue` 維持原狀(JIT 自動 cascade,5409 bytes,最快)。
+
+## 附:Gemini 雙模型判決(2026-06-18)
+
+把上述問題(IL 砍很小卻 −25%、有沒有活局)同時問 `gemini-2.5-pro` 與 `gemini-3.1-pro-preview`。
+log:`tools/knowledgebase/message/20260618_021953.txt`(2.5)、`...022057.txt`(3.1)。
+
+**兩個模型一致:手動 fusion 從根本上贏不了 JIT 的 auto-inline cascade。**
+
+- **code size 是假議題**(3.1 的關鍵硬體論點):main 那顆 5.4KB 巨型 method 完美塞進 Zen2 的 32KB L1I + **4K-op 微指令快取**,CPU 最愛這種「直線、特化、被 store buffer 吸收」的肥碼;換成小碼(分支 + store→load forwarding + 暫存器飢餓)正是 CPU 討厭的形狀。→ 印證本文「I-cache 被排除」。
+- **wave 層級 nextCount hoist = 純暫存器稅,該 revert**:Zen2 只有 14 GPR,`count++` 走 44-entry store queue 零成本;hoist 反而逼 spill 掉真正的指標。量化規則:熱迴圈 >8 個熱 local 時,別 hoist 可預測的 static counter。→ 印證本文根因 (B)。
+- **唯一還活的結構招 = Hybrid**:singleton+pair 走直線 inline、把 `<2%` 的 BFS group 丟去 `[MethodImpl(NoInlining)]` 冷 method,讓 BFS 的 locals 不再毒害快路徑的 regalloc。但兩模型都說這**只是控制暫存器壓力,預期中性、不是 win**。
+- `ref`-threading queue cursor:破壞 enregistration / 逼 spill,別做。
+- **兩模型都把「真正贏點」指向打 dependent-load 鏈(MLP)**:軟體預取 `Sse.Prefetch0`、或 wave 內 scalar interleaving(一次 pop 2 個、重疊兩條獨立 load);2.5 另提 SoA→AoS。
+
+**⚠ 但對到我們的歷史,這些「贏點」大多是已驗證死路**(Gemini 不知道):
+- 軟體預取:2026-06-10 pop-loop prefetch **已試 → 負面**(見 latency-hiding 筆記)。
+- 純 locality / AoS-as-locality:**已試 → 中性**(熱工作集本就 L1 常駐;瓶頸是 dependent 鏈不是 cache miss)。
+- 唯一**沒試過**:wave 內「一次 2 pop」scalar interleaving(靠 OoO 重疊兩條獨立節點的 load,不靠 prefetch 指令)。但群平均 1.4 節點 + wave 內 dependent 鏈 ⇒ 期望值低。
+
+**綜合結論:這條 hot-path 微優化路線沒有真正的活局。** `main` 的 JIT auto-cascade 即全域最優;此分支記為死路。

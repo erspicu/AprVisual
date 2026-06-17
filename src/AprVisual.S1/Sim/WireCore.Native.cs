@@ -80,12 +80,13 @@ namespace AprVisual.Sim
             NodeConnections = null;
             NodeTlistGates = null;
             FlagsToState = null;
+            CanChangeByFlags = null;   // [group-flags-skip P2] turn-off predicate LUT (always re-built by Reset)
             TransistorList = null;
             RecalcList = RecalcListNext = null;
             RecalcHash = RecalcHashNext = null;
             _groupBuf = null;
             _inGroup = null;
-            GroupFlags = null;   // [group-flags-skip] Λ cache (always re-alloc'd + 0xFF-filled by Reset)
+            TurnOffCanChange = null;   // [group-flags-skip P2] per-node predicate (always re-alloc'd + 1-filled by Reset)
             IsPureLogic = null;   // fast-path classifier (always re-built by Reset)
             PruneMask = null;   // enqueue-prune safety mask (bit0 turn-on / bit1 turn-off; always re-built by Reset)
             FrameBuffer = null;

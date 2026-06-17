@@ -79,12 +79,22 @@ namespace AprVisual.Sim
         public static int* NodeConnections;
         public static int* NodeTlistGates;
 
-        // [group-flags-skip prototype — branch group-flags-skip] GroupFlags[nn] = the OR-ed drive
-        // flags (Λ) of the connected component nn was last resolved in; written in EVERY resolution
-        // writeback (RecalcNodeFast / B1 pair / BFS). Read by SetNodeState's turn-off enqueue prune:
-        // a component split can only flip nn's value if Λ held an opposite-polarity driver, so when
-        // it held none the turn-off enqueue is a provable no-op. Init 0xFF = "unknown -> never skip".
-        public static byte* GroupFlags;
+        // [group-flags-skip — branch group-flags-skip; P2 predicate form 2026-06-17] TurnOffCanChange[nn]
+        // = a 1-byte PREDICATE (0/1) precomputed at every resolution writeback (RecalcNodeFast / B1 pair /
+        // BFS): "given nn's last-resolved drive flags Λ AND its resolved state, could opening one of its
+        // gated channels make it change value?" Read by SetNodeState's turn-off enqueue prune — when the
+        // predicate is 0 the turn-off enqueue is a provable no-op (Λ held no opposite-polarity driver).
+        // KEY: the resolved state is itself a function of Λ (FlagsToState[Λ] when Λ!=0; for Λ==0 the
+        // predicate is 0 regardless of the held value) — so the predicate is a PURE function of Λ and is
+        // looked up via CanChangeByFlags[Λ] at writeback. This makes the hot read a single byte load (no
+        // NodeStates[c] gather + no state-dependent mask select — the old GroupFlags raw-flags form did
+        // both on the critical path). Init 1 = "unknown -> never skip (conservative enqueue)".
+        public static byte* TurnOffCanChange;
+
+        // CanChangeByFlags[256] — CanChangeByFlags[Λ] = ((Λ & (FlagsToState[Λ]!=0 ? GfMaskFrom1 : GfMaskFrom0))
+        // != 0) ? 1 : 0. Built once per Reset (BuildCanChangeByFlagsTable, after FlagsToState). Read at each
+        // writeback to derive the per-node TurnOffCanChange predicate from the resolved group flags.
+        public static byte* CanChangeByFlags;
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -147,10 +157,12 @@ namespace AprVisual.Sim
             RecalcHashNext = AllocArray<byte>(NodeCount);
             _groupBuf      = AllocArray<ushort>(NodeCount);
             _inGroup       = AllocArray<byte>(NodeCount);
-            GroupFlags     = AllocArray<byte>(NodeCount);
-            new Span<byte>(GroupFlags, NodeCount).Fill(0xFF);   // unknown until first resolution -> never skip
+            TurnOffCanChange = AllocArray<byte>(NodeCount);
+            new Span<byte>(TurnOffCanChange, NodeCount).Fill(1);   // unknown until first resolution -> conservative enqueue
             FlagsToState   = AllocArray<byte>(256);
+            CanChangeByFlags = AllocArray<byte>(256);
             BuildFlagsToStateTable();   // WireCore.Group.cs
+            BuildCanChangeByFlagsTable();   // WireCore.Group.cs — depends on FlagsToState being built first
 
             // _inGroup must start all-zero (it does — AllocArray clears) and ComputeNodeGroup keeps it so;
             // but the *previous* group's _groupBuf/_groupCount are now stale, so reset them too.

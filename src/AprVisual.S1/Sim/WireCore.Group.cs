@@ -38,6 +38,22 @@ namespace AprVisual.Sim
                 FlagsToState[i] = FlagsToStateOf((NodeFlags)i) ? (byte)1 : (byte)0;
         }
 
+        /// <summary>Build the 256-entry CanChangeByFlags predicate LUT (the turn-off enqueue prune; P2).
+        /// CanChangeByFlags[Λ] = "with drive flags Λ and the state they resolve to (FlagsToState[Λ]), could
+        /// opening a gated channel change this node?" — equals the old hot-read expression
+        /// (Λ & (state!=0 ? GfMaskFrom1 : GfMaskFrom0)) != 0, but with state folded in as FlagsToState[Λ].
+        /// For Λ==0 (floating hold) both masks AND to 0 ⇒ predicate 0, independent of the held state, so the
+        /// fold is exact even where the resolved value comes from the capacitance tie-break rather than the
+        /// LUT. Must run AFTER BuildFlagsToStateTable().</summary>
+        public static void BuildCanChangeByFlagsTable()
+        {
+            for (int i = 0; i < 256; i++)
+            {
+                int mask = FlagsToState[i] != 0 ? GfMaskFrom1 : GfMaskFrom0;
+                CanChangeByFlags[i] = (i & mask) != 0 ? (byte)1 : (byte)0;
+            }
+        }
+
         // The pure resolution function (run 256 times to fill the LUT).
         private static bool FlagsToStateOf(NodeFlags flags)
         {

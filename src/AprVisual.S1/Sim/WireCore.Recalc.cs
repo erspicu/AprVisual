@@ -13,14 +13,17 @@ namespace AprVisual.Sim
         // every half-cycle (was a handler-chain delegate). EmptyNode if there's no clk node (toggle skipped).
         public static int ClockNode = EmptyNode;
 
-        // [group-flags-skip prototype] turn-off enqueue prune driver masks. When a node goes low its
-        // gated channels disconnect; an endpoint c can only CHANGE value if the component c was last
-        // resolved in held an opposite-polarity driver:
+        // [group-flags-skip] turn-off enqueue prune driver masks. When a node goes low its gated channels
+        // disconnect; an endpoint c can only CHANGE value if the component c was last resolved in held an
+        // opposite-polarity driver:
         //   c currently 1 -> can only fall to 0 if Λ had a 0-driver (Gnd | SetLow);
         //   c currently 0 -> can only rise to 1 if Λ had a 1-driver (Pwr | SetHigh | PullUp | State).
-        // HasCallback | ForceCompute always re-resolve (callback side effects / Gnd+Pwr cancel), so
-        // they are added to BOTH masks to force the enqueue. GroupFlags is 0xFF until first resolution
-        // (both masks hit -> never skipped before a node has a real Λ).
+        // HasCallback | ForceCompute always re-resolve (callback side effects / Gnd+Pwr cancel), so they are
+        // added to BOTH masks to force the enqueue. [P2 2026-06-17] these masks are now consumed only by
+        // BuildCanChangeByFlagsTable() (which folds in the resolved state FlagsToState[Λ] and bakes the whole
+        // test into the 256-entry CanChangeByFlags LUT) — the hot read just loads the precomputed predicate
+        // TurnOffCanChange[c], no runtime masking. TurnOffCanChange is 1 until first resolution (never skipped
+        // before a node has a real Λ).
         private const int GfMaskFrom1 = (int)(NodeFlags.Gnd | NodeFlags.SetLow | NodeFlags.HasCallback | NodeFlags.ForceCompute);
         private const int GfMaskFrom0 = (int)(NodeFlags.Pwr | NodeFlags.SetHigh | NodeFlags.PullUp | NodeFlags.State | NodeFlags.HasCallback | NodeFlags.ForceCompute);
 
@@ -467,8 +470,9 @@ namespace AprVisual.Sim
                             flags |= (anyG << 5) | (anyP << 4);
                             byte v = flags != 0 ? FlagsToState[flags]
                                    : (NodeConnections[o] > NodeConnections[nn] ? NodeStates[o] : NodeStates[nn]);
-                            // [group-flags-skip] the pair's Λ = flags (low 8 bits) for both members.
-                            GroupFlags[nn] = (byte)flags; GroupFlags[o] = (byte)flags;
+                            // [group-flags-skip P2] both members share the pair's Λ ⇒ same turn-off predicate.
+                            byte ccPair = CanChangeByFlags[flags & 0xFF];
+                            TurnOffCanChange[nn] = ccPair; TurnOffCanChange[o] = ccPair;
                             SetNodeState(nn, v);
                             SetNodeState(o, v);
 #if DEBUG
@@ -487,9 +491,10 @@ namespace AprVisual.Sim
             }
         FallbackBFS:
             byte newState = ComputeNodeGroup(nn);
-            // [group-flags-skip] record the resolved component's Λ on every member for the turn-off prune.
-            byte gf = (byte)_groupFlags;
-            for (int i = 0; i < _groupCount; i++) { int gm = _groupBuf[i]; GroupFlags[gm] = gf; SetNodeState(gm, newState); }
+            // [group-flags-skip P2] every member shares the component's Λ ⇒ the same turn-off predicate.
+            // (For a floating group _groupFlags==0 ⇒ predicate 0, independent of the tie-break newState.)
+            byte cc = CanChangeByFlags[(byte)_groupFlags];
+            for (int i = 0; i < _groupCount; i++) { int gm = _groupBuf[i]; TurnOffCanChange[gm] = cc; SetNodeState(gm, newState); }
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
@@ -544,27 +549,28 @@ namespace AprVisual.Sim
                     // the freshly computed PruneMask at every Reset. Bit-exact.
                     int rS = RangePruneS;
                     int rA = RangePruneA, rB = RangePruneB;   // [group-flags-skip fix] turn-on-unsafe (memory) ⇔ c<A || c>=B
-                    byte* groupFlags = GroupFlags;
-                    byte* offStates = NodeStates;
+                    byte* canChange = TurnOffCanChange;
                     while (true)
                     {
                         ulong quad = Unsafe.ReadUnaligned<ulong>(p);
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
-                        // [group-flags-skip] skip the enqueue when c's last component Λ held no opposite-polarity
-                        // driver (provable no-op on disconnect) — but ONLY for nodes that resolve MONOTONICALLY.
-                        // Memory / no-PullUp / ForceCompute nodes (turn-on-unsafe ⇔ c<A || c>=B) can re-resolve via
-                        // the floating capacitance tie-break, so the Λ-monotonicity argument fails for them → they
-                        // must always enqueue. All register compares (no PruneMask — freed before the hot path).
-                        if (c1a >= rS && (c1a < rA || c1a >= rB || (groupFlags[c1a] & (offStates[c1a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        // [group-flags-skip P2] skip the enqueue when c's last-resolved predicate says a disconnect
+                        // can't change it (Λ held no opposite-polarity driver) — but ONLY for nodes that resolve
+                        // MONOTONICALLY. Memory / no-PullUp / ForceCompute nodes (turn-on-unsafe ⇔ c<A || c>=B) can
+                        // re-resolve via the floating capacitance tie-break, so the Λ-monotonicity argument fails for
+                        // them → they always enqueue. The predicate is a single precomputed byte (CanChangeByFlags
+                        // baked in the resolved state) — no NodeStates gather, no runtime mask select. Register
+                        // compares only (no PruneMask — freed before the hot path).
+                        if (c1a >= rS && (c1a < rA || c1a >= rB || canChange[c1a] != 0) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a >= rS && (c2a < rA || c2a >= rB || (groupFlags[c2a] & (offStates[c2a] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                        if (c2a >= rS && (c2a < rA || c2a >= rB || canChange[c2a] != 0) && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
-                        if (c1b >= rS && (c1b < rA || c1b >= rB || (groupFlags[c1b] & (offStates[c1b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b >= rS && (c2b < rA || c2b >= rB || (groupFlags[c2b] & (offStates[c2b] != 0 ? GfMaskFrom1 : GfMaskFrom0)) != 0) && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                        if (c1b >= rS && (c1b < rA || c1b >= rB || canChange[c1b] != 0) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        if (c2b >= rS && (c2b < rA || c2b >= rB || canChange[c2b] != 0) && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
                         p += 4;
                     }
                 }

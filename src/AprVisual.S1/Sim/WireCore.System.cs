@@ -78,11 +78,44 @@ namespace AprVisual.Sim
         // Set by the --extra-ram CLI flag.
         public static bool ForceExtraRam = false;
 
-        // Capture-pass tuning (see LoadSystem pass 1 / WarmupCaptureFirstTouch): warm-up past the
-        // reset transient, then record the true first-touch order over the capture span. The capture
-        // runs on the FULL-SPEED pruned engine, so 32K hc ≈ 0.3 s of load time.
-        private const int CaptureWarmupHc = 1024;
-        private const int FirstTouchCaptureHc = 32768;
+        // Capture-pass tuning (see LoadSystem pass 1 / WarmupCaptureFirstTouch). The two former magic
+        // numbers (CaptureWarmupHc=1024, FirstTouchCaptureHc=32768) are replaced by principled auto-stops:
+        //   warm-up : step the production sim until the 2A03 (6502) first reads its reset vector ($FFFC) —
+        //             the exact power-on → first-ROM-instruction boundary — then a fixed settle tail.
+        //   capture : run in chunks; stop once first-touch DISCOVERY saturates (a chunk adds < 0.5% new
+        //             touches vs the discovered set, for 2 consecutive chunks), after a minimum span,
+        //             capped by a hard ceiling. Adapts the window to each ROM's active-node count.
+        // Both are PERF-ONLY knobs: the renumber is a permutation, bit-exactness is independent of the key.
+        private const int WarmupVblanks    = 1;        // warm up to the Nth PPU vblank edge (the NES's own "frame ready")
+        private const int WarmupFallbackHc = 1024;     // no vblank node (selftest/non-NES) → old fixed warm-up
+        private const int CaptureChunkHc   = 65536;    // FRAME-granular saturation check (~1.1 NES frame) — a whole
+                                                       // activity cycle, so an intra-frame discovery plateau can't trip it
+        private const int CaptureMinHc     = 65536;    // run at least one full frame-chunk
+        private const int CaptureDryAbs    = 1;        // a frame-chunk adding 0 NEW touches is "dry"
+        private const int CaptureDryChunks = 1;        // stop after 1 fully-dry frame-chunk (a whole frame discovered nothing new)
+        private const int CaptureCeilingHc = 524288;   // hard cap (~8 frames)
+
+        // Auto-derived values from the last load — for reporting / comparison vs the old 1024 / 32768.
+        public static int AutoWarmupHc, AutoCaptureHc, CaptureTouched;
+
+        /// <summary>Warm up to the NES's own "frame ready" signal: step until the Nth PPU vblank rising edge
+        /// after reset (the chip reaches steady rendering cadence), instead of a hardcoded count. Returns
+        /// half-cycles run. Falls back to a fixed count when there is no vblank node (selftest / non-NES);
+        /// perf-only — the warm-up only sets WHERE the first-touch capture begins.</summary>
+        private static int WarmupAuto()
+        {
+            // [TEMP sweep hook] APR_WARMUP_HC=<n> overrides with a fixed Step(n); APR_WARMUP_FRAMECAP=<hc>
+            // caps the per-vblank RunFrame. Removed once the principled rule is chosen.
+            var ov = Environment.GetEnvironmentVariable("APR_WARMUP_HC");
+            if (ov != null && int.TryParse(ov, out int wfix)) { Step(wfix); return wfix; }
+            if (N_PpuInVblank == EmptyNode) { Step(WarmupFallbackHc); return WarmupFallbackHc; }
+            long start = Time;
+            long cap = 1_200_000;
+            var fc = Environment.GetEnvironmentVariable("APR_WARMUP_FRAMECAP");
+            if (fc != null && long.TryParse(fc, out long c)) cap = c;
+            for (int i = 0; i < WarmupVblanks; i++) RunFrame(cap);   // advance to next vblank rising edge (capped)
+            return (int)(Time - start);
+        }
 
         public static void LoadSystem(NesRom rom)
         {
@@ -130,8 +163,10 @@ namespace AprVisual.Sim
                     // torn down by the final rebuild. (An unpruned warm-up was measured −1% vs this —
                     // the locality key's value is the pruned cascade's order, not line density alone.)
                     ResetNes(full: true);
-                    Step(CaptureWarmupHc);                     // past the post-reset transient
-                    WarmupCaptureFirstTouch(FirstTouchCaptureHc); // → PendingLocalityOrder (identity ids)
+                    AutoWarmupHc  = WarmupAuto();                  // step to the reset-vector fetch + tail (was fixed 1024)
+                    AutoCaptureHc = WarmupCaptureFirstTouch();     // first-touch capture w/ saturation stop (was fixed 32768)
+                    Console.Error.WriteLine($"WireCore: capture auto-stop — warm-up={AutoWarmupHc} hc (old 1024), " +
+                                            $"capture={AutoCaptureHc} hc / {CaptureTouched} nodes touched (old 32768)");
                     PendingClassBits = StashedClassBits;          // re-arm the class bits for the final pass
                     StashedClassBits = null;
                     continue;

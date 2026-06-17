@@ -49,45 +49,62 @@ namespace AprVisual.Sim
         /// PendingClassBits at pass 1; pass 1's end re-arms it from this stash for the final pass).</summary>
         internal static byte[]? StashedClassBits;
 
-        internal static unsafe void WarmupCaptureFirstTouch(int hcCount)
+        internal static unsafe int WarmupCaptureFirstTouch()
         {
             int n = NodeCount;
             var order = new uint[n];
             for (int i = 0; i < n; i++) order[i] = uint.MaxValue;
             uint seq = 0;
             int clk = ClockNode;
-            if (clk == EmptyNode) { PendingLocalityOrder = order; return; }
+            if (clk == EmptyNode) { PendingLocalityOrder = order; CaptureTouched = 0; return 0; }
 
-            for (int hc = 0; hc < hcCount; hc++)
+            // Coverage-saturation auto-stop: run in CaptureChunkHc chunks, halt once first-touch discovery
+            // flattens (a chunk adds < 0.5% new touches vs the discovered set, for 2 consecutive chunks),
+            // after CaptureMinHc, capped at CaptureCeilingHc. Replaces the fixed 32768-hc window.
+            int hc = 0, dryStreak = 0;
+            while (hc < CaptureCeilingHc)
             {
-                // clock toggle — mirrors StepCycle's branchless flip
-                ref NodeInfo cns = ref NodeInfos[clk];
-                int nextS = NodeStates[clk] ^ 1;
-                cns.Flags = (cns.Flags & ~(NodeFlags.SetHigh | NodeFlags.SetLow)) | (NodeFlags)(8 >> nextS);
-                EnqueueNode(clk);
-
-                // settle — mirrors ProcessQueue's double-buffered wave loop, plus the first-touch record
-                while (RecalcListNextCount != 0)
+                uint seqAtChunkStart = seq;
+                int chunkEnd = hc + CaptureChunkHc; if (chunkEnd > CaptureCeilingHc) chunkEnd = CaptureCeilingHc;
+                for (; hc < chunkEnd; hc++)
                 {
-                    int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
-                    byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
-                    RecalcListCount = RecalcListNextCount;
-                    RecalcListNextCount = 0;
-                    for (int i = 0; i < RecalcListCount; i++)
+                    // clock toggle — mirrors StepCycle's branchless flip
+                    ref NodeInfo cns = ref NodeInfos[clk];
+                    int nextS = NodeStates[clk] ^ 1;
+                    cns.Flags = (cns.Flags & ~(NodeFlags.SetHigh | NodeFlags.SetLow)) | (NodeFlags)(8 >> nextS);
+                    EnqueueNode(clk);
+
+                    // settle — mirrors ProcessQueue's double-buffered wave loop, plus the first-touch record
+                    while (RecalcListNextCount != 0)
                     {
-                        int nn = RecalcList[i];
-                        if (RecalcHash[nn] != 0)
+                        int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
+                        byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
+                        RecalcListCount = RecalcListNextCount;
+                        RecalcListNextCount = 0;
+                        for (int i = 0; i < RecalcListCount; i++)
                         {
-                            if (order[nn] == uint.MaxValue) order[nn] = seq++;   // ← the capture
-                            RecalcNode(nn);
-                            RecalcHash[nn] = 0;
+                            int nn = RecalcList[i];
+                            if (RecalcHash[nn] != 0)
+                            {
+                                if (order[nn] == uint.MaxValue) order[nn] = seq++;   // ← the capture
+                                RecalcNode(nn);
+                                RecalcHash[nn] = 0;
+                            }
                         }
+                        RecalcListCount = 0;
                     }
-                    RecalcListCount = 0;
+                    InvokeCallbacks();
+                    Time++;
                 }
-                InvokeCallbacks();
-                Time++;
+                // discovery truly dried up? ABSOLUTE test (plateau-robust, unlike a relative-rate %): a chunk
+                // adding < CaptureDryAbs new touches is "dry"; stop only after CaptureDryChunks consecutive
+                // dry chunks (a brief boot-spin plateau with a trickle of new touches won't trip it).
+                uint newTouches = seq - seqAtChunkStart;
+                bool dry = newTouches < (uint)CaptureDryAbs;
+                dryStreak = dry ? dryStreak + 1 : 0;
+                if (hc >= CaptureMinHc && dryStreak >= CaptureDryChunks) break;
             }
+            CaptureTouched = (int)seq;
 
             // The capture ran on the PASS-1 build (some temporary permutation, verified ranges, prunes
             // ON — the production cascade). Translate the order back to IDENTITY ids so the final pass's
@@ -98,6 +115,7 @@ namespace AprVisual.Sim
             for (int orig = 0; orig < n; orig++)
                 identityOrder[orig] = order[orig < permLen ? perm[orig] : orig];
             PendingLocalityOrder = identityOrder;
+            return hc;
         }
 
         /// <summary>old→new id permutation (identity for ids ≥ RenumberPermLen — the post-renumber fake

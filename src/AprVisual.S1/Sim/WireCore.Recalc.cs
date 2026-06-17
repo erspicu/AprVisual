@@ -331,14 +331,20 @@ namespace AprVisual.Sim
 #if DEBUG
             int iteration = 0;
 #endif
+            // [manual FULL fusion — the bet] the entire RecalcNode dispatch (singleton / B1-pair / BFS group)
+            // is inlined HERE so the whole settle cascade is ONE method with NO per-pop call. All three
+            // resolution paths converge on a SINGLE shared writeback (one off-walk + one on-walk) instead of
+            // the JIT auto-inlining SetNodeState at ~3 sites → fewer code copies (target: < the 5409-byte
+            // auto-inlined ProcessQueue). Wave-level enqueue state (nextList/nextHash/nextCount + rS/rA/rB) is
+            // hoisted to the WAVE loop: read once, nextCount kept in a register across ALL pops in the wave,
+            // RecalcListNextCount written back ONCE per wave (per-call SetNodeState wrote it on every node;
+            // EnqueueCallback touches only _pendingCallbacks, so nothing else races the next-wave queue mid-wave).
+            // Singleton/pair write into wb2 (a 2-slot LOCAL — NOT _groupBuf, so the BFS _inGroup invariant is
+            // untouched); BFS uses _groupBuf. RecalcNode (below) is kept ONLY for the cold first-touch capture.
+            ushort* wb2 = stackalloc ushort[2];
             while (RecalcListNextCount != 0)
             {
 #if DEBUG
-                // Non-convergence safety + diagnostics — DEBUG ONLY. In Release this whole block (including the
-                // break) is compiled out: measured +2.77% interleaved-paired (the cold string-interpolation IL
-                // bloated this giant fully-inlined hot method, and the in-loop break inhibited its codegen).
-                // NES settle maxes at ~45 passes « MaxSettlePasses so the cap never trips in practice anyway
-                // (see the const's note); Debug keeps the catch+message for when someone breaks convergence.
                 if (++iteration == 64)
                     Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
@@ -349,30 +355,188 @@ namespace AprVisual.Sim
                     break;
                 }
 #endif
-
                 // swap "next" ↔ "current" (can't tuple-swap pointers — use temps)
                 int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
                 byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
-                RecalcListCount = RecalcListNextCount;
+                int curCount = RecalcListNextCount;
+                RecalcListCount = curCount;
                 RecalcListNextCount = 0;
 
-                for (int i = 0; i < RecalcListCount; i++)
+                // wave-level locals (read once, written back once)
+                int* curList = RecalcList;
+                byte* curHash = RecalcHash;
+                int* nextList = RecalcListNext;
+                byte* nextHash = RecalcHashNext;
+                int nextCount = 0;
+                byte* nodeStates = NodeStates;
+                int rS = RangePruneS, rA = RangePruneA, rB = RangePruneB;
+
+                for (int i = 0; i < curCount; i++)
                 {
-                    int nn = RecalcList[i];
-                    if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
+                    int nn = curList[i];
+                    if (curHash[nn] == 0) continue;   // may have been cleared by AddNodeToGroup / the pair path
+#if DEBUG
+                    long _dchg = DiagStateChanges;
+#endif
+                    ushort* wbBuf;
+                    int wbCount;
+                    byte newState;
+                    bool doCallback = false;
+
+                    byte cls = IsPureLogic[nn];
+                    if (cls == 2)
                     {
-#if DEBUG
-                        long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
-#endif
-                        RecalcNode(nn);
-                        RecalcHash[nn] = 0;
-#if DEBUG
-                        WasteProfileTally(nn, DiagStateChanges == _dchg);
-                        CoActivityTally(nn);
-                        BoundaryPopTally(nn);   // cpu/ppu boundary profiler (DEBUG only)
-#endif
+                        // B1 pair detect (mirror of RecalcNode's cls==2): on the first ON c1c2 gate, try to
+                        // prove the group is exactly {nn,o}; any bail → BFS; no ON gate → singleton.
+                        NodeInfo* ns = NodeInfos + nn;
+                        if (ns->Inline != 0)
+                        {
+                            ushort* pay = ns->InlinePayload;
+                            int n2 = ns->C1c2Count << 1;
+                            for (int k = 0; k < n2; k += 2)
+                            {
+                                if (nodeStates[pay[k]] != 0)
+                                {
+                                    int o = pay[k + 1];
+                                    if (o == nn) goto BFS;
+                                    for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) goto BFS;
+                                    NodeInfo* os = NodeInfos + o;
+                                    if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) goto BFS;
+                                    ushort* opay = os->InlinePayload;
+                                    int on2 = os->C1c2Count << 1;
+                                    for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto BFS;
+                                    curHash[o] = 0;
+                                    int pf = (int)ns->Flags | (int)os->Flags;
+                                    int anyG = 0, anyP = 0;
+                                    int sGe = n2 + ns->GndCount, sPe = sGe + ns->PwrCount;
+                                    for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
+                                    for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
+                                    int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
+                                    for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
+                                    for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
+                                    pf |= (anyG << 5) | (anyP << 4);
+                                    newState = pf != 0 ? FlagsToState[pf]
+                                             : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
+                                    wb2[0] = (ushort)nn; wb2[1] = (ushort)o; wbBuf = wb2; wbCount = 2;
+                                    goto WRITEBACK;
+                                }
+                            }
+                            goto SINGLE;   // no ON c1c2 gate → conducting group is {nn}
+                        }
+                        else
+                        {
+                            ushort* p = TransistorList + ns->TlistC1c2s;
+                            while (*p != 0) { if (nodeStates[*p] != 0) goto BFS; p += 2; }
+                            goto SINGLE;
+                        }
                     }
+                    if (cls == 0) goto BFS;
+                    // cls == 1 falls through to SINGLE
+                SINGLE:
+                    {
+                        // RecalcNodeFast flag resolve (no SetNodeState — the writeback is shared below).
+                        NodeInfo* ns = NodeInfos + nn;
+                        int flags = (int)ns->Flags;
+                        if (ns->Inline != 0)
+                        {
+                            ushort* pay = ns->InlinePayload;
+                            int gndStart = ns->C1c2Count << 1;
+                            int gndEnd = gndStart + ns->GndCount;
+                            int anyG = 0;
+                            for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]];
+                            flags |= anyG << 5;
+                            int pwrEnd = gndEnd + ns->PwrCount;
+                            int anyP = 0;
+                            for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];
+                            flags |= anyP << 4;
+                        }
+                        else
+                        {
+                            if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 5; }
+                            if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 4; }
+                        }
+                        if (flags == 0) goto DONE;   // floating singleton → hold previous → no writeback
+                        newState = FlagsToState[flags];
+                        wb2[0] = (ushort)nn; wbBuf = wb2; wbCount = 1;
+                        goto WRITEBACK;
+                    }
+                BFS:
+                    newState = ComputeNodeGroup(nn);
+                    wbBuf = _groupBuf;
+                    wbCount = _groupCount;
+                    doCallback = (_groupFlags & NodeFlags.HasCallback) != 0;
+                WRITEBACK:
+                    // shared writeback (the ONLY off-walk + on-walk in the hot path), wave-level enqueue state.
+                    if (newState == 0)
+                    {
+                        for (int m = 0; m < wbCount; m++)
+                        {
+                            int gn = wbBuf[m];
+                            if (nodeStates[gn] == 0) continue;
+                            nodeStates[gn] = 0;
+#if DEBUG
+                            DiagStateChanges++;
+                            if (CutNodeKind != null) { int _ck = CutNodeKind[gn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                            int tg = NodeTlistGates[gn];
+                            if (tg == 0) continue;
+                            ushort* p = TransistorList + tg;
+                            while (true)
+                            {
+                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                int c2a = (ushort)(quad >> 16);
+                                if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                int c2b = (ushort)(quad >> 48);
+                                if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                                p += 4;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int m = 0; m < wbCount; m++)
+                        {
+                            int gn = wbBuf[m];
+                            if (nodeStates[gn] != 0) continue;
+                            nodeStates[gn] = 1;
+#if DEBUG
+                            DiagStateChanges++;
+                            if (CutNodeKind != null) { int _ck = CutNodeKind[gn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                            int tg = NodeTlistGates[gn];
+                            if (tg == 0) continue;
+                            ushort* p = TransistorList + tg;
+                            while (true)
+                            {
+                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                int c2a = (ushort)(quad >> 16);
+                                if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                int c2b = (ushort)(quad >> 48);
+                                if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                p += 4;
+                            }
+                        }
+                    }
+                    if (doCallback)
+                    {
+                        var cbByNode = _callbackByNode!;
+                        for (int m = 0; m < wbCount; m++) { var cb = cbByNode[wbBuf[m]]; if (cb != null) EnqueueCallback(cb); }
+                    }
+                DONE:
+                    curHash[nn] = 0;
+#if DEBUG
+                    WasteProfileTally(nn, DiagStateChanges == _dchg);
+                    CoActivityTally(nn);
+                    BoundaryPopTally(nn);
+#endif
                 }
+                RecalcListNextCount = nextCount;
                 RecalcListCount = 0;
             }
 #if DEBUG
@@ -456,8 +620,124 @@ namespace AprVisual.Sim
                             flags |= (anyG << 5) | (anyP << 4);
                             byte v = flags != 0 ? FlagsToState[flags]
                                    : (NodeConnections[o] > NodeConnections[nn] ? NodeStates[o] : NodeStates[nn]);
-                            SetNodeState(nn, v);
-                            SetNodeState(o, v);
+                            // [manual fusion — fully inlined, no helper] {nn,o} share v: statics read once,
+                            // newState branch hoisted out, nn THEN o (preserves next-wave append/pop order =
+                            // Gauss-Seidel), RecalcListNextCount written once. Bit-identical to two SetNodeStates.
+                            {
+                                int* nextList = RecalcListNext;
+                                byte* nextHash = RecalcHashNext;
+                                int nextCount = RecalcListNextCount;
+                                byte* nodeStates = NodeStates;
+                                if (v == 0)
+                                {
+                                    int rS = RangePruneS;
+                                    if (nodeStates[nn] != 0)
+                                    {
+                                        nodeStates[nn] = 0;
+#if DEBUG
+                                        DiagStateChanges++;
+                                        if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                                        int tg = NodeTlistGates[nn];
+                                        if (tg != 0)
+                                        {
+                                            ushort* p = TransistorList + tg;
+                                            while (true)
+                                            {
+                                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                                int c2a = (ushort)(quad >> 16);
+                                                if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                                if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                                int c2b = (ushort)(quad >> 48);
+                                                if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                                if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                                                p += 4;
+                                            }
+                                        }
+                                    }
+                                    if (nodeStates[o] != 0)
+                                    {
+                                        nodeStates[o] = 0;
+#if DEBUG
+                                        DiagStateChanges++;
+                                        if (CutNodeKind != null) { int _ck = CutNodeKind[o]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                                        int tg = NodeTlistGates[o];
+                                        if (tg != 0)
+                                        {
+                                            ushort* p = TransistorList + tg;
+                                            while (true)
+                                            {
+                                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                                int c2a = (ushort)(quad >> 16);
+                                                if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                                if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                                int c2b = (ushort)(quad >> 48);
+                                                if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                                if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                                                p += 4;
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    int rA = RangePruneA, rB = RangePruneB;
+                                    if (nodeStates[nn] == 0)
+                                    {
+                                        nodeStates[nn] = 1;
+#if DEBUG
+                                        DiagStateChanges++;
+                                        if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                                        int tg = NodeTlistGates[nn];
+                                        if (tg != 0)
+                                        {
+                                            ushort* p = TransistorList + tg;
+                                            while (true)
+                                            {
+                                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                                int c2a = (ushort)(quad >> 16);
+                                                if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                                int c2b = (ushort)(quad >> 48);
+                                                if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                                p += 4;
+                                            }
+                                        }
+                                    }
+                                    if (nodeStates[o] == 0)
+                                    {
+                                        nodeStates[o] = 1;
+#if DEBUG
+                                        DiagStateChanges++;
+                                        if (CutNodeKind != null) { int _ck = CutNodeKind[o]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                                        int tg = NodeTlistGates[o];
+                                        if (tg != 0)
+                                        {
+                                            ushort* p = TransistorList + tg;
+                                            while (true)
+                                            {
+                                                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                                                int c1a = (ushort)quad; if (c1a == 0) break;
+                                                int c2a = (ushort)(quad >> 16);
+                                                if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                                                int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                                                int c2b = (ushort)(quad >> 48);
+                                                if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                                                p += 4;
+                                            }
+                                        }
+                                    }
+                                }
+                                RecalcListNextCount = nextCount;
+                            }
 #if DEBUG
                             DiagPairPath++;
 #endif
@@ -474,7 +754,81 @@ namespace AprVisual.Sim
             }
         FallbackBFS:
             byte newState = ComputeNodeGroup(nn);
-            for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
+            // [manual fusion — fully inlined, no helper method] write the whole group right here: statics
+            // (queue ptrs + range boundaries) read ONCE, the newState==0/1 branch hoisted OUT of the member
+            // loop, RecalcListNextCount written ONCE. Member order = _groupBuf order (= the per-call
+            // writeback order = Gauss-Seidel append order). Bit-identical to looping SetNodeState.
+            {
+                int* nextList = RecalcListNext;
+                byte* nextHash = RecalcHashNext;
+                int nextCount = RecalcListNextCount;
+                byte* nodeStates = NodeStates;
+                int gc = _groupCount;
+                ushort* gb = _groupBuf;
+                if (newState == 0)
+                {
+                    int rS = RangePruneS;
+                    for (int m = 0; m < gc; m++)
+                    {
+                        int gn = gb[m];
+                        if (nodeStates[gn] == 0) continue;
+                        nodeStates[gn] = 0;
+#if DEBUG
+                        DiagStateChanges++;
+                        if (CutNodeKind != null) { int _ck = CutNodeKind[gn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                        int tg = NodeTlistGates[gn];
+                        if (tg == 0) continue;
+                        ushort* p = TransistorList + tg;
+                        while (true)
+                        {
+                            ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                            int c1a = (ushort)quad;
+                            if (c1a == 0) break;
+                            int c2a = (ushort)(quad >> 16);
+                            if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                            if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                            int c1b = (ushort)(quad >> 32);
+                            if (c1b == 0) break;
+                            int c2b = (ushort)(quad >> 48);
+                            if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                            if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                            p += 4;
+                        }
+                    }
+                }
+                else
+                {
+                    int rA = RangePruneA, rB = RangePruneB;
+                    for (int m = 0; m < gc; m++)
+                    {
+                        int gn = gb[m];
+                        if (nodeStates[gn] != 0) continue;
+                        nodeStates[gn] = 1;
+#if DEBUG
+                        DiagStateChanges++;
+                        if (CutNodeKind != null) { int _ck = CutNodeKind[gn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+                        int tg = NodeTlistGates[gn];
+                        if (tg == 0) continue;
+                        ushort* p = TransistorList + tg;
+                        while (true)
+                        {
+                            ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                            int c1a = (ushort)quad;
+                            if (c1a == 0) break;
+                            int c2a = (ushort)(quad >> 16);
+                            if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                            int c1b = (ushort)(quad >> 32);
+                            if (c1b == 0) break;
+                            int c2b = (ushort)(quad >> 48);
+                            if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                            p += 4;
+                        }
+                    }
+                }
+                RecalcListNextCount = nextCount;
+            }
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {

@@ -97,7 +97,7 @@ namespace AprVisual.Sim
             int gc = _groupCount;
             NodeFlags gf = _groupFlags;
 
-            if (inGroup[seed] == 0) { inGroup[seed] = 1; groupBuf[gc++] = (ushort)seed; recalcHash[seed] = 0; gf |= nodeInfos[seed].Flags; }
+            if (inGroup[seed] == 0) { inGroup[seed] = 1; groupBuf[gc++] = (ushort)seed; gf |= nodeInfos[seed].Flags; }
 
 #if DEBUG
             int dbgLevelEnd = gc;   // end of BFS level 0 (the seed) — for the depth profiler

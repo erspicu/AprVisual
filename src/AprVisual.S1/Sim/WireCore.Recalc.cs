@@ -364,8 +364,8 @@ namespace AprVisual.Sim
 #if DEBUG
                         long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
 #endif
-                        RecalcNode(nn);
                         RecalcHash[nn] = 0;
+                        RecalcNode(nn);
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);
                         CoActivityTally(nn);

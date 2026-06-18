@@ -280,6 +280,7 @@ namespace AprVisual.Sim
         private static void RecalcNodeFast(int nn)
         {
             NodeInfo* ns = NodeInfos + nn;
+            byte* nodeStates = NodeStates;   // [trial] hoist static ptr (used in up to 2 gnd/pwr loops)
             // [T-A] keep flags as int throughout — drops the (NodeFlags)((uint)..) casts; anyG<<5==Gnd, anyP<<4==Pwr.
             int flags = (int)ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or 0 (floating); Pwr/Gnd excluded at classify time
 
@@ -291,11 +292,11 @@ namespace AprVisual.Sim
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
                 int anyG = 0;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= NodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
+                for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
                 flags |= anyG << 5;
                 int pwrEnd = gndEnd + ns->PwrCount;
                 int anyP = 0;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= NodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
+                for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
                 flags |= anyP << 4;
             }
             else
@@ -304,14 +305,14 @@ namespace AprVisual.Sim
                 {
                     ushort* p = TransistorList + ns->TlistC1gnd;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to GND ⇒ pulled low
+                    while (*p != 0) any |= nodeStates[*p++];                  // any ON path to GND ⇒ pulled low
                     flags |= any << 5;
                 }
                 if (ns->TlistC1pwr != 0)
                 {
                     ushort* p = TransistorList + ns->TlistC1pwr;
                     int any = 0;
-                    while (*p != 0) any |= NodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
+                    while (*p != 0) any |= nodeStates[*p++];                  // any ON path to VCC ⇒ pulled high
                     flags |= any << 4;
                 }
             }

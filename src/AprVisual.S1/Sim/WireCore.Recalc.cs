@@ -494,8 +494,11 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
-            if (NodeStates[nn] == newState) return;
-            NodeStates[nn] = newState;
+            byte* nodeStates = NodeStates;   // hoist once: the byte store below otherwise makes the JIT
+                                             // conservatively re-load the NodeStates base for the on-walk
+                                             // (store-to-pointer aliasing). One local keeps it in a register.
+            if (nodeStates[nn] == newState) return;
+            nodeStates[nn] = newState;
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
             if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
@@ -546,6 +549,7 @@ namespace AprVisual.Sim
                     byte* nextHash = RecalcHashNext;
                     int nextCount = RecalcListNextCount;
                     ushort* p = TransistorList + tlistGates;
+                    // (nodeStates hoisted at the method top — reused here, no re-load)
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
                     // c1 suffices (BFS traverses the ON channel to c2).
                     // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
@@ -560,7 +564,6 @@ namespace AprVisual.Sim
                     // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
                     // a pruned node must NOT have nextHash set, or it would look queued without being listed.
                     // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
-                    byte* nodeStates = NodeStates;
                     int rA = RangePruneA, rB = RangePruneB;
                     while (true)
                     {

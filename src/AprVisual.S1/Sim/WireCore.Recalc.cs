@@ -473,6 +473,18 @@ namespace AprVisual.Sim
                 RecalcNodeFast(nn); return;
             }
         FallbackBFS:
+            RecalcNodeBfs(nn);
+        }
+
+        // [hybrid-bfs-outline] The rare (<few %) BFS group path, FORCED out-of-line so ComputeNodeGroup /
+        // AddNodeToGroup / SetNodeState inline into THIS cold method instead of into the hot
+        // ProcessQueue ← RecalcNode mega-method. Hypothesis (Gemini hybrid): freeing the BFS path's
+        // locals from the hot loop lets RyuJIT allocate registers better for the 70 % singleton / 30 %
+        // pair fast paths. Bit-identical to the inline version (same group resolve + writeback order +
+        // callback). The fast paths (cls 1 / cls 2 pair) stay fully inline — only BFS is outlined.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void RecalcNodeBfs(int nn)
+        {
             byte newState = ComputeNodeGroup(nn);
             for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 

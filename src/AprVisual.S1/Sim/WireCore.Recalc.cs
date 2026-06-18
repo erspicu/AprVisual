@@ -410,13 +410,16 @@ namespace AprVisual.Sim
                 // alongside this — unrolling the tiny inline/group loops, ulong on the rare overflow path — all
                 // measured neutral/negative; only the flatten helped.)
                 NodeInfo* ns = NodeInfos + nn;
+                byte* nodeStates = NodeStates;   // hoist the static ptr once (this block's CFG has gotos +
+                                                 // nested loops, where the JIT's static-read CSE is least
+                                                 // reliable; matches SetNodeState/AddNodeToGroup style). Bit-exact.
                 if (ns->Inline != 0)
                 {
                     ushort* pay = ns->InlinePayload;         // [c1c2 pairs ...] — gates at even offsets
                     int n2 = ns->C1c2Count << 1;
                     for (int k = 0; k < n2; k += 2)
                     {
-                        if (NodeStates[pay[k]] != 0)
+                        if (nodeStates[pay[k]] != 0)
                         {
                             // [B1 pair path, 2026-06-12] size-2 groups are 77% of all BFS walks (30.5% of ALL
                             // pops) — when the group is provably exactly {nn, o}, resolve it inline without the
@@ -437,25 +440,25 @@ namespace AprVisual.Sim
                             //     next-wave enqueue-append order (= pop order = Gauss-Seidel semantics) matches.
                             int o = pay[k + 1];
                             if (o == nn) goto FallbackBFS;
-                            for (int k2 = k + 2; k2 < n2; k2 += 2) if (NodeStates[pay[k2]] != 0) goto FallbackBFS;
+                            for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) goto FallbackBFS;
                             NodeInfo* os = NodeInfos + o;
                             if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) goto FallbackBFS;
                             ushort* opay = os->InlinePayload;
                             int on2 = os->C1c2Count << 1;
-                            for (int k2 = 0; k2 < on2; k2 += 2) if (NodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto FallbackBFS;
+                            for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto FallbackBFS;
                             // committed — group is exactly {nn, o}
                             RecalcHash[o] = 0;
                             int flags = (int)ns->Flags | (int)os->Flags;
                             int anyG = 0, anyP = 0;
                             int sGe = n2 + ns->GndCount, sPe = sGe + ns->PwrCount;
-                            for (int j = n2; j < sGe; j++) anyG |= NodeStates[pay[j]];
-                            for (int j = sGe; j < sPe; j++) anyP |= NodeStates[pay[j]];
+                            for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
+                            for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
                             int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
-                            for (int j = on2; j < oGe; j++) anyG |= NodeStates[opay[j]];
-                            for (int j = oGe; j < oPe; j++) anyP |= NodeStates[opay[j]];
+                            for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
+                            for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
                             flags |= (anyG << 5) | (anyP << 4);
                             byte v = flags != 0 ? FlagsToState[flags]
-                                   : (NodeConnections[o] > NodeConnections[nn] ? NodeStates[o] : NodeStates[nn]);
+                                   : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
                             SetNodeState(nn, v);
                             SetNodeState(o, v);
 #if DEBUG
@@ -468,7 +471,7 @@ namespace AprVisual.Sim
                 else
                 {
                     ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
-                    while (*p != 0) { if (NodeStates[*p] != 0) goto FallbackBFS; p += 2; }
+                    while (*p != 0) { if (nodeStates[*p] != 0) goto FallbackBFS; p += 2; }
                 }
                 RecalcNodeFast(nn); return;
             }

@@ -93,7 +93,9 @@ namespace AprVisual.Sim
             byte* nodeStates = NodeStates;
             byte* recalcHash = RecalcHash;
             NodeInfo* nodeInfos = NodeInfos;
-            ushort* transList = TransistorList;
+            // transList is loaded lazily in the rare non-Inline branch below — NOT hoisted here. The common
+            // Inline path never touches it, so hoisting it just kept an 8th pointer live across the whole BFS
+            // loop, overflowing the register file and forcing a spill+5×reload (disasm: [rsp+0x20]).
             int gc = _groupCount;
             NodeFlags gf = _groupFlags;
 
@@ -125,6 +127,7 @@ namespace AprVisual.Sim
                 }
                 else
                 {
+                    ushort* transList = TransistorList;   // lazy: only the rare high-fanout node reaches here
                     if (ns->TlistC1c2s != 0)   // high-fanout: ulong dual-pair (2 (gate,other) pairs / 64-bit load)
                     {
                         ushort* p = transList + ns->TlistC1c2s;

@@ -326,59 +326,250 @@ namespace AprVisual.Sim
         // NOT [AggressiveInlining]: this method is huge (RecalcNode/RecalcNodeFast/ComputeNodeGroup/
         // AddNodeToGroup/SetNodeState all inline INTO it) and is called from many sites (StepCycle,
         // SetHigh/Low/Float, handlers); forcing it inline measured -1.4% (code bloat). [exp 2026-06-08]
-        private static void ProcessQueue()
+        // [hybrid-full-pasted] Full faithful build of the user-supplied "main-loop ultra-specialize + cold
+        // isolation" proposal. cls==1 (77% static singleton) is FULLY inlined here (no RecalcNode/
+        // RecalcNodeFast/SetNodeState call); cls==2 and BFS are forced [NoInlining]. Queue cursors are
+        // hoisted to METHOD-level locals (kept in registers across all waves), swapped as locals, static
+        // fields written back at the end. Two correctness fixes vs the raw proposal: (1) the static
+        // RecalcHash is synced to curHash after each swap, because ComputeNodeGroup/AddNodeToGroup clear
+        // member hashes through the STATIC RecalcHash; (2) the cold methods do their writeback through the
+        // PASSED next-cursors (shared WritebackNode), NOT SetNodeState (which uses the static count) — else
+        // cls1's local nextCount would desync from the cold paths. Bit-identical to main. RecalcNode (below)
+        // is kept ONLY for the cold first-touch capture loop.
+        private static unsafe void ProcessQueue()
         {
 #if DEBUG
             int iteration = 0;
 #endif
+            int* curList = RecalcList;
+            byte* curHash = RecalcHash;
+            int* nextList = RecalcListNext;
+            byte* nextHash = RecalcHashNext;
+            byte* nodeStates = NodeStates;
+            int rS = RangePruneS, rA = RangePruneA, rB = RangePruneB;
+
             while (RecalcListNextCount != 0)
             {
 #if DEBUG
-                // Non-convergence safety + diagnostics — DEBUG ONLY. In Release this whole block (including the
-                // break) is compiled out: measured +2.77% interleaved-paired (the cold string-interpolation IL
-                // bloated this giant fully-inlined hot method, and the in-loop break inhibited its codegen).
-                // NES settle maxes at ~45 passes « MaxSettlePasses so the cap never trips in practice anyway
-                // (see the const's note); Debug keeps the catch+message for when someone breaks convergence.
                 if (++iteration == 64)
                     Console.Error.WriteLine($"WireCore.ProcessQueue: settle pass {iteration} (still propagating, past p99 — see MD/struct/01 §11.2)");
                 if (iteration > MaxSettlePasses)
                 {
                     Console.Error.WriteLine($"WireCore.ProcessQueue: aborting after {MaxSettlePasses} settle passes ({RecalcListNextCount} nodes still pending) — leaving state as-is");
-                    for (int i = 0; i < RecalcListNextCount; i++) RecalcHashNext[RecalcListNext[i]] = 0;
+                    for (int i = 0; i < RecalcListNextCount; i++) nextHash[nextList[i]] = 0;
                     RecalcListNextCount = 0;
                     break;
                 }
 #endif
-
-                // swap "next" ↔ "current" (can't tuple-swap pointers — use temps)
-                int* tmpList = RecalcList; RecalcList = RecalcListNext; RecalcListNext = tmpList;
-                byte* tmpHash = RecalcHash; RecalcHash = RecalcHashNext; RecalcHashNext = tmpHash;
-                RecalcListCount = RecalcListNextCount;
+                // swap cur ↔ next (locals)
+                int* tmpList = curList; curList = nextList; nextList = tmpList;
+                byte* tmpHash = curHash; curHash = nextHash; nextHash = tmpHash;
+                int curCount = RecalcListNextCount;
+                RecalcListCount = curCount;
                 RecalcListNextCount = 0;
+                int nextCount = 0;
 
-                for (int i = 0; i < RecalcListCount; i++)
+                // sync the STATIC current-wave cursors so the BFS cold path (ComputeNodeGroup/AddNodeToGroup,
+                // which clear member hashes via the static RecalcHash) operates on the right buffer.
+                RecalcList = curList; RecalcHash = curHash;
+
+                for (int i = 0; i < curCount; i++)
                 {
-                    int nn = RecalcList[i];
-                    if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
+                    int nn = curList[i];
+                    if (curHash[nn] == 0) continue;
+                    curHash[nn] = 0;
+#if DEBUG
+                    long _dchg = DiagStateChanges;
+#endif
+                    byte cls = IsPureLogic[nn];
+                    if (cls == 1)
                     {
-#if DEBUG
-                        long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
-#endif
-                        RecalcNode(nn);
-                        RecalcHash[nn] = 0;
-#if DEBUG
-                        WasteProfileTally(nn, DiagStateChanges == _dchg);
-                        CoActivityTally(nn);
-                        BoundaryPopTally(nn);   // cpu/ppu boundary profiler (DEBUG only)
-#endif
+                        // ── fully-inline static singleton: resolve flags, then specialized writeback ──
+                        NodeInfo* ns = NodeInfos + nn;
+                        int flags = (int)ns->Flags;
+                        if (ns->Inline != 0)
+                        {
+                            ushort* pay = ns->InlinePayload;
+                            int gndStart = ns->C1c2Count << 1;
+                            int gndEnd = gndStart + ns->GndCount;
+                            int anyG = 0; for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]]; flags |= anyG << 5;
+                            int pwrEnd = gndEnd + ns->PwrCount;
+                            int anyP = 0; for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]]; flags |= anyP << 4;
+                        }
+                        else
+                        {
+                            if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 5; }
+                            if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 4; }
+                        }
+                        if (flags != 0)
+                        {
+                            byte newState = FlagsToState[flags];
+                            if (nodeStates[nn] != newState)
+                                WritebackNode(nn, newState, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+                        }
                     }
+                    else if (cls == 2)
+                    {
+                        if (!TryProcessCls2Inline(nn, nodeStates, nextList, nextHash, ref nextCount, curHash, rS, rA, rB))
+                            nextCount = ProcessBFSFallback(nn, nodeStates, nextList, nextHash, nextCount, rS, rA, rB);
+                    }
+                    else
+                    {
+                        nextCount = ProcessBFSFallback(nn, nodeStates, nextList, nextHash, nextCount, rS, rA, rB);
+                    }
+#if DEBUG
+                    WasteProfileTally(nn, DiagStateChanges == _dchg);
+                    CoActivityTally(nn);
+                    BoundaryPopTally(nn);
+#endif
                 }
+                RecalcListNextCount = nextCount;
                 RecalcListCount = 0;
             }
+            // write back the swapped cursor statics for code that runs between ProcessQueue calls.
+            RecalcList = curList; RecalcHash = curHash;
+            RecalcListNext = nextList; RecalcHashNext = nextHash;
 #if DEBUG
-            SettlePassTally(iteration);   // settle-pass distribution profiler (DEBUG only)
+            SettlePassTally(iteration);
 #endif
             InvokeCallbacks();   // WireCore.Handlers.cs
+        }
+
+        // Shared node writeback: write state + walk the gated fan-out, enqueuing into the PASSED next-wave
+        // cursors (kept consistent with the caller's local nextCount). AggressiveInlining: folds into the
+        // cls1 hot site directly; for the cold methods it inlines using their ref-threaded cursor.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void WritebackNode(int nn, byte newState, int* nextList, byte* nextHash, ref int nextCount, byte* nodeStates, int rS, int rA, int rB)
+        {
+            nodeStates[nn] = newState;
+#if DEBUG
+            DiagStateChanges++;
+            if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }
+#endif
+            int tg = NodeTlistGates[nn];
+            if (tg == 0) return;
+            ushort* p = TransistorList + tg;
+            if (newState == 0)
+            {
+                while (true)
+                {
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c1a = (ushort)quad; if (c1a == 0) break;
+                    int c2a = (ushort)(quad >> 16);
+                    if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                    if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
+                    int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                    int c2b = (ushort)(quad >> 48);
+                    if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                    if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
+                    p += 4;
+                }
+            }
+            else
+            {
+                while (true)
+                {
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c1a = (ushort)quad; if (c1a == 0) break;
+                    int c2a = (ushort)(quad >> 16);
+                    if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                    int c1b = (ushort)(quad >> 32); if (c1b == 0) break;
+                    int c2b = (ushort)(quad >> 48);
+                    if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                    p += 4;
+                }
+            }
+        }
+
+        // [NoInlining cold] cls==2: B1-pair detect / dynamic-singleton. Returns false (no mutation) to bail
+        // to BFS; true if resolved here (pair or singleton). Writeback via passed cursors (NOT SetNodeState).
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryProcessCls2Inline(int nn, byte* nodeStates, int* nextList, byte* nextHash, ref int nextCount, byte* curHash, int rS, int rA, int rB)
+        {
+            NodeInfo* ns = NodeInfos + nn;
+            if (ns->Inline != 0)
+            {
+                ushort* pay = ns->InlinePayload;
+                int n2 = ns->C1c2Count << 1;
+                for (int k = 0; k < n2; k += 2)
+                {
+                    if (nodeStates[pay[k]] != 0)
+                    {
+                        int o = pay[k + 1];
+                        if (o == nn) return false;
+                        for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) return false;
+                        NodeInfo* os = NodeInfos + o;
+                        if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) return false;
+                        ushort* opay = os->InlinePayload;
+                        int on2 = os->C1c2Count << 1;
+                        for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) return false;
+                        curHash[o] = 0;
+                        int flags = (int)ns->Flags | (int)os->Flags;
+                        int anyG = 0, anyP = 0;
+                        int sGe = n2 + ns->GndCount, sPe = sGe + ns->PwrCount;
+                        for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
+                        for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
+                        int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
+                        for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
+                        for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
+                        flags |= (anyG << 5) | (anyP << 4);
+                        byte v = flags != 0 ? FlagsToState[flags]
+                               : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
+                        if (nodeStates[nn] != v) WritebackNode(nn, v, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+                        if (nodeStates[o]  != v) WritebackNode(o,  v, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+#if DEBUG
+                        DiagPairPath++;
+#endif
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                ushort* p = TransistorList + ns->TlistC1c2s;
+                while (*p != 0) { if (nodeStates[*p] != 0) return false; p += 2; }
+            }
+            // no ON c1c2 gate ⇒ conducting group is {nn} ⇒ resolve as static singleton inline.
+            {
+                int flags = (int)ns->Flags;
+                if (ns->Inline != 0)
+                {
+                    ushort* pay = ns->InlinePayload;
+                    int gndStart = ns->C1c2Count << 1;
+                    int gndEnd = gndStart + ns->GndCount;
+                    int anyG = 0; for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]]; flags |= anyG << 5;
+                    int pwrEnd = gndEnd + ns->PwrCount;
+                    int anyP = 0; for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]]; flags |= anyP << 4;
+                }
+                else
+                {
+                    if (ns->TlistC1gnd != 0) { ushort* p = TransistorList + ns->TlistC1gnd; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 5; }
+                    if (ns->TlistC1pwr != 0) { ushort* p = TransistorList + ns->TlistC1pwr; int any = 0; while (*p != 0) any |= nodeStates[*p++]; flags |= any << 4; }
+                }
+                if (flags != 0)
+                {
+                    byte newState = FlagsToState[flags];
+                    if (nodeStates[nn] != newState) WritebackNode(nn, newState, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+                }
+            }
+            return true;
+        }
+
+        // [NoInlining cold] generic BFS group resolve + writeback + callback. ComputeNodeGroup reads the
+        // STATIC RecalcHash (synced after the swap) for member-hash clearing; writeback via passed cursors.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int ProcessBFSFallback(int nn, byte* nodeStates, int* nextList, byte* nextHash, int nextCount, int rS, int rA, int rB)
+        {
+            byte newState = ComputeNodeGroup(nn);
+            ushort* gb = _groupBuf;
+            int gc = _groupCount;
+            for (int m = 0; m < gc; m++) { int gn = gb[m]; if (nodeStates[gn] != newState) WritebackNode(gn, newState, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB); }
+            if ((_groupFlags & NodeFlags.HasCallback) != 0)
+            {
+                var cbByNode = _callbackByNode!;
+                for (int m = 0; m < gc; m++) { var cb = cbByNode[gb[m]]; if (cb != null) EnqueueCallback(cb); }
+            }
+            return nextCount;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

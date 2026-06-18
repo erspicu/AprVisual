@@ -53,8 +53,10 @@ pub struct WireCore {
     pub node_states: Vec<u8>,
     pub node_hot: Vec<NodeHot>,
     pub node_connections: Vec<i32>,   // cold: only floating tie-break (compute_node_group)
-    pub node_tlist_gates: Vec<i32>,   // cold: only fanout writeback (set_node_state)
+    pub node_tlist_gates: Vec<i32>,   // cold: set_node_state turn-ON writeback
+    pub node_tlist_gates_off: Vec<i32>, // cold: set_node_state turn-OFF writeback (endpoints < range_s removed)
     pub transistor_list: Vec<u16>,
+    pub transistor_list_off: Vec<u16>,  // single endpoints (not c1/c2 pairs); sub-range_s ids pre-stripped
     pub flags_to_state: [u8; 256],
 
     // settle scratch (double-buffered FIFO)
@@ -343,6 +345,33 @@ impl WireCore {
             node_tlist_gates[i] = ni.tlist_gates;
         }
 
+        // ── Turn-OFF endpoint list (falling-writeback split, ported from C#) ──────────────────────────
+        // Single endpoints (not c1/c2 pairs), with ids < range_s removed (the static P-2/supply skip
+        // class). The falling writeback walks this with NO range compare and a shorter list. Built from
+        // the (remapped) snapshot transistor_list via node_tlist_gates. Bit-exact: the dropped endpoints
+        // are exactly the ones the old `c >= range_s` mask skipped at runtime.
+        let mut transistor_list_off: Vec<u16> = vec![0u16];   // index 0 reserved (0 == "empty")
+        let mut node_tlist_gates_off = vec![0i32; nc];
+        for nn in 0..nc {
+            let tg = node_tlist_gates[nn];
+            if tg == 0 { continue; }
+            let start = transistor_list_off.len();
+            let mut p = tg as usize;
+            loop {
+                let c1 = snap.transistor_list[p];
+                if c1 == 0 { break; }
+                let c2 = snap.transistor_list[p + 1];
+                if (c1 as i32) >= range_s { transistor_list_off.push(c1); }
+                if (c2 as i32) >= range_s { transistor_list_off.push(c2); }
+                p += 2;
+            }
+            if transistor_list_off.len() > start {
+                node_tlist_gates_off[nn] = start as i32;
+                transistor_list_off.push(0);   // 0-terminator
+            }
+        }
+        transistor_list_off.extend_from_slice(&[0u16; 4]);   // +4 pad: dual-quad overread safety
+
         WireCore {
             npwr: snap.npwr,
             ngnd: snap.ngnd,
@@ -350,7 +379,9 @@ impl WireCore {
             node_hot,
             node_connections,
             node_tlist_gates,
+            node_tlist_gates_off,
             transistor_list: { let mut t = snap.transistor_list; t.extend_from_slice(&[0u16; 4]); t },  // +4 pad: ulong dual-pair overread safety
+            transistor_list_off,
             flags_to_state: snap.flags_to_state,
             recalc_list: vec![0i32; nc],
             recalc_list_next: vec![0i32; nc],
@@ -634,46 +665,51 @@ impl WireCore {
         unsafe {
             if *self.node_states.get_unchecked(u) == new_state { return; }
             *self.node_states.get_unchecked_mut(u) = new_state;
-            let tlist_gates = *self.node_tlist_gates.get_unchecked(u);
-            if tlist_gates != 0 {
-                // ulong dual-pair load: two (c1,c2) pairs (4 u16) per 64-bit read — ported from C# (+0.6% Rust).
-                // transistor_list has +4 pad zeros so the 8-byte read can't go OOB. x64 LE: low u16 = [p].
-                let tl = self.transistor_list.as_ptr();
-                let mut p = tlist_gates as usize;
-                if new_state == 0 {
-                    // [P-2 turn-off enqueue prune, range form] skip ⇔ c < range_s (the class-major
-                    // renumber makes the static skip class one contiguous block; supply 1,2 < 3 ≤ S
-                    // rides the same compare). Replaces the random prune_mask byte load — a dependent
-                    // chain link — with a register compare. `hash |= n` so a skipped/already-queued
-                    // node's hash is untouched; supply hash-shield preserved (redundant but harmless).
-                    let rs = self.range_s;
+            if new_state == 0 {
+                // Falling writeback: walk a PRE-FILTERED single-endpoint list (ids < range_s removed at
+                // build = the static P-2/supply skip class), so NO range compare and a shorter walk. 4
+                // endpoints per 64-bit load; transistor_list_off has +4 pad. Branchless XOR-shielded
+                // enqueue (supply is already excluded by the build filter, so no mask needed). Bit-exact.
+                let tlist_off = *self.node_tlist_gates_off.get_unchecked(u);
+                if tlist_off != 0 {
+                    let tlo = self.transistor_list_off.as_ptr();
+                    let mut p = tlist_off as usize;
                     loop {
-                        let quad = (tl.add(p) as *const u64).read_unaligned();
-                        let c1a = (quad as u16) as i32;
-                        if c1a == 0 { break; }
-                        let c2a = ((quad >> 16) as u16) as i32;
-                        let cu = c1a as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c1a >= rs) as u8);
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1a;
+                        let quad = (tlo.add(p) as *const u64).read_unaligned();
+                        let c0 = (quad as u16) as i32;
+                        if c0 == 0 { break; }
+                        let cu = c0 as usize;
+                        let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c0;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
-                        let cu = c2a as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c2a >= rs) as u8);
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2a;
+                        let c1 = ((quad >> 16) as u16) as i32;
+                        if c1 == 0 { break; }
+                        let cu = c1 as usize;
+                        let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
-                        let c1b = ((quad >> 32) as u16) as i32;
-                        if c1b == 0 { break; }
-                        let c2b = ((quad >> 48) as u16) as i32;
-                        let cu = c1b as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c1b >= rs) as u8);
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c1b;
+                        let c2 = ((quad >> 32) as u16) as i32;
+                        if c2 == 0 { break; }
+                        let cu = c2 as usize;
+                        let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
-                        let cu = c2b as usize;
-                        let n = (*self.recalc_hash_next.get_unchecked(cu) ^ 1) & ((c2b >= rs) as u8);
-                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c2b;
+                        let c3 = ((quad >> 48) as u16) as i32;
+                        if c3 == 0 { break; }
+                        let cu = c3 as usize;
+                        let n = *self.recalc_hash_next.get_unchecked(cu) ^ 1;
+                        *self.recalc_list_next.get_unchecked_mut(self.list_next_count) = c3;
                         *self.recalc_hash_next.get_unchecked_mut(cu) |= n; self.list_next_count += n as usize;
                         p += 4;
                     }
-                } else {
+                }
+            } else {
+                let tlist_gates = *self.node_tlist_gates.get_unchecked(u);
+                if tlist_gates != 0 {
+                    // ulong dual-pair load: two (c1,c2) pairs (4 u16) per 64-bit read. transistor_list has
+                    // +4 pad zeros so the 8-byte read can't go OOB. x64 LE: low u16 = [p].
+                    let tl = self.transistor_list.as_ptr();
+                    let mut p = tlist_gates as usize;
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of c1.
                     // [same-state turn-on prune, range form] unsafe ⇔ c < range_a || c >= range_b (the
                     // two outer class blocks; c1 is never supply). Two register compares replace the

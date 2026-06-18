@@ -579,6 +579,17 @@ namespace AprVisual.Test
                     double Pp(long x) => WireCore.DiagPops == 0 ? 0 : 100.0 * x / WireCore.DiagPops;
                     Console.WriteLine($"# [P-2b candidate] single-channel pure-PullUp class: pops={WireCore.DiagP2bPops:N0} ({Pp(WireCore.DiagP2bPops):F1}% of all) no-change={WireCore.DiagNCP2b:N0} skippable(state==1)={WireCore.DiagNCP2bState1:N0} ({Pp(WireCore.DiagNCP2bState1):F1}% of all pops)");
                     Console.WriteLine($"# [B1 pair-path] pops resolved inline as 2-node groups: {WireCore.DiagPairPath:N0} ({Pp(WireCore.DiagPairPath):F1}% of all pops)");
+                    {
+                        // [fast-gate dist] DEBUG-only: gnd/pwr/c1c2 gate-count distribution of fast-path
+                        // (RecalcNodeFast) pops — sizes Gemini's "Design 1 fixed 2gnd+2pwr+1c1c2" MLP idea.
+                        long fp = WireCore.DiagFastPops;
+                        double Fp(long x) => fp == 0 ? 0 : 100.0 * x / fp;
+                        string Hist(long[] h) { var s = new System.Text.StringBuilder(); for (int i = 0; i < h.Length; i++) if (h[i] != 0) s.Append($" {(i==7?"7+":i.ToString())}:{Fp(h[i]):F1}%"); return s.ToString(); }
+                        Console.WriteLine($"# [fast-gate dist] fast-path pops={fp:N0} ({Pp(fp):F1}% of all pops)  inline={Fp(WireCore.DiagFastInline):F1}%  FITS fixed(c1c2<=1,gnd<=2,pwr<=2)={WireCore.DiagFastFitsFixed:N0} ({Fp(WireCore.DiagFastFitsFixed):F1}%)");
+                        Console.WriteLine($"#   GndCount:{Hist(WireCore.DiagFastGnd)}");
+                        Console.WriteLine($"#   PwrCount:{Hist(WireCore.DiagFastPwr)}");
+                        Console.WriteLine($"#   C1c2Count:{Hist(WireCore.DiagFastC1c2)}");
+                    }
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

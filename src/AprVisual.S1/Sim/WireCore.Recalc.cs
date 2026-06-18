@@ -86,6 +86,10 @@ namespace AprVisual.Sim
         internal static long DiagP2bPops, DiagNCP2b, DiagNCP2bState1;
         // [B1 pair path] pops resolved by the inline 2-node-group path (vs falling to the BFS)
         internal static long DiagPairPath;
+        // [fast-gate dist] gnd/pwr/c1c2 gate-count distribution of fast-path (RecalcNodeFast) pops —
+        // sizes the "Design 1 fixed-offset 2gnd+2pwr+1c1c2" MLP idea (coverage + dummy-load overhead).
+        internal static long DiagFastPops, DiagFastInline, DiagFastFitsFixed;
+        internal static long[] DiagFastGnd = new long[8], DiagFastPwr = new long[8], DiagFastC1c2 = new long[8];
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {

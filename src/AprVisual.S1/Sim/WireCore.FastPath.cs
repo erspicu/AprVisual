@@ -280,6 +280,14 @@ namespace AprVisual.Sim
         private static void RecalcNodeFast(int nn)
         {
             NodeInfo* ns = NodeInfos + nn;
+#if DEBUG
+            {   // [fast-gate dist] DEBUG-only: tally gate counts of fast-path pops (Design-1 MLP sizing)
+                int g = ns->GndCount, p = ns->PwrCount, c = ns->C1c2Count;
+                DiagFastPops++;
+                DiagFastGnd[g < 8 ? g : 7]++; DiagFastPwr[p < 8 ? p : 7]++; DiagFastC1c2[c < 8 ? c : 7]++;
+                if (ns->Inline != 0) { DiagFastInline++; if (c <= 1 && g <= 2 && p <= 2) DiagFastFitsFixed++; }
+            }
+#endif
             byte* nodeStates = NodeStates;   // [trial] hoist static ptr (used in up to 2 gnd/pwr loops)
             // [T-A] keep flags as int throughout — drops the (NodeFlags)((uint)..) casts; anyG<<5==Gnd, anyP<<4==Pwr.
             int flags = (int)ns->Flags;   // PullUp and/or runtime SetHigh/SetLow, or 0 (floating); Pwr/Gnd excluded at classify time

@@ -356,15 +356,23 @@ namespace AprVisual.Sim
                 RecalcListCount = RecalcListNextCount;
                 RecalcListNextCount = 0;
 
-                for (int i = 0; i < RecalcListCount; i++)
+                // Hoist per-WAVE invariants out of the per-POP loop: the list/hash buffers swap once per wave
+                // (above), never inside this loop; RecalcNode mutates RecalcHash *contents* (group-member pop
+                // cancels) but never the base pointer — so one base load covers both the check and the clear.
+                // Kills the cross-block RecalcHash-base reload (check vs clear blocks) + the per-iteration
+                // RecalcList base / RecalcListCount reloads. Bit-exact (same array, same order).
+                int* recalcList = RecalcList;
+                byte* recalcHash = RecalcHash;
+                int cnt = RecalcListCount;
+                for (int i = 0; i < cnt; i++)
                 {
-                    int nn = RecalcList[i];
-                    if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
+                    int nn = recalcList[i];
+                    if (recalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
                     {
 #if DEBUG
                         long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
 #endif
-                        RecalcHash[nn] = 0;
+                        recalcHash[nn] = 0;
                         RecalcNode(nn);
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);

@@ -410,8 +410,79 @@ namespace AprVisual.Sim
                     }
                     else if (cls == 2)
                     {
-                        if (!TryProcessCls2Inline(nn, nodeStates, nextList, nextHash, ref nextCount, curHash, rS, rA, rB))
-                            nextCount = ProcessBFSFallback(nn, nodeStates, nextList, nextHash, nextCount, rS, rA, rB);
+                        // [manual inline of cls2] JIT refuses to inline the 951-IL TryProcessCls2Inline even
+                        // with AggressiveInlining, so paste the B1-pair / dynamic-singleton logic directly to
+                        // kill the per-pop call tax. Bails jump to the (outlined) BFS fallback.
+                        NodeInfo* ns2 = NodeInfos + nn;
+                        if (ns2->Inline != 0)
+                        {
+                            ushort* pay = ns2->InlinePayload;
+                            int n2 = ns2->C1c2Count << 1;
+                            for (int k = 0; k < n2; k += 2)
+                            {
+                                if (nodeStates[pay[k]] != 0)
+                                {
+                                    int o = pay[k + 1];
+                                    if (o == nn) goto Cls2Bfs;
+                                    for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) goto Cls2Bfs;
+                                    NodeInfo* os = NodeInfos + o;
+                                    if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) goto Cls2Bfs;
+                                    ushort* opay = os->InlinePayload;
+                                    int on2 = os->C1c2Count << 1;
+                                    for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto Cls2Bfs;
+                                    curHash[o] = 0;
+                                    int pflags = (int)ns2->Flags | (int)os->Flags;
+                                    int anyG = 0, anyP = 0;
+                                    int sGe = n2 + ns2->GndCount, sPe = sGe + ns2->PwrCount;
+                                    for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
+                                    for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
+                                    int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
+                                    for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
+                                    for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
+                                    pflags |= (anyG << 5) | (anyP << 4);
+                                    byte v = pflags != 0 ? FlagsToState[pflags]
+                                           : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
+                                    if (nodeStates[nn] != v) WritebackNode(nn, v, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+                                    if (nodeStates[o]  != v) WritebackNode(o,  v, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+#if DEBUG
+                                    DiagPairPath++;
+#endif
+                                    goto Cls2Done;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            ushort* p = TransistorList + ns2->TlistC1c2s;
+                            while (*p != 0) { if (nodeStates[*p] != 0) goto Cls2Bfs; p += 2; }
+                        }
+                        // no ON c1c2 gate ⇒ conducting group is {nn} ⇒ resolve as static singleton inline.
+                        {
+                            int sflags = (int)ns2->Flags;
+                            if (ns2->Inline != 0)
+                            {
+                                ushort* pay = ns2->InlinePayload;
+                                int gndStart = ns2->C1c2Count << 1;
+                                int gndEnd = gndStart + ns2->GndCount;
+                                int anyG = 0; for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]]; sflags |= anyG << 5;
+                                int pwrEnd = gndEnd + ns2->PwrCount;
+                                int anyP = 0; for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]]; sflags |= anyP << 4;
+                            }
+                            else
+                            {
+                                if (ns2->TlistC1gnd != 0) { ushort* p = TransistorList + ns2->TlistC1gnd; int any = 0; while (*p != 0) any |= nodeStates[*p++]; sflags |= any << 5; }
+                                if (ns2->TlistC1pwr != 0) { ushort* p = TransistorList + ns2->TlistC1pwr; int any = 0; while (*p != 0) any |= nodeStates[*p++]; sflags |= any << 4; }
+                            }
+                            if (sflags != 0)
+                            {
+                                byte newState = FlagsToState[sflags];
+                                if (nodeStates[nn] != newState) WritebackNode(nn, newState, nextList, nextHash, ref nextCount, nodeStates, rS, rA, rB);
+                            }
+                        }
+                        goto Cls2Done;
+                    Cls2Bfs:
+                        nextCount = ProcessBFSFallback(nn, nodeStates, nextList, nextHash, nextCount, rS, rA, rB);
+                    Cls2Done: ;
                     }
                     else
                     {
@@ -481,9 +552,9 @@ namespace AprVisual.Sim
             }
         }
 
-        // [NoInlining cold] cls==2: B1-pair detect / dynamic-singleton. Returns false (no mutation) to bail
+        // [experiment] cls==2: B1-pair detect / dynamic-singleton. Returns false (no mutation) to bail
         // to BFS; true if resolved here (pair or singleton). Writeback via passed cursors (NOT SetNodeState).
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static bool TryProcessCls2Inline(int nn, byte* nodeStates, int* nextList, byte* nextHash, ref int nextCount, byte* curHash, int rS, int rA, int rB)
         {
             NodeInfo* ns = NodeInfos + nn;
@@ -555,9 +626,9 @@ namespace AprVisual.Sim
             return true;
         }
 
-        // [NoInlining cold] generic BFS group resolve + writeback + callback. ComputeNodeGroup reads the
+        // [experiment] generic BFS group resolve + writeback + callback. ComputeNodeGroup reads the
         // STATIC RecalcHash (synced after the swap) for member-hash clearing; writeback via passed cursors.
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int ProcessBFSFallback(int nn, byte* nodeStates, int* nextList, byte* nextHash, int nextCount, int rS, int rA, int rB)
         {
             byte newState = ComputeNodeGroup(nn);

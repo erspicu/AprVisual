@@ -109,3 +109,43 @@ IBS report 欄位含:**`IBS_DC_MISS_LAT` / `AVE_DC_MISS_LAT`(DC miss 平均 load
 - ✅ 對的:`DOTNET_TieredCompilation=0` 對短跑有助於符號 rundown;`report --disasm` 看逐指令
 
 來源:實機 `AMDuProfCLI --help` dump(temp/uprof_help_dump.txt)+ 實測。事件碼/組態以 `info --list …` 為準。
+
+---
+
+# Baseline 量測（2026-06-19,full_palette 1M hc,interval=50000)
+
+## 能力盤點(實測後定論)
+| 資訊 | 狀態 |
+|---|---|
+| 逐指令 **cycle-樣本密度**(哪條最熱) | ✅ 可信(但有 **skid**,見下) |
+| 哪個函式主導 | ✅ ProcessQueue ≈ 88% 的 `.jit` 模組樣本 |
+| 相對 cycle A/B(同指令/同函式樣本數比較) | ✅ **抗熱噪**(cycle-based,非 wall-clock 秒) |
+| IPC / CPI / %L1-miss / 任何「比值」 | ❌ **假影** — cycles 與 retired 同 interval → 樣本數被逼相等 → 比值恆 ≈1.0(別信) |
+| IBS 精確 load 延遲(`AVE_DC_MISS_LAT`) | ❌ **IBS 不歸因 .NET JIT 程式碼**(raw 與 `--config ibs` 都空表、無 .prd) |
+| 原始碼行 | ❌ JIT 無 PDB("DEBUG INFO NOT FOUND");組語級夠用,對照自家 disasm |
+
+> **skid**:AMD EBP 取樣會落在「卡住的 load」**之後一兩條**指令上。所以熱圖頂端常是一堆 `jnz/jz` 分支 —— 真正的成本是**它前一條的 load**。讀熱圖要往前看一兩條。(IBS 才精確無 skid,但 IBS 不吃 JIT。)
+
+## Baseline 結果:NodeStates[gate] 是 #1 cycle 成本(量測背書)
+ProcessQueue 逐指令 top(cycle-樣本):
+- **0x88 `jnz`(237 樣本)= 消費 `cmp byte [NodeStates+gate]` 的分支** → 即相依 load `NodeStates[gate]`,**量測證實第一名**(之前只有 disasm 結構推論)。
+- 其餘多為 dispatch/BFS 分支(skid)+ flags `or` 累積 + nn 索引擴展。
+- 完整熱圖:`temp/base_disasm.csv`(report --disasm-only 產出)。
+
+## 可信的量測流程(取代熱機 wall-clock)
+```powershell
+$dotnet=(New-Object -ComObject Scripting.FileSystemObject).GetFile("C:\Program Files\dotnet\dotnet.exe").ShortPath
+$env:DOTNET_TieredCompilation="0"
+# 1) collect(4 事件 @ 50000;PMU 鎖卡住先 Restart-Service AMDProfilerLoadService -Force)
+& $cli collect `
+  -e event=CYCLES_NOT_IN_HALT,interval=50000 -e event=RETIRED_INST,interval=50000 `
+  -e event=L1_DC_ACCESSES_ALL,interval=50000 -e event=L2_CACHE_ACCESS_FROM_L1_DC_MISS,interval=50000 `
+  -o temp\uprof_X $dotnet <dll> --benchmark <rom> --bench-hc 1000000 --extra-ram --system-def-dir <sd>
+# 2) 逐指令熱圖
+& $cli report -i temp\uprof_X --detail --disasm-only --disasm-style intel --report-output temp\X_disasm.csv
+```
+**A/B 判讀(記憶體軸實驗)**:改一版 → 同樣 collect → 比 **(a) 0x88 那條(NodeStates[gate] 消費者)的 cycle-樣本數**、**(b) ProcessQueue 總 cycle-樣本數**。兩者都降 = 真的省到 cycle(抗熱噪);只看「比值欄」會被假影騙。
+- 樣本數越多越穩:目前 1M hc + interval 50000 → ProcessQueue ~2775 樣本(夠函式級;逐指令熱者數十~數百)。要更穩可降 interval 或拉長 run。
+
+## 還想要 IBS 精確延遲的話(代價大,非必要)
+NativeAOT 編 S1(熱碼變真 PE 模組,IBS 才歸因得到;但 −5.5% 且是不同產物,量完丟)/ 搬熱迴圈到原生 C harness / `report --ascii ibsop-event-dump` 撈原始 IP 手動對應 JIT 位址區間。

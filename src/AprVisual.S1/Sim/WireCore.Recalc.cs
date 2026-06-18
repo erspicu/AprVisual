@@ -497,9 +497,10 @@ namespace AprVisual.Sim
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
             if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
 #endif
-            int tlistGates = NodeTlistGates[nn];
-            if (tlistGates != 0)
+            if (newState == 0)
             {
+                int tlistOff = NodeTlistGatesOff[nn];
+                if (tlistOff == 0) return;
                 // Inline enqueue (suggest #04): hoist queue state to locals; c1 is guaranteed
                 // non-supply by AddTransistor (Module.cs:125 normalises supply onto c2), so we
                 // can skip EnqueueNode's `nn == Npwr || nn == Ngnd` check for c1.
@@ -509,44 +510,39 @@ namespace AprVisual.Sim
                 int* nextList = RecalcListNext;
                 byte* nextHash = RecalcHashNext;
                 int nextCount = RecalcListNextCount;
-                ushort* p = TransistorList + tlistGates;
-                // Read two (c1,c2) pairs per iteration as one 64-bit load (4 ushorts) — measured +~1.2%
-                // (3 interleaved-paired batches, bit-exact). Halves this walk's loop branches + load count;
-                // unlike the random NodeInfos/NodeStates gather, this sequential enqueue walk's overhead is
-                // NOT fully hidden under the memory-latency stalls, so trimming it measurably helps.
-                // 0-terminated list; TransistorList has >=4 trailing pad zeros (see Reset) so the 8-byte
-                // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
-                if (newState == 0)
+                // Falling writeback walks a pre-filtered endpoint list: endpoints below RangePruneS were
+                // removed at Reset after the prune ranges were verified, so this hot loop has no range
+                // compares and reads four endpoint ids per 64-bit load. The removed endpoints are the same
+                // P-2/supply no-op class that the old range check skipped at runtime. Bit-exact.
+                ushort* p = TransistorListOff + tlistOff;
+                while (true)
                 {
-                    // [P-2 turn-off enqueue prune, range form (2026-06-10)] skip endpoints that become a
-                    // driverless isolated singleton the instant this (their only) channel opens — they float
-                    // and HOLD their previous value, so re-evaluating them is a guaranteed no-op (the static
-                    // safety class: C1c2Count==1, no supply/PullUp/FC/callback — see ClassifyTurnOffSkip).
-                    // The class-major auto-renumber (WireCore.Renumber.cs) makes that class one contiguous id
-                    // block, so the test is a REGISTER COMPARE: skip ⇔ c < S. Supply (ngnd/npwr, ids 1,2 < 3
-                    // ≤ S) rides the same compare — the historical explicit `c2!=ngnd && c2!=npwr` guard and
-                    // its successor (the supply-skip mask fold) are both subsumed. Boundaries verified against
-                    // the freshly computed PruneMask at every Reset. Bit-exact.
-                    int rS = RangePruneS;
-                    while (true)
-                    {
-                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
-                        int c1a = (ushort)quad;
-                        if (c1a == 0) break;
-                        int c2a = (ushort)(quad >> 16);
-                        if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
-                        // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
-                        int c1b = (ushort)(quad >> 32);
-                        if (c1b == 0) break;
-                        int c2b = (ushort)(quad >> 48);
-                        if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
-                        p += 4;
-                    }
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c0 = (ushort)quad;
+                    if (c0 == 0) break;
+                    if (nextHash[c0] == 0) { nextList[nextCount++] = c0; nextHash[c0] = 1; }
+                    int c1 = (ushort)(quad >> 16);
+                    if (c1 == 0) break;
+                    if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                    int c2 = (ushort)(quad >> 32);
+                    if (c2 == 0) break;
+                    if (nextHash[c2] == 0) { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                    int c3 = (ushort)(quad >> 48);
+                    if (c3 == 0) break;
+                    if (nextHash[c3] == 0) { nextList[nextCount++] = c3; nextHash[c3] = 1; }
+                    p += 4;
                 }
-                else
+                RecalcListNextCount = nextCount;
+            }
+            else
+            {
+                int tlistGates = NodeTlistGates[nn];
+                if (tlistGates != 0)
                 {
+                    int* nextList = RecalcListNext;
+                    byte* nextHash = RecalcHashNext;
+                    int nextCount = RecalcListNextCount;
+                    ushort* p = TransistorList + tlistGates;
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
                     // c1 suffices (BFS traverses the ON channel to c2).
                     // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
@@ -576,8 +572,8 @@ namespace AprVisual.Sim
                         if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
+                    RecalcListNextCount = nextCount;
                 }
-                RecalcListNextCount = nextCount;
             }
         }
 

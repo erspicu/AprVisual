@@ -33,6 +33,7 @@ code{background:#1b2740;padding:1px 5px;border-radius:4px;font-size:12.5px}
 .vc.mile{background:linear-gradient(90deg,#1c2c1a,#121c2c)}
 .vh{margin-bottom:3px} .vd{font-size:13.5px} .vm{font-size:12px;margin-top:5px;color:var(--mut)}
 .access code{display:block;margin:4px 0;padding:6px 10px;white-space:pre-wrap;word-break:break-all}
+.access .inl{background:#1b2740;padding:1px 5px;border-radius:4px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
 .access a{color:#4ea1ff}
 svg{width:100%;height:auto;display:block}
 .bad{color:var(--red);font-weight:700}

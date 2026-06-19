@@ -68,7 +68,7 @@ function render(doc) {
     <code><a href="api.php?platform=${p}&metric=hc_s_best3">api.php?platform=${p}&amp;metric=hc_s_best3</a>   # 畫圖用 [{version,value}]</code>
     <code><a href="api.php?platform=${p}&latest=1">api.php?platform=${p}&amp;latest=1</a>          # 最新摘要</code>
     <code><a href="api.php?platform=${p}&format=csv">api.php?platform=${p}&amp;format=csv</a>        # CSV 匯出</code>
-    <b>③ HTML</b> 本頁(切換平台用上方分頁,或 <code>#${p}</code>)`;
+    <b>③ HTML</b> 本頁:切換平台用上方分頁,或網址加 <span class="inl">#${p}</span>`;
 
   $("footer").innerHTML = `AprVisual 各版效能檢測 · 全程 bit-exact · 資料 schema v${doc.schema} · ${esc(doc.generated)}`;
 }

@@ -590,6 +590,21 @@ namespace AprVisual.Test
                         Console.WriteLine($"#   PwrCount:{Hist(WireCore.DiagFastPwr)}");
                         Console.WriteLine($"#   C1c2Count:{Hist(WireCore.DiagFastC1c2)}");
                     }
+                    {
+                        // [branch-dist] step-0 of the mem-latency branch: direction split of the hot
+                        // DATA-DEPENDENT branches → locate the ~6 MPKI branch-miss source. ~50/50 = high
+                        // entropy = likely mispredicted; lopsided = the predictor handles it cheaply.
+                        long c0 = WireCore.DiagBrCls[0], c1c = WireCore.DiagBrCls[1], c2c = WireCore.DiagBrCls[2];
+                        long clsT = c0 + c1c + c2c;
+                        double Cp(long x) => clsT == 0 ? 0 : 100.0 * x / clsT;
+                        string Split(long a, long b) { long t = a + b; return t == 0 ? "n/a" : $"{100.0 * a / t:F1}% / {100.0 * b / t:F1}%  (n={t:N0})"; }
+                        Console.WriteLine($"# [branch-dist] (DEBUG; ~50/50 = high-entropy = likely mispredicted)");
+                        Console.WriteLine($"#   dispatch cls: 0(BFS)={Cp(c0):F1}% 1(static-fast)={Cp(c1c):F1}% 2(dyn-singleton)={Cp(c2c):F1}%  (n={clsT:N0})");
+                        Console.WriteLine($"#   cls2 channels [allOFF->fast / someON->pair.BFS]: {Split(WireCore.DiagBrCls2Off, WireCore.DiagBrCls2On)}");
+                        Console.WriteLine($"#   SetNodeState [turn-on / turn-off]: {Split(WireCore.DiagBrTurnOn, WireCore.DiagBrTurnOff)}");
+                        Console.WriteLine($"#   turn-on enqueue prune [keep / skip] (per-transistor, hottest): {Split(WireCore.DiagBrPruneKeep, WireCore.DiagBrPruneSkip)}");
+                        Console.WriteLine($"#   fast-path [drive(write) / float(no-op)]: {Split(WireCore.DiagBrFastDrive, WireCore.DiagBrFastFloat)}");
+                    }
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

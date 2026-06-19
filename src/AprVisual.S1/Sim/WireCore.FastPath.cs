@@ -327,6 +327,9 @@ namespace AprVisual.Sim
 
             // flags == 0 ⇒ floating singleton ⇒ hold previous (NodeStates[nn] unchanged) ⇒ SetNodeState would
             // be a pure no-op, so skip the call entirely (saves the operand read + the call). Bit-exact.
+#if DEBUG
+            if (flags != 0) DiagBrFastDrive++; else DiagBrFastFloat++;   // [branch-dist] fast-path driven vs floating
+#endif
             if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
         }
 

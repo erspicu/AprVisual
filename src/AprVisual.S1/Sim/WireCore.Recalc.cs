@@ -90,6 +90,15 @@ namespace AprVisual.Sim
         // sizes the "Design 1 fixed-offset 2gnd+2pwr+1c1c2" MLP idea (coverage + dummy-load overhead).
         internal static long DiagFastPops, DiagFastInline, DiagFastFitsFixed;
         internal static long[] DiagFastGnd = new long[8], DiagFastPwr = new long[8], DiagFastC1c2 = new long[8];
+        // [branch-dist] (DEBUG only; step-0 of the mem-latency branch) direction split of the hot
+        // DATA-DEPENDENT branches — locates the ~6 MPKI branch-miss source. A ~50/50 split = high
+        // entropy = likely mispredicted; a lopsided split = predictor handles it. Counts are
+        // Debug==Release (same algorithm). Increments are #if DEBUG only (Release byte-identical).
+        internal static long[] DiagBrCls = new long[3];   // dispatch: IsPureLogic[nn] == 0/1/2
+        internal static long DiagBrCls2Off, DiagBrCls2On;  // cls==2 channel scan: all-OFF(→fast) vs some-ON(→pair/BFS)
+        internal static long DiagBrTurnOn, DiagBrTurnOff;  // SetNodeState newState !=0 vs ==0
+        internal static long DiagBrPruneKeep, DiagBrPruneSkip;  // turn-on enqueue range-prune cond true(keep) vs false(skip), per-transistor (hottest)
+        internal static long DiagBrFastDrive, DiagBrFastFloat;  // RecalcNodeFast flags!=0 (write) vs ==0 (float no-op)
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {
@@ -411,6 +420,9 @@ namespace AprVisual.Sim
             //       RecalcNodeFast is bit-identical to ComputeNodeGroup({nn}). One ON gate ⇒ fall to BFS.
             //   0 = must go through the BFS (callback / forceCompute / supply resolution).
             byte cls = IsPureLogic[nn];
+#if DEBUG
+            DiagBrCls[cls]++;
+#endif
             if (cls == 1) { RecalcNodeFast(nn); return; }
             if (cls == 2)
             {
@@ -433,6 +445,9 @@ namespace AprVisual.Sim
                     {
                         if (nodeStates[pay[k]] != 0)
                         {
+#if DEBUG
+                            DiagBrCls2On++;
+#endif
                             // [B1 pair path, 2026-06-12] size-2 groups are 77% of all BFS walks (30.5% of ALL
                             // pops) — when the group is provably exactly {nn, o}, resolve it inline without the
                             // _groupBuf/_inGroup machinery. Bit-exactness obligations (each mirrors the BFS):
@@ -485,6 +500,9 @@ namespace AprVisual.Sim
                     ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
                     while (*p != 0) { if (nodeStates[*p] != 0) goto FallbackBFS; p += 2; }
                 }
+#if DEBUG
+                DiagBrCls2Off++;   // cls==2, all channel gates OFF this wave → singleton fast-path
+#endif
                 RecalcNodeFast(nn); return;
             }
         FallbackBFS:
@@ -514,6 +532,7 @@ namespace AprVisual.Sim
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
             if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
+            if (newState == 0) DiagBrTurnOff++; else DiagBrTurnOn++;   // [branch-dist] SetNodeState direction
 #endif
             if (newState == 0)
             {
@@ -583,10 +602,16 @@ namespace AprVisual.Sim
                         int c1a = (ushort)quad;
                         if (c1a == 0) break;
                         int c2a = (ushort)(quad >> 16);
+#if DEBUG
+                        if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+#endif
                         if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
                         if (c1b == 0) break;
                         int c2b = (ushort)(quad >> 48);
+#if DEBUG
+                        if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+#endif
                         if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }

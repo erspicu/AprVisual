@@ -86,6 +86,10 @@ namespace AprVisual.Sim
         internal static long DiagP2bPops, DiagNCP2b, DiagNCP2bState1;
         // [B1 pair path] pops resolved by the inline 2-node-group path (vs falling to the BFS)
         internal static long DiagPairPath;
+        // [fast-gate dist] gnd/pwr/c1c2 gate-count distribution of fast-path (RecalcNodeFast) pops —
+        // sizes the "Design 1 fixed-offset 2gnd+2pwr+1c1c2" MLP idea (coverage + dummy-load overhead).
+        internal static long DiagFastPops, DiagFastInline, DiagFastFitsFixed;
+        internal static long[] DiagFastGnd = new long[8], DiagFastPwr = new long[8], DiagFastC1c2 = new long[8];
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {
@@ -356,16 +360,24 @@ namespace AprVisual.Sim
                 RecalcListCount = RecalcListNextCount;
                 RecalcListNextCount = 0;
 
-                for (int i = 0; i < RecalcListCount; i++)
+                // Hoist per-WAVE invariants out of the per-POP loop: the list/hash buffers swap once per wave
+                // (above), never inside this loop; RecalcNode mutates RecalcHash *contents* (group-member pop
+                // cancels) but never the base pointer — so one base load covers both the check and the clear.
+                // Kills the cross-block RecalcHash-base reload (check vs clear blocks) + the per-iteration
+                // RecalcList base / RecalcListCount reloads. Bit-exact (same array, same order).
+                int* recalcList = RecalcList;
+                byte* recalcHash = RecalcHash;
+                int cnt = RecalcListCount;
+                for (int i = 0; i < cnt; i++)
                 {
-                    int nn = RecalcList[i];
-                    if (RecalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
+                    int nn = recalcList[i];
+                    if (recalcHash[nn] != 0)        // may have been cleared by AddNodeToGroup if it joined a group
                     {
 #if DEBUG
                         long _dchg = DiagStateChanges;   // wasted-pop profiler (DEBUG only)
 #endif
+                        recalcHash[nn] = 0;
                         RecalcNode(nn);
-                        RecalcHash[nn] = 0;
 #if DEBUG
                         WasteProfileTally(nn, DiagStateChanges == _dchg);
                         CoActivityTally(nn);
@@ -410,13 +422,16 @@ namespace AprVisual.Sim
                 // alongside this — unrolling the tiny inline/group loops, ulong on the rare overflow path — all
                 // measured neutral/negative; only the flatten helped.)
                 NodeInfo* ns = NodeInfos + nn;
+                byte* nodeStates = NodeStates;   // hoist the static ptr once (this block's CFG has gotos +
+                                                 // nested loops, where the JIT's static-read CSE is least
+                                                 // reliable; matches SetNodeState/AddNodeToGroup style). Bit-exact.
                 if (ns->Inline != 0)
                 {
                     ushort* pay = ns->InlinePayload;         // [c1c2 pairs ...] — gates at even offsets
                     int n2 = ns->C1c2Count << 1;
                     for (int k = 0; k < n2; k += 2)
                     {
-                        if (NodeStates[pay[k]] != 0)
+                        if (nodeStates[pay[k]] != 0)
                         {
                             // [B1 pair path, 2026-06-12] size-2 groups are 77% of all BFS walks (30.5% of ALL
                             // pops) — when the group is provably exactly {nn, o}, resolve it inline without the
@@ -437,25 +452,25 @@ namespace AprVisual.Sim
                             //     next-wave enqueue-append order (= pop order = Gauss-Seidel semantics) matches.
                             int o = pay[k + 1];
                             if (o == nn) goto FallbackBFS;
-                            for (int k2 = k + 2; k2 < n2; k2 += 2) if (NodeStates[pay[k2]] != 0) goto FallbackBFS;
+                            for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) goto FallbackBFS;
                             NodeInfo* os = NodeInfos + o;
                             if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) goto FallbackBFS;
                             ushort* opay = os->InlinePayload;
                             int on2 = os->C1c2Count << 1;
-                            for (int k2 = 0; k2 < on2; k2 += 2) if (NodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto FallbackBFS;
+                            for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto FallbackBFS;
                             // committed — group is exactly {nn, o}
                             RecalcHash[o] = 0;
                             int flags = (int)ns->Flags | (int)os->Flags;
                             int anyG = 0, anyP = 0;
                             int sGe = n2 + ns->GndCount, sPe = sGe + ns->PwrCount;
-                            for (int j = n2; j < sGe; j++) anyG |= NodeStates[pay[j]];
-                            for (int j = sGe; j < sPe; j++) anyP |= NodeStates[pay[j]];
+                            for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
+                            for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
                             int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
-                            for (int j = on2; j < oGe; j++) anyG |= NodeStates[opay[j]];
-                            for (int j = oGe; j < oPe; j++) anyP |= NodeStates[opay[j]];
+                            for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
+                            for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
                             flags |= (anyG << 5) | (anyP << 4);
                             byte v = flags != 0 ? FlagsToState[flags]
-                                   : (NodeConnections[o] > NodeConnections[nn] ? NodeStates[o] : NodeStates[nn]);
+                                   : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
                             SetNodeState(nn, v);
                             SetNodeState(o, v);
 #if DEBUG
@@ -468,7 +483,7 @@ namespace AprVisual.Sim
                 else
                 {
                     ushort* p = TransistorList + ns->TlistC1c2s;   // (gate, other, …, 0)
-                    while (*p != 0) { if (NodeStates[*p] != 0) goto FallbackBFS; p += 2; }
+                    while (*p != 0) { if (nodeStates[*p] != 0) goto FallbackBFS; p += 2; }
                 }
                 RecalcNodeFast(nn); return;
             }
@@ -491,15 +506,19 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
-            if (NodeStates[nn] == newState) return;
-            NodeStates[nn] = newState;
+            byte* nodeStates = NodeStates;   // hoist once: the byte store below otherwise makes the JIT
+                                             // conservatively re-load the NodeStates base for the on-walk
+                                             // (store-to-pointer aliasing). One local keeps it in a register.
+            if (nodeStates[nn] == newState) return;
+            nodeStates[nn] = newState;
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
             if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
 #endif
-            int tlistGates = NodeTlistGates[nn];
-            if (tlistGates != 0)
+            if (newState == 0)
             {
+                int tlistOff = NodeTlistGatesOff[nn];
+                if (tlistOff == 0) return;
                 // Inline enqueue (suggest #04): hoist queue state to locals; c1 is guaranteed
                 // non-supply by AddTransistor (Module.cs:125 normalises supply onto c2), so we
                 // can skip EnqueueNode's `nn == Npwr || nn == Ngnd` check for c1.
@@ -509,44 +528,40 @@ namespace AprVisual.Sim
                 int* nextList = RecalcListNext;
                 byte* nextHash = RecalcHashNext;
                 int nextCount = RecalcListNextCount;
-                ushort* p = TransistorList + tlistGates;
-                // Read two (c1,c2) pairs per iteration as one 64-bit load (4 ushorts) — measured +~1.2%
-                // (3 interleaved-paired batches, bit-exact). Halves this walk's loop branches + load count;
-                // unlike the random NodeInfos/NodeStates gather, this sequential enqueue walk's overhead is
-                // NOT fully hidden under the memory-latency stalls, so trimming it measurably helps.
-                // 0-terminated list; TransistorList has >=4 trailing pad zeros (see Reset) so the 8-byte
-                // read never faults past the array. x64 little-endian: low ushort of `quad` == *p.
-                if (newState == 0)
+                // Falling writeback walks a pre-filtered endpoint list: endpoints below RangePruneS were
+                // removed at Reset after the prune ranges were verified, so this hot loop has no range
+                // compares and reads four endpoint ids per 64-bit load. The removed endpoints are the same
+                // P-2/supply no-op class that the old range check skipped at runtime. Bit-exact.
+                ushort* p = TransistorListOff + tlistOff;
+                while (true)
                 {
-                    // [P-2 turn-off enqueue prune, range form (2026-06-10)] skip endpoints that become a
-                    // driverless isolated singleton the instant this (their only) channel opens — they float
-                    // and HOLD their previous value, so re-evaluating them is a guaranteed no-op (the static
-                    // safety class: C1c2Count==1, no supply/PullUp/FC/callback — see ClassifyTurnOffSkip).
-                    // The class-major auto-renumber (WireCore.Renumber.cs) makes that class one contiguous id
-                    // block, so the test is a REGISTER COMPARE: skip ⇔ c < S. Supply (ngnd/npwr, ids 1,2 < 3
-                    // ≤ S) rides the same compare — the historical explicit `c2!=ngnd && c2!=npwr` guard and
-                    // its successor (the supply-skip mask fold) are both subsumed. Boundaries verified against
-                    // the freshly computed PruneMask at every Reset. Bit-exact.
-                    int rS = RangePruneS;
-                    while (true)
-                    {
-                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
-                        int c1a = (ushort)quad;
-                        if (c1a == 0) break;
-                        int c2a = (ushort)(quad >> 16);
-                        if (c1a >= rS && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
-                        // gate going low can *disconnect* the channel, so c2 needs re-eval too
-                        if (c2a >= rS && nextHash[c2a] == 0) { nextList[nextCount++] = c2a; nextHash[c2a] = 1; }
-                        int c1b = (ushort)(quad >> 32);
-                        if (c1b == 0) break;
-                        int c2b = (ushort)(quad >> 48);
-                        if (c1b >= rS && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        if (c2b >= rS && nextHash[c2b] == 0) { nextList[nextCount++] = c2b; nextHash[c2b] = 1; }
-                        p += 4;
-                    }
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c0 = (ushort)quad;
+                    if (c0 == 0) break;
+                    if (nextHash[c0] == 0) { nextList[nextCount++] = c0; nextHash[c0] = 1; }
+                    int c1 = (ushort)(quad >> 16);
+                    if (c1 == 0) break;
+                    if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                    int c2 = (ushort)(quad >> 32);
+                    if (c2 == 0) break;
+                    if (nextHash[c2] == 0) { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                    int c3 = (ushort)(quad >> 48);
+                    if (c3 == 0) break;
+                    if (nextHash[c3] == 0) { nextList[nextCount++] = c3; nextHash[c3] = 1; }
+                    p += 4;
                 }
-                else
+                RecalcListNextCount = nextCount;
+            }
+            else
+            {
+                int tlistGates = NodeTlistGates[nn];
+                if (tlistGates != 0)
                 {
+                    int* nextList = RecalcListNext;
+                    byte* nextHash = RecalcHashNext;
+                    int nextCount = RecalcListNextCount;
+                    ushort* p = TransistorList + tlistGates;
+                    // (nodeStates hoisted at the method top — reused here, no re-load)
                     // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
                     // c1 suffices (BFS traverses the ON channel to c2).
                     // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
@@ -561,7 +576,6 @@ namespace AprVisual.Sim
                     // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
                     // a pruned node must NOT have nextHash set, or it would look queued without being listed.
                     // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
-                    byte* nodeStates = NodeStates;
                     int rA = RangePruneA, rB = RangePruneB;
                     while (true)
                     {
@@ -576,8 +590,8 @@ namespace AprVisual.Sim
                         if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;
                     }
+                    RecalcListNextCount = nextCount;
                 }
-                RecalcListNextCount = nextCount;
             }
         }
 

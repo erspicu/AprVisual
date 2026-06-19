@@ -79,8 +79,8 @@ namespace AprVisual.Sim
                         if (RecalcHash[nn] != 0)
                         {
                             if (order[nn] == uint.MaxValue) order[nn] = seq++;   // ← the capture
-                            RecalcNode(nn);
                             RecalcHash[nn] = 0;
+                            RecalcNode(nn);
                         }
                     }
                     RecalcListCount = 0;

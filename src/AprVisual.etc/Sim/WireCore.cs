@@ -73,11 +73,14 @@ namespace AprVisual.Sim
         // NodeConnections[nn] = c1c2s.Count + gates.Count, the "capacitance" proxy for the floating-group
         //   tie-break (only fires when a group has zero flags — rare). Touched twice in AddNodeToGroup
         //   but the early-out branch is well-predicted-false in typical groups.
-        // NodeTlistGates[nn] = (c1,c2, c1,c2, ..., 0) sub-list — read ONLY by SetNodeState to enqueue
-        //   downstream nodes when a state flips. Called once per group member at writeback time, so 1
-        //   cache miss per group member vs the BFS hot loop's per-visit cost.
+        // NodeTlistGates[nn] = (c1,c2, c1,c2, ..., 0) sub-list — read by SetNodeState's turn-ON path.
+        // NodeTlistGatesOff[nn] = (endpoint, endpoint, ..., 0) sub-list — read by SetNodeState's turn-OFF
+        //   path. Built after range-prune verification, with endpoints below RangePruneS removed.
+        //   Called once per group member at writeback time, so 1 cache miss per group member vs the BFS
+        //   hot loop's per-visit cost.
         public static int* NodeConnections;
         public static int* NodeTlistGates;
+        public static int* NodeTlistGatesOff;
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -88,6 +91,7 @@ namespace AprVisual.Sim
         // ushort* (was int*): node IDs < 65K, halves the working set (697KB → 350KB) — the
         // hottest array in BFS by far, so L2 pressure reduction is the lever here.
         public static ushort* TransistorList;
+        public static ushort* TransistorListOff;
 
         // ── Double-buffered recalc queue (see WireCore.Recalc.cs) ──
         public static int* RecalcList;
@@ -133,7 +137,8 @@ namespace AprVisual.Sim
             NodeStates     = AllocArray<byte>(NodeCount);
             NodeInfos      = AllocArray<NodeInfo>(NodeCount);
             NodeConnections = AllocArray<int>(NodeCount);   // cold — only tie-break
-            NodeTlistGates  = AllocArray<int>(NodeCount);   // cold — only SetNodeState writeback
+            NodeTlistGates  = AllocArray<int>(NodeCount);   // cold — SetNodeState turn-ON writeback
+            NodeTlistGatesOff = AllocArray<int>(NodeCount); // cold — SetNodeState turn-OFF writeback
             RecalcList     = AllocArray<int>(NodeCount);
             RecalcListNext = AllocArray<int>(NodeCount);
             RecalcHash     = AllocArray<byte>(NodeCount);
@@ -173,10 +178,10 @@ namespace AprVisual.Sim
                 tl.Add(0);
                 return idx;
             }
-            var gates = new List<int>();
             var c1c2 = new List<int>();
             var c1gnd = new List<int>();
             var c1pwr = new List<int>();
+            var gates = new List<int>();
             for (int nn = 0; nn < NodeCount; nn++)
             {
                 Node? node = Nodes[nn];
@@ -251,6 +256,37 @@ namespace AprVisual.Sim
             ClassifyPureLogicNodes();
             ClassifyPruneTaint();   // safety mask for the same-state turn-on prune (no-PullUp / ForceCompute)
             ClassifyTurnOffSkip();  // P-2: safety mask for the turn-off enqueue prune (isolated-on-disconnect float-hold)
+
+            // ── Turn-OFF enqueue list (falling writeback split)
+            // Build AFTER ClassifyTurnOffSkip() verifies/falls back the RangePruneS boundary. The falling
+            // path never needs c1/c2 pairing; it only enqueues endpoints that are not statically skippable.
+            var tlOff = new List<int> { 0 };
+            int AddOffSubList(List<int> sub)
+            {
+                if (sub.Count == 0) return 0;
+                int idx = tlOff.Count;
+                tlOff.AddRange(sub);
+                tlOff.Add(0);
+                return idx;
+            }
+            var gatesOff = new List<int>();
+            int offS = RangePruneS;
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                Node? node = Nodes[nn];
+                if (node == null) continue;
+                gatesOff.Clear();
+                foreach (int tid in node.Gates)
+                {
+                    var t = Transistors[tid];
+                    if (t.C1 >= offS) gatesOff.Add(t.C1);
+                    if (t.C2 >= offS) gatesOff.Add(t.C2);
+                }
+                NodeTlistGatesOff[nn] = AddOffSubList(gatesOff);
+            }
+            tlOff.Add(0); tlOff.Add(0); tlOff.Add(0); tlOff.Add(0);
+            TransistorListOff = AllocArray<ushort>(tlOff.Count);
+            for (int i = 0; i < tlOff.Count; i++) TransistorListOff[i] = (ushort)tlOff[i];
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
             //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).

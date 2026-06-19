@@ -1,19 +1,19 @@
-version,date,tfm,commit,milestone,title,desc
-2026.05.30,2026-05-30,net10.0,,0,基線(R-1 之前),SoA 非託管陣列、雙緩衝事件驅動 settle、FlagsToState LUT、fast-path 雛形。
-2026.05.31,2026-05-31,net10.0,a80dab4,1,R-1 動態 singleton fast-path,群組可證明只有自己(~70% pop)→ O(1) 解析、跳過群組走訪。
-2026.06.01,2026-05-31,net10.0,9cc0dc7,0,S2-A 內嵌節點鄰接,channel 資料內嵌進 NodeInfo、消掉 pointer-chase。
-2026.06.03,2026-06-02,net10.0,,0,重構 + 官網,邏輯抽進 inline helper:ProcessQueue IL 359→130。
-2026.06.04,2026-06-03,net10.0,,0,hot-path 微優化,NodeConnections 移出 BFS 主迴圈等佈局微調。
-2026.06.05,2026-06-05,net10.0,,0,hot-path 微優化,延續佈局/分支微調。
-2026.06.07,2026-06-06,net10.0,,1,P-2/P-3/P-4 事件數剪枝,節點可證明不變時跳過 enqueue 重算 —— 從源頭刪無謂重算。
-2026.06.07b,2026-06-07,net10.0,,0,剪枝定版 + 遮罩合併,P-2/3/4 收斂、合併成 bit-packed PruneMask。
-2026.06.08,2026-06-08,net10.0,,0,剖析工具(≈持平),DEBUG-only 剖析器；hot path native 不變。
-2026.06.09,2026-06-08,net10.0,,0,&&-條件重排 + 供電折入,SetNodeState &&-子句依選擇度重排。
-2026.06.09b,2026-06-08,net11.0,,0,供電跳過折入(.NET 11 起),turn-off 入列檢查一致化。
-2026.06.09c,2026-06-09,net11.0,,0,BFS/DFS + 診斷,native 不變 → 沒改 C# hot path。
-2026.06.09d,2026-06-09,net11.0,,0,小改,native 不變 → 沒改 C# hot path。
-2026.06.09e,2026-06-09,net11.0,,0,小改,native 不變 → 沒改 C# hot path。
-2026.06.11,2026-06-10,net11.0,,1,range-prune + 自我捕捉 locality,class-major 重編號 → 剪枝遮罩變 ID 區間；首次彈出順序自我捕捉。
-2026.06.12,2026-06-11,net11.0,,0,B1 兩節點成對路徑,可證明兩節點群組就地解析(占 77% 走訪)。
-2026.06.18,2026-06-18,net11.0,,1,.NET 11 + 下降寫回拆分,turn-off 扇出走預過濾端點清單。
-2026.06.19,2026-06-18,net11.0,270259a,0,disasm 驅動 codegen 微優化,讀 JIT x64 找的 5 個 bit-exact 優化。
+version,date,tfm,commit,milestone,title,desc,title_en,desc_en
+2026.05.30,2026-05-30,net10.0,,0,基線(R-1 之前),SoA 非託管陣列、雙緩衝事件驅動 settle、FlagsToState LUT、fast-path 雛形。,baseline (pre R-1),"SoA unmanaged arrays, double-buffered event-driven settle, FlagsToState LUT, fast-path family."
+2026.05.31,2026-05-31,net10.0,a80dab4,1,R-1 動態 singleton fast-path,群組可證明只有自己(~70% pop)→ O(1) 解析、跳過群組走訪。,R-1 dynamic-singleton fast-path,"group provably size-1 (~70% of pops) -> O(1) resolve, skip the group walk."
+2026.06.01,2026-05-31,net10.0,9cc0dc7,0,S2-A 內嵌節點鄰接,channel 資料內嵌進 NodeInfo、消掉 pointer-chase。,S2-A inline node adjacency,"channel data embedded into NodeInfo, killing the pointer-chase."
+2026.06.03,2026-06-02,net10.0,,0,重構 + 官網,邏輯抽進 inline helper:ProcessQueue IL 359→130。,refactor + site,logic hoisted into an inline helper: ProcessQueue IL 359->130.
+2026.06.04,2026-06-03,net10.0,,0,hot-path 微優化,NodeConnections 移出 BFS 主迴圈等佈局微調。,hot-path micro-opts,NodeConnections out of the BFS loop + layout tweaks.
+2026.06.05,2026-06-05,net10.0,,0,hot-path 微優化,延續佈局/分支微調。,hot-path micro-opts,further layout / branch tweaks.
+2026.06.07,2026-06-06,net10.0,,1,P-2/P-3/P-4 事件數剪枝,節點可證明不變時跳過 enqueue 重算 —— 從源頭刪無謂重算。,P-2/P-3/P-4 event-count prunes,skip enqueue+recalc when a node provably cannot change -- cut wasted work at the source.
+2026.06.07b,2026-06-07,net10.0,,0,剪枝定版 + 遮罩合併,P-2/3/4 收斂、合併成 bit-packed PruneMask。,prunes finalized + mask merge,P-2/3/4 converged; merged into one bit-packed PruneMask.
+2026.06.08,2026-06-08,net10.0,,0,剖析工具(≈持平),DEBUG-only 剖析器;hot path native 不變。,profiling tooling (~flat),DEBUG-only profiler; hot-path native unchanged.
+2026.06.09,2026-06-08,net10.0,,0,&&-條件重排 + 供電折入,SetNodeState &&-子句依選擇度重排。,&&-clause reorder + supply-skip fold,SetNodeState &&-clauses reordered by selectivity.
+2026.06.09b,2026-06-08,net11.0,,0,供電跳過折入(.NET 11 起),turn-off 入列檢查一致化。,supply-skip fold (.NET 11),turn-off enqueue check unified.
+2026.06.09c,2026-06-09,net11.0,,0,BFS/DFS + 診斷,native 不變 → 沒改 C# hot path。,BFS/DFS + diag,native unchanged -> no C# hot-path change.
+2026.06.09d,2026-06-09,net11.0,,0,小改,native 不變 → 沒改 C# hot path。,minor,native unchanged -> no C# hot-path change.
+2026.06.09e,2026-06-09,net11.0,,0,小改,native 不變 → 沒改 C# hot path。,minor,native unchanged -> no C# hot-path change.
+2026.06.11,2026-06-10,net11.0,,1,range-prune + 自我捕捉 locality,class-major 重編號 → 剪枝遮罩變 ID 區間;首次彈出順序自我捕捉。,range-prune + self-captured locality,class-major renumber -> prune masks become ID ranges; first-touch pop order self-captured.
+2026.06.12,2026-06-11,net11.0,,0,B1 兩節點成對路徑,可證明兩節點群組就地解析(占 77% 走訪)。,B1 two-node pair path,provably-2-node groups resolved in place (77% of walks).
+2026.06.18,2026-06-18,net11.0,,1,.NET 11 + 下降寫回拆分,turn-off 扇出走預過濾端點清單。,.NET 11 + falling-writeback split,turn-off fan-out uses a pre-filtered endpoint list.
+2026.06.19,2026-06-18,net11.0,270259a,0,disasm 驅動 codegen 微優化,讀 JIT x64 找的 5 個 bit-exact 優化。,disasm-driven codegen micro-sweep,5 bit-exact opts found by reading the JIT x64 disassembly.

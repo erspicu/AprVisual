@@ -104,6 +104,8 @@ def main():
             "tfm": col(m, "tfm"),
             "title": col(m, "title"),
             "desc": col(m, "desc"),
+            "title_en": col(m, "title_en"),
+            "desc_en": col(m, "desc_en"),
             "milestone": str(col(m, "milestone") or "0").strip() in ("1", "true", "True"),
             "metrics": metrics,
         })

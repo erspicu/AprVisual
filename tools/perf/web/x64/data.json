@@ -3,7 +3,7 @@
   "platform": "x64",
   "cpu": "AMD Ryzen 7 3700X (Zen2)",
   "mode": "boost",
-  "generated": "2026-06-19T10:34:16Z",
+  "generated": "2026-06-19T10:45:59Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -33,6 +33,8 @@
       "tfm": "net10.0",
       "title": "基線(R-1 之前)",
       "desc": "SoA 非託管陣列、雙緩衝事件驅動 settle、FlagsToState LUT、fast-path 雛形。",
+      "title_en": "baseline (pre R-1)",
+      "desc_en": "SoA unmanaged arrays, double-buffered event-driven settle, FlagsToState LUT, fast-path family.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 67660,
@@ -62,6 +64,8 @@
       "tfm": "net10.0",
       "title": "R-1 動態 singleton fast-path",
       "desc": "群組可證明只有自己(~70% pop)→ O(1) 解析、跳過群組走訪。",
+      "title_en": "R-1 dynamic-singleton fast-path",
+      "desc_en": "group provably size-1 (~70% of pops) -> O(1) resolve, skip the group walk.",
       "milestone": true,
       "metrics": {
         "hc_s_best3": 80767,
@@ -91,6 +95,8 @@
       "tfm": "net10.0",
       "title": "S2-A 內嵌節點鄰接",
       "desc": "channel 資料內嵌進 NodeInfo、消掉 pointer-chase。",
+      "title_en": "S2-A inline node adjacency",
+      "desc_en": "channel data embedded into NodeInfo, killing the pointer-chase.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 84542,
@@ -120,6 +126,8 @@
       "tfm": "net10.0",
       "title": "重構 + 官網",
       "desc": "邏輯抽進 inline helper:ProcessQueue IL 359→130。",
+      "title_en": "refactor + site",
+      "desc_en": "logic hoisted into an inline helper: ProcessQueue IL 359->130.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 85964,
@@ -149,6 +157,8 @@
       "tfm": "net10.0",
       "title": "hot-path 微優化",
       "desc": "NodeConnections 移出 BFS 主迴圈等佈局微調。",
+      "title_en": "hot-path micro-opts",
+      "desc_en": "NodeConnections out of the BFS loop + layout tweaks.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 90857,
@@ -178,6 +188,8 @@
       "tfm": "net10.0",
       "title": "hot-path 微優化",
       "desc": "延續佈局/分支微調。",
+      "title_en": "hot-path micro-opts",
+      "desc_en": "further layout / branch tweaks.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 90599,
@@ -207,6 +219,8 @@
       "tfm": "net10.0",
       "title": "P-2/P-3/P-4 事件數剪枝",
       "desc": "節點可證明不變時跳過 enqueue 重算 —— 從源頭刪無謂重算。",
+      "title_en": "P-2/P-3/P-4 event-count prunes",
+      "desc_en": "skip enqueue+recalc when a node provably cannot change -- cut wasted work at the source.",
       "milestone": true,
       "metrics": {
         "hc_s_best3": 100494,
@@ -236,6 +250,8 @@
       "tfm": "net10.0",
       "title": "剪枝定版 + 遮罩合併",
       "desc": "P-2/3/4 收斂、合併成 bit-packed PruneMask。",
+      "title_en": "prunes finalized + mask merge",
+      "desc_en": "P-2/3/4 converged; merged into one bit-packed PruneMask.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 111215,
@@ -264,7 +280,9 @@
       "commit": null,
       "tfm": "net10.0",
       "title": "剖析工具(≈持平)",
-      "desc": "DEBUG-only 剖析器；hot path native 不變。",
+      "desc": "DEBUG-only 剖析器;hot path native 不變。",
+      "title_en": "profiling tooling (~flat)",
+      "desc_en": "DEBUG-only profiler; hot-path native unchanged.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 112329,
@@ -294,6 +312,8 @@
       "tfm": "net10.0",
       "title": "&&-條件重排 + 供電折入",
       "desc": "SetNodeState &&-子句依選擇度重排。",
+      "title_en": "&&-clause reorder + supply-skip fold",
+      "desc_en": "SetNodeState &&-clauses reordered by selectivity.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 112995,
@@ -323,6 +343,8 @@
       "tfm": "net11.0",
       "title": "供電跳過折入(.NET 11 起)",
       "desc": "turn-off 入列檢查一致化。",
+      "title_en": "supply-skip fold (.NET 11)",
+      "desc_en": "turn-off enqueue check unified.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 113285,
@@ -352,6 +374,8 @@
       "tfm": "net11.0",
       "title": "BFS/DFS + 診斷",
       "desc": "native 不變 → 沒改 C# hot path。",
+      "title_en": "BFS/DFS + diag",
+      "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 114206,
@@ -381,6 +405,8 @@
       "tfm": "net11.0",
       "title": "小改",
       "desc": "native 不變 → 沒改 C# hot path。",
+      "title_en": "minor",
+      "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 113879,
@@ -410,6 +436,8 @@
       "tfm": "net11.0",
       "title": "小改",
       "desc": "native 不變 → 沒改 C# hot path。",
+      "title_en": "minor",
+      "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 115101,
@@ -438,7 +466,9 @@
       "commit": null,
       "tfm": "net11.0",
       "title": "range-prune + 自我捕捉 locality",
-      "desc": "class-major 重編號 → 剪枝遮罩變 ID 區間；首次彈出順序自我捕捉。",
+      "desc": "class-major 重編號 → 剪枝遮罩變 ID 區間;首次彈出順序自我捕捉。",
+      "title_en": "range-prune + self-captured locality",
+      "desc_en": "class-major renumber -> prune masks become ID ranges; first-touch pop order self-captured.",
       "milestone": true,
       "metrics": {
         "hc_s_best3": 126282,
@@ -468,6 +498,8 @@
       "tfm": "net11.0",
       "title": "B1 兩節點成對路徑",
       "desc": "可證明兩節點群組就地解析(占 77% 走訪)。",
+      "title_en": "B1 two-node pair path",
+      "desc_en": "provably-2-node groups resolved in place (77% of walks).",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 134379,
@@ -497,6 +529,8 @@
       "tfm": "net11.0",
       "title": ".NET 11 + 下降寫回拆分",
       "desc": "turn-off 扇出走預過濾端點清單。",
+      "title_en": ".NET 11 + falling-writeback split",
+      "desc_en": "turn-off fan-out uses a pre-filtered endpoint list.",
       "milestone": true,
       "metrics": {
         "hc_s_best3": 137226,
@@ -526,6 +560,8 @@
       "tfm": "net11.0",
       "title": "disasm 驅動 codegen 微優化",
       "desc": "讀 JIT x64 找的 5 個 bit-exact 優化。",
+      "title_en": "disasm-driven codegen micro-sweep",
+      "desc_en": "5 bit-exact opts found by reading the JIT x64 disassembly.",
       "milestone": false,
       "metrics": {
         "hc_s_best3": 138708,

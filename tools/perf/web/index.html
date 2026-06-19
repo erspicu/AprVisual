@@ -3,14 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AprVisual — 各版效能檢測</title>
+<title>AprVisual — per-release performance</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <div class="hero">
   <div class="wrap">
-    <h1>🔥 AprVisual S1 — 各 release 效能檢測</h1>
-    <p class="sub">switch-level NES(2A03+2C02)模擬器 · 逐版效能歷史 · 全程 <b>bit-exact</b></p>
+    <div class="topbar">
+      <h1 id="title"></h1>
+      <div class="langtoggle" id="lang">
+        <button class="lng" data-l="zh">中文</button>
+        <button class="lng" data-l="en">EN</button>
+      </div>
+    </div>
+    <p class="sub" id="sub"></p>
     <div class="tabs" id="tabs">
       <button class="tab" data-p="x64">x64 (Zen2)</button>
       <button class="tab" data-p="arm64">arm64 (Pi 5)</button>
@@ -22,20 +28,20 @@
 <div class="wrap" id="main">
   <div id="status" class="status"></div>
   <section id="content" hidden>
-    <h2>📈 吞吐量 boost(hc/s · 越高越好 · ★=里程碑)</h2>
+    <h2 id="h-boost"></h2>
     <div class="card" id="chart-boost"></div>
     <div class="card" id="bars"></div>
 
-    <h2>⏱ 熱路徑週期(cyc/hc · 鎖頻 · 越低越好)</h2>
+    <h2 id="h-cyc"></h2>
     <div class="card" id="chart-cyc"></div>
 
-    <h2>🛠 每一版改了什麼</h2>
+    <h2 id="h-changes"></h2>
     <div id="cards"></div>
 
-    <h2>📋 完整數據</h2>
+    <h2 id="h-table"></h2>
     <div class="card scroll"><table id="table"></table></div>
 
-    <h2>🔌 存取方式</h2>
+    <h2 id="h-access"></h2>
     <div class="card access" id="access"></div>
   </section>
 </div>

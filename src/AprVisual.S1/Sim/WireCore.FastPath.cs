@@ -299,13 +299,18 @@ namespace AprVisual.Sim
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
                 int gndEnd = gndStart + ns->GndCount;
-                int anyG = 0;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
-                flags |= anyG << 5;
                 int pwrEnd = gndEnd + ns->PwrCount;
-                int anyP = 0;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
-                flags |= anyP << 4;
+                // [I-1 MLP] load all 6 inline slots with CONSTANT indices (not a count-bounded loop the JIT
+                // serialises) so the scattered NodeStates loads issue in parallel on the 2 load units.
+                // Unused slots hold node 0 (NodeStates[0]≡0) → pack a harmless 0 bit. NodeStates ∈ {0,1}, so
+                // pack a 6-bit word; gnd/pwr masks (from counts) select the real ranges. Bit-exact with the
+                // count-bounded OR: masked bits are exactly [gndStart,gndEnd)/[gndEnd,pwrEnd) ⊆ used slots.
+                int vbits = nodeStates[pay[0]] | (nodeStates[pay[1]] << 1) | (nodeStates[pay[2]] << 2)
+                          | (nodeStates[pay[3]] << 3) | (nodeStates[pay[4]] << 4) | (nodeStates[pay[5]] << 5);
+                int gndMask = (1 << gndEnd) - (1 << gndStart);   // bits [gndStart,gndEnd) = 2^gndEnd − 2^gndStart
+                int pwrMask = (1 << pwrEnd) - (1 << gndEnd);      // bits [gndEnd,pwrEnd)
+                flags |= (vbits & gndMask) != 0 ? 32 : 0;   // any ON path to GND ⇒ Gnd bit (1<<5); setcc, no runtime shift
+                flags |= (vbits & pwrMask) != 0 ? 16 : 0;   // any ON path to VCC ⇒ Pwr bit (1<<4)
             }
             else
             {

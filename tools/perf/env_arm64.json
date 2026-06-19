@@ -1,0 +1,20 @@
+{
+  "platform": "arm64",
+  "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.2GHz)",
+  "mode": "boost @ 3.2GHz (arm_freq=3200, +50mV)",
+  "os": "Debian 13 trixie (aarch64)",
+  "dotnet_sdk": "11.0.100-preview.4 (net10 via roll-forward)",
+  "cores": 4,
+  "base_ghz": 2.4,
+  "boost_ghz": 3.2,
+  "l1d_kb": 64,
+  "l2_kb": 512,
+  "l3_mb": 2,
+  "ram_gb": 16,
+  "bench_hc": 400000,
+  "runs": 5,
+  "pinned": false,
+  "locked": true,
+  "cooled_idle": true,
+  "temp_guard_c": 60
+}

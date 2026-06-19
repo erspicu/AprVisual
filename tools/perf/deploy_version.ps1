@@ -11,6 +11,8 @@ param(
   [string[]]$Platforms = @("x64")
 )
 $ErrorActionPreference = "Stop"
+# `pwsh -File ... -Platforms x64,arm64` arrives as one string "x64,arm64"; split + trim so both forms work
+$Platforms = @($Platforms | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 # parse "<key> <value>" lines
 $kv = @{}

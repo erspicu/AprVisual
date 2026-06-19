@@ -11,6 +11,7 @@ const I18N = {
     sub: "switch-level NES(2A03+2C02)模擬器 · 逐版效能歷史 · 全程 <b>bit-exact</b>",
     hBoost: "📈 吞吐量 boost(hc/s · 越高越好 · ★=里程碑)",
     hCyc: "⏱ 熱路徑週期(cyc/hc · 鎖頻 · 越低越好)",
+    hTemp: "🌡 溫度趨勢(每版測完量一次 · °C · 紅線 = 60°C 停止門檻)",
     hChanges: "🛠 每一版改了什麼", hTable: "📋 完整數據", hAccess: "🔌 存取方式",
     kEvo: "引擎演進(首→末版)", kPeak: "峰值 hc/s", kRt: "距 NES 即時", kBe: "版版 bit-exact",
     meta: (d) => `${esc(d.cpu)} · 模式 <b>${esc(d.mode)}</b> · golden <code>${esc(d.golden_checksum)}</code> · 產生於 ${esc(d.generated)} · ${d.versions.length} 版`,
@@ -29,6 +30,7 @@ const I18N = {
     sub: "switch-level NES (2A03+2C02) simulator · per-version history · <b>bit-exact</b> throughout",
     hBoost: "📈 boost throughput (hc/s · higher = better · ★ = milestone)",
     hCyc: "⏱ hot-path cycles (cyc/hc · clock-locked · lower = better)",
+    hTemp: "🌡 temperature trend (measured after each version · °C · red = 60°C stop guard)",
     hChanges: "🛠 what each version changed", hTable: "📋 full data", hAccess: "🔌 access methods",
     kEvo: "engine evolution (first→last)", kPeak: "peak hc/s", kRt: "from NES real-time", kBe: "all bit-exact",
     meta: (d) => `${esc(d.cpu)} · mode <b>${esc(d.mode)}</b> · golden <code>${esc(d.golden_checksum)}</code> · generated ${esc(d.generated)} · ${d.versions.length} versions`,
@@ -55,7 +57,9 @@ function lineChart(rows, pick, opts) {
   const ok = vals.filter(v => v != null);
   if (!ok.length) return '<div class="mut">—</div>';
   const vmin = Math.min(...ok), vmax = Math.max(...ok), span = (vmax - vmin) || 1;
-  const lo = vmin - span * 0.12, hi = vmax + span * 0.10, n = rows.length;
+  const lo = vmin - span * 0.12, n = rows.length;
+  let hi = vmax + span * 0.10;
+  if (opts.guard != null) hi = Math.max(hi, opts.guard * 1.05);
   const X = (i) => pad + i * (w - 2 * pad) / (n - 1);
   const Y = (v) => h - pad - (v - lo) * (h - 2 * pad) / (hi - lo);
   const color = opts.color || "#39d98a";
@@ -66,7 +70,8 @@ function lineChart(rows, pick, opts) {
   vals.forEach((v, i) => { if (v == null) return; const big = opts.mark && rows[i].milestone; dots += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${big ? 4.6 : 2.8}" fill="${big ? "#ffd24a" : color}" stroke="#0d1420" stroke-width="${big ? 1.4 : 0}"><title>${esc(rows[i].version)}: ${fmt(v)}</title></circle>`; });
   let xl = "";
   rows.forEach((r, i) => { xl += `<text x="${X(i).toFixed(1)}" y="${(h - pad + 15).toFixed(1)}" text-anchor="end" font-size="9" fill="#7f93b3" transform="rotate(-42 ${X(i).toFixed(1)} ${(h - pad + 15).toFixed(1)})">${esc(r.version.replace("2026.", ""))}</text>`; });
-  return `<svg viewBox="0 0 ${w} ${h}">${grid}<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.6"/>${dots}${xl}</svg>`;
+  const guard = opts.guard != null ? `<line x1="${pad}" y1="${Y(opts.guard).toFixed(1)}" x2="${w - pad}" y2="${Y(opts.guard).toFixed(1)}" stroke="#f06a6a" stroke-dasharray="6 4"/><text x="${w - pad}" y="${(Y(opts.guard) - 5).toFixed(1)}" text-anchor="end" font-size="11" fill="#f06a6a">${opts.guard}°C</text>` : "";
+  return `<svg viewBox="0 0 ${w} ${h}">${grid}${guard}<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.6"/>${dots}${xl}</svg>`;
 }
 
 function applyStatic() {
@@ -91,7 +96,12 @@ function render(doc) {
     <div class="k"><div class="big ${be===V.length?'grn':'bad'}">${be}/${V.length}</div><div class="lab">${t.kBe}</div></div>`;
 
   $("chart-boost").innerHTML = lineChart(V, v => v.metrics.hc_s_best3, { color: "#39d98a", mark: true });
-  $("chart-cyc").innerHTML = lineChart(V, v => v.metrics.cyc_per_hc_locked, { color: "#f0a35e" });
+  const hasCyc = V.some(v => v.metrics.cyc_per_hc_locked != null);
+  const hasTemp = V.some(v => v.metrics.temp_c != null);
+  $("h-cyc").style.display = $("chart-cyc").style.display = hasCyc ? "" : "none";
+  if (hasCyc) $("chart-cyc").innerHTML = lineChart(V, v => v.metrics.cyc_per_hc_locked, { color: "#f0a35e" });
+  $("h-temp").style.display = $("chart-temp").style.display = hasTemp ? "" : "none";
+  if (hasTemp) $("chart-temp").innerHTML = lineChart(V, v => v.metrics.temp_c, { color: "#f0a35e", guard: 60 });
 
   const maxb = Math.max(...V.map(v => v.metrics.hc_s_best3));
   $("bars").innerHTML = V.map(v => `<div class="barrow"><span class="bl mv">${esc(v.version)} ${v.milestone ? "★" : ""}</span><span class="bt"><span class="bf" style="width:${(100 * v.metrics.hc_s_best3 / maxb).toFixed(1)}%"></span></span><span class="bn">${fmt(v.metrics.hc_s_best3)} <span class="mut">(${(v.metrics.hc_s_best3 / first.hc_s_best3).toFixed(2)}×)</span></span></div>`).join("");
@@ -99,13 +109,15 @@ function render(doc) {
   let prev = null;
   $("cards").innerHTML = V.map(v => {
     const m = v.metrics; let d = "";
+    const ex = m.cyc_per_hc_locked != null ? "cyc/hc " + fmt(m.cyc_per_hc_locked) : (m.temp_c != null ? m.temp_c + "°C" : "");
     if (prev) d = m.hc_s_best3 > prev * 1.012 ? `<span class="grn">+${(100 * (m.hc_s_best3 - prev) / prev).toFixed(1)}%</span>` : `<span class="mut">${t.flat}</span>`;
     prev = m.hc_s_best3;
-    return `<div class="vc ${v.milestone ? "mile" : ""}"><div class="vh"><span class="mv">${esc(v.version)}</span> <span class="mut">${esc(v.date)} · ${esc(v.tfm)}${v.commit ? " · " + esc(v.commit) : ""}</span> <b>${esc(vtitle(v))}</b></div><div class="vd">${esc(vdesc(v))}</div><div class="vm">${fmt(m.hc_s_best3)} hc/s ${d} · cyc/hc ${fmt(m.cyc_per_hc_locked)} · native ${fmt(m.native_size)} B · ${m.bit_exact ? t.bitok : t.bitbad}</div></div>`;
+    return `<div class="vc ${v.milestone ? "mile" : ""}"><div class="vh"><span class="mv">${esc(v.version)}</span> <span class="mut">${esc(v.date)} · ${esc(v.tfm)}${v.commit ? " · " + esc(v.commit) : ""}</span> <b>${esc(vtitle(v))}</b></div><div class="vd">${esc(vdesc(v))}</div><div class="vm">${fmt(m.hc_s_best3)} hc/s ${d}${ex ? " · " + ex : ""} · native ${fmt(m.native_size)} B · ${m.bit_exact ? t.bitok : t.bitbad}</div></div>`;
   }).join("");
 
-  $("table").innerHTML = `<tr>${t.th.map((h, i) => `<th class="${i >= 2 && i <= 7 ? "num" : ""}">${esc(h)}</th>`).join("")}</tr>` +
-    V.map(v => { const m = v.metrics; return `<tr><td class="mv">${esc(v.version)}${v.milestone ? " ★" : ""}</td><td class="mut">${esc(v.date)}</td><td class="num">${fmt(m.hc_s_best3)}</td><td class="num">${(m.hc_s_best3 / first.hc_s_best3).toFixed(2)}×</td><td class="num">${fmt(m.cyc_per_hc_locked)}</td><td class="num">${m.hc_s_cv_pct}</td><td class="num">${fmt(m.il_size)}</td><td class="num">${fmt(m.native_size)}</td><td class="mut">${esc(v.tfm)}</td><td class="mut">${m.bit_exact ? "✓" : '<span class="bad">✗</span>'}</td></tr>`; }).join("");
+  const th = t.th.slice(); if (!hasCyc && hasTemp) th[4] = state.lang === "en" ? "°C" : "溫度°C";
+  $("table").innerHTML = `<tr>${th.map((h, i) => `<th class="${i >= 2 && i <= 7 ? "num" : ""}">${esc(h)}</th>`).join("")}</tr>` +
+    V.map(v => { const m = v.metrics; return `<tr><td class="mv">${esc(v.version)}${v.milestone ? " ★" : ""}</td><td class="mut">${esc(v.date)}</td><td class="num">${fmt(m.hc_s_best3)}</td><td class="num">${(m.hc_s_best3 / first.hc_s_best3).toFixed(2)}×</td><td class="num">${!hasCyc && hasTemp ? (m.temp_c ?? "—") : fmt(m.cyc_per_hc_locked)}</td><td class="num">${m.hc_s_cv_pct}</td><td class="num">${fmt(m.il_size)}</td><td class="num">${fmt(m.native_size)}</td><td class="mut">${esc(v.tfm)}</td><td class="mut">${m.bit_exact ? "✓" : '<span class="bad">✗</span>'}</td></tr>`; }).join("");
 
   const base = location.href.replace(/[#?].*$/, "").replace(/[^/]*$/, ""), p = doc.platform, a = t.acc;
   $("access").innerHTML = `

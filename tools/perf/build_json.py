@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--boost", required=True)
     ap.add_argument("--sizes")
     ap.add_argument("--locked")
+    ap.add_argument("--temp", help="CSV: Version,Temp (per-version °C; ARM)")
     ap.add_argument("--golden", default=GOLDEN)
     ap.add_argument("--generated", default=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     ap.add_argument("--out", required=True)
@@ -62,6 +63,7 @@ def main():
     boost = {col(r, "version"): r for r in read_csv(a.boost)}
     sizes = {col(r, "version"): r for r in read_csv(a.sizes)} if a.sizes else {}
     locked = {col(r, "version"): r for r in read_csv(a.locked)} if a.locked else {}
+    temps = {col(r, "version"): r for r in read_csv(a.temp)} if a.temp else {}
     with open(a.env, encoding="utf-8") as f:
         env = json.load(f)
 
@@ -95,8 +97,11 @@ def main():
         if v in locked:
             lc = col(locked[v], "lockedcycperhc")
             if lc: metrics["cyc_per_hc_locked"] = int(lc)
-        else:
+        elif not a.temp:
             warn.append(f"{v}: no locked data")
+        if v in temps:
+            tc = col(temps[v], "temp")
+            if tc: metrics["temp_c"] = float(tc)
         versions.append({
             "version": v,
             "date": col(m, "date"),

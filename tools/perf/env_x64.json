@@ -1,0 +1,19 @@
+{
+  "platform": "x64",
+  "cpu": "AMD Ryzen 7 3700X (Zen2)",
+  "mode": "boost",
+  "os": "Windows 11 26200",
+  "dotnet_sdk": "11.0.100-preview.4",
+  "cores": 8,
+  "base_ghz": 3.6,
+  "boost_ghz": 4.4,
+  "l1d_kb": 32,
+  "l2_kb": 512,
+  "l3_mb": 32,
+  "ram_gb": 32,
+  "bench_hc": 400000,
+  "runs": 5,
+  "pinned": false,
+  "locked": false,
+  "cooled_idle": true
+}

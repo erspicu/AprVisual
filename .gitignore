@@ -80,3 +80,7 @@ tools/wla-dx/
 tools/perfview/
 
 __pycache__/
+
+# perf workflow caches (regenerable / large)
+tools/perf/releases/
+tools/perf/raw/

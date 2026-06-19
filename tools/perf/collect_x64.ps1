@@ -99,4 +99,4 @@ $boost | Export-Csv "$OutDir\boost.csv" -NoTypeInformation -Encoding UTF8
 $sizes | Export-Csv "$OutDir\sizes.csv" -NoTypeInformation -Encoding UTF8
 if ($Locked) { $locked | Export-Csv "$OutDir\locked.csv" -NoTypeInformation -Encoding UTF8 }
 Write-Host "`nWROTE $OutDir\boost.csv, sizes.csv$(if($Locked){', locked.csv'})  ($($boost.Count) versions)" -ForegroundColor Green
-Write-Host "next: python tools/perf/build_json.py --platform x64 --metadata tools/perf/metadata.csv --env tools/perf/env_x64.json --boost $OutDir\boost.csv --sizes $OutDir\sizes.csv$(if($Locked){" --locked $OutDir\locked.csv"}) --out $OutDir\x64.json"
+Write-Host "next: python tools/perf/build_json.py --platform x64 --metadata tools/perf/metadata.csv --env tools/perf/env_x64.json --boost $OutDir\boost.csv --sizes $OutDir\sizes.csv$(if($Locked){" --locked $OutDir\locked.csv"}) --out tools/perf/web/x64/data.json"

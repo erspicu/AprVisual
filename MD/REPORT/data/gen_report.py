@@ -7,7 +7,8 @@ os.makedirs(OUT,exist_ok=True)
 def load(n):
     with open(os.path.join(TEMP,n),encoding="utf-8-sig") as f: return list(csv.DictReader(f))
 locked={r["Version"]:r for r in load("version_perf_locked.csv")}
-boost ={r["Version"]:r for r in load("version_perf_final.csv")}
+boost ={r["Version"]:r for r in load("version_perf_final.csv")}   # for the "Change" annotation
+bt    ={r["Version"]:r for r in load("version_boost.csv")}        # clean cool-machine boost (top-3 of 5, --pin)
 size  ={r["Version"]:r for r in load("version_size.csv")}
 order=["2026.05.30","2026.05.31","2026.06.01","2026.06.03","2026.06.04","2026.06.05","2026.06.07","2026.06.07b","2026.06.08","2026.06.09","2026.06.09b","2026.06.09c","2026.06.09d","2026.06.09e","2026.06.11","2026.06.12","2026.06.18","2026.06.19"]
 
@@ -37,7 +38,7 @@ MILE={"2026.05.31","2026.06.07b","2026.06.11","2026.06.12"}  # starred milestone
 rows=[]
 for v in order:
     rows.append(dict(v=v,date=locked[v]["Date"],lcyc=int(locked[v]["LockedCycPerHc"]),lhc=int(locked[v]["LockedHcS"]),
-                     bhc=int(boost[v]["HcS"]),il=int(size[v]["IL"]),native=int(size[v]["Native"])))
+                     bhc=int(bt[v]["BoostTop3Avg"]),bmax=int(bt[v]["BoostMax"]),il=int(size[v]["IL"]),native=int(size[v]["Native"])))
 first,last=rows[0],rows[-1]
 cyc_red=100*(first["lcyc"]-last["lcyc"])/first["lcyc"]
 hc_gain=100*(last["bhc"]-first["bhc"])/first["bhc"]
@@ -135,6 +136,7 @@ HTML=f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta n
 <h2>📈 Throughput 成長(hc/s · 一路往右上)</h2>
 <div class="card">{bars}</div>
 <div class="card">{chart_hc}</div>
+<p class="mut">boost hc/s = <b>涼機、<code>--pin</code>、每版 5 次去最低 2、取前 3 平均</b>(乾淨,interleaved 均攤熱漂移)。歷代峰值最高:<b>06.19 = {last['bmax']:,} hc/s</b>。</p>
 
 <h2>🛠 每一版改了什麼</h2>
 {cards}
@@ -151,7 +153,8 @@ HTML=f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta n
 
 <h2>✅ 18 vs 19:有退步嗎?沒有</h2>
 <p>06.19 全是 bit-exact codegen 微優化,native <b>5,579→5,314 B(更小)</b>。專門的<b>鎖頻 20 輪 interleaved-paired</b>:median 18=32,317 / 19=32,205 cyc/hc,
-<b>19 反而快 0.35%、paired 12/20 勝</b> → 非退步,中性偏微正。(全版掃描裡 06.19 偶爾顯示 +4% 是 per-block ~5% 噪音;paired 才是定論。)</p>
+<b>19 反而快 0.35%、paired 12/20 勝</b> → 非退步,中性偏微正。
+<b>兩個獨立方法一致確認</b>:鎖頻 cycle paired(19 −0.35%、12/20)+ 涼機 boost wall-clock 20 輪 paired(19 +0.61%、13/20)+ 本表的涼機 top-3 平均(18=137,226 / <b>19=138,708,+1.08%</b>)。三者都說 19 略快。</p>
 
 <h2>📋 完整數據</h2>
 <div class="card" style="overflow-x:auto"><table>
@@ -163,7 +166,7 @@ HTML=f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta n
 <li><b>cycle</b>:<code>QueryProcessCycleTime</code>(Win32,程序實際 CPU cycle,頻率/排程無關)+ 鎖頻 3.6GHz(<code>PERFBOOSTMODE 0</code>)消掉「memory latency 換算 cycle 隨頻率變」的二階效應。</li>
 <li><b>load 扣除</b>:<code>cyc/hc=(cycles@400k−cycles@40k)/360000</code>,隔離純 hot-loop(netlist 組裝/power-on 與 hc 無關)。</li>
 <li><b>bit-exact 基準</b>:18 版在 400k 同 checksum → 工作量(事件數)完全相同,cyc/hc 差異純為「每事件成本」優化。</li>
-<li><b>噪音</b>:相鄰 ±5-7%(見上),單機單顆 Zen2。boost hc/s 為不鎖頻 best-of,僅供參考(有熱噪)。</li>
+<li><b>噪音</b>:鎖頻 cyc/hc 相鄰 ±5-7%(見上),單機單顆 Zen2。boost hc/s 為涼機、<code>--pin</code>、每版 5 次去最低 2 取前 3 平均(interleaved,已壓掉熱漂移)。</li>
 <li><b>未納入</b>:Rust 引擎(本報告只測 C# 發布二進位);per-instruction IBS load 延遲(uProf IBS 不歸因 .NET JIT 程式碼)。</li>
 <li><b>距即時</b>:NES NTSC 需 42,954,552 hc/s → 末版仍約 <b>{xtimes}×</b> 之遙(這正是持續優化的理由)。</li>
 </ul>

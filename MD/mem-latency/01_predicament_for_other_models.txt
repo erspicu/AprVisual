@@ -1,0 +1,265 @@
+================================================================================
+AprVisual S1 — single-core hot-path MEMORY-LATENCY wall (consult for external models)
+================================================================================
+(Paste this whole file into another model. It is self-contained: simulator, perf
+evidence, real code, what we tried + measured, hard constraints, and the question.
+Be skeptical: if a suggestion is a known dead-end below, say so and move on.)
+
+--------------------------------------------------------------------------------
+0. THE QUESTION
+--------------------------------------------------------------------------------
+We have an event-driven switch-level MOS circuit simulator whose hot path is
+PROVABLY MEMORY-LATENCY bound (not compute, not bandwidth, not branch-miss). The
+working set is L1-resident; the bottleneck is the SERIALIZED dependent-load chain
+of a pointer-chasing graph walk. We've exhausted the obvious levers. A manual
+within-pop memory-level-parallelism (MLP) unroll measured a CLEAN LOSS.
+
+Q1. Is there ANY remaining technique to reduce the memory-latency stall of a
+    pointer-chasing event-driven relaxation, that we have NOT already tried?
+Q2. Is our reasoning correct that the out-of-order core (128-entry ROB) ALREADY
+    overlaps the few independent loads (within a pop and across consecutive pops),
+    making BOTH manual within-pop and cross-pop MLP redundant?
+Q3. Are we at the genuine architectural ceiling for a single core, or is there a
+    non-obvious lever (data layout / scheduling / prefetch / ordering) left?
+Constraints are HARD: bit-exact (golden checksum), single-core, event-driven
+(no static DAG extractable — 94% one bidirectional SCC), C# (.NET) canonical +
+a bit-identical Rust port.
+
+--------------------------------------------------------------------------------
+1. THE SIMULATOR
+--------------------------------------------------------------------------------
+- Visual6502 / MOSSIM lineage. Whole NES: 2A03 CPU + 2C02 PPU, ~25k "nodes"
+  (wires) joined by ~30k transistors. A transistor whose GATE node is high
+  connects its two channel terminals, merging their nodes into one electrical
+  "group". Each settle step pops a node from a work-list and recomputes it:
+  build the conducting GROUP (BFS over currently-ON transistors), then resolve
+  the group's value via a fixed priority rule.
+- Activity is SPARSE: ~70% of pops form a size-1 group (the node alone); mean
+  group ~1.4 nodes; BFS walk depth mean 1.13 (87.5% depth-1). Connectivity is
+  ~94% ONE big bidirectional SCC, so there is no static DAG to compile/batch.
+- BIT-EXACT is mandatory: a golden whole-chip NodeStates checksum gates every
+  change. Resolution priority (data-dependent): GND > VCC/pull-up > driven >
+  hold-previous > floating(largest-capacitance-node-wins). NodeStates values are
+  strictly {0,1}.
+- Goal: maximize single-core throughput of THIS exact engine (bit-for-bit). NOT
+  many-instance / GPU throughput (that was explicitly ruled out).
+
+--------------------------------------------------------------------------------
+2. PERF EVIDENCE (Raspberry Pi 5 / Cortex-A76 @ LOCKED 3.0GHz, full_palette 400k half-cycles)
+   (ARM is our clean low-variance A/B box; an AMD Zen2 desktop agrees but is noisier)
+--------------------------------------------------------------------------------
+  IPC                = 2.00          (core is ~4-wide -> half the issue width idle)
+  stall_backend      = 19.5% of cycles   <==== THE WALL (memory latency / exec)
+  stall_frontend     = 5.1%          (i-fetch / branch front-end: NOT the problem)
+  L1d-load-miss      = 1.13%         (the whole NodeStates array ~25KB is L1-RESIDENT)
+  LLC/cache-miss     = 1.15%         (so it's LATENCY of L1 hits, not misses/bandwidth)
+  branch-miss        = ~6 MPKI (~245M) -- SECONDARY: its penalty largely HIDES behind
+                       the memory stalls (OoO redirects while waiting on loads)
+  L1i-miss 0.09%, dTLB 0.095%, iTLB ~0  -> front-end / i-cache / TLB are all fine.
+
+Branch-direction profile (entropy of the data-dependent branches; ~50/50 = worst):
+  dispatch class       : cls1=20% / cls2=79% / cls0=0.4%   (STATIC per node -> predictable)
+  cls2 "all gates off?": 71% all-off / 29% some-on  (data-dependent)
+  SetNodeState turn    : 50% on / 50% off            (perfect entropy, lower freq)
+  enqueue range-prune  : 58% keep / 42% skip   (HOTTEST, n=108M/run, data-dependent)
+  fast-path drive/float: 84% drive / 16% float       (skewed -> predictable)
+
+Conclusion from perf: the dominant cost is the serialized dependent loads; the
+branch-misses are secondary and overlap the memory stalls. Fixing branches barely
+moves the wall.
+
+--------------------------------------------------------------------------------
+3. THE EXACT DEPENDENT-LOAD CHAIN (the bottleneck), per popped node `nn`:
+--------------------------------------------------------------------------------
+   nn  ->  NodeInfo[nn]  ->  (gate node ids, inline)  ->  NodeStates[gate]  ->  ...
+Each load's ADDRESS depends on the PREVIOUS load's RESULT (pointer-chasing). The
+CPU cannot prefetch or parallelize a pointer chase; it pays the load-to-use
+latency on each hop, serialized. The gate node ids are already INLINED into the
+NodeInfo record (so it's typically ONE dependent hop NodeInfo->NodeStates[gate],
+not a multi-hop chase), and the data is L1-resident (~4-5 cycle hit latency).
+
+--------------------------------------------------------------------------------
+4. DATA STRUCTURES (real code; SoA, all unmanaged/native; bit-identical on x64+arm64)
+--------------------------------------------------------------------------------
+  static byte*     NodeStates;     // 1 byte/node, values {0,1}, the hot MUTABLE state
+  static NodeInfo* NodeInfos;      // per-node metadata, 16 bytes (4 per 64B line)
+  static ushort*   TransistorList; // overflow adjacency (gate,other,...,0) sublists
+  static byte*     FlagsToState;   // 256-entry LUT: OR-ed group flags -> resolved {0,1}
+  static int*      RecalcList, RecalcListNext;  // double-buffered work-list (per settle wave)
+  static byte*     RecalcHash, RecalcHashNext;  // dedup bitmap for the work-list
+
+  [StructLayout(LayoutKind.Explicit, Size = 16)]   // EXACTLY 16 bytes, NO spare room
+  struct NodeInfo {
+    [FieldOffset(0)]  NodeFlags Flags;   // 1B, mutable (SetHigh/SetLow at runtime)
+    [FieldOffset(1)]  byte Inline;       // 1 = use InlinePayload; 0 = use the Tlist ints
+    [FieldOffset(2)]  byte C1c2Count;    // # (gate,other) channel PAIRS, inline
+    [FieldOffset(3)]  byte GndPwr;       // GndCount=low nibble, PwrCount=high nibble
+    [FieldOffset(4)]  fixed ushort InlinePayload[6];  // 12B: [c1c2 pairs][gnd gates][pwr gates]
+    [FieldOffset(4)]  int TlistC1c2s;    // (union) overflow: index into TransistorList
+    [FieldOffset(8)]  int TlistC1gnd;
+    [FieldOffset(12)] int TlistC1pwr;
+  }
+  // ~96% of nodes are "inline" (2*C1c2Count + GndCount + PwrCount <= 6); ~4% overflow.
+  // NodeFlags bits: State=1<<0, PullUp=1<<1, SetHigh=1<<2, SetLow=1<<3, Pwr=1<<4,
+  //                 Gnd=1<<5, ForceCompute=1<<6, HasCallback=1<<7.
+
+--------------------------------------------------------------------------------
+5. THE HOT LOOP (real code)
+--------------------------------------------------------------------------------
+// (a) settle-wave pop loop. Double-buffered: SetNodeState appends to the NEXT wave.
+while (RecalcListNextCount != 0) {
+    /* swap RecalcList<->RecalcListNext, RecalcHash<->RecalcHashNext, take count */
+    int* recalcList = RecalcList; byte* recalcHash = RecalcHash; int cnt = RecalcListCount;
+    for (int i = 0; i < cnt; i++) {
+        int nn = recalcList[i];
+        if (recalcHash[nn] != 0) { recalcHash[nn] = 0; RecalcNode(nn); }  // <-- the pop
+    }
+}
+
+// (b) per-pop dispatch. cls = IsPureLogic[nn] is STATIC (set once at load).
+//   cls 1 = static singleton  -> RecalcNodeFast (group provably {nn})
+//   cls 2 = dynamic-singleton candidate -> if all its c1c2 channel gates are OFF this
+//           wave the group is {nn} (RecalcNodeFast); else BFS / the 2-node "pair path"
+//   cls 0 = must use the full BFS (callbacks / forceCompute / supply)
+void RecalcNode(int nn) {
+    byte cls = IsPureLogic[nn];
+    if (cls == 1) { RecalcNodeFast(nn); return; }
+    if (cls == 2) {
+        NodeInfo* ns = NodeInfos + nn; byte* nodeStates = NodeStates;
+        if (ns->Inline != 0) {
+            ushort* pay = ns->InlinePayload; int n2 = ns->C1c2Count << 1;
+            for (int k = 0; k < n2; k += 2)
+                if (nodeStates[pay[k]] != 0) { /* a channel conducts -> 2-node pair-path
+                    or fall to BFS; resolves the group {nn,o} inline, bit-exact */ ... return; }
+        } else { /* overflow: scan TransistorList for a conducting channel */ }
+        RecalcNodeFast(nn); return;   // all channels OFF -> singleton
+    }
+FallbackBFS:
+    byte newState = ComputeNodeGroup(nn);                 // BFS over ON transistors + LUT
+    for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
+}
+
+// (c) the O(1) singleton resolver. THE per-pop dependent loads live here:
+//     NodeInfos[nn] (1 line) -> NodeStates[gate] for a few SCATTERED gate ids.
+void RecalcNodeFast(int nn) {
+    NodeInfo* ns = NodeInfos + nn; byte* nodeStates = NodeStates;
+    int flags = (int)ns->Flags;
+    if (ns->Inline != 0) {
+        ushort* pay = ns->InlinePayload;
+        int gndStart = ns->C1c2Count << 1, gndEnd = gndStart + ns->GndCount;
+        int anyG = 0; for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]]; // OR-all, branchless
+        flags |= anyG << 5;                                                                // -> Gnd bit
+        int pwrEnd = gndEnd + ns->PwrCount;
+        int anyP = 0; for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];
+        flags |= anyP << 4;                                                                // -> Pwr bit
+    } else { /* overflow: walk TransistorList sublists, same OR-all */ }
+    if (flags != 0) SetNodeState(nn, FlagsToState[flags]);  // flags==0 (float) => hold previous, no-op
+}
+
+// (d) write + enqueue neighbours into the NEXT wave. The HOTTEST scattered-load
+//     loop (turn-on case shown). Reads nextHash[c1] + nodeStates[c1]/[c2] (scattered)
+//     per transistor. The range test (c1<rA||c1>=rB) is the P-1 same-state prune in
+//     class-major-renumbered id space (a +15% win; do not perturb its semantics).
+void SetNodeState(int nn, byte newState) {
+    byte* nodeStates = NodeStates;
+    if (nodeStates[nn] == newState) return;     // ~84% of pops are no-change -> early out
+    nodeStates[nn] = newState;
+    if (newState == 0) { /* turn-off: walk a PRE-FILTERED endpoint list, 4 ids/64-bit load */ }
+    else {
+        int* nextList = RecalcListNext; byte* nextHash = RecalcHashNext; int nextCount = RecalcListNextCount;
+        ushort* p = TransistorList + NodeTlistGates[nn];
+        int rA = RangePruneA, rB = RangePruneB;
+        while (true) {
+            ulong quad = Unsafe.ReadUnaligned<ulong>(p);   // c1a,c2a,c1b,c2b (four ushort node ids)
+            int c1a = (ushort)quad; if (c1a == 0) break; int c2a = (ushort)(quad >> 16);
+            if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0)
+                { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+            int c1b = (ushort)(quad >> 32); if (c1b == 0) break; int c2b = (ushort)(quad >> 48);
+            if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0)
+                { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+            p += 4;
+        }
+        RecalcListNextCount = nextCount;
+    }
+}
+
+--------------------------------------------------------------------------------
+6. WHAT WE'VE ALREADY DONE (all bit-exact, all shipped)
+--------------------------------------------------------------------------------
+- Node RENUMBERING for locality: class-major + "self-captured" first-touch pop-order
+  renumber = +6.2%. KEY finding: the locality objective that worked was the PRUNED
+  cascade's POP ORDER (temporal), NOT raw graph density (density-only renumber = +-0,
+  because the hot set is already L1-resident).
+- INLINE node adjacency: embed the gate ids into NodeInfo => one fewer pointer hop, +4%.
+- Dynamic-SINGLETON fast-path (R-1): cheap "all channels off?" test -> O(1) resolve, +18.6%.
+- Two-node PAIR fast-path: resolve provably-2-node groups inline (77% of BFS walks).
+- Event-count PRUNES (P-2/3/4): statically suppress provably-no-op enqueues, +9%.
+- SoA unmanaged layout, double-buffered settle, 256-entry resolution LUT (the priority
+  resolve is ALREADY a single LUT load at runtime, not an if/else tree).
+
+--------------------------------------------------------------------------------
+7. WHAT WE TRIED FOR THIS WALL AND IT FAILED (measured, clean)
+--------------------------------------------------------------------------------
+- WITHIN-POP MLP unroll (load all inline gate slots unconditionally with constant
+  indices + a bitmask, instead of the count-bounded OR loop, to issue the scattered
+  NodeStates loads in parallel): CLEAN LOSS on the Pi = +1.77% cycles, 0/10 paired
+  wins. Interesting: it DID cut branch-misses -2.5% (the branchless form worked),
+  but the gate count is mostly 1-2 (inline FITS-fixed only 56.6%), so the extra
+  unconditional dummy loads cost more memory than the branch saving. Net loss.
+  => The within-pop chain has too FEW independent loads to benefit; the OoO core
+     already overlaps the 1-2 real loads across consecutive pops via the 128-ROB.
+- CROSS-POP pairing (process two independent size-1 pops' loads in parallel):
+  reasoned to BREAK bit-exactness — cls-1 nodes are logic-gate outputs that commonly
+  GATE each other, so reading pop B's gate states before pop A's write violates the
+  in-wave Gauss-Seidel order; an independence check (is A a gate of B?) costs more
+  than the overlap saves. And the OoO likely already overlaps independent pops anyway.
+
+--------------------------------------------------------------------------------
+8. DEAD-ENDS (measured/decided — do NOT re-suggest these)
+--------------------------------------------------------------------------------
+- IR interpreter -2.5%; AOT/codegen 3-6x SLOWER (batch re-evals ~15k nodes/half-cycle
+  when only hundreds change); GPU single-instance ~10x slower.
+- Bit-parallel / dense BFS 156x slower (walks avg 1.4 nodes; overhead crushes tiny walks).
+- Per-chip / fine-grained parallelism 15x slower (per-wave work too small to amortize
+  sync). SINGLE-CORE ONLY for this metric.
+- "Maintain active-ON-gate counters in SetNodeState for O(1) recalc" = -6% (the
+  set-state walk is ~10x hotter than the fast-path; counter maintenance overflows it).
+- Software-prefetch the NEXT work-list entry = NEUTRAL (the latency is on the dependent
+  chain WITHIN a pop, not the work-list stream).
+- Density-only locality renumber = +-0 (hot set already L1-resident).
+- Denormalize / "fat node" (cache gate states in each node) = same as the -6% counters
+  (moves cost from read side to write side; a clock flip dirties thousands of lines).
+- RCM / bandwidth-minimizing reorder = MOOT for a LATENCY problem (L1 hit is ~4-5cyc
+  regardless of address clustering; clustering only helps capacity/conflict misses,
+  and we have ~none). branchless priority-max for the resolve = MOOT (already a LUT).
+
+--------------------------------------------------------------------------------
+9. HARD CONSTRAINTS
+--------------------------------------------------------------------------------
+- BIT-EXACT: a whole-chip NodeStates checksum must stay identical (any change is
+  rejected on a checksum mismatch before speed is even looked at).
+- SINGLE-CORE; the metric is one-core throughput of THIS engine.
+- EVENT-DRIVEN, sparse (70% size-1 pops); 94% one bidirectional SCC -> no static DAG.
+- Data is L1-RESIDENT (so it's load-to-use LATENCY, not misses/bandwidth).
+- The OoO core (Cortex-A76 / Zen2, ~128-entry ROB) ALREADY overlaps the few
+  independent loads it can reach.
+- NodeInfo is EXACTLY 16 bytes; growing it (e.g., to cache more) hurts the hot
+  cache footprint (it was rejected).
+- In-wave POP ORDER is semantically load-bearing (Gauss-Seidel + floating/hold
+  tie-breaks): reordering pops within a settle wave changes the result.
+- C# (.NET RyuJIT) is canonical; a bit-identical Rust (LLVM) port exists. Branchless
+  rewrites frequently SIGN-FLIP between the two compilers (JIT helped / LLVM hurt).
+
+--------------------------------------------------------------------------------
+10. RESTATE THE QUESTION
+--------------------------------------------------------------------------------
+Given ALL of the above: is there a remaining, BIT-EXACT, single-core technique to
+reduce the MEMORY-LATENCY stall (the 19.5% backend stall) of this pointer-chasing
+event-driven relaxation — data-layout, scheduling, software-pipelining, prefetch,
+or ordering — that is NOT in the dead-end list and is NOT already captured by the
+out-of-order core? Or is this the genuine architectural ceiling for the model?
+Be concrete and skeptical; prefer naming a specific mechanism + its expected effect
+on the backend-stall fraction over generic advice. If you believe we are at the
+ceiling, say so plainly and explain why the few independent loads per pop cannot be
+overlapped further than the ROB already does.
+================================================================================

@@ -53,6 +53,7 @@ def main():
     ap.add_argument("--sizes")
     ap.add_argument("--locked")
     ap.add_argument("--temp", help="CSV: Version,Temp (per-version °C; ARM)")
+    ap.add_argument("--merge", help="existing data.json: reuse versions absent from --boost, update those present (incremental release update)")
     ap.add_argument("--golden", default=GOLDEN)
     ap.add_argument("--generated", default=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     ap.add_argument("--out", required=True)
@@ -66,18 +67,25 @@ def main():
     temps = {col(r, "version"): r for r in read_csv(a.temp)} if a.temp else {}
     with open(a.env, encoding="utf-8") as f:
         env = json.load(f)
+    existing = {}
+    if a.merge and os.path.isfile(a.merge):
+        with open(a.merge, encoding="utf-8") as f:
+            existing = {x["version"]: x for x in json.load(f).get("versions", [])}
 
-    versions, warn, n_be = [], [], 0
+    versions, warn = [], []
     for v in order:
         m = meta[v]; b = boost.get(v)
         if not b:
-            warn.append(f"{v}: no boost data — skipped"); continue
+            if v in existing:
+                versions.append(existing[v])             # merge: keep prior measurement
+            else:
+                warn.append(f"{v}: no boost data — skipped")
+            continue
         samples = parse_samples(col(b, "samples"))
         best3 = int(col(b, "boosttop3avg") or 0) or (round(statistics.mean(sorted(samples, reverse=True)[:3])) if samples else 0)
         mx = int(col(b, "boostmax") or 0) or (max(samples) if samples else 0)
         ck = (col(b, "checksum") or a.golden).strip()
         be = ck.lower() == a.golden.lower()
-        n_be += be
         metrics = {
             "hc_s_best3": best3,
             "hc_s_median": round(statistics.median(samples)) if samples else best3,
@@ -133,6 +141,7 @@ def main():
     # ---- validate + summary ----
     if not versions:
         print("ERROR: no versions produced", file=sys.stderr); sys.exit(1)
+    n_be = sum(1 for vv in versions if vv["metrics"].get("bit_exact"))
     first, last = versions[0]["metrics"]["hc_s_best3"], versions[-1]["metrics"]["hc_s_best3"]
     print(f"WROTE {a.out}  ({len(versions)} versions, {os.path.getsize(a.out)} B)")
     print(f"  boost {first:,} -> {last:,} hc/s = {last/first:.2f}x   realtime ~{doc['realtime_hc_s']//last}x away")

@@ -50,7 +50,7 @@ function Get-Exe($v) {
   return $exe
 }
 
-$boost=@(); $sizes=@(); $locked=@()
+$boost=@(); $sizes=@(); $lockedRows=@()
 if ($Locked) { & "$PSScriptRoot\..\cpu_lock_3.6ghz.bat" | Out-Null; Write-Host "CPU locked to base clock" -ForegroundColor Yellow }
 try {
   foreach ($v in $Versions) {
@@ -86,7 +86,7 @@ try {
       $so=""; $c4=[Math]::Min([CT]::RunCycles($exe,$args4,[ref]$so),[CT]::RunCycles($exe,$args4,[ref]$so))
       $c0=[CT]::RunCycles($exe,"--benchmark `"$rom`" --bench-hc 40000 --extra-ram --system-def-dir `"$sd`"",[ref]$so)
       $cphc=[Math]::Round(($c4-$c0)/($BenchHc-40000))
-      $locked += [pscustomobject]@{Version=$v;LockedCycPerHc=[int]$cphc}
+      $lockedRows += [pscustomobject]@{Version=$v;LockedCycPerHc=[int]$cphc}
       $line += "  cyc/hc=$cphc"
     }
     Write-Host $line
@@ -97,6 +97,6 @@ try {
 
 $boost | Export-Csv "$OutDir\boost.csv" -NoTypeInformation -Encoding UTF8
 $sizes | Export-Csv "$OutDir\sizes.csv" -NoTypeInformation -Encoding UTF8
-if ($Locked) { $locked | Export-Csv "$OutDir\locked.csv" -NoTypeInformation -Encoding UTF8 }
+if ($Locked) { $lockedRows | Export-Csv "$OutDir\locked.csv" -NoTypeInformation -Encoding UTF8 }
 Write-Host "`nWROTE $OutDir\boost.csv, sizes.csv$(if($Locked){', locked.csv'})  ($($boost.Count) versions)" -ForegroundColor Green
 Write-Host "next: python tools/perf/build_json.py --platform x64 --metadata tools/perf/metadata.csv --env tools/perf/env_x64.json --boost $OutDir\boost.csv --sizes $OutDir\sizes.csv$(if($Locked){" --locked $OutDir\locked.csv"}) --out tools/perf/web/x64/data.json"

@@ -37,7 +37,9 @@ param(
     [switch]$Publish,
     [switch]$BuildRust,
     [string]$Title,
-    [string]$Notes
+    [string]$Notes,
+    [switch]$UpdatePerf,        # after publishing, auto-run the perf workflow (measure x64 + update /version dashboard)
+    [string]$PerfTitle          # change description for the perf metadata row (else a stub is added)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -150,3 +152,20 @@ Step "7/7  done"
 Write-Host "  zip:      $Zip"
 Write-Host "  download: $AssetUrl"
 Write-Host "  -> update WebSite/index.html: bump benchmark-* download links to $Tag, and the 'Latest release' line." -ForegroundColor Yellow
+
+# 8. (optional) auto-update the perf workflow / /version dashboard with this release -----------------
+if ($UpdatePerf) {
+    if (-not $Publish) {
+        Write-Host "`n-UpdatePerf ignored on a dry run (no -Publish; release asset not available to measure)." -ForegroundColor Yellow
+    } else {
+        Step "8/8  perf workflow: measure x64 $Version + update /version dashboard"
+        $runAll = Join-Path $PSScriptRoot 'perf\run_all.ps1'
+        $pt = if ($PerfTitle) { $PerfTitle } else { '' }
+        try {                                            # best-effort: the release already published
+            & $runAll -Platform x64 -EnsureVersion $Version -Title $pt -Deploy
+            Write-Host "  perf dashboard updated: https://baxermux.org/myemu/AprVisual/version/" -ForegroundColor Green
+        } catch {
+            Write-Host "  perf update FAILED: $_  — run tools/perf/run_all.ps1 -EnsureVersion $Version -Deploy manually" -ForegroundColor Red
+        }
+    }
+}

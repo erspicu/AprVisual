@@ -99,6 +99,11 @@ namespace AprVisual.Sim
         internal static long DiagBrTurnOn, DiagBrTurnOff;  // SetNodeState newState !=0 vs ==0
         internal static long DiagBrPruneKeep, DiagBrPruneSkip;  // turn-on enqueue range-prune cond true(keep) vs false(skip), per-transistor (hottest)
         internal static long DiagBrFastDrive, DiagBrFastFloat;  // RecalcNodeFast flags!=0 (write) vs ==0 (float no-op)
+        // [co-read diag — Scheme B feasibility] does merging two scattered NodeStates byte-loads into ONE
+        // 64-bit bitset-word load have a target? Counts how often co-read node ids fall in the SAME word
+        // (id>>6 equal). Low % ⇒ a NodeStates bitset mirror can't merge loads ⇒ Scheme B dead. #if DEBUG only.
+        internal static long DiagCoRiseSame, DiagCoRiseTot;     // rising-path (c1,c2) pair in same 64-bit word (hottest co-read, n~108M)
+        internal static long DiagCoFast1Word, DiagCoFastMulti;  // fast pops with >=2 gnd/pwr gates: ALL gates in one 64-bit word
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {
@@ -604,6 +609,7 @@ namespace AprVisual.Sim
                         int c2a = (ushort)(quad >> 16);
 #if DEBUG
                         if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                        DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
                         if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                         int c1b = (ushort)(quad >> 32);
@@ -611,6 +617,7 @@ namespace AprVisual.Sim
                         int c2b = (ushort)(quad >> 48);
 #if DEBUG
                         if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                        DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
                         if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                         p += 4;

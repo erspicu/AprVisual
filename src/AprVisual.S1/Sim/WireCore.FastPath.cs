@@ -306,6 +306,15 @@ namespace AprVisual.Sim
                 int anyP = 0;
                 for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
                 flags |= anyP << 4;
+#if DEBUG
+                if (pwrEnd - gndStart >= 2)   // [co-read B] >=2 gnd/pwr gates: are they all in one 64-bit word?
+                {
+                    DiagCoFastMulti++;
+                    int mn = int.MaxValue, mx = -1;
+                    for (int k = gndStart; k < pwrEnd; k++) { int w = pay[k] >> 6; if (w < mn) mn = w; if (w > mx) mx = w; }
+                    if (mn == mx) DiagCoFast1Word++;
+                }
+#endif
             }
             else
             {

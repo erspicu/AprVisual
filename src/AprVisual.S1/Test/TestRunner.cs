@@ -605,6 +605,13 @@ namespace AprVisual.Test
                         Console.WriteLine($"#   turn-on enqueue prune [keep / skip] (per-transistor, hottest): {Split(WireCore.DiagBrPruneKeep, WireCore.DiagBrPruneSkip)}");
                         Console.WriteLine($"#   fast-path [drive(write) / float(no-op)]: {Split(WireCore.DiagBrFastDrive, WireCore.DiagBrFastFloat)}");
                     }
+                    {
+                        // [co-read B feasibility] can a NodeStates bitset mirror merge two scattered byte
+                        // loads into one 64-bit word load? Only if the co-read node ids share a word (id>>6).
+                        // Low % => Scheme B (+ co-read renumber) is dead.
+                        double Rp(long a, long b) => b == 0 ? 0 : 100.0 * a / b;
+                        Console.WriteLine($"# [co-read B] rising (c1,c2) same 64-bit word: {Rp(WireCore.DiagCoRiseSame, WireCore.DiagCoRiseTot):F1}% (n={WireCore.DiagCoRiseTot:N0})  |  fast-path >=2-gate pops all-in-1-word: {Rp(WireCore.DiagCoFast1Word, WireCore.DiagCoFastMulti):F1}% (n={WireCore.DiagCoFastMulti:N0})");
+                    }
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

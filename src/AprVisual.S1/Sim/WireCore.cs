@@ -286,6 +286,7 @@ namespace AprVisual.Sim
             }
             tlOff.Add(0); tlOff.Add(0); tlOff.Add(0); tlOff.Add(0);
             TransistorListOff = AllocArray<ushort>(tlOff.Count);
+            _transistorListOffLength = tlOff.Count;
             for (int i = 0; i < tlOff.Count; i++) TransistorListOff[i] = (ushort)tlOff[i];
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
@@ -298,9 +299,11 @@ namespace AprVisual.Sim
             }
         }
 
-        // length of TransistorList (for diagnostics)
+        // length of TransistorList / TransistorListOff (for diagnostics)
         public static int TransistorListLength => _transistorListLength;
         private static int _transistorListLength;
+        public static int TransistorListOffLength => _transistorListOffLength;
+        private static int _transistorListOffLength;
 
         /// <summary>Free every unmanaged allocation owned by WireCore. Idempotent.</summary>
         public static void Shutdown()

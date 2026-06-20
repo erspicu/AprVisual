@@ -551,6 +551,31 @@ namespace AprVisual.Test
                 System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
                 System.GC.WaitForPendingFinalizers();
                 System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                // [array-footprint] hot-array base + byte size — for cache-miss data-address bucketing
+                // (ARM SPE / AMD IBS) + footprint analysis (which arrays exceed L1d/L2). Printed once at
+                // setup, zero hot-path cost. DEBUG-only (Release output stays clean); sizes are config-
+                // independent. Pointer access needs an unsafe block.
+#if DEBUG
+                unsafe
+                {
+                    int nc = WireCore.NodeCount;
+                    void Fp(string name, ulong b, long bytes) =>
+                        Console.WriteLine($"#   {name,-18} 0x{b:X12}..0x{b + (ulong)bytes:X12} {bytes / 1024.0,9:F1} KB");
+                    Console.WriteLine($"# [array-footprint] NodeCount={nc:N0}  (A76: L1d=64KB, L2=512KB/core)");
+                    Fp("NodeStates",        (ulong)WireCore.NodeStates,        nc);
+                    Fp("NodeInfos",         (ulong)WireCore.NodeInfos,         (long)nc * 16);
+                    Fp("RecalcList",        (ulong)WireCore.RecalcList,        (long)nc * 4);
+                    Fp("RecalcListNext",    (ulong)WireCore.RecalcListNext,    (long)nc * 4);
+                    Fp("RecalcHash",        (ulong)WireCore.RecalcHash,        nc);
+                    Fp("RecalcHashNext",    (ulong)WireCore.RecalcHashNext,    nc);
+                    Fp("NodeTlistGates",    (ulong)WireCore.NodeTlistGates,    (long)nc * 4);
+                    Fp("NodeTlistGatesOff", (ulong)WireCore.NodeTlistGatesOff, (long)nc * 4);
+                    Fp("IsPureLogic",       (ulong)WireCore.IsPureLogic,       nc);
+                    Fp("TransistorList",    (ulong)WireCore.TransistorList,    (long)WireCore.TransistorListLength * 2);
+                    Fp("TransistorListOff", (ulong)WireCore.TransistorListOff, (long)WireCore.TransistorListOffLength * 2);
+                    Fp("FlagsToState",      (ulong)WireCore.FlagsToState,      256);
+                }
+#endif
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);

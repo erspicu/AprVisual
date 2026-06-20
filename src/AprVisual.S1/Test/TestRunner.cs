@@ -14,6 +14,7 @@ namespace AprVisual.Test
     internal static class TestRunner
     {
         private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
+        private static bool _dumpArrayFootprint;   // --array-footprint: print hot unmanaged-array base+size at bench setup (for IBS/SPE data-address bucketing)
         private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
 
         public static int Run(string[] args)
@@ -60,6 +61,7 @@ namespace AprVisual.Test
                     case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
                     case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
+                    case "--array-footprint": _dumpArrayFootprint = true; break;                              // print hot unmanaged-array base+size at setup (IBS/SPE bucketing)
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -553,9 +555,9 @@ namespace AprVisual.Test
                 System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
                 // [array-footprint] hot-array base + byte size — for cache-miss data-address bucketing
                 // (ARM SPE / AMD IBS) + footprint analysis (which arrays exceed L1d/L2). Printed once at
-                // setup, zero hot-path cost. DEBUG-only (Release output stays clean); sizes are config-
-                // independent. Pointer access needs an unsafe block.
-#if DEBUG
+                // setup, zero hot-path cost. Opt-in via --array-footprint (works in Release, for IBS/SPE
+                // data-address bucketing); sizes are config-independent. Pointer access needs unsafe.
+                if (_dumpArrayFootprint)
                 unsafe
                 {
                     int nc = WireCore.NodeCount;
@@ -575,7 +577,6 @@ namespace AprVisual.Test
                     Fp("TransistorListOff", (ulong)WireCore.TransistorListOff, (long)WireCore.TransistorListOffLength * 2);
                     Fp("FlagsToState",      (ulong)WireCore.FlagsToState,      256);
                 }
-#endif
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.Step(hcCount);

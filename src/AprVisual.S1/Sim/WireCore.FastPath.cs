@@ -340,14 +340,7 @@ namespace AprVisual.Sim
 #if DEBUG
             if (flags != 0) DiagBrFastDrive++; else DiagBrFastFloat++;   // [branch-dist] fast-path driven vs floating
 #endif
-            // EARLY-OUT BEFORE the 50/50 dispatch: ~84% of fast pops are no-change → the direction branch
-            // must only fire on the ~16% that actually change (else the 50/50 dispatch runs on every pop and
-            // branch-miss balloons). SetNodeStateLow/High re-check (redundant, predictably-false here).
-            if (flags != 0)
-            {
-                byte v = FlagsToState[flags];
-                if (nodeStates[nn] != v) { if (v == 0) SetNodeStateLowNoCheck(nn); else SetNodeStateHighNoCheck(nn); }   // outer check done → NoCheck (no redundant re-check / re-read)
-            }
+            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
         }
 
         // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──

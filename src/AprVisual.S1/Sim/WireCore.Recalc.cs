@@ -501,8 +501,8 @@ namespace AprVisual.Sim
                             flags |= (anyG << 5) | (anyP << 4);
                             byte v = flags != 0 ? FlagsToState[flags]
                                    : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
-                            if (v == 0) { SetNodeStateLow(nn);  SetNodeStateLow(o); }   // v loop-invariant for the pair → hoist dispatch
-                            else        { SetNodeStateHigh(nn); SetNodeStateHigh(o); }
+                            SetNodeState(nn, v);
+                            SetNodeState(o, v);
 #if DEBUG
                             DiagPairPath++;
 #endif
@@ -522,9 +522,7 @@ namespace AprVisual.Sim
             }
         FallbackBFS:
             byte newState = ComputeNodeGroup(nn);
-            // newState is loop-invariant → hoist the turn-on/off dispatch OUT of the per-member loop
-            if (newState == 0) { for (int i = 0; i < _groupCount; i++) SetNodeStateLow(_groupBuf[i]); }
-            else               { for (int i = 0; i < _groupCount; i++) SetNodeStateHigh(_groupBuf[i]); }
+            for (int i = 0; i < _groupCount; i++) SetNodeState(_groupBuf[i], newState);
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
@@ -538,116 +536,108 @@ namespace AprVisual.Sim
             }
         }
 
-        // ── SetNodeState split into two direction-specialised chains (2026-06-20) ──
-        // The old SetNodeState(nn,newState) carried a 50/50 `if(newState==0)` dispatch (perfect entropy:
-        // every node that rises must fall) whose two arms are SEMANTICALLY OPPOSITE — turn-OFF SPLITS
-        // groups (walks the pre-filtered TransistorListOff, no prune) while turn-ON MERGES them (walks
-        // TransistorList with the P-1 same-state range-prune). They can't be unified bit-exactly. So
-        // instead we SPLIT the method: callers whose newState is loop-invariant (group writeback, B1
-        // pair) hoist the branch OUT; the fast-path dispatches once on the resolved value. i-cache is
-        // near-empty (L1i miss 0.09%) so the duplicated chains cost nothing. Bit-exact (same logic).
-
-        // turn-OFF (newState 0): the transistors nn gates open ⇒ their channel groups SPLIT ⇒ re-enqueue
-        // every endpoint of the pre-filtered falling-writeback list (no prune — a split can change a value
-        // even if endpoints were equal). c1 guaranteed non-supply (supply normalised onto c2 at build).
-        // early-out WRAPPER (group writeback / B1 — per-member, caller hasn't pre-checked)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateLow(int nn) { if (NodeStates[nn] != 0) SetNodeStateLowNoCheck(nn); }
-        // NoCheck: caller already verified nn changes to 0 (fast-path checked nodeStates[nn]!=v) — skip the
-        // early-out + the redundant second read of nodeStates[nn].
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateLowNoCheck(int nn)
+        private static void SetNodeState(int nn, byte newState)
         {
 #if DEBUG
-            HpSetNodeState++;   // [hotpath-calls]
+            HpSetNodeState++;   // [hotpath-calls] entry — counts ALL calls incl. the no-change early-out below
 #endif
-            byte* nodeStates = NodeStates;
-            nodeStates[nn] = 0;
+            byte* nodeStates = NodeStates;   // hoist once: the byte store below otherwise makes the JIT
+                                             // conservatively re-load the NodeStates base for the on-walk
+                                             // (store-to-pointer aliasing). One local keeps it in a register.
+            if (nodeStates[nn] == newState) return;
+            nodeStates[nn] = newState;
 #if DEBUG
-            DiagStateChanges++;
-            if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }
-            DiagBrTurnOff++;   // [branch-dist]
+            DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
+            if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)
+            if (newState == 0) DiagBrTurnOff++; else DiagBrTurnOn++;   // [branch-dist] SetNodeState direction
 #endif
-            int tlistOff = NodeTlistGatesOff[nn];
-            if (tlistOff == 0) return;
-            int* nextList = RecalcListNext;
-            byte* nextHash = RecalcHashNext;
-            int nextCount = RecalcListNextCount;
-            // Pre-filtered endpoint list (endpoints below RangePruneS removed at Reset = the P-2/supply
-            // no-op class), so no range compares; four endpoint ids per 64-bit load.
-            ushort* p = TransistorListOff + tlistOff;
-            while (true)
+            if (newState == 0)
             {
-                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
-                int c0 = (ushort)quad;
-                if (c0 == 0) break;
-                if (nextHash[c0] == 0) { nextList[nextCount++] = c0; nextHash[c0] = 1; }
-                int c1 = (ushort)(quad >> 16);
-                if (c1 == 0) break;
-                if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
-                int c2 = (ushort)(quad >> 32);
-                if (c2 == 0) break;
-                if (nextHash[c2] == 0) { nextList[nextCount++] = c2; nextHash[c2] = 1; }
-                int c3 = (ushort)(quad >> 48);
-                if (c3 == 0) break;
-                if (nextHash[c3] == 0) { nextList[nextCount++] = c3; nextHash[c3] = 1; }
-                p += 4;
+                int tlistOff = NodeTlistGatesOff[nn];
+                if (tlistOff == 0) return;
+                // Inline enqueue (suggest #04): hoist queue state to locals; c1 is guaranteed
+                // non-supply by AddTransistor (Module.cs:125 normalises supply onto c2), so we
+                // can skip EnqueueNode's `nn == Npwr || nn == Ngnd` check for c1.
+                // #G2 loop unswitch: newState is loop-invariant 0/1 — specialise the two cases
+                // so the gate-low branch (which has 3 extra checks per transistor) compiles to
+                // a tighter hot loop in the newState==1 case (no c2 enqueue at all).
+                int* nextList = RecalcListNext;
+                byte* nextHash = RecalcHashNext;
+                int nextCount = RecalcListNextCount;
+                // Falling writeback walks a pre-filtered endpoint list: endpoints below RangePruneS were
+                // removed at Reset after the prune ranges were verified, so this hot loop has no range
+                // compares and reads four endpoint ids per 64-bit load. The removed endpoints are the same
+                // P-2/supply no-op class that the old range check skipped at runtime. Bit-exact.
+                ushort* p = TransistorListOff + tlistOff;
+                while (true)
+                {
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c0 = (ushort)quad;
+                    if (c0 == 0) break;
+                    if (nextHash[c0] == 0) { nextList[nextCount++] = c0; nextHash[c0] = 1; }
+                    int c1 = (ushort)(quad >> 16);
+                    if (c1 == 0) break;
+                    if (nextHash[c1] == 0) { nextList[nextCount++] = c1; nextHash[c1] = 1; }
+                    int c2 = (ushort)(quad >> 32);
+                    if (c2 == 0) break;
+                    if (nextHash[c2] == 0) { nextList[nextCount++] = c2; nextHash[c2] = 1; }
+                    int c3 = (ushort)(quad >> 48);
+                    if (c3 == 0) break;
+                    if (nextHash[c3] == 0) { nextList[nextCount++] = c3; nextHash[c3] = 1; }
+                    p += 4;
+                }
+                RecalcListNextCount = nextCount;
             }
-            RecalcListNextCount = nextCount;
-        }
-
-        // turn-ON (newState 1): the transistors nn gates conduct ⇒ channel groups MERGE ⇒ single-sided
-        // enqueue of c1 (BFS traverses the ON channel to c2), WITH the P-1 same-state range-prune:
-        // skip c1 if c1,c2 already equal (merging equal-state groups is a no-op) UNLESS c1 is in the
-        // "unsafe" outer id range (no-PullUp/ForceCompute) that must always enqueue ⇒ c1<rA || c1>=rB.
-        // keep-term FIRST, nextHash==0 LAST (nextHash==0 ≈97.7% true — a near-useless lead gate).
-        // Bit-exact (golden); the P-1 mask form was +11.85%, the range form adds +3.6% on top.
-        // early-out WRAPPER (group writeback / B1 — per-member)
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateHigh(int nn) { if (NodeStates[nn] != 1) SetNodeStateHighNoCheck(nn); }
-        // NoCheck: caller already verified nn changes to 1
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateHighNoCheck(int nn)
-        {
-#if DEBUG
-            HpSetNodeState++;   // [hotpath-calls]
-#endif
-            byte* nodeStates = NodeStates;
-            nodeStates[nn] = 1;
-#if DEBUG
-            DiagStateChanges++;
-            if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }
-            DiagBrTurnOn++;   // [branch-dist]
-#endif
-            int tlistGates = NodeTlistGates[nn];
-            if (tlistGates == 0) return;
-            int* nextList = RecalcListNext;
-            byte* nextHash = RecalcHashNext;
-            int nextCount = RecalcListNextCount;
-            ushort* p = TransistorList + tlistGates;
-            int rA = RangePruneA, rB = RangePruneB;
-            while (true)
+            else
             {
-                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
-                int c1a = (ushort)quad;
-                if (c1a == 0) break;
-                int c2a = (ushort)(quad >> 16);
+                int tlistGates = NodeTlistGates[nn];
+                if (tlistGates != 0)
+                {
+                    int* nextList = RecalcListNext;
+                    byte* nextHash = RecalcHashNext;
+                    int nextCount = RecalcListNextCount;
+                    ushort* p = TransistorList + tlistGates;
+                    // (nodeStates hoisted at the method top — reused here, no re-load)
+                    // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
+                    // c1 suffices (BFS traverses the ON channel to c2).
+                    // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
+                    // the same state, merging two equal-state groups can't change any value — PROVIDED the
+                    // merged group resolves through the monotone driven-priority LUT. The "unsafe" class
+                    // that must always enqueue (no-PullUp floating/hold-previous, or ForceCompute Gnd+Pwr
+                    // cancel; minus the P-3/4 cap<all-neighbours un-taint — see ClassifyPruneTaint) sits in
+                    // the two OUTER id blocks of the class-major renumber, so the test is two REGISTER
+                    // COMPARES: unsafe ⇔ c < A || c >= B (c1 is never supply). Boundaries verified against
+                    // the computed PruneMask at every Reset. The keep-term stays FIRST, nextHash==0 LAST
+                    // (the 2026-06-08 [cond-profile] showed nextHash==0 is ≈97.7% true — a near-useless lead
+                    // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
+                    // a pruned node must NOT have nextHash set, or it would look queued without being listed.
+                    // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
+                    int rA = RangePruneA, rB = RangePruneB;
+                    while (true)
+                    {
+                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                        int c1a = (ushort)quad;
+                        if (c1a == 0) break;
+                        int c2a = (ushort)(quad >> 16);
 #if DEBUG
-                if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond
-                DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B]
+                        if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                        DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
-                if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
-                int c1b = (ushort)(quad >> 32);
-                if (c1b == 0) break;
-                int c2b = (ushort)(quad >> 48);
+                        if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                        int c1b = (ushort)(quad >> 32);
+                        if (c1b == 0) break;
+                        int c2b = (ushort)(quad >> 48);
 #if DEBUG
-                if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond
-                DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B]
+                        if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                        DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
-                if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                p += 4;
+                        if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                        p += 4;
+                    }
+                    RecalcListNextCount = nextCount;
+                }
             }
-            RecalcListNextCount = nextCount;
         }
 
         // ── external pin drive / float (port of setHigh/setLow/setFloat) ──

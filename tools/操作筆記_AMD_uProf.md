@@ -162,3 +162,17 @@ bcdedit /set uselegacyapicmode Yes   # 重開機後生效;還原 = bcdedit /dele
 8 核/16 緒用 xAPIC 足夠(x2APIC 只 >255 邏輯核才需要),可逆無功能風險。
 **後備**(若無效):BIOS SVM off / IOMMU=Disabled / Local APIC Mode=Compatibility;關 Windows 核心隔離的「易受攻擊驅動程式封鎖清單」;清 AMDCpuProfiler.sys 降版 uProf 4.2。
 **若 IBS 終究救不回**:AMD 無其他 data-address 來源(IBS 唯一);退路 = PMC 找 L1-miss 的 RIP → 反組譯看 `[reg+offset]` → 由 struct layout 反推 array。per-array 也可用 footprint+perf-stat+存取頻率推論(見 MD/note/2026-06-20-L-cache-miss熱點分析.md)。
+
+## ✅ IBS 修復確認 + per-data-structure 工作流(2026-06-20，重開機後)
+重開機後 IBS **正常**:`.prd` 從 600B(0 樣本)變數百 MB、IBS-op dump 數萬~數十萬筆。**x2APIC 假設確認、bcdedit 修法有效**(see 上一節)。
+**per-data-structure(哪個 array 在 miss)工作流**:
+1. app 加 `--array-footprint`(opt-in,Release 可用)啟動時印各非託管陣列 base+size。
+2. `AMDuProfCLI collect -e event=ibs-op,loadstore,interval=50000 -o OUT <exe> <args> --array-footprint`
+   - **free-run,不要 `--affinity`/`-c`**:會因「核編號 logical/physical 錯位 + .NET 把 GC/JIT/finalizer 執行緒擠到同核 + 配置時序改變」毀掉 data-addr↔array 對應(實測 --affinity 只剩 2 筆 in-array,free-run 75–196 筆)。
+   - **`os=0`(只採 user)需 Zen6+**,Zen2 會報錯;改用位址過濾(addr<2^47=user)在 post 端剔 kernel。
+   - interval 最小 **25000**(20000 報錯);但 interval=25000 + 大 run 會「Translation failed」(資料太大)→ 用 50000 較穩。
+   - 樣本量:in-array 只佔 user load ~0.3–0.4%(正常,Gemini 確認:指標解參考/stack spill 主導 load);要 ~1000 in-array 得跑數分鐘 / 數千萬 hc(.prd 會數百 MB)。
+3. `AMDuProfCLI report -i OUT --ascii ibsop-event-dump --report-output OUT\rep.csv` → 產 `OUT\IbsOpDump.csv`(欄含 IbsLdOp/IbsDcLinAd/IbsDcMiss/IbsL2Miss/IbsDcMissLat)。
+4. `python tools/ibs_bucket.py OUT` → 讀 `OUT_o.txt` 的 footprint + 分桶 → per-array load / L1-miss / L2-miss / 延遲。
+**實測結論(full_palette)**:NodeStates 讀最多但 L1 常駐(~0 miss);TransistorList/Off 是 L1/L2 miss 熱點。見 `MD/note/2026-06-20-L-cache-miss熱點分析.md`。
+**PMU 鎖 0x80070021**:collect 被 kill 後鎖住 → `Get-Process AMDuProfCLI|Kill` + `Restart-Service AMDProfilerLoadService -Force`。

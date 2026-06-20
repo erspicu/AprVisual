@@ -1,20 +1,20 @@
 {
   "schema": 1,
   "platform": "arm64",
-  "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.2GHz)",
-  "mode": "boost @ 3.2GHz (arm_freq=3200, +50mV)",
-  "generated": "2026-06-19T13:58:53Z",
+  "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.0GHz)",
+  "mode": "locked @ 3.0GHz (arm_freq=3000) — stable reference clock",
+  "generated": "2026-06-20T15:33:59Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
     "platform": "arm64",
-    "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.2GHz)",
-    "mode": "boost @ 3.2GHz (arm_freq=3200, +50mV)",
+    "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.0GHz)",
+    "mode": "locked @ 3.0GHz (arm_freq=3000) — stable reference clock",
     "os": "Debian 13 trixie (aarch64)",
     "dotnet_sdk": "11.0.100-preview.4 (net10 via roll-forward)",
     "cores": 4,
     "base_ghz": 2.4,
-    "boost_ghz": 3.2,
+    "boost_ghz": 3.0,
     "l1d_kb": 64,
     "l2_kb": 512,
     "l3_mb": 2,
@@ -38,21 +38,21 @@
       "desc_en": "SoA unmanaged arrays, double-buffered event-driven settle, FlagsToState LUT, fast-path family.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 46884,
-        "hc_s_median": 46822,
-        "hc_s_min": 46032,
-        "hc_s_max": 46919,
-        "hc_s_cv_pct": 0.83,
+        "hc_s_best3": 44252,
+        "hc_s_median": 44041,
+        "hc_s_min": 43450,
+        "hc_s_max": 44380,
+        "hc_s_cv_pct": 0.79,
         "hc_s_runs": [
-          46911,
-          46032,
-          46822,
-          46176,
-          46919
+          43450,
+          44335,
+          43784,
+          44041,
+          44380
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 916,
+        "realtime_x": 971,
         "il_size": 359,
         "native_size": 3052,
         "temp_c": 36.7
@@ -69,24 +69,24 @@
       "desc_en": "group provably size-1 (~70% of pops) -> O(1) resolve, skip the group walk.",
       "milestone": true,
       "metrics": {
-        "hc_s_best3": 55254,
-        "hc_s_median": 55168,
-        "hc_s_min": 53582,
-        "hc_s_max": 55383,
-        "hc_s_cv_pct": 1.19,
+        "hc_s_best3": 51950,
+        "hc_s_median": 51832,
+        "hc_s_min": 51135,
+        "hc_s_max": 52112,
+        "hc_s_cv_pct": 0.76,
         "hc_s_runs": [
-          53582,
-          55383,
-          55213,
-          54796,
-          55168
+          51135,
+          52112,
+          51832,
+          51203,
+          51907
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 777,
+        "realtime_x": 827,
         "il_size": 359,
         "native_size": 3608,
-        "temp_c": 37.8
+        "temp_c": 36.2
       }
     },
     {
@@ -100,24 +100,24 @@
       "desc_en": "channel data embedded into NodeInfo, killing the pointer-chase.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 58816,
-        "hc_s_median": 58578,
-        "hc_s_min": 57438,
-        "hc_s_max": 59059,
-        "hc_s_cv_pct": 1.07,
+        "hc_s_best3": 54929,
+        "hc_s_median": 54221,
+        "hc_s_min": 53550,
+        "hc_s_max": 55516,
+        "hc_s_cv_pct": 1.27,
         "hc_s_runs": [
-          57438,
-          57745,
-          58578,
-          58813,
-          59059
+          53550,
+          54221,
+          55516,
+          54210,
+          55051
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 730,
+        "realtime_x": 782,
         "il_size": 359,
         "native_size": 4304,
-        "temp_c": 38.4
+        "temp_c": 36.7
       }
     },
     {
@@ -131,24 +131,24 @@
       "desc_en": "logic hoisted into an inline helper: ProcessQueue IL 359->130.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 59740,
-        "hc_s_median": 59616,
-        "hc_s_min": 59152,
-        "hc_s_max": 59840,
-        "hc_s_cv_pct": 0.4,
+        "hc_s_best3": 56036,
+        "hc_s_median": 56009,
+        "hc_s_min": 55588,
+        "hc_s_max": 56057,
+        "hc_s_cv_pct": 0.31,
         "hc_s_runs": [
-          59616,
-          59766,
-          59840,
-          59563,
-          59152
+          55588,
+          56057,
+          56043,
+          55863,
+          56009
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 719,
+        "realtime_x": 767,
         "il_size": 130,
         "native_size": 2964,
-        "temp_c": 39.5
+        "temp_c": 35.1
       }
     },
     {
@@ -162,24 +162,24 @@
       "desc_en": "NodeConnections out of the BFS loop + layout tweaks.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 62841,
-        "hc_s_median": 62590,
-        "hc_s_min": 61924,
-        "hc_s_max": 63037,
-        "hc_s_cv_pct": 0.61,
+        "hc_s_best3": 58385,
+        "hc_s_median": 58213,
+        "hc_s_min": 57765,
+        "hc_s_max": 58586,
+        "hc_s_cv_pct": 0.46,
         "hc_s_runs": [
-          61924,
-          62580,
-          62898,
-          63037,
-          62590
+          58213,
+          58586,
+          57765,
+          58211,
+          58357
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 684,
+        "realtime_x": 736,
         "il_size": 130,
         "native_size": 3128,
-        "temp_c": 39.5
+        "temp_c": 36.7
       }
     },
     {
@@ -193,24 +193,24 @@
       "desc_en": "further layout / branch tweaks.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 63892,
-        "hc_s_median": 63611,
-        "hc_s_min": 63514,
-        "hc_s_max": 64193,
-        "hc_s_cv_pct": 0.4,
+        "hc_s_best3": 59934,
+        "hc_s_median": 59758,
+        "hc_s_min": 58728,
+        "hc_s_max": 60111,
+        "hc_s_cv_pct": 0.83,
         "hc_s_runs": [
-          63573,
-          63611,
-          63514,
-          64193,
-          63874
+          58728,
+          60111,
+          59347,
+          59758,
+          59933
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 672,
+        "realtime_x": 717,
         "il_size": 130,
         "native_size": 3104,
-        "temp_c": 37.8
+        "temp_c": 35.6
       }
     },
     {
@@ -224,24 +224,24 @@
       "desc_en": "skip enqueue+recalc when a node provably cannot change -- cut wasted work at the source.",
       "milestone": true,
       "metrics": {
-        "hc_s_best3": 72529,
-        "hc_s_median": 72416,
-        "hc_s_min": 70865,
-        "hc_s_max": 72625,
-        "hc_s_cv_pct": 0.9,
+        "hc_s_best3": 67696,
+        "hc_s_median": 67113,
+        "hc_s_min": 66764,
+        "hc_s_max": 68427,
+        "hc_s_cv_pct": 0.92,
         "hc_s_runs": [
-          70865,
-          71938,
-          72625,
-          72416,
-          72547
+          66775,
+          67113,
+          67549,
+          68427,
+          66764
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 592,
+        "realtime_x": 635,
         "il_size": 130,
         "native_size": 3292,
-        "temp_c": 38.9
+        "temp_c": 36.2
       }
     },
     {
@@ -255,24 +255,24 @@
       "desc_en": "P-2/3/4 converged; merged into one bit-packed PruneMask.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 79363,
-        "hc_s_median": 78970,
-        "hc_s_min": 78487,
-        "hc_s_max": 79591,
-        "hc_s_cv_pct": 0.52,
+        "hc_s_best3": 74501,
+        "hc_s_median": 74255,
+        "hc_s_min": 72874,
+        "hc_s_max": 74876,
+        "hc_s_cv_pct": 0.9,
         "hc_s_runs": [
-          78487,
-          78970,
-          79528,
-          78907,
-          79591
+          74255,
+          74232,
+          74876,
+          74372,
+          72874
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 541,
+        "realtime_x": 577,
         "il_size": 130,
         "native_size": 3424,
-        "temp_c": 37.8
+        "temp_c": 36.2
       }
     },
     {
@@ -286,21 +286,21 @@
       "desc_en": "DEBUG-only profiler; hot-path native unchanged.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 79405,
-        "hc_s_median": 78880,
-        "hc_s_min": 78421,
-        "hc_s_max": 80370,
-        "hc_s_cv_pct": 0.84,
+        "hc_s_best3": 74783,
+        "hc_s_median": 74413,
+        "hc_s_min": 73960,
+        "hc_s_max": 75427,
+        "hc_s_cv_pct": 0.68,
         "hc_s_runs": [
-          78880,
-          80370,
-          78966,
-          78796,
-          78421
+          75427,
+          74168,
+          74413,
+          73960,
+          74511
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 541,
+        "realtime_x": 574,
         "il_size": 130,
         "native_size": 3424,
         "temp_c": 37.3
@@ -317,24 +317,24 @@
       "desc_en": "SetNodeState &&-clauses reordered by selectivity.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 79683,
-        "hc_s_median": 79591,
-        "hc_s_min": 78466,
-        "hc_s_max": 79816,
-        "hc_s_cv_pct": 0.6,
+        "hc_s_best3": 75499,
+        "hc_s_median": 75289,
+        "hc_s_min": 74893,
+        "hc_s_max": 75708,
+        "hc_s_cv_pct": 0.41,
         "hc_s_runs": [
-          79644,
-          79816,
-          79591,
-          78466,
-          79445
+          75289,
+          75708,
+          74893,
+          75502,
+          74980
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 539,
+        "realtime_x": 569,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 38.9
+        "temp_c": 36.2
       }
     },
     {
@@ -348,24 +348,24 @@
       "desc_en": "turn-off enqueue check unified.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 80173,
-        "hc_s_median": 79882,
-        "hc_s_min": 79797,
-        "hc_s_max": 80418,
-        "hc_s_cv_pct": 0.31,
+        "hc_s_best3": 75659,
+        "hc_s_median": 74967,
+        "hc_s_min": 74371,
+        "hc_s_max": 76033,
+        "hc_s_cv_pct": 0.89,
         "hc_s_runs": [
-          80418,
-          79825,
-          80219,
-          79797,
-          79882
+          75979,
+          76033,
+          74967,
+          74740,
+          74371
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 536,
+        "realtime_x": 568,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.7
+        "temp_c": 36.2
       }
     },
     {
@@ -379,24 +379,24 @@
       "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 80138,
-        "hc_s_median": 79984,
-        "hc_s_min": 79745,
-        "hc_s_max": 80430,
-        "hc_s_cv_pct": 0.3,
+        "hc_s_best3": 75589,
+        "hc_s_median": 74812,
+        "hc_s_min": 74261,
+        "hc_s_max": 76188,
+        "hc_s_cv_pct": 1.0,
         "hc_s_runs": [
-          80001,
-          80430,
-          79745,
-          79984,
-          79827
+          74812,
+          76188,
+          74459,
+          75767,
+          74261
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 536,
+        "realtime_x": 568,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 37.8
+        "temp_c": 36.2
       }
     },
     {
@@ -410,24 +410,24 @@
       "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 79870,
-        "hc_s_median": 79505,
-        "hc_s_min": 79380,
-        "hc_s_max": 80162,
-        "hc_s_cv_pct": 0.38,
+        "hc_s_best3": 75157,
+        "hc_s_median": 74965,
+        "hc_s_min": 74263,
+        "hc_s_max": 75268,
+        "hc_s_cv_pct": 0.53,
         "hc_s_runs": [
-          79945,
-          80162,
-          79380,
-          79498,
-          79505
+          75268,
+          75239,
+          74965,
+          74263,
+          74551
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 538,
+        "realtime_x": 572,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 38.4
+        "temp_c": 36.2
       }
     },
     {
@@ -441,24 +441,24 @@
       "desc_en": "native unchanged -> no C# hot-path change.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 80323,
-        "hc_s_median": 80118,
-        "hc_s_min": 78520,
-        "hc_s_max": 80614,
-        "hc_s_cv_pct": 0.9,
+        "hc_s_best3": 75501,
+        "hc_s_median": 75374,
+        "hc_s_min": 74327,
+        "hc_s_max": 75731,
+        "hc_s_cv_pct": 0.69,
         "hc_s_runs": [
-          78520,
-          80238,
-          80118,
-          80614,
-          80016
+          74684,
+          75731,
+          75398,
+          75374,
+          74327
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 535,
+        "realtime_x": 569,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 38.4
+        "temp_c": 36.2
       }
     },
     {
@@ -472,24 +472,24 @@
       "desc_en": "class-major renumber -> prune masks become ID ranges; first-touch pop order self-captured.",
       "milestone": true,
       "metrics": {
-        "hc_s_best3": 84559,
-        "hc_s_median": 84056,
-        "hc_s_min": 82726,
-        "hc_s_max": 84922,
-        "hc_s_cv_pct": 0.95,
+        "hc_s_best3": 78488,
+        "hc_s_median": 78021,
+        "hc_s_min": 77583,
+        "hc_s_max": 78745,
+        "hc_s_cv_pct": 0.57,
         "hc_s_runs": [
-          84056,
-          83510,
-          84701,
-          84922,
-          82726
+          78699,
+          78021,
+          78011,
+          78745,
+          77583
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 508,
+        "realtime_x": 547,
         "il_size": 130,
         "native_size": 3372,
-        "temp_c": 37.8
+        "temp_c": 36.7
       }
     },
     {
@@ -503,24 +503,24 @@
       "desc_en": "provably-2-node groups resolved in place (77% of walks).",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 84400,
-        "hc_s_median": 83946,
-        "hc_s_min": 82598,
-        "hc_s_max": 85176,
-        "hc_s_cv_pct": 1.11,
+        "hc_s_best3": 89656,
+        "hc_s_median": 89367,
+        "hc_s_min": 87981,
+        "hc_s_max": 89911,
+        "hc_s_cv_pct": 0.76,
         "hc_s_runs": [
-          85176,
-          82598,
-          84079,
-          82829,
-          83946
+          89061,
+          89367,
+          89691,
+          89911,
+          87981
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 509,
+        "realtime_x": 479,
         "il_size": 130,
-        "native_size": 3372,
-        "temp_c": 38.4
+        "native_size": 4692,
+        "temp_c": 36.7
       }
     },
     {
@@ -534,24 +534,24 @@
       "desc_en": "turn-off fan-out uses a pre-filtered endpoint list.",
       "milestone": true,
       "metrics": {
-        "hc_s_best3": 96766,
-        "hc_s_median": 96389,
-        "hc_s_min": 95761,
-        "hc_s_max": 96993,
-        "hc_s_cv_pct": 0.48,
+        "hc_s_best3": 91038,
+        "hc_s_median": 90871,
+        "hc_s_min": 89847,
+        "hc_s_max": 91306,
+        "hc_s_cv_pct": 0.58,
         "hc_s_runs": [
-          96389,
-          96993,
-          96156,
-          96918,
-          95761
+          90244,
+          90938,
+          90871,
+          91306,
+          89847
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 444,
+        "realtime_x": 472,
         "il_size": 130,
         "native_size": 4736,
-        "temp_c": 38.4
+        "temp_c": 36.2
       }
     },
     {
@@ -565,24 +565,55 @@
       "desc_en": "5 bit-exact opts found by reading the JIT x64 disassembly.",
       "milestone": false,
       "metrics": {
-        "hc_s_best3": 101410,
-        "hc_s_median": 101055,
-        "hc_s_min": 101009,
-        "hc_s_max": 101913,
-        "hc_s_cv_pct": 0.34,
+        "hc_s_best3": 94951,
+        "hc_s_median": 94819,
+        "hc_s_min": 93450,
+        "hc_s_max": 95073,
+        "hc_s_cv_pct": 0.62,
         "hc_s_runs": [
-          101009,
-          101010,
-          101913,
-          101055,
-          101263
+          94745,
+          95073,
+          94963,
+          94819,
+          93450
         ],
         "checksum": "0x9174E19D961CB6E5",
         "bit_exact": true,
-        "realtime_x": 424,
+        "realtime_x": 452,
         "il_size": 136,
         "native_size": 4636,
-        "temp_c": 38.9
+        "temp_c": 36.2
+      }
+    },
+    {
+      "version": "2026.06.20",
+      "date": "2026-06-20",
+      "commit": "298ba71",
+      "tfm": "net11.0",
+      "title": "turn-off 去重 + GndPwr fast-path",
+      "desc": "build 時去重 turn-off 端點清單;RecalcNodeFast 特化常見 1/2-GND、0-PWR inline pattern。",
+      "title_en": "turn-off dedupe + GndPwr fast-path",
+      "desc_en": "build-time dedupe of the turn-off endpoint list; RecalcNodeFast specialises the common 1/2-GND 0-PWR inline patterns.",
+      "milestone": true,
+      "metrics": {
+        "hc_s_best3": 96363,
+        "hc_s_median": 96200,
+        "hc_s_min": 95372,
+        "hc_s_max": 96603,
+        "hc_s_cv_pct": 0.43,
+        "hc_s_runs": [
+          95891,
+          96200,
+          96288,
+          96603,
+          95372
+        ],
+        "checksum": "0x9174E19D961CB6E5",
+        "bit_exact": true,
+        "realtime_x": 446,
+        "il_size": 136,
+        "native_size": 4748,
+        "temp_c": 36.7
       }
     }
   ]

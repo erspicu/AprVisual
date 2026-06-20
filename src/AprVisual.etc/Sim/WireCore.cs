@@ -269,6 +269,21 @@ namespace AprVisual.Sim
                 tlOff.Add(0);
                 return idx;
             }
+            static void StableDedupeItems(List<int> sub)
+            {
+                int w = 0;
+                for (int i = 0; i < sub.Count; i++)
+                {
+                    int a = sub[i];
+                    bool seen = false;
+                    for (int j = 0; j < w; j++)
+                    {
+                        if (sub[j] == a) { seen = true; break; }
+                    }
+                    if (!seen) sub[w++] = a;
+                }
+                if (w < sub.Count) sub.RemoveRange(w, sub.Count - w);
+            }
             var gatesOff = new List<int>();
             int offS = RangePruneS;
             for (int nn = 0; nn < NodeCount; nn++)
@@ -282,6 +297,8 @@ namespace AprVisual.Sim
                     if (t.C1 >= offS) gatesOff.Add(t.C1);
                     if (t.C2 >= offS) gatesOff.Add(t.C2);
                 }
+                // Preserve first enqueue position; later duplicates would only hit RecalcHashNext==1.
+                StableDedupeItems(gatesOff);
                 NodeTlistGatesOff[nn] = AddOffSubList(gatesOff);
             }
             tlOff.Add(0); tlOff.Add(0); tlOff.Add(0); tlOff.Add(0);

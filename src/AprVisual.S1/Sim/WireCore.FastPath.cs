@@ -299,23 +299,35 @@ namespace AprVisual.Sim
             {
                 ushort* pay = ns->InlinePayload;
                 int gndStart = ns->C1c2Count << 1;
-                int gndEnd = gndStart + ns->GndCount;
-                int anyG = 0;
-                for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
-                flags |= anyG << 5;
-                int pwrEnd = gndEnd + ns->PwrCount;
-                int anyP = 0;
-                for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
-                flags |= anyP << 4;
-#if DEBUG
-                if (pwrEnd - gndStart >= 2)   // [co-read B] >=2 gnd/pwr gates: are they all in one 64-bit word?
+                byte gp = ns->GndPwr;
+                if (gp == 1)
                 {
-                    DiagCoFastMulti++;
-                    int mn = int.MaxValue, mx = -1;
-                    for (int k = gndStart; k < pwrEnd; k++) { int w = pay[k] >> 6; if (w < mn) mn = w; if (w > mx) mx = w; }
-                    if (mn == mx) DiagCoFast1Word++;
+                    flags |= nodeStates[pay[gndStart]] << 5;   // one GND gate, no PWR gates
                 }
+                else if (gp == 2)
+                {
+                    flags |= (nodeStates[pay[gndStart]] | nodeStates[pay[gndStart + 1]]) << 5;   // two GND gates, no PWR gates
+                }
+                else if (gp != 0)
+                {
+                    int gndEnd = gndStart + (gp & 0x0F);
+                    int anyG = 0;
+                    for (int k = gndStart; k < gndEnd; k++) anyG |= nodeStates[pay[k]];   // any ON path to GND ⇒ pulled low
+                    flags |= anyG << 5;
+                    int pwrEnd = gndEnd + (gp >> 4);
+                    int anyP = 0;
+                    for (int k = gndEnd; k < pwrEnd; k++) anyP |= nodeStates[pay[k]];      // any ON path to VCC ⇒ pulled high
+                    flags |= anyP << 4;
+#if DEBUG
+                    if (pwrEnd - gndStart >= 2)   // [co-read B] >=2 gnd/pwr gates: are they all in one 64-bit word?
+                    {
+                        DiagCoFastMulti++;
+                        int mn = int.MaxValue, mx = -1;
+                        for (int k = gndStart; k < pwrEnd; k++) { int w = pay[k] >> 6; if (w < mn) mn = w; if (w > mx) mx = w; }
+                        if (mn == mx) DiagCoFast1Word++;
+                    }
 #endif
+                }
             }
             else
             {

@@ -340,7 +340,7 @@ namespace AprVisual.Sim
 #if DEBUG
             if (flags != 0) DiagBrFastDrive++; else DiagBrFastFloat++;   // [branch-dist] fast-path driven vs floating
 #endif
-            if (flags != 0) SetNodeState(nn, FlagsToState[flags]);
+            if (flags != 0) { if (FlagsToState[flags] == 0) SetNodeStateLow(nn); else SetNodeStateHigh(nn); }   // dispatch to the direction-specialised chain
         }
 
         // ── DIAGNOSTIC ONLY (NOT hot path — runs once from --fc-taint-stats, like --payload-hist) ──

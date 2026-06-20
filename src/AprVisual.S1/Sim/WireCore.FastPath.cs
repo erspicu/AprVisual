@@ -346,7 +346,7 @@ namespace AprVisual.Sim
             if (flags != 0)
             {
                 byte v = FlagsToState[flags];
-                if (nodeStates[nn] != v) { if (v == 0) SetNodeStateLow(nn); else SetNodeStateHigh(nn); }
+                if (nodeStates[nn] != v) { if (v == 0) SetNodeStateLowNoCheck(nn); else SetNodeStateHighNoCheck(nn); }   // outer check done → NoCheck (no redundant re-check / re-read)
             }
         }
 

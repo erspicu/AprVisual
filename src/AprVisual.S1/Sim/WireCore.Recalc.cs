@@ -550,14 +550,18 @@ namespace AprVisual.Sim
         // turn-OFF (newState 0): the transistors nn gates open ⇒ their channel groups SPLIT ⇒ re-enqueue
         // every endpoint of the pre-filtered falling-writeback list (no prune — a split can change a value
         // even if endpoints were equal). c1 guaranteed non-supply (supply normalised onto c2 at build).
+        // early-out WRAPPER (group writeback / B1 — per-member, caller hasn't pre-checked)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateLow(int nn)
+        private static void SetNodeStateLow(int nn) { if (NodeStates[nn] != 0) SetNodeStateLowNoCheck(nn); }
+        // NoCheck: caller already verified nn changes to 0 (fast-path checked nodeStates[nn]!=v) — skip the
+        // early-out + the redundant second read of nodeStates[nn].
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void SetNodeStateLowNoCheck(int nn)
         {
 #if DEBUG
             HpSetNodeState++;   // [hotpath-calls]
 #endif
             byte* nodeStates = NodeStates;
-            if (nodeStates[nn] == 0) return;
             nodeStates[nn] = 0;
 #if DEBUG
             DiagStateChanges++;
@@ -598,14 +602,17 @@ namespace AprVisual.Sim
         // "unsafe" outer id range (no-PullUp/ForceCompute) that must always enqueue ⇒ c1<rA || c1>=rB.
         // keep-term FIRST, nextHash==0 LAST (nextHash==0 ≈97.7% true — a near-useless lead gate).
         // Bit-exact (golden); the P-1 mask form was +11.85%, the range form adds +3.6% on top.
+        // early-out WRAPPER (group writeback / B1 — per-member)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SetNodeStateHigh(int nn)
+        private static void SetNodeStateHigh(int nn) { if (NodeStates[nn] != 1) SetNodeStateHighNoCheck(nn); }
+        // NoCheck: caller already verified nn changes to 1
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void SetNodeStateHighNoCheck(int nn)
         {
 #if DEBUG
             HpSetNodeState++;   // [hotpath-calls]
 #endif
             byte* nodeStates = NodeStates;
-            if (nodeStates[nn] == 1) return;
             nodeStates[nn] = 1;
 #if DEBUG
             DiagStateChanges++;

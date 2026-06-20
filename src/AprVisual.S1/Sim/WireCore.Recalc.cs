@@ -104,6 +104,12 @@ namespace AprVisual.Sim
         // (id>>6 equal). Low % ⇒ a NodeStates bitset mirror can't merge loads ⇒ Scheme B dead. #if DEBUG only.
         internal static long DiagCoRiseSame, DiagCoRiseTot;     // rising-path (c1,c2) pair in same 64-bit word (hottest co-read, n~108M)
         internal static long DiagCoFast1Word, DiagCoFastMulti;  // fast pops with >=2 gnd/pwr gates: ALL gates in one 64-bit word
+        // [hotpath-calls] call count at the entry of every hot-path-chain method — the per-benchmark call
+        // shape (count + % of all hot-path calls + calls-per-pop). Increments are #if DEBUG only (Release
+        // byte-identical). Chain: ProcessQueue → RecalcNode → {RecalcNodeFast | ComputeNodeGroup →
+        // AddNodeToGroup + GetNodeValue} → SetNodeState.
+        internal static long HpProcessQueue, HpRecalcNode, HpRecalcNodeFast,
+                             HpComputeNodeGroup, HpAddNodeToGroup, HpGetNodeValue, HpSetNodeState;
 
         private static unsafe void WasteProfileTally(int nn, bool noChange)
         {
@@ -348,6 +354,7 @@ namespace AprVisual.Sim
         {
 #if DEBUG
             int iteration = 0;
+            HpProcessQueue++;   // [hotpath-calls]
 #endif
             while (RecalcListNextCount != 0)
             {
@@ -410,6 +417,9 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void RecalcNode(int nn)
         {
+#if DEBUG
+            HpRecalcNode++;   // [hotpath-calls] one per pop — the denominator
+#endif
             // Supply (Npwr/Ngnd) is NEVER enqueued: EnqueueNode filters it, and SetNodeState's inline enqueue
             // keeps c1 non-supply (Module normalises supply onto c2) + filters c2. So this guard never triggers
             // in Release — kept only as a DEBUG tripwire (and even if it did slip through, SetNodeState's
@@ -529,6 +539,9 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetNodeState(int nn, byte newState)
         {
+#if DEBUG
+            HpSetNodeState++;   // [hotpath-calls] entry — counts ALL calls incl. the no-change early-out below
+#endif
             byte* nodeStates = NodeStates;   // hoist once: the byte store below otherwise makes the JIT
                                              // conservatively re-load the NodeStates base for the on-walk
                                              // (store-to-pointer aliasing). One local keeps it in a register.

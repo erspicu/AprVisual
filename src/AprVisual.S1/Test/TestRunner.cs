@@ -612,6 +612,23 @@ namespace AprVisual.Test
                         double Rp(long a, long b) => b == 0 ? 0 : 100.0 * a / b;
                         Console.WriteLine($"# [co-read B] rising (c1,c2) same 64-bit word: {Rp(WireCore.DiagCoRiseSame, WireCore.DiagCoRiseTot):F1}% (n={WireCore.DiagCoRiseTot:N0})  |  fast-path >=2-gate pops all-in-1-word: {Rp(WireCore.DiagCoFast1Word, WireCore.DiagCoFastMulti):F1}% (n={WireCore.DiagCoFastMulti:N0})");
                     }
+                    {
+                        // [hotpath-calls] call count at each hot-path-chain method entry: count, % of all
+                        // chain calls, and calls per RecalcNode pop — shows where the per-pop work goes.
+                        long pq = WireCore.HpProcessQueue, rn = WireCore.HpRecalcNode, rf = WireCore.HpRecalcNodeFast,
+                             cg = WireCore.HpComputeNodeGroup, ag = WireCore.HpAddNodeToGroup, gv = WireCore.HpGetNodeValue, ss = WireCore.HpSetNodeState;
+                        long tot = pq + rn + rf + cg + ag + gv + ss;
+                        double pcent(long a) => tot == 0 ? 0 : 100.0 * a / tot;
+                        double perpop(long a) => rn == 0 ? 0 : (double)a / rn;
+                        Console.WriteLine($"# [hotpath-calls] (DEBUG; count / % of all chain calls / per-RecalcNode-pop)  chain total={tot:N0}");
+                        Console.WriteLine($"#   ProcessQueue     {pq,14:N0}  {pcent(pq),5:F1}%  {perpop(pq),7:F4}/pop  (coarse: per-half-cycle settle driver)");
+                        Console.WriteLine($"#   RecalcNode       {rn,14:N0}  {pcent(rn),5:F1}%  {perpop(rn),7:F4}/pop  (= the pop count, the denominator)");
+                        Console.WriteLine($"#   RecalcNodeFast   {rf,14:N0}  {pcent(rf),5:F1}%  {perpop(rf),7:F4}/pop  (O(1) singleton resolve)");
+                        Console.WriteLine($"#   ComputeNodeGroup {cg,14:N0}  {pcent(cg),5:F1}%  {perpop(cg),7:F4}/pop  (slow BFS group build)");
+                        Console.WriteLine($"#   AddNodeToGroup   {ag,14:N0}  {pcent(ag),5:F1}%  {perpop(ag),7:F4}/pop  (BFS walk)");
+                        Console.WriteLine($"#   GetNodeValue     {gv,14:N0}  {pcent(gv),5:F1}%  {perpop(gv),7:F4}/pop  (group resolve LUT)");
+                        Console.WriteLine($"#   SetNodeState     {ss,14:N0}  {pcent(ss),5:F1}%  {perpop(ss),7:F4}/pop  (write + enqueue)");
+                    }
                 }
                 {
                     // settle-pass distribution (DEBUG only): how many settle waves each ProcessQueue() call

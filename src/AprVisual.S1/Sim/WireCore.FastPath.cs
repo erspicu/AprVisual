@@ -281,6 +281,7 @@ namespace AprVisual.Sim
         {
             NodeInfo* ns = NodeInfos + nn;
 #if DEBUG
+            HpRecalcNodeFast++;   // [hotpath-calls]
             {   // [fast-gate dist] DEBUG-only: tally gate counts of fast-path pops (Design-1 MLP sizing)
                 int g = ns->GndCount, p = ns->PwrCount, c = ns->C1c2Count;
                 DiagFastPops++;

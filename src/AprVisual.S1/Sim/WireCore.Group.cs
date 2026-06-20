@@ -64,6 +64,9 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte ComputeNodeGroup(int nn)
         {
+#if DEBUG
+            HpComputeNodeGroup++;   // [hotpath-calls] one per group build (the slow BFS path)
+#endif
             // clear the previous group's dedup flags (only those entries — keeps _inGroup all-zero between calls)
             for (int i = 0; i < _groupCount; i++) _inGroup[_groupBuf[i]] = 0;
 
@@ -87,6 +90,9 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static void AddNodeToGroup(int seed)
         {
+#if DEBUG
+            HpAddNodeToGroup++;   // [hotpath-calls]
+#endif
             // hoisted locals (see method comment) — write back gc/gf at the end.
             byte* inGroup = _inGroup;
             ushort* groupBuf = _groupBuf;
@@ -167,6 +173,9 @@ namespace AprVisual.Sim
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static byte GetNodeValue()
         {
+#if DEBUG
+            HpGetNodeValue++;   // [hotpath-calls]
+#endif
             // ForceCompute|Gnd|Pwr mask is pre-computed into the 256-entry FlagsToState LUT
             // (see BuildFlagsToStateTable/FlagsToStateOf above) — no need to mask at runtime.
             if (_groupFlags != NodeFlags.None) return FlagsToState[(int)_groupFlags];

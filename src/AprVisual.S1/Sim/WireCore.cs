@@ -22,12 +22,12 @@ namespace AprVisual.Sim
     //  Reference implementation: ref/metalnes-main/source/metalnes/wire_module.cpp
     //  (the `wire_compute` class, ~L1400-2030). See MD/note/01_模擬核心演算法.md.
     //
-    //  Improvements over MetalNES, decided for S1:
-    //    - NodeValue distinguishes "driven High" vs "HoldPrevious" (MetalNES conflates both
-    //      into the node_state flag). See MD/note/01 §2.5.
-    //    - Transistor.IsWeak (7th column of 2A03/2C02 transdefs) is actually used to
-    //      separate strong pull-down vs weak/depletion pull-up. MetalNES reads it
-    //      (transdef::unknown_2) but barely uses it.
+    //  Design intent over MetalNES (status as of 2026-06 — trust the code, not this note):
+    //    - the resolver DOES distinguish "driven" (flags!=0 → FlagsToState LUT) from "hold-previous"
+    //      (flags==0 → keep NodeStates[nn], handled in RecalcNodeFast/GetNodeValue). The `NodeValue`
+    //      enum is defined but currently UNUSED (GetNodeValue returns byte). See MD/note/01 §2.5.
+    //    - Transistor.IsWeak (7th transdef column) is CARRIED but VESTIGIAL: measured false on every
+    //      2A03/2C02 row, consumed nowhere in runtime resolution (depletion pull-ups are segdefs '+').
     // ───────────────────────────────────────────────────────────────────────────
     internal static unsafe partial class WireCore
     {
@@ -71,8 +71,8 @@ namespace AprVisual.Sim
 
         // Cold per-node arrays — used much less often than NodeInfos.
         // NodeConnections[nn] = c1c2s.Count + gates.Count, the "capacitance" proxy for the floating-group
-        //   tie-break (only fires when a group has zero flags — rare). Touched twice in AddNodeToGroup
-        //   but the early-out branch is well-predicted-false in typical groups.
+        //   tie-break (only fires when a group has zero flags — rare). Read in GetNodeValue's floating
+        //   branch only (deferred out of AddNodeToGroup; <1% of walks reach it).
         // NodeTlistGates[nn] = (c1,c2, c1,c2, ..., 0) sub-list — read by SetNodeState's turn-ON path.
         // NodeTlistGatesOff[nn] = (endpoint, endpoint, ..., 0) sub-list — read by SetNodeState's turn-OFF
         //   path. Built after range-prune verification, with endpoints below RangePruneS removed.
@@ -312,7 +312,7 @@ namespace AprVisual.Sim
         }
     }
 
-    // Per-node hot record. S2-A: 32 bytes (2 per 64B cache line). Holds the mutable Flags + the
+    // Per-node hot record. 16 bytes (4 per 64B cache line). Holds the mutable Flags + the
     // channel payload INLINE for small-fanout nodes (Inline==1, ~96%), so the hot path reads ONE
     // cache line with NO dependent chase into TransistorList. High-fanout nodes (~4%: buses/clk)
     // keep Inline==0 and use the Tlist* indices into TransistorList (legacy path, unchanged +

@@ -36,7 +36,7 @@ namespace AprVisual.Sim
         internal static byte* IsPureLogic;
 
         public static int PureLogicNodeCount;
-        public static string LastFastPathStats = "(fast-path disabled — default; --fast-path to enable)";
+        public static string LastFastPathStats = "(fast-path not yet classified)";
 
         // [enqueue-prune classification — one byte per node, bit-packed]
         //   bit 0 (PruneTurnOnUnsafe = 1): node is UNSAFE for the same-state turn-ON prune (P-1). Set for

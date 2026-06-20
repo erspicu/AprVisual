@@ -119,7 +119,7 @@ namespace AprVisual.Sim
         // ClassifyTurnOffSkip verifies every node's computed mask against the ranges before enabling.
         //
         // SAFE-DEGENERATE defaults (used whenever no verified class layout exists — selftest/hand-built
-        // netlists, --no-renumber, or a verification mismatch): S=3 skips ONLY supply (ids 1,2 — the
+        // netlists, or a verification mismatch): S=3 skips ONLY supply (ids 1,2 — the
         // mandatory guard) and A=∞ treats every node as turn-on-unsafe. That disables the P-1/2/3/4
         // prunes (more no-op re-evals, SLOWER) but stays bit-exact-correct on any numbering.
         internal const int RangeSafeA = int.MaxValue, RangeSafeS = 3, RangeSafeB = int.MaxValue;

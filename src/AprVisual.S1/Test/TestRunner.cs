@@ -1212,7 +1212,7 @@ namespace AprVisual.Test
             Console.WriteLine("""
                 AprVisual.S1 — switch-level NES (clean S1 fork)
 
-                  AprVisual.S1 --rom <game.nes>            show a window for that ROM
+                  AprVisual.S1 --rom <game.nes>            headless: render 3 frames to screenshot.png (no GUI)
                   AprVisual.S1 --trace <rom> [--cycles N]  headless: power-on reset, step N 6502 cycles, dump CPU state each cycle (default N=64)
                   AprVisual.S1 --screenshot <rom> [--frames N] [--out p.png]   headless: run N frames, dump the framebuffer to a PNG (default N=3)
                   AprVisual.S1 --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pclk1 samples
@@ -1237,7 +1237,7 @@ namespace AprVisual.Test
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
 
-                  (no args)                                open an empty window
+                  (no args)                                print this usage
                 """);
         }
     }

@@ -149,3 +149,16 @@ $env:DOTNET_TieredCompilation="0"
 
 ## 還想要 IBS 精確延遲的話(代價大,非必要)
 NativeAOT 編 S1(熱碼變真 PE 模組,IBS 才歸因得到;但 −5.5% 且是不同產物,量完丟)/ 搬熱迴圈到原生 C harness / `report --ascii ibsop-event-dump` 撈原始 IP 手動對應 JIT 位址區間。
+
+## ⚠️ IBS 在這台採 0 樣本 → x2APIC 假設 + 修法(2026-06-20)
+**症狀**:`collect -e event=ibs-op,...`(single-app / `-a` / `--config ibs` 全試過)exit 0 但**採 0 樣本**:raw `*.prd` ~600B(只 header)、report 的 FUNCTION/PROCESS 資料列全空、`report --ascii ibsop-event-dump` 只有表頭 0 列。**6/19 和 6/20 兩次都一樣**(非一次性)。
+**關鍵對比**:**PMC/EBP 取樣正常**(`--config assess` / `-e event=CYCLES_NOT_IN_HALT,RETIRED_INST,L1_DC_ACCESSES_ALL,...` → disasm 報告有 221-224 筆真實逐指令樣本)。→ 是 **IBS 專屬失效**,不是 Zen2 不支援(Zen2 Family 17h 有 IBS)、不是 VBS(VBS 已關)、不是全 profiling 壞。
+**Gemini 診斷(高度可能)**:PMC 走標準 LVT PMI;**IBS 走另一個 Extended-Interrupt LVT(EILVT)**。Windows 預設 **x2APIC** 模式下,uProf driver 若無法在 x2APIC 程式化 EILVT,IBS arm 了但中斷永不觸發 → 正好 0 樣本。本機 `bcdedit /enum {current}` 原本無 APIC 設定 = 預設 x2APIC,吻合。
+**修法(2026-06-20 已套用,待重開驗證)**:
+```
+bcdedit /set x2apicpolicy Disable
+bcdedit /set uselegacyapicmode Yes   # 重開機後生效;還原 = bcdedit /deletevalue 兩者
+```
+8 核/16 緒用 xAPIC 足夠(x2APIC 只 >255 邏輯核才需要),可逆無功能風險。
+**後備**(若無效):BIOS SVM off / IOMMU=Disabled / Local APIC Mode=Compatibility;關 Windows 核心隔離的「易受攻擊驅動程式封鎖清單」;清 AMDCpuProfiler.sys 降版 uProf 4.2。
+**若 IBS 終究救不回**:AMD 無其他 data-address 來源(IBS 唯一);退路 = PMC 找 L1-miss 的 RIP → 反組譯看 `[reg+offset]` → 由 struct layout 反推 array。per-array 也可用 footprint+perf-stat+存取頻率推論(見 MD/note/2026-06-20-L-cache-miss熱點分析.md)。

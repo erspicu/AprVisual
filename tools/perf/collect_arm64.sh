@@ -15,6 +15,7 @@ ITEMS=(
  "2026.06.09|benchmark-2026.06.09" "2026.06.09b|benchmark-2026.06.09b" "2026.06.09c|benchmark-2026.06.09c"
  "2026.06.09d|benchmark-2026.06.09d" "2026.06.09e|benchmark-2026.06.09e" "2026.06.11|benchmark-2026.06.11"
  "2026.06.12|benchmark-2026.06.12" "2026.06.18|benchmark-2026.06.18" "2026.06.19|benchmark-2026.06.19"
+ "2026.06.20|benchmark-2026.06.20"
 )
 echo "Version,BoostTop3Avg,BoostMax,Samples,Checksum" > $O/boost_arm.csv
 echo "Version,IL,Native" > $O/sizes_arm.csv

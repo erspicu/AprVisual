@@ -17,3 +17,4 @@ version,date,tfm,commit,milestone,title,desc,title_en,desc_en
 2026.06.12,2026-06-11,net11.0,,0,B1 兩節點成對路徑,可證明兩節點群組就地解析(占 77% 走訪)。,B1 two-node pair path,provably-2-node groups resolved in place (77% of walks).
 2026.06.18,2026-06-18,net11.0,,1,.NET 11 + 下降寫回拆分,turn-off 扇出走預過濾端點清單。,.NET 11 + falling-writeback split,turn-off fan-out uses a pre-filtered endpoint list.
 2026.06.19,2026-06-18,net11.0,270259a,0,disasm 驅動 codegen 微優化,讀 JIT x64 找的 5 個 bit-exact 優化。,disasm-driven codegen micro-sweep,5 bit-exact opts found by reading the JIT x64 disassembly.
+2026.06.20,2026-06-20,net11.0,298ba71,1,turn-off 去重 + GndPwr fast-path,build 時去重 turn-off 端點清單;RecalcNodeFast 特化常見 1/2-GND、0-PWR inline pattern。,turn-off dedupe + GndPwr fast-path,build-time dedupe of the turn-off endpoint list; RecalcNodeFast specialises the common 1/2-GND 0-PWR inline patterns.

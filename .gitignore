@@ -85,3 +85,8 @@ __pycache__/
 tools/perf/releases/
 tools/perf/raw/
 tools/perf/out/
+
+# but DO track the deployed per-platform perf data (the global `x64/` rule above hides it,
+# so re-include the dir + its json to match arm64 — this is the source of /version/'s chart)
+!tools/perf/web/x64/
+!tools/perf/web/x64/*.json

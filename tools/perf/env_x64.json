@@ -12,7 +12,7 @@
   "l3_mb": 32,
   "ram_gb": 32,
   "bench_hc": 400000,
-  "runs": 5,
+  "runs": 8,
   "pinned": false,
   "locked": false,
   "cooled_idle": true

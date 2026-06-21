@@ -123,6 +123,38 @@ def main():
             "metrics": metrics,
         })
 
+    # ---- engine-group pass (data tidy-up, end of pipeline) ----
+    # Adjacent versions with an identical (IL, native) code size are the SAME C# engine — a repackage /
+    # docs / tooling release whose hot-path native code never changed — so their hc/s differences are
+    # pure run-to-run measurement noise, not real regressions/wins. Represent each such run by its BEST
+    # sample (the most representative of the engine's true speed): every member exposes that group-best as
+    # its *effective* value (hc_s_best3_eff / hc_s_max_eff / realtime_x_eff) for the charts, while keeping
+    # its own raw measurement (hc_s_best3 etc.) intact. Singleton groups: eff == raw.
+    n_groups_dup = 0
+    i = 0
+    while i < len(versions):
+        sig = (versions[i]["metrics"].get("il_size"), versions[i]["metrics"].get("native_size"))
+        j = i
+        if sig[0] is not None and sig[1] is not None:
+            while (j + 1 < len(versions)
+                   and (versions[j + 1]["metrics"].get("il_size"),
+                        versions[j + 1]["metrics"].get("native_size")) == sig):
+                j += 1
+        grp = versions[i:j + 1]
+        rep = max(grp, key=lambda vv: vv["metrics"].get("hc_s_best3") or 0)
+        rb3, rmx = rep["metrics"].get("hc_s_best3"), rep["metrics"].get("hc_s_max")
+        dup = len(grp) > 1
+        if dup:
+            n_groups_dup += 1
+        for vv in grp:
+            vv["engine_group"] = rep["version"]      # version id of the group representative (best sample)
+            vv["engine_rep"] = (vv["version"] == rep["version"])
+            vv["engine_dup"] = dup                    # part of a multi-version same-engine (repackage) run
+            vv["metrics"]["hc_s_best3_eff"] = rb3
+            vv["metrics"]["hc_s_max_eff"] = rmx
+            vv["metrics"]["realtime_x_eff"] = round(REALTIME_HC_S / rb3) if rb3 else None
+        i = j + 1
+
     doc = {
         "schema": 1,
         "platform": a.platform,

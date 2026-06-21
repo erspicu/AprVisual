@@ -3,7 +3,7 @@
   "platform": "arm64",
   "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.0GHz)",
   "mode": "locked @ 3.0GHz (arm_freq=3000) — stable reference clock",
-  "generated": "2026-06-20T15:33:59Z",
+  "generated": "2026-06-21T06:35:28Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -55,8 +55,14 @@
         "realtime_x": 971,
         "il_size": 359,
         "native_size": 3052,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 44252,
+        "hc_s_max_eff": 44380,
+        "realtime_x_eff": 971
+      },
+      "engine_group": "2026.05.30",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.05.31",
@@ -86,8 +92,14 @@
         "realtime_x": 827,
         "il_size": 359,
         "native_size": 3608,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 51950,
+        "hc_s_max_eff": 52112,
+        "realtime_x_eff": 827
+      },
+      "engine_group": "2026.05.31",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.01",
@@ -117,8 +129,14 @@
         "realtime_x": 782,
         "il_size": 359,
         "native_size": 4304,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 54929,
+        "hc_s_max_eff": 55516,
+        "realtime_x_eff": 782
+      },
+      "engine_group": "2026.06.01",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.03",
@@ -148,8 +166,14 @@
         "realtime_x": 767,
         "il_size": 130,
         "native_size": 2964,
-        "temp_c": 35.1
-      }
+        "temp_c": 35.1,
+        "hc_s_best3_eff": 56036,
+        "hc_s_max_eff": 56057,
+        "realtime_x_eff": 767
+      },
+      "engine_group": "2026.06.03",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.04",
@@ -179,8 +203,14 @@
         "realtime_x": 736,
         "il_size": 130,
         "native_size": 3128,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 58385,
+        "hc_s_max_eff": 58586,
+        "realtime_x_eff": 736
+      },
+      "engine_group": "2026.06.04",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.05",
@@ -210,8 +240,14 @@
         "realtime_x": 717,
         "il_size": 130,
         "native_size": 3104,
-        "temp_c": 35.6
-      }
+        "temp_c": 35.6,
+        "hc_s_best3_eff": 59934,
+        "hc_s_max_eff": 60111,
+        "realtime_x_eff": 717
+      },
+      "engine_group": "2026.06.05",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.07",
@@ -241,8 +277,14 @@
         "realtime_x": 635,
         "il_size": 130,
         "native_size": 3292,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 67696,
+        "hc_s_max_eff": 68427,
+        "realtime_x_eff": 635
+      },
+      "engine_group": "2026.06.07",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.07b",
@@ -272,8 +314,14 @@
         "realtime_x": 577,
         "il_size": 130,
         "native_size": 3424,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 74783,
+        "hc_s_max_eff": 75427,
+        "realtime_x_eff": 574
+      },
+      "engine_group": "2026.06.08",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.08",
@@ -303,8 +351,14 @@
         "realtime_x": 574,
         "il_size": 130,
         "native_size": 3424,
-        "temp_c": 37.3
-      }
+        "temp_c": 37.3,
+        "hc_s_best3_eff": 74783,
+        "hc_s_max_eff": 75427,
+        "realtime_x_eff": 574
+      },
+      "engine_group": "2026.06.08",
+      "engine_rep": true,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09",
@@ -334,8 +388,14 @@
         "realtime_x": 569,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 75659,
+        "hc_s_max_eff": 76033,
+        "realtime_x_eff": 568
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09b",
@@ -365,8 +425,14 @@
         "realtime_x": 568,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 75659,
+        "hc_s_max_eff": 76033,
+        "realtime_x_eff": 568
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": true,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09c",
@@ -396,8 +462,14 @@
         "realtime_x": 568,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 75659,
+        "hc_s_max_eff": 76033,
+        "realtime_x_eff": 568
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09d",
@@ -427,8 +499,14 @@
         "realtime_x": 572,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 75659,
+        "hc_s_max_eff": 76033,
+        "realtime_x_eff": 568
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09e",
@@ -458,8 +536,14 @@
         "realtime_x": 569,
         "il_size": 130,
         "native_size": 3340,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 75659,
+        "hc_s_max_eff": 76033,
+        "realtime_x_eff": 568
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.11",
@@ -489,8 +573,14 @@
         "realtime_x": 547,
         "il_size": 130,
         "native_size": 3372,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 78488,
+        "hc_s_max_eff": 78745,
+        "realtime_x_eff": 547
+      },
+      "engine_group": "2026.06.11",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.12",
@@ -520,8 +610,14 @@
         "realtime_x": 479,
         "il_size": 130,
         "native_size": 4692,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 89656,
+        "hc_s_max_eff": 89911,
+        "realtime_x_eff": 479
+      },
+      "engine_group": "2026.06.12",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.18",
@@ -551,8 +647,14 @@
         "realtime_x": 472,
         "il_size": 130,
         "native_size": 4736,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 91038,
+        "hc_s_max_eff": 91306,
+        "realtime_x_eff": 472
+      },
+      "engine_group": "2026.06.18",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.19",
@@ -582,8 +684,14 @@
         "realtime_x": 452,
         "il_size": 136,
         "native_size": 4636,
-        "temp_c": 36.2
-      }
+        "temp_c": 36.2,
+        "hc_s_best3_eff": 94951,
+        "hc_s_max_eff": 95073,
+        "realtime_x_eff": 452
+      },
+      "engine_group": "2026.06.19",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.20",
@@ -613,8 +721,14 @@
         "realtime_x": 446,
         "il_size": 136,
         "native_size": 4748,
-        "temp_c": 36.7
-      }
+        "temp_c": 36.7,
+        "hc_s_best3_eff": 96363,
+        "hc_s_max_eff": 96603,
+        "realtime_x_eff": 446
+      },
+      "engine_group": "2026.06.20",
+      "engine_rep": true,
+      "engine_dup": false
     }
   ]
 }

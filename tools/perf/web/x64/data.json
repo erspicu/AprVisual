@@ -3,7 +3,7 @@
   "platform": "x64",
   "cpu": "AMD Ryzen 7 3700X (Zen2)",
   "mode": "boost",
-  "generated": "2026-06-21T05:33:53Z",
+  "generated": "2026-06-21T06:30:09Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -56,8 +56,14 @@
         "bit_exact": true,
         "realtime_x": 644,
         "il_size": 359,
-        "native_size": 2985
-      }
+        "native_size": 2985,
+        "hc_s_best3_eff": 66688,
+        "hc_s_max_eff": 66851,
+        "realtime_x_eff": 644
+      },
+      "engine_group": "2026.05.30",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.05.31",
@@ -89,8 +95,14 @@
         "bit_exact": true,
         "realtime_x": 537,
         "il_size": 359,
-        "native_size": 3632
-      }
+        "native_size": 3632,
+        "hc_s_best3_eff": 80025,
+        "hc_s_max_eff": 80259,
+        "realtime_x_eff": 537
+      },
+      "engine_group": "2026.05.31",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.01",
@@ -122,8 +134,14 @@
         "bit_exact": true,
         "realtime_x": 505,
         "il_size": 359,
-        "native_size": 4568
-      }
+        "native_size": 4568,
+        "hc_s_best3_eff": 84994,
+        "hc_s_max_eff": 85222,
+        "realtime_x_eff": 505
+      },
+      "engine_group": "2026.06.01",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.03",
@@ -155,8 +173,14 @@
         "bit_exact": true,
         "realtime_x": 500,
         "il_size": 130,
-        "native_size": 3837
-      }
+        "native_size": 3837,
+        "hc_s_best3_eff": 85843,
+        "hc_s_max_eff": 85938,
+        "realtime_x_eff": 500
+      },
+      "engine_group": "2026.06.03",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.04",
@@ -188,8 +212,14 @@
         "bit_exact": true,
         "realtime_x": 474,
         "il_size": 130,
-        "native_size": 3524
-      }
+        "native_size": 3524,
+        "hc_s_best3_eff": 90530,
+        "hc_s_max_eff": 90580,
+        "realtime_x_eff": 474
+      },
+      "engine_group": "2026.06.04",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.05",
@@ -221,8 +251,14 @@
         "bit_exact": true,
         "realtime_x": 474,
         "il_size": 130,
-        "native_size": 3508
-      }
+        "native_size": 3508,
+        "hc_s_best3_eff": 90685,
+        "hc_s_max_eff": 90752,
+        "realtime_x_eff": 474
+      },
+      "engine_group": "2026.06.05",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.07",
@@ -254,8 +290,14 @@
         "bit_exact": true,
         "realtime_x": 426,
         "il_size": 130,
-        "native_size": 3801
-      }
+        "native_size": 3801,
+        "hc_s_best3_eff": 100878,
+        "hc_s_max_eff": 101187,
+        "realtime_x_eff": 426
+      },
+      "engine_group": "2026.06.07",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.07b",
@@ -287,8 +329,14 @@
         "bit_exact": true,
         "realtime_x": 389,
         "il_size": 130,
-        "native_size": 3987
-      }
+        "native_size": 3987,
+        "hc_s_best3_eff": 110336,
+        "hc_s_max_eff": 110553,
+        "realtime_x_eff": 389
+      },
+      "engine_group": "2026.06.07b",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.08",
@@ -320,8 +368,14 @@
         "bit_exact": true,
         "realtime_x": 386,
         "il_size": 130,
-        "native_size": 3949
-      }
+        "native_size": 3949,
+        "hc_s_best3_eff": 111206,
+        "hc_s_max_eff": 111990,
+        "realtime_x_eff": 386
+      },
+      "engine_group": "2026.06.08",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.09",
@@ -353,8 +407,14 @@
         "bit_exact": true,
         "realtime_x": 381,
         "il_size": 130,
-        "native_size": 3895
-      }
+        "native_size": 3895,
+        "hc_s_best3_eff": 112822,
+        "hc_s_max_eff": 113031,
+        "realtime_x_eff": 381
+      },
+      "engine_group": "2026.06.09",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.09b",
@@ -386,8 +446,14 @@
         "bit_exact": true,
         "realtime_x": 376,
         "il_size": 130,
-        "native_size": 3860
-      }
+        "native_size": 3860,
+        "hc_s_best3_eff": 114276,
+        "hc_s_max_eff": 114956,
+        "realtime_x_eff": 376
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": true,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09c",
@@ -419,8 +485,14 @@
         "bit_exact": true,
         "realtime_x": 377,
         "il_size": 130,
-        "native_size": 3860
-      }
+        "native_size": 3860,
+        "hc_s_best3_eff": 114276,
+        "hc_s_max_eff": 114956,
+        "realtime_x_eff": 376
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09d",
@@ -452,8 +524,14 @@
         "bit_exact": true,
         "realtime_x": 379,
         "il_size": 130,
-        "native_size": 3860
-      }
+        "native_size": 3860,
+        "hc_s_best3_eff": 114276,
+        "hc_s_max_eff": 114956,
+        "realtime_x_eff": 376
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09e",
@@ -485,8 +563,14 @@
         "bit_exact": true,
         "realtime_x": 377,
         "il_size": 130,
-        "native_size": 3860
-      }
+        "native_size": 3860,
+        "hc_s_best3_eff": 114276,
+        "hc_s_max_eff": 114956,
+        "realtime_x_eff": 376
+      },
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.11",
@@ -518,8 +602,14 @@
         "bit_exact": true,
         "realtime_x": 342,
         "il_size": 130,
-        "native_size": 3807
-      }
+        "native_size": 3807,
+        "hc_s_best3_eff": 125670,
+        "hc_s_max_eff": 126299,
+        "realtime_x_eff": 342
+      },
+      "engine_group": "2026.06.11",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.12",
@@ -551,8 +641,14 @@
         "bit_exact": true,
         "realtime_x": 319,
         "il_size": 130,
-        "native_size": 5381
-      }
+        "native_size": 5381,
+        "hc_s_best3_eff": 134549,
+        "hc_s_max_eff": 135002,
+        "realtime_x_eff": 319
+      },
+      "engine_group": "2026.06.12",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.18",
@@ -584,8 +680,14 @@
         "bit_exact": true,
         "realtime_x": 312,
         "il_size": 130,
-        "native_size": 5579
-      }
+        "native_size": 5579,
+        "hc_s_best3_eff": 137628,
+        "hc_s_max_eff": 137950,
+        "realtime_x_eff": 312
+      },
+      "engine_group": "2026.06.18",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.19",
@@ -617,8 +719,14 @@
         "bit_exact": true,
         "realtime_x": 311,
         "il_size": 136,
-        "native_size": 5314
-      }
+        "native_size": 5314,
+        "hc_s_best3_eff": 138189,
+        "hc_s_max_eff": 139511,
+        "realtime_x_eff": 311
+      },
+      "engine_group": "2026.06.19",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.20",
@@ -650,8 +758,14 @@
         "bit_exact": true,
         "realtime_x": 310,
         "il_size": 136,
-        "native_size": 5486
-      }
+        "native_size": 5486,
+        "hc_s_best3_eff": 138556,
+        "hc_s_max_eff": 139844,
+        "realtime_x_eff": 310
+      },
+      "engine_group": "2026.06.20",
+      "engine_rep": true,
+      "engine_dup": false
     }
   ]
 }

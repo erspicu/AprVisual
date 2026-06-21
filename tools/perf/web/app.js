@@ -13,6 +13,11 @@ const I18N = {
     hCyc: "⏱ 熱路徑週期(cyc/hc · 鎖頻 · 越低越好)",
     hTemp: "🌡 溫度趨勢(每版測完量一次 · °C · 紅線 = 60°C 停止門檻)",
     hChanges: "🛠 每一版改了什麼", hTable: "📋 完整數據", hAccess: "🔌 存取方式",
+    hGroups: "🔗 同引擎版本(重打包分組)",
+    groupsIntro: "以下版本的 C# 引擎程式碼其實相同 —— 它們只是重新打包(更新文件、DEBUG 工具或 build 資訊)。判斷依據是 WireCore 編譯後的 <b>IL 指紋</b>:指紋相同即同一引擎,彼此的 hc/s 差異純屬量測誤差,因此圖表上以空心 ○ 標示非代表版,並一律採用組內最佳的那一筆作為代表值。指紋不同的版本即使數字接近,也視為各自獨立的引擎(例:06.07b 與 06.08 數字相近但 IL 指紋不同 → 不同引擎,不會被併組)。",
+    groupsNone: "目前沒有重打包分組 —— 每一版都是不同的 C# 引擎(IL 指紋皆不同)。",
+    groupRep: (n) => `共 ${n} 版同引擎`,
+    groupMembers: "成員(各自實測 hc/s)", groupUses: "圖表/排名採用(組內最佳)", repTag: "代表",
     kEvo: "引擎演進(首→末版)", kPeak: "峰值 hc/s", kRt: "距 NES 即時", kBe: "版版 bit-exact",
     meta: (d) => `${esc(d.cpu)} · 模式 <b>${esc(d.mode)}</b> · golden <code>${esc(d.golden_checksum)}</code> · 產生於 ${esc(d.generated)} · ${d.versions.length} 版`,
     rtUnit: (x) => `~${x}× 即時`,
@@ -33,6 +38,11 @@ const I18N = {
     hCyc: "⏱ hot-path cycles (cyc/hc · clock-locked · lower = better)",
     hTemp: "🌡 temperature trend (measured after each version · °C · red = 60°C stop guard)",
     hChanges: "🛠 what each version changed", hTable: "📋 full data", hAccess: "🔌 access methods",
+    hGroups: "🔗 same-engine versions (repackage groups)",
+    groupsIntro: "The versions below share identical C# engine code — they are mere repackages (updated docs, DEBUG tooling, or build info). They are identified by the <b>IL fingerprint</b> of the compiled WireCore: same fingerprint = same engine, so their hc/s differences are pure measurement noise. Non-representative builds are drawn as hollow ○ on the charts, and the group's best sample is used as the representative value. Versions with different fingerprints count as distinct engines even when their numbers are close (e.g. 06.07b vs 06.08 are close but have different IL → separate engines, not merged).",
+    groupsNone: "No repackage groups — every version is a distinct C# engine (all IL fingerprints differ).",
+    groupRep: (n) => `${n} versions · same engine`,
+    groupMembers: "members (each one's measured hc/s)", groupUses: "chart/ranking uses (group best)", repTag: "rep",
     kEvo: "engine evolution (first→last)", kPeak: "peak hc/s", kRt: "from NES real-time", kBe: "all bit-exact",
     meta: (d) => `${esc(d.cpu)} · mode <b>${esc(d.mode)}</b> · golden <code>${esc(d.golden_checksum)}</code> · generated ${esc(d.generated)} · ${d.versions.length} versions`,
     rtUnit: (x) => `~${x}× real-time`,
@@ -92,6 +102,7 @@ function applyStatic() {
   $("title").innerHTML = t.title;
   $("sub").innerHTML = t.sub;
   $("h-boost").textContent = t.hBoost; $("h-cyc").textContent = t.hCyc;
+  $("h-groups").textContent = t.hGroups;
   $("h-changes").textContent = t.hChanges; $("h-table").textContent = t.hTable; $("h-access").textContent = t.hAccess;
   document.querySelectorAll(".lng").forEach(b => b.classList.toggle("on", b.dataset.l === state.lang));
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.p === state.platform));
@@ -114,6 +125,25 @@ function render(doc) {
   if (hasCyc) $("chart-cyc").innerHTML = lineChart(V, v => v.metrics.cyc_per_hc_locked, { color: "#f0a35e" });
   $("h-temp").style.display = $("chart-temp").style.display = hasTemp ? "" : "none";
   if (hasTemp) $("chart-temp").innerHTML = lineChart(V, v => v.metrics.temp_c, { color: "#f0a35e", guard: 60 });
+
+  // engine groups (repackage detection by IL fingerprint)
+  const groups = {};
+  V.forEach(v => { if (v.engine_dup) (groups[v.engine_group] = groups[v.engine_group] || []).push(v); });
+  const gkeys = Object.keys(groups);
+  if (gkeys.length) {
+    $("groups").innerHTML = `<div class="vd mut" style="margin-bottom:10px">${t.groupsIntro}</div>` +
+      gkeys.map(gk => {
+        const grp = groups[gk].slice().sort((a, b) => a.version < b.version ? -1 : 1);
+        const rep = grp.find(x => x.engine_rep) || grp[0];
+        const il = rep.metrics.engine_il_hash || "—";
+        const mem = grp.map(x => `<span class="mv">${esc(x.version)}</span> = ${fmt(x.metrics.hc_s_best3)}${x.engine_rep ? ` <span class="rep">✓${t.repTag}</span>` : ""}`).join(" · ");
+        return `<div class="grp"><div><b class="rep">${esc(rep.version)}</b> · ${t.groupRep(grp.length)} · <code class="mut">IL ${esc(il)}</code></div>
+          <div class="gm">${t.groupMembers}:&nbsp;${mem}</div>
+          <div class="gm grn">${t.groupUses}:&nbsp;${fmt(rep.metrics.hc_s_best3_eff)} hc/s</div></div>`;
+      }).join("");
+  } else {
+    $("groups").innerHTML = `<div class="vd mut">${t.groupsNone}</div>`;
+  }
 
   const maxb = Math.max(...V.map(v => v.metrics.hc_s_best3_eff));
   $("bars").innerHTML = V.map(v => { const e = v.metrics.hc_s_best3_eff, rk = v.engine_dup && !v.engine_rep ? " ○" : ""; return `<div class="barrow"><span class="bl mv">${esc(v.version)} ${v.milestone ? "★" : ""}${rk}</span><span class="bt"><span class="bf" style="width:${(100 * e / maxb).toFixed(1)}%"></span></span><span class="bn">${fmt(e)} <span class="mut">(${(e / first.hc_s_best3_eff).toFixed(2)}×)</span></span></div>`; }).join("");

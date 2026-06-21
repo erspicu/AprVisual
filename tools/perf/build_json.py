@@ -51,6 +51,7 @@ def main():
     ap.add_argument("--env", required=True)
     ap.add_argument("--boost", required=True)
     ap.add_argument("--sizes")
+    ap.add_argument("--ilhash", help="CSV: Version,EngineILHash (WireCore IL fingerprint; same hash = same C# engine)")
     ap.add_argument("--locked")
     ap.add_argument("--temp", help="CSV: Version,Temp (per-version °C; ARM)")
     ap.add_argument("--merge", help="existing data.json: reuse versions absent from --boost, update those present (incremental release update)")
@@ -63,6 +64,7 @@ def main():
     order = [col(r, "version") for r in read_csv(a.metadata)]
     boost = {col(r, "version"): r for r in read_csv(a.boost)}
     sizes = {col(r, "version"): r for r in read_csv(a.sizes)} if a.sizes else {}
+    ilhash = {col(r, "version"): (col(r, "engineilhash") or "").strip() for r in read_csv(a.ilhash)} if a.ilhash else {}
     locked = {col(r, "version"): r for r in read_csv(a.locked)} if a.locked else {}
     temps = {col(r, "version"): r for r in read_csv(a.temp)} if a.temp else {}
     with open(a.env, encoding="utf-8") as f:
@@ -102,6 +104,8 @@ def main():
             metrics["native_size"] = int(col(sizes[v], "native") or 0)
         else:
             warn.append(f"{v}: no size data")
+        if ilhash.get(v):
+            metrics["engine_il_hash"] = ilhash[v]
         if v in locked:
             lc = col(locked[v], "lockedcycperhc")
             if lc: metrics["cyc_per_hc_locked"] = int(lc)
@@ -124,36 +128,34 @@ def main():
         })
 
     # ---- engine-group pass (data tidy-up, end of pipeline) ----
-    # Adjacent versions with an identical (IL, native) code size are the SAME C# engine — a repackage /
-    # docs / tooling release whose hot-path native code never changed — so their hc/s differences are
-    # pure run-to-run measurement noise, not real regressions/wins. Represent each such run by its BEST
-    # sample (the most representative of the engine's true speed): every member exposes that group-best as
-    # its *effective* value (hc_s_best3_eff / hc_s_max_eff / realtime_x_eff) for the charts, while keeping
-    # its own raw measurement (hc_s_best3 etc.) intact. Singleton groups: eff == raw.
+    # Versions that share the same WireCore IL fingerprint (engine_il_hash) are the SAME C# engine — a
+    # repackage / docs / tooling release whose hot-path code never changed — so their hc/s differences are
+    # pure run-to-run measurement noise, not real regressions/wins. The IL hash is the authoritative key:
+    # it ignores comments / DEBUG-only tools / build metadata and is platform-independent (native code SIZE
+    # is NOT — it gave an arm64 false-positive grouping {06.07b,06.08}; see tools/perf/ilhash/). Versions
+    # WITHOUT a hash (old single-file exes where IL can't be read) stay singletons.
+    # Represent each group by its BEST sample (most representative of the engine's true speed): every member
+    # exposes that group-best as its *effective* value (hc_s_best3_eff / hc_s_max_eff / realtime_x_eff) for
+    # the charts, while keeping its own raw measurement (hc_s_best3 etc.) intact. Singleton: eff == raw.
+    groups = {}                                       # il_hash -> list of versions (only for hashed versions)
+    for vv in versions:
+        h = vv["metrics"].get("engine_il_hash")
+        if h:
+            groups.setdefault(h, []).append(vv)
     n_groups_dup = 0
-    i = 0
-    while i < len(versions):
-        sig = (versions[i]["metrics"].get("il_size"), versions[i]["metrics"].get("native_size"))
-        j = i
-        if sig[0] is not None and sig[1] is not None:
-            while (j + 1 < len(versions)
-                   and (versions[j + 1]["metrics"].get("il_size"),
-                        versions[j + 1]["metrics"].get("native_size")) == sig):
-                j += 1
-        grp = versions[i:j + 1]
-        rep = max(grp, key=lambda vv: vv["metrics"].get("hc_s_best3") or 0)
+    for vv in versions:
+        h = vv["metrics"].get("engine_il_hash")
+        grp = groups.get(h, [vv]) if h else [vv]      # no hash -> own singleton
+        rep = max(grp, key=lambda x: x["metrics"].get("hc_s_best3") or 0)
         rb3, rmx = rep["metrics"].get("hc_s_best3"), rep["metrics"].get("hc_s_max")
         dup = len(grp) > 1
-        if dup:
-            n_groups_dup += 1
-        for vv in grp:
-            vv["engine_group"] = rep["version"]      # version id of the group representative (best sample)
-            vv["engine_rep"] = (vv["version"] == rep["version"])
-            vv["engine_dup"] = dup                    # part of a multi-version same-engine (repackage) run
-            vv["metrics"]["hc_s_best3_eff"] = rb3
-            vv["metrics"]["hc_s_max_eff"] = rmx
-            vv["metrics"]["realtime_x_eff"] = round(REALTIME_HC_S / rb3) if rb3 else None
-        i = j + 1
+        vv["engine_group"] = rep["version"]           # version id of the group representative (best sample)
+        vv["engine_rep"] = (vv["version"] == rep["version"])
+        vv["engine_dup"] = dup                         # part of a multi-version same-engine (repackage) run
+        vv["metrics"]["hc_s_best3_eff"] = rb3
+        vv["metrics"]["hc_s_max_eff"] = rmx
+        vv["metrics"]["realtime_x_eff"] = round(REALTIME_HC_S / rb3) if rb3 else None
+    n_groups_dup = sum(1 for g in groups.values() if len(g) > 1)
 
     doc = {
         "schema": 1,

@@ -3,7 +3,7 @@
   "platform": "x64",
   "cpu": "AMD Ryzen 7 3700X (Zen2)",
   "mode": "boost",
-  "generated": "2026-06-21T06:30:09Z",
+  "generated": "2026-06-21T08:41:51Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -174,6 +174,7 @@
         "realtime_x": 500,
         "il_size": 130,
         "native_size": 3837,
+        "engine_il_hash": "36cfbc21d618",
         "hc_s_best3_eff": 85843,
         "hc_s_max_eff": 85938,
         "realtime_x_eff": 500
@@ -213,6 +214,7 @@
         "realtime_x": 474,
         "il_size": 130,
         "native_size": 3524,
+        "engine_il_hash": "71a233d0af6e",
         "hc_s_best3_eff": 90530,
         "hc_s_max_eff": 90580,
         "realtime_x_eff": 474
@@ -252,6 +254,7 @@
         "realtime_x": 474,
         "il_size": 130,
         "native_size": 3508,
+        "engine_il_hash": "9e41b3ba1a51",
         "hc_s_best3_eff": 90685,
         "hc_s_max_eff": 90752,
         "realtime_x_eff": 474
@@ -291,6 +294,7 @@
         "realtime_x": 426,
         "il_size": 130,
         "native_size": 3801,
+        "engine_il_hash": "27aa248abcf8",
         "hc_s_best3_eff": 100878,
         "hc_s_max_eff": 101187,
         "realtime_x_eff": 426
@@ -330,6 +334,7 @@
         "realtime_x": 389,
         "il_size": 130,
         "native_size": 3987,
+        "engine_il_hash": "3081c31a7b5c",
         "hc_s_best3_eff": 110336,
         "hc_s_max_eff": 110553,
         "realtime_x_eff": 389
@@ -369,6 +374,7 @@
         "realtime_x": 386,
         "il_size": 130,
         "native_size": 3949,
+        "engine_il_hash": "68a9dd1fe5c4",
         "hc_s_best3_eff": 111206,
         "hc_s_max_eff": 111990,
         "realtime_x_eff": 386
@@ -408,13 +414,14 @@
         "realtime_x": 381,
         "il_size": 130,
         "native_size": 3895,
-        "hc_s_best3_eff": 112822,
-        "hc_s_max_eff": 113031,
-        "realtime_x_eff": 381
+        "engine_il_hash": "84f5552e3e90",
+        "hc_s_best3_eff": 114276,
+        "hc_s_max_eff": 114956,
+        "realtime_x_eff": 376
       },
-      "engine_group": "2026.06.09",
-      "engine_rep": true,
-      "engine_dup": false
+      "engine_group": "2026.06.09b",
+      "engine_rep": false,
+      "engine_dup": true
     },
     {
       "version": "2026.06.09b",
@@ -447,6 +454,7 @@
         "realtime_x": 376,
         "il_size": 130,
         "native_size": 3860,
+        "engine_il_hash": "84f5552e3e90",
         "hc_s_best3_eff": 114276,
         "hc_s_max_eff": 114956,
         "realtime_x_eff": 376
@@ -486,13 +494,14 @@
         "realtime_x": 377,
         "il_size": 130,
         "native_size": 3860,
-        "hc_s_best3_eff": 114276,
-        "hc_s_max_eff": 114956,
-        "realtime_x_eff": 376
+        "engine_il_hash": "1bf0a01740f0",
+        "hc_s_best3_eff": 114029,
+        "hc_s_max_eff": 114089,
+        "realtime_x_eff": 377
       },
-      "engine_group": "2026.06.09b",
-      "engine_rep": false,
-      "engine_dup": true
+      "engine_group": "2026.06.09c",
+      "engine_rep": true,
+      "engine_dup": false
     },
     {
       "version": "2026.06.09d",
@@ -525,11 +534,12 @@
         "realtime_x": 379,
         "il_size": 130,
         "native_size": 3860,
-        "hc_s_best3_eff": 114276,
-        "hc_s_max_eff": 114956,
-        "realtime_x_eff": 376
+        "engine_il_hash": "a58e29aea484",
+        "hc_s_best3_eff": 113795,
+        "hc_s_max_eff": 114375,
+        "realtime_x_eff": 377
       },
-      "engine_group": "2026.06.09b",
+      "engine_group": "2026.06.09e",
       "engine_rep": false,
       "engine_dup": true
     },
@@ -564,12 +574,13 @@
         "realtime_x": 377,
         "il_size": 130,
         "native_size": 3860,
-        "hc_s_best3_eff": 114276,
-        "hc_s_max_eff": 114956,
-        "realtime_x_eff": 376
+        "engine_il_hash": "a58e29aea484",
+        "hc_s_best3_eff": 113795,
+        "hc_s_max_eff": 114375,
+        "realtime_x_eff": 377
       },
-      "engine_group": "2026.06.09b",
-      "engine_rep": false,
+      "engine_group": "2026.06.09e",
+      "engine_rep": true,
       "engine_dup": true
     },
     {
@@ -603,6 +614,7 @@
         "realtime_x": 342,
         "il_size": 130,
         "native_size": 3807,
+        "engine_il_hash": "4de0e2696f76",
         "hc_s_best3_eff": 125670,
         "hc_s_max_eff": 126299,
         "realtime_x_eff": 342
@@ -642,6 +654,7 @@
         "realtime_x": 319,
         "il_size": 130,
         "native_size": 5381,
+        "engine_il_hash": "58fa60dd40c5",
         "hc_s_best3_eff": 134549,
         "hc_s_max_eff": 135002,
         "realtime_x_eff": 319
@@ -681,6 +694,7 @@
         "realtime_x": 312,
         "il_size": 130,
         "native_size": 5579,
+        "engine_il_hash": "794616709979",
         "hc_s_best3_eff": 137628,
         "hc_s_max_eff": 137950,
         "realtime_x_eff": 312
@@ -720,6 +734,7 @@
         "realtime_x": 311,
         "il_size": 136,
         "native_size": 5314,
+        "engine_il_hash": "7bb1c3d81582",
         "hc_s_best3_eff": 138189,
         "hc_s_max_eff": 139511,
         "realtime_x_eff": 311
@@ -759,6 +774,7 @@
         "realtime_x": 310,
         "il_size": 136,
         "native_size": 5486,
+        "engine_il_hash": "f374139654a1",
         "hc_s_best3_eff": 138556,
         "hc_s_max_eff": 139844,
         "realtime_x_eff": 310

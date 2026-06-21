@@ -17,8 +17,15 @@ ITEMS=(
  "2026.06.12|benchmark-2026.06.12" "2026.06.18|benchmark-2026.06.18" "2026.06.19|benchmark-2026.06.19"
  "2026.06.20|benchmark-2026.06.20"
 )
+# build the IL-hash helper once (platform-neutral fingerprint of the WireCore engine)
+ILHASH=$(find ~/aprvisual/tools/perf/ilhash/bin/Release -name ilhash.dll 2>/dev/null | head -1)
+if [ -z "$ILHASH" ]; then
+  dotnet build ~/aprvisual/tools/perf/ilhash/ilhash.csproj -c Release -v quiet >/dev/null 2>&1
+  ILHASH=$(find ~/aprvisual/tools/perf/ilhash/bin/Release -name ilhash.dll 2>/dev/null | head -1)
+fi
 echo "Version,BoostTop3Avg,BoostMax,Samples,Checksum" > $O/boost_arm.csv
 echo "Version,IL,Native" > $O/sizes_arm.csv
+echo "Version,EngineILHash" > $O/ilhash_arm.csv
 echo "Version,Temp" > $O/temp_arm.csv
 for item in "${ITEMS[@]}"; do
   IFS='|' read lbl ref <<< "$item"
@@ -39,9 +46,11 @@ for item in "${ITEMS[@]}"; do
   samp=$(echo $rates | tr -s ' ' | sed 's/^ //;s/ /\//g')
   sz=$(DOTNET_JitDisasmSummary=1 DOTNET_TieredCompilation=0 dotnet "$DLL" --benchmark "$ROM" --bench-hc 3000 --extra-ram --system-def-dir "$SD" 2>&1 | grep -oE 'WireCore:ProcessQueue(Interp)?\(\) \[FullOpts, IL size=[0-9]+, code size=[0-9]+\]' | head -1)
   il=$(echo "$sz" | grep -oE 'IL size=[0-9]+' | grep -oE '[0-9]+'); nat=$(echo "$sz" | grep -oE 'code size=[0-9]+' | grep -oE '[0-9]+')
+  ilh=""; [ -n "$ILHASH" ] && ilh=$(dotnet "$ILHASH" "$DLL" 2>/dev/null | tr -d '[:space:]')
   temp=$(vcgencmd measure_temp | grep -oE '[0-9.]+' | head -1)
   echo "$lbl,$best3,$mx,$samp,$ck" >> $O/boost_arm.csv
   echo "$lbl,$il,$nat" >> $O/sizes_arm.csv
+  [ -n "$ilh" ] && echo "$lbl,$ilh" >> $O/ilhash_arm.csv
   echo "$lbl,$temp" >> $O/temp_arm.csv
   echo "$lbl: best3=$best3 max=$mx ck=${ck:0:6} nat=$nat temp=${temp}C"
   if awk -v t="$temp" -v m="$MAXT" 'BEGIN{exit !(t>m)}'; then

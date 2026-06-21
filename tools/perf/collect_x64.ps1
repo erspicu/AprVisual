@@ -2,6 +2,7 @@
 # Runs each released benchmark binary, emits CSVs consumed by build_json.py:
 #   out/boost.csv  Version,BoostTop3Avg,BoostMax,Samples,Checksum
 #   out/sizes.csv  Version,IL,Native
+#   out/ilhash.csv Version,EngineILHash            (WireCore IL fingerprint; same hash = same C# engine)
 #   out/locked.csv Version,LockedCycPerHc          (only with -Locked)
 # Release zips are cached under releases/<version>/ and reused (no re-download).
 #
@@ -50,7 +51,14 @@ function Get-Exe($v) {
   return $exe
 }
 
-$boost=@(); $sizes=@(); $lockedRows=@()
+# build the IL-hash helper once (platform-neutral fingerprint of the WireCore engine)
+$ilhashDll = (Get-ChildItem "$PSScriptRoot\ilhash\bin\Release" -Recurse -Filter "ilhash.dll" -EA SilentlyContinue | Select-Object -First 1).FullName
+if (-not $ilhashDll) {
+  dotnet build "$PSScriptRoot\ilhash\ilhash.csproj" -c Release -v quiet | Out-Null
+  $ilhashDll = (Get-ChildItem "$PSScriptRoot\ilhash\bin\Release" -Recurse -Filter "ilhash.dll" | Select-Object -First 1).FullName
+}
+
+$boost=@(); $sizes=@(); $ilhashes=@(); $lockedRows=@()
 if ($Locked) { & "$PSScriptRoot\..\cpu_lock_3.6ghz.bat" | Out-Null; Write-Host "CPU locked to base clock" -ForegroundColor Yellow }
 try {
   foreach ($v in $Versions) {
@@ -79,6 +87,13 @@ try {
     $m=[regex]::Match($so2,'WireCore:ProcessQueue(Interp)?\(\) \[FullOpts, IL size=(\d+), code size=(\d+)\]')
     $sizes += [pscustomobject]@{Version=$v;IL=$m.Groups[2].Value;Native=$m.Groups[3].Value}
 
+    # engine IL fingerprint (managed DLL only; old single-file exes have no separate DLL -> skip)
+    $dll = Join-Path $d "AprVisual.S1.dll"
+    if ($ilhashDll -and (Test-Path $dll)) {
+      $h = (& dotnet $ilhashDll $dll).Trim()
+      if ($h) { $ilhashes += [pscustomobject]@{Version=$v;EngineILHash=$h} }
+    }
+
     $line="{0,-12} boost top3={1,8} max={2,8} ck={3} IL/nat={4}/{5}" -f $v,[int]$top3,($rates|Measure-Object -Maximum).Maximum,$ck.Substring(0,[Math]::Min(6,$ck.Length)),$m.Groups[2].Value,$m.Groups[3].Value
 
     # locked cyc/hc: load-subtracted QPCT (min of 2), frequency-independent count at fixed clock
@@ -97,6 +112,7 @@ try {
 
 $boost | Export-Csv "$OutDir\boost.csv" -NoTypeInformation -Encoding UTF8
 $sizes | Export-Csv "$OutDir\sizes.csv" -NoTypeInformation -Encoding UTF8
+$ilhashes | Export-Csv "$OutDir\ilhash.csv" -NoTypeInformation -Encoding UTF8
 if ($Locked) { $lockedRows | Export-Csv "$OutDir\locked.csv" -NoTypeInformation -Encoding UTF8 }
-Write-Host "`nWROTE $OutDir\boost.csv, sizes.csv$(if($Locked){', locked.csv'})  ($($boost.Count) versions)" -ForegroundColor Green
-Write-Host "next: python tools/perf/build_json.py --platform x64 --metadata tools/perf/metadata.csv --env tools/perf/env_x64.json --boost $OutDir\boost.csv --sizes $OutDir\sizes.csv$(if($Locked){" --locked $OutDir\locked.csv"}) --out tools/perf/web/x64/data.json"
+Write-Host "`nWROTE $OutDir\boost.csv, sizes.csv, ilhash.csv$(if($Locked){', locked.csv'})  ($($boost.Count) versions)" -ForegroundColor Green
+Write-Host "next: python tools/perf/build_json.py --platform x64 --metadata tools/perf/metadata.csv --env tools/perf/env_x64.json --boost $OutDir\boost.csv --sizes $OutDir\sizes.csv --ilhash $OutDir\ilhash.csv$(if($Locked){" --locked $OutDir\locked.csv"}) --out tools/perf/web/x64/data.json"

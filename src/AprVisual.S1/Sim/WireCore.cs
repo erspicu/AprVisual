@@ -81,6 +81,10 @@ namespace AprVisual.Sim
         public static int* NodeConnections;
         public static int* NodeTlistGates;
         public static int* NodeTlistGatesOff;
+        private const int GateListIndexMask = 0x3FFFFFFF;
+        private const int GateListKindMask = unchecked((int)0xC0000000);
+        private const int GateListAllSafe = 0x40000000;
+        private const int GateListAllUnsafe = unchecked((int)0x80000000);
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -271,6 +275,7 @@ namespace AprVisual.Sim
             ClassifyPureLogicNodes();
             ClassifyPruneTaint();   // safety mask for the same-state turn-on prune (no-PullUp / ForceCompute)
             ClassifyTurnOffSkip();  // P-2: safety mask for the turn-off enqueue prune (isolated-on-disconnect float-hold)
+            TagTurnOnGateLists();   // classify NodeTlistGates lists for the turn-on enqueue helper
 
             // ── Turn-OFF enqueue list (falling writeback split)
             // Build AFTER ClassifyTurnOffSkip() verifies/falls back the RangePruneS boundary. The falling
@@ -313,6 +318,31 @@ namespace AprVisual.Sim
             {
                 var cb = Nodes[i]?.Callback;
                 if (cb != null) _callbackByNode[i] = cb;
+            }
+        }
+
+        private static void TagTurnOnGateLists()
+        {
+            int rA = RangePruneA, rB = RangePruneB;
+            for (int nn = 0; nn < NodeCount; nn++)
+            {
+                int idx = NodeTlistGates[nn];
+                if (idx == 0) continue;
+
+                bool hasSafe = false, hasUnsafe = false;
+                ushort* p = TransistorList + idx;
+                while (true)
+                {
+                    int c1 = *p;
+                    if (c1 == 0) break;
+                    if (c1 >= rA && c1 < rB) hasSafe = true;
+                    else hasUnsafe = true;
+                    if (hasSafe && hasUnsafe) break;
+                    p += 2;
+                }
+
+                if (hasSafe && !hasUnsafe) NodeTlistGates[nn] = idx | GateListAllSafe;
+                else if (hasUnsafe && !hasSafe) NodeTlistGates[nn] = idx | GateListAllUnsafe;
             }
         }
 

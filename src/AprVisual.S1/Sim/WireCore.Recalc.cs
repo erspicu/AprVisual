@@ -624,12 +624,11 @@ namespace AprVisual.Sim
             }
             else
             {
-                int tlistGates = NodeTlistGates[nn];
-                if (tlistGates == 0) return;
+                int taggedGates = NodeTlistGates[nn];
+                if (taggedGates == 0) return;
                 int* nextList = RecalcListNext;
                 byte* nextHash = RecalcHashNext;
                 int nextCount = RecalcListNextCount;
-                ushort* p = TransistorList + tlistGates;
                 // (nodeStates hoisted at the method top — reused here, no re-load)
                 // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
                 // c1 suffices (BFS traverses the ON channel to c2).
@@ -645,7 +644,41 @@ namespace AprVisual.Sim
                 // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
                 // a pruned node must NOT have nextHash set, or it would look queued without being listed.
                 // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
-                int rA = RangePruneA, rB = RangePruneB;
+                nextCount = EnqueueTurnOnTagged(taggedGates, nodeStates, nextList, nextHash, nextCount);
+                RecalcListNextCount = nextCount;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int EnqueueTurnOnTagged(int taggedGates, byte* nodeStates, int* nextList, byte* nextHash, int nextCount)
+        {
+            ushort* p = TransistorList + (taggedGates & GateListIndexMask);
+            int kind = taggedGates & GateListKindMask;
+
+            if (kind == GateListAllUnsafe)
+            {
+                while (true)
+                {
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c1a = (ushort)quad;
+                    if (c1a == 0) break;
+#if DEBUG
+                    DiagBrPruneKeep++;
+#endif
+                    if (nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                    int c1b = (ushort)(quad >> 32);
+                    if (c1b == 0) break;
+#if DEBUG
+                    DiagBrPruneKeep++;
+#endif
+                    if (nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                    p += 4;
+                }
+                return nextCount;
+            }
+
+            if (kind == GateListAllSafe)
+            {
                 while (true)
                 {
                     ulong quad = Unsafe.ReadUnaligned<ulong>(p);
@@ -653,22 +686,46 @@ namespace AprVisual.Sim
                     if (c1a == 0) break;
                     int c2a = (ushort)(quad >> 16);
 #if DEBUG
-                    if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
-                    DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+                    if (nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;
+                    DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;
 #endif
-                    if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                    if (nodeStates[c1a] != nodeStates[c2a] && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
                     int c1b = (ushort)(quad >> 32);
                     if (c1b == 0) break;
                     int c2b = (ushort)(quad >> 48);
 #if DEBUG
-                    if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
-                    DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+                    if (nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;
+                    DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;
 #endif
-                    if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                    if (nodeStates[c1b] != nodeStates[c2b] && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
                     p += 4;
                 }
-                RecalcListNextCount = nextCount;
+                return nextCount;
             }
+
+            int rA = RangePruneA, rB = RangePruneB;
+            while (true)
+            {
+                ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                int c1a = (ushort)quad;
+                if (c1a == 0) break;
+                int c2a = (ushort)(quad >> 16);
+#if DEBUG
+                if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+#endif
+                if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                int c1b = (ushort)(quad >> 32);
+                if (c1b == 0) break;
+                int c2b = (ushort)(quad >> 48);
+#if DEBUG
+                if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+#endif
+                if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                p += 4;
+            }
+            return nextCount;
         }
 
         // ── external pin drive / float (port of setHigh/setLow/setFloat) ──

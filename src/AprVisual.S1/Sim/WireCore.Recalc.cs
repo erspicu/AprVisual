@@ -487,7 +487,14 @@ namespace AprVisual.Sim
                             if (o == nn) goto FallbackBFS;
                             for (int k2 = k + 2; k2 < n2; k2 += 2) if (nodeStates[pay[k2]] != 0) goto FallbackBFS;
                             NodeInfo* os = NodeInfos + o;
-                            if (os->Inline == 0 || (os->Flags & (NodeFlags.HasCallback | NodeFlags.ForceCompute)) != 0) goto FallbackBFS;
+                            // Merged-load form of `Inline==0 || (Flags & (HasCallback|ForceCompute))!=0`.
+                            // NodeInfo lays Flags at offset 0 and Inline at offset 1 (adjacent bytes), and
+                            // Inline is only ever 0 or 1 (the sole write is WireCore.cs ns.Inline = 1). On
+                            // little-endian *(ushort*)os = Flags | (Inline<<8); masking 0xFFC0 keeps Inline
+                            // (high byte) + Flags' ForceCompute|HasCallback bits (0xC0). Continue ⇔ Inline==1
+                            // && (Flags&0xC0)==0 ⇔ == 0x0100. One 16-bit load+and+cmp+branch instead of two
+                            // byte loads / two compares / two branches. Bit-exact (little-endian only).
+                            if ((*(ushort*)os & 0xFFC0) != 0x0100) goto FallbackBFS;
                             ushort* opay = os->InlinePayload;
                             int on2 = os->C1c2Count << 1;
                             for (int k2 = 0; k2 < on2; k2 += 2) if (nodeStates[opay[k2]] != 0 && opay[k2 + 1] != nn) goto FallbackBFS;

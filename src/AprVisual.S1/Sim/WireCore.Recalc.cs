@@ -58,7 +58,10 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void EnqueueNode(int nn)
         {
-            if (nn == Npwr || nn == Ngnd) return;
+            // B-form: (uint)nn <= Ngnd folds to a single cmp/jbe with NO sub (cheaper than the
+            // (nn-Npwr) range form). Catches nn∈{0,1,2}; relies on nn==0 never reaching EnqueueNode
+            // — verified bit-exact against the golden checksum, not by static proof.
+            if ((uint)nn <= Ngnd) return;
             if (RecalcHashNext[nn] == 0)
             {
                 RecalcListNext[RecalcListNextCount++] = nn;
@@ -592,51 +595,49 @@ namespace AprVisual.Sim
             else
             {
                 int tlistGates = NodeTlistGates[nn];
-                if (tlistGates != 0)
+                if (tlistGates == 0) return;
+                int* nextList = RecalcListNext;
+                byte* nextHash = RecalcHashNext;
+                int nextCount = RecalcListNextCount;
+                ushort* p = TransistorList + tlistGates;
+                // (nodeStates hoisted at the method top — reused here, no re-load)
+                // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
+                // c1 suffices (BFS traverses the ON channel to c2).
+                // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
+                // the same state, merging two equal-state groups can't change any value — PROVIDED the
+                // merged group resolves through the monotone driven-priority LUT. The "unsafe" class
+                // that must always enqueue (no-PullUp floating/hold-previous, or ForceCompute Gnd+Pwr
+                // cancel; minus the P-3/4 cap<all-neighbours un-taint — see ClassifyPruneTaint) sits in
+                // the two OUTER id blocks of the class-major renumber, so the test is two REGISTER
+                // COMPARES: unsafe ⇔ c < A || c >= B (c1 is never supply). Boundaries verified against
+                // the computed PruneMask at every Reset. The keep-term stays FIRST, nextHash==0 LAST
+                // (the 2026-06-08 [cond-profile] showed nextHash==0 is ≈97.7% true — a near-useless lead
+                // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
+                // a pruned node must NOT have nextHash set, or it would look queued without being listed.
+                // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
+                int rA = RangePruneA, rB = RangePruneB;
+                while (true)
                 {
-                    int* nextList = RecalcListNext;
-                    byte* nextHash = RecalcHashNext;
-                    int nextCount = RecalcListNextCount;
-                    ushort* p = TransistorList + tlistGates;
-                    // (nodeStates hoisted at the method top — reused here, no re-load)
-                    // gate going high: the channel CONDUCTS, so c1 and c2 merge; single-sided enqueue of
-                    // c1 suffices (BFS traverses the ON channel to c2).
-                    // [same-state turn-on prune (P-1), range form (2026-06-10)] if c1 and c2 already hold
-                    // the same state, merging two equal-state groups can't change any value — PROVIDED the
-                    // merged group resolves through the monotone driven-priority LUT. The "unsafe" class
-                    // that must always enqueue (no-PullUp floating/hold-previous, or ForceCompute Gnd+Pwr
-                    // cancel; minus the P-3/4 cap<all-neighbours un-taint — see ClassifyPruneTaint) sits in
-                    // the two OUTER id blocks of the class-major renumber, so the test is two REGISTER
-                    // COMPARES: unsafe ⇔ c < A || c >= B (c1 is never supply). Boundaries verified against
-                    // the computed PruneMask at every Reset. The keep-term stays FIRST, nextHash==0 LAST
-                    // (the 2026-06-08 [cond-profile] showed nextHash==0 is ≈97.7% true — a near-useless lead
-                    // gate; re-profile on a busier ROM if this ordering is ever revisited). The `if` stays —
-                    // a pruned node must NOT have nextHash set, or it would look queued without being listed.
-                    // Bit-exact (golden checksum); P-1 mask form was +11.85%, range form adds +3.6% on top.
-                    int rA = RangePruneA, rB = RangePruneB;
-                    while (true)
-                    {
-                        ulong quad = Unsafe.ReadUnaligned<ulong>(p);
-                        int c1a = (ushort)quad;
-                        if (c1a == 0) break;
-                        int c2a = (ushort)(quad >> 16);
+                    ulong quad = Unsafe.ReadUnaligned<ulong>(p);
+                    int c1a = (ushort)quad;
+                    if (c1a == 0) break;
+                    int c2a = (ushort)(quad >> 16);
 #if DEBUG
-                        if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
-                        DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+                    if (c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                    DiagCoRiseTot++; if ((c1a >> 6) == (c2a >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
-                        if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
-                        int c1b = (ushort)(quad >> 32);
-                        if (c1b == 0) break;
-                        int c2b = (ushort)(quad >> 48);
+                    if ((c1a < rA || c1a >= rB || nodeStates[c1a] != nodeStates[c2a]) && nextHash[c1a] == 0) { nextList[nextCount++] = c1a; nextHash[c1a] = 1; }
+                    int c1b = (ushort)(quad >> 32);
+                    if (c1b == 0) break;
+                    int c2b = (ushort)(quad >> 48);
 #if DEBUG
-                        if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
-                        DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
+                    if (c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) DiagBrPruneKeep++; else DiagBrPruneSkip++;   // [branch-dist] range-prune cond (per transistor)
+                    DiagCoRiseTot++; if ((c1b >> 6) == (c2b >> 6)) DiagCoRiseSame++;   // [co-read B] (c1,c2) same 64-bit word?
 #endif
-                        if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
-                        p += 4;
-                    }
-                    RecalcListNextCount = nextCount;
+                    if ((c1b < rA || c1b >= rB || nodeStates[c1b] != nodeStates[c2b]) && nextHash[c1b] == 0) { nextList[nextCount++] = c1b; nextHash[c1b] = 1; }
+                    p += 4;
                 }
+                RecalcListNextCount = nextCount;
             }
         }
 

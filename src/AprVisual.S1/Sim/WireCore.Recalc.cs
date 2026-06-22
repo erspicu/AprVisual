@@ -501,14 +501,8 @@ namespace AprVisual.Sim
                             // committed — group is exactly {nn, o}
                             RecalcHash[o] = 0;
                             int flags = (int)ns->Flags | (int)os->Flags;
-                            int anyG = 0, anyP = 0;
-                            int sGe = n2 + ns->GndCount, sPe = sGe + ns->PwrCount;
-                            for (int j = n2; j < sGe; j++) anyG |= nodeStates[pay[j]];
-                            for (int j = sGe; j < sPe; j++) anyP |= nodeStates[pay[j]];
-                            int oGe = on2 + os->GndCount, oPe = oGe + os->PwrCount;
-                            for (int j = on2; j < oGe; j++) anyG |= nodeStates[opay[j]];
-                            for (int j = oGe; j < oPe; j++) anyP |= nodeStates[opay[j]];
-                            flags |= (anyG << 5) | (anyP << 4);
+                            byte gp1 = ns->GndPwr, gp2 = os->GndPwr;
+                            flags |= PairSupplyFlagsInline(pay + n2, gp1, opay + on2, gp2, nodeStates);
                             byte v = flags != 0 ? FlagsToState[flags]
                                    : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
                             SetNodeState(nn, v);
@@ -544,6 +538,35 @@ namespace AprVisual.Sim
                     if (cb != null) EnqueueCallback(cb);
                 }
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int PairSupplyFlagsInline(ushort* p1, byte gp1, ushort* p2, byte gp2, byte* nodeStates)
+        {
+            int pairGp = gp1 | (gp2 << 8);
+            if (pairGp == 0x0100) return nodeStates[p2[0]] << 5;
+            if (pairGp == 0x0200) return (nodeStates[p2[0]] | nodeStates[p2[1]]) << 5;
+            if (pairGp == 0x0001) return nodeStates[p1[0]] << 5;
+            if (pairGp == 0x0202) return (nodeStates[p1[0]] | nodeStates[p1[1]] | nodeStates[p2[0]] | nodeStates[p2[1]]) << 5;
+            if (pairGp == 0x0101) return (nodeStates[p1[0]] | nodeStates[p2[0]]) << 5;
+            if (pairGp == 0x0002) return (nodeStates[p1[0]] | nodeStates[p1[1]]) << 5;
+
+            int anyG = 0, anyP = 0;
+            if (gp1 != 0)
+            {
+                int g = gp1 & 0x0F, pwr = gp1 >> 4;
+                for (int j = 0; j < g; j++) anyG |= nodeStates[p1[j]];
+                p1 += g;
+                for (int j = 0; j < pwr; j++) anyP |= nodeStates[p1[j]];
+            }
+            if (gp2 != 0)
+            {
+                int g = gp2 & 0x0F, pwr = gp2 >> 4;
+                for (int j = 0; j < g; j++) anyG |= nodeStates[p2[j]];
+                p2 += g;
+                for (int j = 0; j < pwr; j++) anyP |= nodeStates[p2[j]];
+            }
+            return (anyG << 5) | (anyP << 4);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -11,6 +11,7 @@ const I18N = {
     sub: "switch-level NES(2A03+2C02)模擬器 · 逐版效能歷史 · 全程 <b>bit-exact</b>",
     hBoost: "📈 吞吐量 boost(hc/s · 越高越好 · ★=里程碑 · ○=重打包/同引擎)",
     hCyc: "⏱ 熱路徑週期(cyc/hc · 鎖頻 · 越低越好)",
+    hInstr: "🔧 每 half-cycle 指令數(retired instructions ÷ hc · Pi5 arm64 · 越低越好 · 相減法消除 startup/load)",
     hTemp: "🌡 溫度趨勢(每版測完量一次 · °C · 紅線 = 60°C 停止門檻)",
     hChanges: "🛠 每一版改了什麼", hTable: "📋 完整數據", hAccess: "🔌 存取方式",
     hGroups: "🔗 同引擎版本(重打包分組)",
@@ -36,6 +37,7 @@ const I18N = {
     sub: "switch-level NES (2A03+2C02) simulator · per-version history · <b>bit-exact</b> throughout",
     hBoost: "📈 boost throughput (hc/s · higher = better · ★ = milestone · ○ = repackage/same engine)",
     hCyc: "⏱ hot-path cycles (cyc/hc · clock-locked · lower = better)",
+    hInstr: "🔧 instructions per half-cycle (retired ÷ hc · Pi5 arm64 · lower = better · subtraction removes startup/load)",
     hTemp: "🌡 temperature trend (measured after each version · °C · red = 60°C stop guard)",
     hChanges: "🛠 what each version changed", hTable: "📋 full data", hAccess: "🔌 access methods",
     hGroups: "🔗 same-engine versions (repackage groups)",
@@ -101,7 +103,7 @@ function applyStatic() {
   document.documentElement.lang = t.htmlLang;
   $("title").innerHTML = t.title;
   $("sub").innerHTML = t.sub;
-  $("h-boost").textContent = t.hBoost; $("h-cyc").textContent = t.hCyc;
+  $("h-boost").textContent = t.hBoost; $("h-cyc").textContent = t.hCyc; $("h-instr").textContent = t.hInstr;
   $("h-groups").textContent = t.hGroups;
   $("h-changes").textContent = t.hChanges; $("h-table").textContent = t.hTable; $("h-access").textContent = t.hAccess;
   document.querySelectorAll(".lng").forEach(b => b.classList.toggle("on", b.dataset.l === state.lang));
@@ -119,6 +121,9 @@ function render(doc) {
     <div class="k"><div class="big ${be===V.length?'grn':'bad'}">${be}/${V.length}</div><div class="lab">${t.kBe}</div></div>`;
 
   $("chart-boost").innerHTML = lineChart(V, v => v.metrics.hc_s_best3_eff, { color: "#39d98a", mark: true, engine: true });
+  const hasInstr = V.some(v => v.metrics.instr_per_hc != null);
+  $("h-instr").style.display = $("chart-instr").style.display = hasInstr ? "" : "none";
+  if (hasInstr) $("chart-instr").innerHTML = lineChart(V, v => v.metrics.instr_per_hc, { color: "#6aa3f0", mark: true, engine: true });
   const hasCyc = V.some(v => v.metrics.cyc_per_hc_locked != null);
   const hasTemp = V.some(v => v.metrics.temp_c != null);
   $("h-cyc").style.display = $("chart-cyc").style.display = hasCyc ? "" : "none";

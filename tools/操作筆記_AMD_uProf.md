@@ -176,3 +176,18 @@ bcdedit /set uselegacyapicmode Yes   # 重開機後生效;還原 = bcdedit /dele
 4. `python tools/ibs_bucket.py OUT` → 讀 `OUT_o.txt` 的 footprint + 分桶 → per-array load / L1-miss / L2-miss / 延遲。
 **實測結論(full_palette)**:NodeStates 讀最多但 L1 常駐(~0 miss);TransistorList/Off 是 L1/L2 miss 熱點。見 `MD/note/2026-06-20-L-cache-miss熱點分析.md`。
 **PMU 鎖 0x80070021**:collect 被 kill 後鎖住 → `Get-Process AMDuProfCLI|Kill` + `Restart-Service AMDProfilerLoadService -Force`。
+
+---
+
+# Op cache hit ratio(Zen2 micro-op cache 邊界,2026-06-23)
+
+Zen2 有 **4,096-op** 的 micro-op cache;熱迴圈太大 → ops 改走 legacy decoder(慢)。量法(EBP,**不需 IBS**):
+- 事件 **PMCx0AA `DeDisUopsFromDecoder`**:`umask=0x01` = `DecoderDispatched`、`umask=0x02` = `OpCacheDispatched`。
+- collect:`-e event=pmcx0aa,umask=0x1,interval=50000 -e event=pmcx0aa,umask=0x2,interval=50000 -o OUT <exe> <args>`
+- report → csv 取 `ProcessQueue` 行的兩欄(順序 = collect 順序:先 decoder、後 opcache)。
+- **OpCacheHitRatio = OpCache ÷ (OpCache + Decoder)**。
+
+**Baseline(92ce32b,ProcessQueue 7.1 KB native,full_palette 1M hc)**:OpCache **1,396,938** / Decoder **192,791** = **87.9%**。
+- 不在「≥95% safe」但沒到「≤80% painful」—— 7.1 KB 已讓 ~12% ops 走 decoder、用掉部分 op cache 餘裕;膨脹到 ~11 KB 若是熱路徑會繼續降、可能破 80%。
+- **但本引擎 backend-bound**(perf:frontend stall ~7% / backend ~19%),op cache 屬 frontend、**非瓶頸** → hit 再降對 wall-clock 影響有限。網路流傳的「掉到 80% 就痛苦」是給 frontend/decode-bound 的純算大迴圈,**我們卡在記憶體延遲,不完全適用**。
+- **真正該守的線是 inline 懸崖**(ProcessQueue ~6.4 KB 還 inline 在內、一超過被踢出 = −10.7%,見 MD/note inline-cliff),比 op cache hit 掉幾趴嚴重得多。

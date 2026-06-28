@@ -12,6 +12,7 @@ etc/
 *.docx
 *.doc
 *.pdf
+!WebSite/papers/*.pdf
 *.zip
 *.7z
 *.rar

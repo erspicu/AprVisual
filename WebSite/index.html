@@ -90,16 +90,8 @@
   <a class="sec" href="#notes"><span class="en">Notes</span><span class="zh">過程心得</span></a>
   <a class="sec" href="#results"><span class="en">Results</span><span class="zh">成果</span></a>
   <a class="sec" href="#compare"><span class="en">Comparison</span><span class="zh">比較</span></a>
-  <a class="sec" href="prunes.html"><span class="en">Prunes</span><span class="zh">剪枝</span></a>
-  <a class="sec" href="frontier.html"><span class="en">Frontier</span><span class="zh">前緣</span></a>
-  <a class="sec" href="dominant-bypass.html"><span class="en">P-5 case</span><span class="zh">P-5 案例</span></a>
-  <a class="sec" href="bfs-dfs.html"><span class="en">BFS/DFS</span><span class="zh">BFS/DFS</span></a>
-  <a class="sec" href="threads.html"><span class="en">Threads</span><span class="zh">多執行緒</span></a>
-  <a class="sec" href="s2-gateabs.html"><span class="en">S2 redo</span><span class="zh">S2 重戰</span></a>
-  <a class="sec" href="rcm-revival.html"><span class="en">RCM revival</span><span class="zh">RCM 復活</span></a>
-  <a class="sec" href="cross-cpu.html"><span class="en">Cross-CPU</span><span class="zh">跨 CPU</span></a>
-  <a class="sec" href="lineage.html"><span class="en">Lineage</span><span class="zh">系譜</span></a>
-  <a class="sec" href="prior-art.html"><span class="en">Prior art</span><span class="zh">文獻定位</span></a>
+  <a class="sec" href="#papers"><span class="en">Papers</span><span class="zh">論文</span></a>
+  <a class="sec" href="#reading"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
   <a class="sec" href="calculator.html"><span class="en">Calculator</span><span class="zh">換算器</span></a>
   <a class="sec" href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2)"><span class="en">Leaderboard ↗</span><span class="zh">排行榜 ↗</span></a>
   <a class="sec" href="https://baxermux.org/myemu/AprVisual/version/" target="_blank" rel="noopener" style="color:var(--acc2)"><span class="en">Perf dashboard ↗</span><span class="zh">效能檢測 ↗</span></a>
@@ -522,6 +514,38 @@
     <a class="btn primary" href="comparison.html"><span class="en">Read the full comparison →</span><span class="zh">閱讀完整比較深入頁 →</span></a>
   </p>
   <p class="mut" style="text-align:center; font-size:13px"><span class="en">Per-project breakdowns, the unit caveats, frame-time derivations, and all sources.</span><span class="zh">各專案逐一拆解、單位注意、frame-time 推算、完整來源。</span></p>
+</section>
+
+<section id="papers">
+  <h2><span class="en">📄 Papers &amp; monograph</span><span class="zh">📄 論文與專論</span></h2>
+  <p><span class="en">The full write-up of the project — the silicon-connectivity → logic translation/verification pipeline, the falsifiable single-core "real-time is unreachable" negative result, and the ablation — now open to read and download. By <b>黎映微 (Ying-Wei Li)</b>.</span><span class="zh">這個專案的完整論述 —— 矽連線 → 邏輯的翻譯/驗證 pipeline、「單核即時不可達」的可否證負面結果、以及消融分析 —— 現在公開,可自由閱讀與下載。作者 <b>黎映微 (Ying-Wei Li)</b>。</span></p>
+  <p class="hbtns">
+    <a class="btn primary" href="papers/book_en.pdf" target="_blank" rel="noopener"><span class="en">⬇ Monograph — English (PDF)</span><span class="zh">⬇ 專論 — 英文(PDF)</span></a>
+    <a class="btn primary" href="papers/book_zh.pdf" target="_blank" rel="noopener"><span class="en">⬇ Monograph — 中文 (PDF)</span><span class="zh">⬇ 專論 — 中文(PDF)</span></a>
+  </p>
+  <p class="mut" style="margin-top:6px"><span class="en">Journal form — </span><span class="zh">期刊版 —— </span>
+    <a href="papers/journal_arxiv_en.pdf" target="_blank" rel="noopener">arXiv EN</a> ·
+    <a href="papers/journal_arxiv_zh.pdf" target="_blank" rel="noopener">arXiv 中文</a> ·
+    <a href="papers/journal_ieee_en.pdf" target="_blank" rel="noopener">IEEE EN</a> ·
+    <a href="papers/journal_ieee_zh.pdf" target="_blank" rel="noopener">IEEE 中文</a>
+  </p>
+</section>
+
+<section id="reading">
+  <h2><span class="en">📚 Deep dives</span><span class="zh">📚 深入專文</span></h2>
+  <p class="mut"><span class="en">Topic write-ups that used to crowd the top navigation — collected here.</span><span class="zh">原本擠在上方導覽列的主題專文,集中收在這一區。</span></p>
+  <p class="hbtns" style="flex-wrap:wrap; gap:8px">
+    <a class="btn ghost" href="prunes.html"><span class="en">Prunes</span><span class="zh">剪枝</span></a>
+    <a class="btn ghost" href="frontier.html"><span class="en">Frontier</span><span class="zh">前緣</span></a>
+    <a class="btn ghost" href="dominant-bypass.html"><span class="en">P-5 case</span><span class="zh">P-5 案例</span></a>
+    <a class="btn ghost" href="bfs-dfs.html"><span class="en">BFS/DFS</span><span class="zh">BFS/DFS</span></a>
+    <a class="btn ghost" href="threads.html"><span class="en">Threads</span><span class="zh">多執行緒</span></a>
+    <a class="btn ghost" href="s2-gateabs.html"><span class="en">S2 redo</span><span class="zh">S2 重戰</span></a>
+    <a class="btn ghost" href="rcm-revival.html"><span class="en">RCM revival</span><span class="zh">RCM 復活</span></a>
+    <a class="btn ghost" href="cross-cpu.html"><span class="en">Cross-CPU</span><span class="zh">跨 CPU</span></a>
+    <a class="btn ghost" href="lineage.html"><span class="en">Lineage</span><span class="zh">系譜</span></a>
+    <a class="btn ghost" href="prior-art.html"><span class="en">Prior art</span><span class="zh">文獻定位</span></a>
+  </p>
 </section>
 
 </main>

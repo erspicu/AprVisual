@@ -3,7 +3,7 @@
   "platform": "arm64",
   "cpu": "ARM Cortex-A76 (Raspberry Pi 5, OC 3.0GHz)",
   "mode": "locked @ 3.0GHz (arm_freq=3000) — stable reference clock",
-  "generated": "2026-06-21T08:42:28Z",
+  "generated": "2026-06-28T17:04:18Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -762,6 +762,44 @@
         "instr_per_hc": 64476
       },
       "engine_group": "2026.06.20",
+      "engine_rep": true,
+      "engine_dup": false
+    },
+    {
+      "version": "2026.06.23",
+      "date": "2026-06-23",
+      "commit": "92ce32b",
+      "tfm": "net11.0",
+      "title": "pair-path 供電 helper + tagged 閘列表",
+      "desc": "B1 供電旗標 OR 抽進 inline helper(GndPwr 特化);turn-on 閘列表載入期分類(全 safe/unsafe/mixed)、省 per-transistor range check、all-unsafe 還少讀一次 NodeStates。",
+      "title_en": "pair-path supply helper + tagged gate lists",
+      "desc_en": "B1 supply-flag OR into an inlined GndPwr-specialised helper; turn-on gate lists classified at load (all-safe/unsafe/mixed) to skip the per-transistor range check and one NodeStates read on all-unsafe nodes.",
+      "milestone": false,
+      "metrics": {
+        "hc_s_best3": 97649,
+        "hc_s_median": 97334,
+        "hc_s_min": 97182,
+        "hc_s_max": 98180,
+        "hc_s_cv_pct": 0.36,
+        "hc_s_runs": [
+          97334,
+          98180,
+          97434,
+          97182,
+          97307
+        ],
+        "checksum": "0x9174E19D961CB6E5",
+        "bit_exact": true,
+        "realtime_x": 440,
+        "il_size": 136,
+        "native_size": 6372,
+        "engine_il_hash": "76ff170d3f04",
+        "hc_s_best3_eff": 97649,
+        "hc_s_max_eff": 98180,
+        "realtime_x_eff": 440,
+        "instr_per_hc": 63579
+      },
+      "engine_group": "2026.06.23",
       "engine_rep": true,
       "engine_dup": false
     }

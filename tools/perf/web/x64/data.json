@@ -3,7 +3,7 @@
   "platform": "x64",
   "cpu": "AMD Ryzen 7 3700X (Zen2)",
   "mode": "boost",
-  "generated": "2026-06-21T08:41:51Z",
+  "generated": "2026-06-28T16:59:30Z",
   "golden_checksum": "0x9174E19D961CB6E5",
   "realtime_hc_s": 42954552,
   "env": {
@@ -780,6 +780,42 @@
         "realtime_x_eff": 310
       },
       "engine_group": "2026.06.20",
+      "engine_rep": true,
+      "engine_dup": false
+    },
+    {
+      "version": "2026.06.23",
+      "date": "2026-06-23",
+      "commit": "92ce32b",
+      "tfm": "net11.0",
+      "title": "pair-path 供電 helper + tagged 閘列表",
+      "desc": "B1 供電旗標 OR 抽進 inline helper(GndPwr 特化);turn-on 閘列表載入期分類(全 safe/unsafe/mixed)、省 per-transistor range check、all-unsafe 還少讀一次 NodeStates。",
+      "title_en": "pair-path supply helper + tagged gate lists",
+      "desc_en": "B1 supply-flag OR into an inlined GndPwr-specialised helper; turn-on gate lists classified at load (all-safe/unsafe/mixed) to skip the per-transistor range check and one NodeStates read on all-unsafe nodes.",
+      "milestone": false,
+      "metrics": {
+        "hc_s_best3": 139025,
+        "hc_s_median": 137724,
+        "hc_s_min": 135899,
+        "hc_s_max": 141620,
+        "hc_s_cv_pct": 1.45,
+        "hc_s_runs": [
+          135899,
+          137731,
+          137724,
+          141620,
+          136435
+        ],
+        "checksum": "0x9174E19D961CB6E5",
+        "bit_exact": true,
+        "realtime_x": 309,
+        "il_size": 136,
+        "native_size": 7307,
+        "hc_s_best3_eff": 139025,
+        "hc_s_max_eff": 141620,
+        "realtime_x_eff": 309
+      },
+      "engine_group": "2026.06.23",
       "engine_rep": true,
       "engine_dup": false
     }

@@ -22,7 +22,7 @@ namespace AprVisual.Test
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
-            string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null, aggressiveLowerCensusPath = null;
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -60,12 +60,14 @@ namespace AprVisual.Test
                     case "--dump-system":     dumpSystem = true; break;
                     case "--payload-hist":    if (i + 1 < args.Length) payloadHistPath = args[++i]; break;   // NodeInfo inline-payload size distribution (16B-pack study)
                     case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
+                    case "--aggressive-lower-census": if (i + 1 < args.Length) aggressiveLowerCensusPath = args[++i]; break; // destructive lowering potential census
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--array-footprint": _dumpArrayFootprint = true; break;                              // print hot unmanaged-array base+size at setup (IBS/SPE bucketing)
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
+                    case "--aggressive-lower": WireCore.EnableAggressiveLowering = true; break; // destructive experiment: checksum unsafe
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
@@ -105,6 +107,7 @@ namespace AprVisual.Test
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);
             if (fcTaintPath   != null) return FcTaintStats(fcTaintPath);
+            if (aggressiveLowerCensusPath != null) return AggressiveLowerCensus(systemDefDir, aggressiveLowerCensusPath);
             if (namesArg      != null) return NamesLookup(namesArg);
             if (tracePath     != null) return Trace(tracePath, traceCycles);
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
@@ -141,6 +144,39 @@ namespace AprVisual.Test
 
             PrintUsage();
             return 0;
+        }
+
+        // ── --aggressive-lower-census: estimate destructive physical/electrical lowering headroom.
+        // This intentionally ignores checksum safety and reports candidate deletion/replacement counts only.
+        private static int AggressiveLowerCensus(string systemDefDir, string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+
+            WireCore.SystemDefDir = systemDefDir;
+            try
+            {
+                bool chrIsRam = rom.ChrRom.Length == 0;
+                bool isTestRom = WireCore.ForceExtraRam
+                              || rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
+                              || rom.Path.Contains("nes_test", StringComparison.OrdinalIgnoreCase);
+                WireCore.ComposeSystem(chrIsRam, isTestRom);
+                WireCore.AttachClockHandler();
+                WireCore.AttachMemoryHandlers();
+                WireCore.AttachVideoHandler();
+                Console.Write(WireCore.AggressiveLoweringCensusReport(Path.GetFileName(rom.Path)));
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"aggressive lowering census failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+                return 2;
+            }
+            finally
+            {
+                WireCore.ResetBuild();
+                WireCore.Shutdown();
+            }
         }
 
         // ── --payload-hist: NodeInfo inline-payload size distribution (for the 16B-pack study) ──
@@ -1226,6 +1262,7 @@ namespace AprVisual.Test
                   AprVisual.S1 --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual.S1 --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual.S1 --dump-node <name>          introspect one node (pull-up / gated trans / channel-end trans)
+                  AprVisual.S1 --aggressive-lower-census <rom>  estimate destructive lowering deletion/macro headroom
                   AprVisual.S1 --probe2002 <rom>           trace bus/PPU signals at the next $2002 read after vblank
                   AprVisual.S1 --probe-vbl <rom>           trace the 2C02 vbl flag latch through the $2002 read path
                   AprVisual.S1 --selftest                  run hand-built inverter/NAND/pass/callback/static-merge circuits
@@ -1233,6 +1270,7 @@ namespace AprVisual.Test
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
+                    [--aggressive-lower]                   destructive 1/2/3/5 lowering experiment; checksum unsafe
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)

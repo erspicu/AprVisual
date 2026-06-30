@@ -63,6 +63,9 @@ namespace AprVisual.Sim
             // separate concluded fork — lowering stays here purely on its S1 perf merit.)
             if (EnableLowering) LowerNetlist();
             else LastLowerStats = "(lowering disabled — --no-lower)";
+
+            if (EnableAggressiveLowering) AggressiveLowerNetlist();
+            else LastAggressiveLowerStats = "(aggressive lowering disabled)";
         }
 
         // ───────────────────────────────────────────────────────────────────────

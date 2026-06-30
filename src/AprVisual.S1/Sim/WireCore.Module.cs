@@ -120,6 +120,7 @@ namespace AprVisual.Sim
             _nameByNode.Clear();
             _memories.Clear();   // declared in WireCore.Handlers.cs
             ResetHandlers();     // clears _callbacks / handler arrays (WireCore.Handlers.cs)
+            ResetAggressivePulldownMacros();
             ClockNode = EmptyNode;
             _maxNodeId = Ngnd;
             AddNode(Npwr, "vcc");

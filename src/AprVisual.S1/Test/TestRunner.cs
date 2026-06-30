@@ -68,6 +68,7 @@ namespace AprVisual.Test
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--no-lower":        WireCore.EnableLowering = false; break;
                     case "--aggressive-lower": WireCore.EnableAggressiveLowering = true; break; // destructive experiment: checksum unsafe
+                    case "--aggressive-lower4": WireCore.EnableAggressivePulldownMacroLowering = true; break; // destructive strategy 4 macro experiment
                     case "--extra-ram":       WireCore.ForceExtraRam = true; break;   // force cart-extraram (match Rust snapshot checksum)
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
@@ -622,6 +623,8 @@ namespace AprVisual.Test
                 double stepsHz = halfCycles / secs;
                 ulong stateHash = WireCore.NodeStatesChecksum();
                 Console.WriteLine($"# {WireCore.LastLowerStats}");
+                if (WireCore.EnableAggressiveLowering) Console.WriteLine($"# {WireCore.LastAggressiveLowerStats}");
+                if (WireCore.EnableAggressivePulldownMacroLowering) Console.WriteLine($"# {WireCore.LastAggressivePulldownMacroStats}");
                 Console.WriteLine($"# {WireCore.LastFastPathStats}");
                 Console.WriteLine($"# {WireCore.LastPruneTaintStats}");
                 Console.WriteLine($"# {WireCore.LastTurnOffSkipStats}");
@@ -1271,6 +1274,7 @@ namespace AprVisual.Test
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
                     [--aggressive-lower]                   destructive 1/2/3/5 lowering experiment; checksum unsafe
+                    [--aggressive-lower4]                  destructive strategy 4 pulldown macro experiment
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)

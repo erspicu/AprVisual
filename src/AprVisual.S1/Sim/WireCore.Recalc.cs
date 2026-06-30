@@ -431,6 +431,12 @@ namespace AprVisual.Sim
             System.Diagnostics.Debug.Assert(nn != Npwr && nn != Ngnd, "RecalcNode: a supply node was enqueued — invariant broken");
             if (nn == Npwr || nn == Ngnd) return;
 #endif
+            int macroGateCount = GetAggressivePulldownMacroInputCount(nn, out ushort* macroGates);
+            if (macroGateCount != 0)
+            {
+                RecalcAggressivePulldownMacro(nn, macroGates, macroGateCount);
+                return;
+            }
             // Fast-path dispatch (IsPureLogic populated at Reset):
             //   1 = static pure-logic — group provably {nn}, O(1) RecalcNodeFast.
             //   2 = R-1 dynamic-singleton candidate — has c1c2s channels but no excluded flags; if
@@ -580,6 +586,7 @@ namespace AprVisual.Sim
                                              // (store-to-pointer aliasing). One local keeps it in a register.
             if (nodeStates[nn] == newState) return;
             nodeStates[nn] = newState;
+            EnqueueAggressivePulldownMacroDependents(nn);
 #if DEBUG
             DiagStateChanges++;   // wasted-pop profiler (DEBUG only)
             if (CutNodeKind != null) { int _ck = CutNodeKind[nn]; if (_ck != 0) DiagCut[_ck]++; }   // cpu/ppu cut-wire transition (DEBUG only)

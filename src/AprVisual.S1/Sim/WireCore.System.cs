@@ -106,6 +106,8 @@ namespace AprVisual.Sim
                 ComposeSystem(chrIsRam, isTestRom);   // WireCore.System.cs (ResetBuild + load defs + AddInstance)
 
                 ApplyRenumber();   // class-major permutation (no-op without captured bits; post-lowering, pre-handlers)
+                if (EnableAggressivePulldownMacroLowering) AggressivePulldownMacroLowerNetlist();
+                else LastAggressivePulldownMacroStats = "(aggressive pulldown macro disabled)";
 
                 CopyRomBytes(rom);
 

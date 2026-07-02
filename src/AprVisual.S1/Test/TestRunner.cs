@@ -17,6 +17,12 @@ namespace AprVisual.Test
         private static bool _dumpArrayFootprint;   // --array-footprint: print hot unmanaged-array base+size at bench setup (for IBS/SPE data-address bucketing)
         private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
 
+        // ── test-ROM validation options (--test / --test-dir; see MD/testrom_workflow/) ──
+        private static int _testMaxFrames = 900;          // --max-frames: simulation-frame budget — the primary limit (switch-level ≈ 5 s wall/frame)
+        private static string? _testJsonPath;             // --test-json: structured per-test result JSON (consumed by tools/testrom/build_report.py)
+        private static string? _testShotPath;             // --test-screenshot: final-frame PNG for the report page
+        private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
+
         public static int Run(string[] args)
         {
             string? romPath = null, testPath = null, testDir = null;
@@ -28,7 +34,7 @@ namespace AprVisual.Test
             string shotOut = "screenshot.png";
             string frameOutDir = "frames";
             string logDir = "log";
-            int maxWait = 15;
+            int maxWait = 0;    // --max-wait N: wall-clock SAFETY cap in seconds (0 = disabled; --max-frames is the primary limit)
             int traceCycles = 64;
             int shotFrames = 3;
             int frameDumpCount = 50;
@@ -70,6 +76,17 @@ namespace AprVisual.Test
                     case "--log-dir":         if (i + 1 < args.Length) logDir = args[++i]; break;   // benchmark JSON log output dir
                     case "--bench-hc":        if (i + 1 < args.Length) int.TryParse(args[++i], out benchHcCount); break;
                     case "--max-wait":        if (i + 1 < args.Length) int.TryParse(args[++i], out maxWait); break;
+                    case "--max-frames":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testMaxFrames); break;   // test mode: simulation-frame budget
+                    case "--test-json":       if (i + 1 < args.Length) _testJsonPath = args[++i]; break;                      // test mode: per-test result JSON
+                    case "--test-screenshot": if (i + 1 < args.Length) _testShotPath = args[++i]; break;                      // test mode: final-frame PNG
+                    case "--expected-crc":                                                                                     // test mode: C-class CRC accept set
+                        if (i + 1 < args.Length)
+                        {
+                            _expectedCrcs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (string c in args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                                _expectedCrcs.Add(c);
+                        }
+                        break;
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -1151,34 +1168,189 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
-        // ── --test / --test-dir: run to blargg $6000 signature; print PASS/FAIL ──
+        // ── --test / --test-dir: frame-based test-ROM validation. Detection (per simulated frame):
+        //      1. blargg $6000 protocol (signature DE B0 61, status < 0x80 = done, 0 = pass)
+        //      2. $6000 == 0x81 → auto soft reset (wait 6 frames, WireCore.SoftReset(), max 10× — apu_reset/cpu_reset)
+        //      3. --expected-crc: scan nametable 0 (u4.ram, tile == ASCII) for an isolated 8-hex CRC,
+        //         require 2 consecutive identical frames, compare against the accept set (dmc_dma visual tests)
+        //    Budget: --max-frames (simulation frames, primary); --max-wait (wall seconds, safety, 0 = off).
+        //    Outputs: console PASS/FAIL line (+ --test-json structured record, --test-screenshot final PNG).
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
             var rom = NesRom.LoadFromFile(path);
             if (rom is null) { Console.WriteLine($"FAIL(load) | {Path.GetFileName(path)}"); return 2; }
 
+            const int ResetDelayFrames = 6, MaxAutoResets = 10;
+            string status = "timeout", detection = "none", resultText = "";
+            int resultCode = -1, frames = 0, resetCount = 0;
+            long hcRun = 0;
+            double wallSecs = 0, loadSecs = 0;
+
             try
             {
+                var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
+                loadSecs = swLoad.Elapsed.TotalSeconds;
+                var vram = _expectedCrcs != null ? WireCore.ResolveMemory("u4.ram") : null;
 
+                long t0 = WireCore.Time;
+                int resetAtFrame = -1;
+                bool waitRestart = false;      // after a soft reset, ignore the stale 0x81 until the ROM writes something else
+                string? prevCrc = null;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                while (sw.Elapsed.TotalSeconds < maxWait)
+
+                for (frames = 1; frames <= _testMaxFrames; frames++)
                 {
                     WireCore.RunFrame();
+
                     var r = WireCore.CheckUnitTest();
-                    if (r.Complete)
+                    if (r.Found)
                     {
-                        if (r.Code == 0) { Console.WriteLine($"PASS | {Path.GetFileName(path)} | {name}\n{r.Text}"); return 0; }
-                        Console.WriteLine($"FAIL({r.Code}) | {Path.GetFileName(path)} | ({r.Text})");
-                        return r.Code == 0 ? 1 : r.Code;
+                        if (r.Complete)   // status < 0x80 → final result
+                        {
+                            resultCode = r.Code;
+                            resultText = r.Text.Trim();
+                            detection  = resetCount > 0 ? "6000+reset" : "6000";
+                            status     = r.Code == 0 ? "pass" : "fail";
+                            break;
+                        }
+                        // status ≥ 0x80: 0x80 running, 0x81 requests a soft reset (blargg reset protocol)
+                        if (r.Code == 0x81 && resetAtFrame < 0 && !waitRestart && resetCount < MaxAutoResets)
+                            resetAtFrame = frames;
+                        if (waitRestart && r.Code != 0x81)
+                            waitRestart = false;
+                        if (resetAtFrame >= 0 && frames >= resetAtFrame + ResetDelayFrames)
+                        {
+                            Console.WriteLine($"# [test] auto soft reset #{resetCount + 1} at frame {frames} ($6000=$81 at frame {resetAtFrame})");
+                            WireCore.SoftReset();
+                            resetAtFrame = -1;
+                            waitRestart = true;
+                            resetCount++;
+                        }
+                    }
+                    else if (vram != null)
+                    {
+                        // C-class: no $6000 protocol — look for the terminal on-screen CRC instead.
+                        string? crc = FindNametableCrc(vram);
+                        if (crc != null && crc == prevCrc)   // same isolated 8-hex on 2 consecutive frames
+                        {
+                            bool ok    = _expectedCrcs!.Contains(crc);
+                            resultCode = ok ? 0 : 1;
+                            resultText = $"screen CRC {crc} " + (ok ? "(matched)" : "(NOT in expected set)");
+                            detection  = "crc";
+                            status     = ok ? "pass" : "fail";
+                            break;
+                        }
+                        prevCrc = crc;
+                    }
+
+                    if (maxWait > 0 && sw.Elapsed.TotalSeconds > maxWait)
+                    {
+                        resultText = $"wall-clock safety cap ({maxWait}s) hit at frame {frames}";
+                        break;
                     }
                 }
-                var rr = WireCore.CheckUnitTest();
-                Console.WriteLine($"TIMEOUT | {Path.GetFileName(path)} | {name} | {(rr.Found ? $"sig found, code 0x{rr.Code:X2}" : "no $6000 signature")}  ({WireCore.Time} half-cycles)");
-                return 3;
+                sw.Stop();
+                wallSecs = sw.Elapsed.TotalSeconds;
+                hcRun = WireCore.Time - t0;
+                if (frames > _testMaxFrames) frames = _testMaxFrames;   // loop exits at budget+1
+
+                if (status == "timeout")
+                {
+                    var rr = WireCore.CheckUnitTest();
+                    if (resultText.Length == 0)
+                        resultText = rr.Found ? $"budget exhausted, $6000=0x{rr.Code:X2}" : "budget exhausted, no $6000 signature";
+                    resultCode = 3;
+                }
+
+                // final-frame screenshot (for the report page)
+                if (_testShotPath != null)
+                {
+                    try
+                    {
+                        string? dir = Path.GetDirectoryName(_testShotPath);
+                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                        unsafe
+                        {
+                            if (WireCore.FrameBuffer != null)
+                                AprVisual.Render.PngWriter.Write(_testShotPath, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
+                        }
+                    }
+                    catch (Exception ex) { Console.Error.WriteLine($"# (screenshot failed: {ex.Message})"); }
+                }
+
+                string label = status switch { "pass" => "PASS", "fail" => $"FAIL({resultCode})", _ => "TIMEOUT" };
+                Console.WriteLine($"{label} | {Path.GetFileName(path)} | {name}");
+                if (resultText.Length > 0) Console.WriteLine(resultText);
+                Console.WriteLine($"# frames={frames} simSec={frames / 60.0988:F1} wallSec={wallSecs:F0} hc={hcRun:N0} detection={detection} resets={resetCount} load={loadSecs:F0}s");
+
+                if (_testJsonPath != null)
+                    WriteTestJson(path, status, resultCode, detection, resultText, frames, wallSecs, loadSecs, hcRun, resetCount);
+
+                return status switch { "pass" => 0, "fail" => resultCode == 0 ? 1 : Math.Min(resultCode, 125), _ => 3 };
             }
             finally { WireCore.Shutdown(); }
+        }
+
+        // Scan nametable 0 (u4.ram bytes 0..0x3BF; blargg CHR maps tile == ASCII) for an isolated
+        // 8-hex-digit string (a CRC32 print). Neighbours must be non-hex so a longer dump can't alias.
+        private static string? FindNametableCrc(WireCore.Memory vram)
+        {
+            int n = Math.Min(0x3C0, vram.Length);
+            var s = new char[n];
+            for (int i = 0; i < n; i++)
+            {
+                byte t = vram.Read(i);
+                s[i] = t is >= 0x20 and < 0x7F ? (char)t : ' ';
+            }
+            static bool IsHex(char c) => c is (>= '0' and <= '9') or (>= 'A' and <= 'F') or (>= 'a' and <= 'f');
+            for (int i = 0; i + 8 <= n; i++)
+            {
+                bool all = true;
+                for (int k = 0; k < 8; k++) if (!IsHex(s[i + k])) { all = false; break; }
+                if (!all) continue;
+                if (i > 0 && IsHex(s[i - 1])) continue;
+                if (i + 8 < n && IsHex(s[i + 8])) continue;
+                return new string(s, i, 8).ToUpperInvariant();
+            }
+            return null;
+        }
+
+        // Structured per-test record — consumed by tools/testrom/build_report.py (schema aprvisual-testrom/1).
+        private static void WriteTestJson(string romPath, string status, int resultCode, string detection,
+                                          string resultText, int frames, double wallSecs, double loadSecs,
+                                          long hcRun, int resetCount)
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(_testJsonPath!);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                var (bv, bd) = BuildVersion();
+                var sb = new StringBuilder();
+                sb.Append("{\n");
+                sb.Append("  \"schema\": \"aprvisual-testrom/1\",\n");
+                sb.Append($"  \"rom\": \"{Esc(Path.GetFileName(romPath))}\",\n");
+                sb.Append($"  \"status\": \"{status}\",\n");
+                sb.Append($"  \"resultCode\": {resultCode},\n");
+                sb.Append($"  \"detection\": \"{detection}\",\n");
+                sb.Append($"  \"resetCount\": {resetCount},\n");
+                sb.Append($"  \"frames\": {frames},\n");
+                sb.Append($"  \"maxFrames\": {_testMaxFrames},\n");
+                sb.Append($"  \"simSeconds\": {frames / 60.0988:F2},\n");
+                sb.Append($"  \"wallSeconds\": {wallSecs:F1},\n");
+                sb.Append($"  \"loadSeconds\": {loadSecs:F1},\n");
+                sb.Append($"  \"halfCycles\": {hcRun},\n");
+                sb.Append($"  \"engineVersion\": \"{Esc(bv)}\",\n");
+                sb.Append($"  \"commitDate\": \"{Esc(bd)}\",\n");
+                sb.Append($"  \"pinned\": {(_pinned ? "true" : "false")},\n");
+                sb.Append($"  \"timestampUtc\": \"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss}Z\",\n");
+                sb.Append($"  \"screenshot\": \"{Esc(_testShotPath ?? "")}\",\n");
+                sb.Append($"  \"resultText\": \"{Esc(resultText)}\"\n");
+                sb.Append("}\n");
+                File.WriteAllText(_testJsonPath!, sb.ToString());
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"# (test json write failed: {ex.Message})"); }
         }
 
         // ── --trace: step N 6502 cycles and dump the CPU's named state each cycle ──
@@ -1218,9 +1390,13 @@ namespace AprVisual.Test
                   AprVisual.S1 --ppu-dump <rom> [--frames N]   headless: run N frames, then dump palette RAM / VRAM nametable / rendering state / pclk1 samples
                   AprVisual.S1 --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS, raw step rate (default N=12; Release build recommended)
                   AprVisual.S1 --benchmark <rom> --bench-hc <N>   headless throughput: time exactly N raw master-half-cycles
-                  AprVisual.S1 --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
+                  AprVisual.S1 --test <test.nes>           headless test-ROM validation: $6000 protocol (+auto soft-reset on $81)
                   AprVisual.S1 --test-dir <dir>            headless: batch-run *.nes under <dir>
-                    [--max-wait <sec>]                     timeout per test (default 15)
+                    [--max-frames <N>]                     simulation-frame budget, the primary limit (default 900 ≈ 15 sim-sec)
+                    [--max-wait <sec>]                     wall-clock SAFETY cap (default 0 = disabled)
+                    [--expected-crc <A,B,...>]             C-class: accept set for the on-screen CRC (dmc_dma visual tests)
+                    [--test-json <out.json>]               write a structured per-test result record (for tools/testrom/)
+                    [--test-screenshot <out.png>]          save the final frame as PNG (for the report page)
                     [--region ntsc|pal|dendy]
                     [--benchmark]                          also time each test
                   AprVisual.S1 --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary

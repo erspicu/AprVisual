@@ -87,6 +87,120 @@
       "maxFrames": 300
     },
     {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "01.len_ctr.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "02.len_table.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "03.irq_flag.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "04.clock_jitter.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "05.len_timing_mode0.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "06.len_timing_mode1.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "07.irq_flag_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "08.irq_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "09.reset_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "10.len_halt_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_apu_2005.07.30",
+      "rom": "11.len_reload_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_ppu_tests_2005.09.15b",
+      "rom": "palette_ram.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_ppu_tests_2005.09.15b",
+      "rom": "power_up_palette.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_ppu_tests_2005.09.15b",
+      "rom": "sprite_ram.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_ppu_tests_2005.09.15b",
+      "rom": "vbl_clear_time.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "blargg_ppu_tests_2005.09.15b",
+      "rom": "vram_access.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "branch_timing_tests",
+      "rom": "1.Branch_Basics.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "branch_timing_tests",
+      "rom": "2.Backward_Branch.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "branch_timing_tests",
+      "rom": "3.Forward_Branch.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
       "suite": "cpu_dummy_writes",
       "rom": "cpu_dummy_writes_oam.nes",
       "class": "A",
@@ -153,6 +267,12 @@
       "maxFrames": 434
     },
     {
+      "suite": "cpu_timing_test6",
+      "rom": "cpu_timing_test.nes",
+      "class": "B",
+      "maxFrames": 1346
+    },
+    {
       "suite": "dmc_dma_during_read4",
       "rom": "dma_2007_read.nes",
       "class": "C",
@@ -161,6 +281,18 @@
         "159A7A8F",
         "5E3DF9C4"
       ]
+    },
+    {
+      "suite": "dmc_dma_during_read4",
+      "rom": "dma_2007_write.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "dmc_dma_during_read4",
+      "rom": "dma_4016_read.nes",
+      "class": "B",
+      "maxFrames": 300
     },
     {
       "suite": "dmc_dma_during_read4",
@@ -173,6 +305,12 @@
         "440EF923",
         "E52F41A5"
       ]
+    },
+    {
+      "suite": "dmc_dma_during_read4",
+      "rom": "read_write_2007.nes",
+      "class": "B",
+      "maxFrames": 300
     },
     {
       "suite": "instr_misc/rom_singles",
@@ -545,6 +683,144 @@
       "rom": "sprdma_and_dmc_dma_512.nes",
       "class": "A",
       "maxFrames": 400
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "01.basics.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "02.alignment.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "03.corners.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "04.flip.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "05.left_clip.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "06.right_edge.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "07.screen_bottom.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "08.double_height.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "09.timing_basics.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "10.timing_order.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_hit_tests_2005.10.05",
+      "rom": "11.edge_timing.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_overflow_tests",
+      "rom": "1.Basics.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_overflow_tests",
+      "rom": "2.Details.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_overflow_tests",
+      "rom": "3.Timing.nes",
+      "class": "B",
+      "maxFrames": 360
+    },
+    {
+      "suite": "sprite_overflow_tests",
+      "rom": "4.Obscure.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "sprite_overflow_tests",
+      "rom": "5.Emulator.nes",
+      "class": "B",
+      "maxFrames": 300
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "1.frame_basics.nes",
+      "class": "B",
+      "maxFrames": 472
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "2.vbl_timing.nes",
+      "class": "B",
+      "maxFrames": 430
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "3.even_odd_frames.nes",
+      "class": "B",
+      "maxFrames": 320
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "4.vbl_clear_timing.nes",
+      "class": "B",
+      "maxFrames": 356
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "5.nmi_suppression.nes",
+      "class": "B",
+      "maxFrames": 454
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "6.nmi_disable.nes",
+      "class": "B",
+      "maxFrames": 340
+    },
+    {
+      "suite": "vbl_nmi_timing",
+      "rom": "7.nmi_timing.nes",
+      "class": "B",
+      "maxFrames": 340
     }
   ]
 }

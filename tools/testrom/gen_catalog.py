@@ -71,7 +71,7 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d in ("pal_apu_tests", "apu_mixer"):
         continue
     cls = classify(rel)
-    if cls in ("A", "A-r", "C"):
+    if cls in ("A", "A-r", "B", "C"):
         suite = "/".join(rel.split("/")[:-1])
         rom = rel.split("/")[-1]
         entry = {"suite": suite, "rom": rom, "class": cls, "maxFrames": budget_for(rel, cls)}

@@ -67,6 +67,8 @@ def run_one(t, core, rombase):
            "--test-json", jpath, "--test-screenshot", spath, "--system-def-dir", SYSTEM_DEF]
     if t.get("expectedCrcs"):
         cmd += ["--expected-crc", ",".join(t["expectedCrcs"])]
+    if t.get("class") == "B":
+        cmd += ["--screen-verdict"]
 
     guard = mf * WALL_GUARD_PER_FRAME + 600
     t0 = time.time()

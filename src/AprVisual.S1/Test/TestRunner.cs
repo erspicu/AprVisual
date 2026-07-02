@@ -22,6 +22,7 @@ namespace AprVisual.Test
         private static string? _testJsonPath;             // --test-json: structured per-test result JSON (consumed by tools/testrom/build_report.py)
         private static string? _testShotPath;             // --test-screenshot: final-frame PNG for the report page
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
+        private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
 
         public static int Run(string[] args)
         {
@@ -87,6 +88,7 @@ namespace AprVisual.Test
                                 _expectedCrcs.Add(c);
                         }
                         break;
+                    case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -1192,12 +1194,13 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
-                var vram = _expectedCrcs != null ? WireCore.ResolveMemory("u4.ram") : null;
+                var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 long t0 = WireCore.Time;
                 int resetAtFrame = -1;
                 bool waitRestart = false;      // after a soft reset, ignore the stale 0x81 until the ROM writes something else
                 string? prevCrc = null;
+                string? prevMarker = null;     // B-class: terminal marker seen last frame (2-frame confirm)
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
                 for (frames = 1; frames <= _testMaxFrames; frames++)
@@ -1231,18 +1234,41 @@ namespace AprVisual.Test
                     }
                     else if (vram != null)
                     {
-                        // C-class: no $6000 protocol — look for the terminal on-screen CRC instead.
-                        string? crc = FindNametableCrc(vram);
-                        if (crc != null && crc == prevCrc)   // same isolated 8-hex on 2 consecutive frames
+                        // No $6000 protocol — judge from the screen (nametable 0, tile == ASCII).
+                        string nt = DecodeNametable(vram);
+
+                        if (_expectedCrcs != null)
                         {
-                            bool ok    = _expectedCrcs!.Contains(crc);
-                            resultCode = ok ? 0 : 1;
-                            resultText = $"screen CRC {crc} " + (ok ? "(matched)" : "(NOT in expected set)");
-                            detection  = "crc";
-                            status     = ok ? "pass" : "fail";
-                            break;
+                            // C-class: terminal on-screen CRC vs the accept set.
+                            string? crc = FindNametableCrc(nt);
+                            if (crc != null && crc == prevCrc)   // same isolated 8-hex on 2 consecutive frames
+                            {
+                                bool ok    = _expectedCrcs.Contains(crc);
+                                resultCode = ok ? 0 : 1;
+                                resultText = $"screen CRC {crc} " + (ok ? "(matched)" : "(NOT in expected set)");
+                                detection  = "crc";
+                                status     = ok ? "pass" : "fail";
+                                break;
+                            }
+                            prevCrc = crc;
                         }
-                        prevCrc = crc;
+
+                        if (_screenVerdict)
+                        {
+                            // B-class: terminal Passed/Failed text or old-blargg "$0X" code. Terminal =
+                            // printed once and the ROM halts (calibration found no ROM that shows a
+                            // marker while still drawing) — 2-frame confirm guards mid-draw snapshots.
+                            int vc = FindNametableVerdict(nt, out string? marker);
+                            if (vc >= 0 && marker != null && marker == prevMarker)
+                            {
+                                resultCode = vc;
+                                resultText = $"(screen: {marker} = {(vc == 0 ? "passed" : "failed")})";
+                                detection  = "screen";
+                                status     = vc == 0 ? "pass" : "fail";
+                                break;
+                            }
+                            prevMarker = vc >= 0 ? marker : null;
+                        }
                     }
 
                     if (maxWait > 0 && sw.Elapsed.TotalSeconds > maxWait)
@@ -1293,9 +1319,8 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
-        // Scan nametable 0 (u4.ram bytes 0..0x3BF; blargg CHR maps tile == ASCII) for an isolated
-        // 8-hex-digit string (a CRC32 print). Neighbours must be non-hex so a longer dump can't alias.
-        private static string? FindNametableCrc(WireCore.Memory vram)
+        // Nametable 0 (u4.ram bytes 0..0x3BF) decoded to ASCII — blargg's CHR maps tile == ASCII.
+        private static string DecodeNametable(WireCore.Memory vram)
         {
             int n = Math.Min(0x3C0, vram.Length);
             var s = new char[n];
@@ -1304,17 +1329,45 @@ namespace AprVisual.Test
                 byte t = vram.Read(i);
                 s[i] = t is >= 0x20 and < 0x7F ? (char)t : ' ';
             }
-            static bool IsHex(char c) => c is (>= '0' and <= '9') or (>= 'A' and <= 'F') or (>= 'a' and <= 'f');
-            for (int i = 0; i + 8 <= n; i++)
+            return new string(s);
+        }
+
+        private static bool IsHexChar(char c) => c is (>= '0' and <= '9') or (>= 'A' and <= 'F') or (>= 'a' and <= 'f');
+
+        // Isolated 8-hex-digit string (a CRC32 print). Neighbours must be non-hex so a longer dump can't alias.
+        private static string? FindNametableCrc(string s)
+        {
+            for (int i = 0; i + 8 <= s.Length; i++)
             {
                 bool all = true;
-                for (int k = 0; k < 8; k++) if (!IsHex(s[i + k])) { all = false; break; }
+                for (int k = 0; k < 8; k++) if (!IsHexChar(s[i + k])) { all = false; break; }
                 if (!all) continue;
-                if (i > 0 && IsHex(s[i - 1])) continue;
-                if (i + 8 < n && IsHex(s[i + 8])) continue;
-                return new string(s, i, 8).ToUpperInvariant();
+                if (i > 0 && IsHexChar(s[i - 1])) continue;
+                if (i + 8 < s.Length && IsHexChar(s[i + 8])) continue;
+                return s.Substring(i, 8).ToUpperInvariant();
             }
             return null;
+        }
+
+        // B-class terminal markers. Returns the result code (0 = pass, 1..15 = fail) and the marker
+        // label, or -1 when nothing is visible. Two forms exist in the 46-ROM set (per the AprNesRef
+        // calibration sweep): "Passed"/"Failed" text (30) and the old-blargg "$0X" code (16;
+        // $01 = pass, $02-$0F = fail code).
+        private static int FindNametableVerdict(string s, out string? marker)
+        {
+            if (s.Contains("Passed") || s.Contains("PASSED")) { marker = "Passed"; return 0; }
+            if (s.Contains("Failed") || s.Contains("FAILED")) { marker = "Failed"; return 1; }
+            for (int i = 0; i + 2 < s.Length; i++)
+            {
+                if (s[i] != '$' || s[i + 1] != '0') continue;
+                char c = s[i + 2];
+                if (c == '1') { marker = "$01"; return 0; }
+                if (c is >= '2' and <= '9') { marker = "$0" + c; return c - '0'; }
+                if (c is >= 'A' and <= 'F') { marker = "$0" + c; return 10 + (c - 'A'); }
+                if (c is >= 'a' and <= 'f') { marker = "$0" + char.ToUpperInvariant(c); return 10 + (c - 'a'); }
+            }
+            marker = null;
+            return -1;
         }
 
         // Structured per-test record — consumed by tools/testrom/build_report.py (schema aprvisual-testrom/1).
@@ -1395,6 +1448,7 @@ namespace AprVisual.Test
                     [--max-frames <N>]                     simulation-frame budget, the primary limit (default 900 ≈ 15 sim-sec)
                     [--max-wait <sec>]                     wall-clock SAFETY cap (default 0 = disabled)
                     [--expected-crc <A,B,...>]             C-class: accept set for the on-screen CRC (dmc_dma visual tests)
+                    [--screen-verdict]                     B-class: per-frame nametable scan for terminal Passed/Failed/$0X markers
                     [--test-json <out.json>]               write a structured per-test result record (for tools/testrom/)
                     [--test-screenshot <out.png>]          save the final frame as PNG (for the report page)
                     [--region ntsc|pal|dendy]

@@ -4,8 +4,8 @@ using System.IO;
 namespace AprVisual.Rom
 {
     /// <summary>
-    /// Minimal iNES (.nes) ROM loader. S1 scope: NROM (mapper 0) only — we don't act on
-    /// mapper/region flags yet, just expose PRG/CHR. Modeled on ref/AprNes/NesCore/nesrom.cpp
+    /// Minimal iNES (.nes) ROM loader. S1 scope: NROM (mapper 0) + CNROM (mapper 3, behavioral
+    /// CHR bank latch in WireCore.Handlers.cs); other mappers are rejected by LoadSystem. Modeled on ref/AprNes/NesCore/nesrom.cpp
     /// (and ref/metalnes-main/source/metalnes/nesrom.cpp).
     /// </summary>
     internal sealed class NesRom

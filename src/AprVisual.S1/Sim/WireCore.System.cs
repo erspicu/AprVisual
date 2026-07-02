@@ -92,6 +92,14 @@ namespace AprVisual.Sim
                           || rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)
                           || rom.Path.Contains("nes_test", StringComparison.OrdinalIgnoreCase);
 
+            // Cartridge scope: NROM (0) natively; CNROM (3) via the behavioral CHR bank latch
+            // (WireCore.Handlers.cs SetupCnrom/AttachCnromLatch — the ROM handlers are behavioral
+            // already, so a behavioral mapper is the same abstraction level; the 2A03/2C02 netlists
+            // are untouched). Anything else would silently misbehave — fail loudly instead.
+            bool isCnrom = rom.Mapper == 3;
+            if (rom.Mapper != 0 && rom.Mapper != 3)
+                throw new NotSupportedException($"mapper {rom.Mapper} not supported (S1 scope: NROM + CNROM)");
+
             // [auto-renumber] two-phase load: pass 1 composes + attaches + Reset()s with IDENTITY ids —
             // the classifiers (end of Reset, before ANY settle) produce the final PruneMask — captures
             // each node's prune class, then loops back: pass 2 re-composes (ResetBuild clears all of
@@ -104,11 +112,13 @@ namespace AprVisual.Sim
 
                 ApplyRenumber();   // class-major permutation (no-op without captured bits; post-lowering, pre-handlers)
 
+                if (isCnrom) SetupCnrom(rom.ChrRom.Length);   // enlarge CHR Memory + alloc the bank register (before CopyRomBytes)
                 CopyRomBytes(rom);
 
                 // Handlers add fake nodes/transistors via AddCallback — MUST run before Reset() (which sizes the hot arrays).
                 AttachClockHandler();     // WireCore.Handlers.cs — toggles "clk" each half-cycle
                 AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
+                if (isCnrom) AttachCnromLatch(Math.Max(1, rom.ChrRom.Length / 8192));   // CNROM: CPU write to $8000+ latches the CHR bank
                 AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
 
                 ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)

@@ -1,7 +1,7 @@
 {
  "schema": "aprvisual-calibration-ref/1",
  "source": "AprNesRef (instrumented AprNes, --calib-json)",
- "generated": "2026-07-02 22:31:00",
+ "generated": "2026-07-03 02:00:50",
  "roms": {
   "apu_mixer/dmc.nes": {
    "passed": true,
@@ -443,6 +443,18 @@
    "firstMarkerFrame": 15,
    "firstMarkerKind": "Passed",
    "lastChangeFrame": 15,
+   "verdictFrame": 211,
+   "autoResets": 0,
+   "finalCrc": null
+  },
+  "cpu_dummy_reads/cpu_dummy_reads.nes": {
+   "passed": true,
+   "resultCode": 0,
+   "detection": "screen-stable",
+   "framesTotal": 211,
+   "firstMarkerFrame": 45,
+   "firstMarkerKind": "Passed",
+   "lastChangeFrame": 48,
    "verdictFrame": 211,
    "autoResets": 0,
    "finalCrc": null
@@ -1248,6 +1260,18 @@
    "firstMarkerKind": "Passed",
    "lastChangeFrame": 251,
    "verdictFrame": 252,
+   "autoResets": 0,
+   "finalCrc": null
+  },
+  "ppu_read_buffer/test_ppu_read_buffer.nes": {
+   "passed": true,
+   "resultCode": 0,
+   "detection": "6000",
+   "framesTotal": 1310,
+   "firstMarkerFrame": -1,
+   "firstMarkerKind": null,
+   "lastChangeFrame": 1309,
+   "verdictFrame": 1310,
    "autoResets": 0,
    "finalCrc": null
   },

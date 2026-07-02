@@ -7,14 +7,20 @@
 ## 一句話總覽
 
 ```
-python tools/testrom/run_tests.py        # 跑完 139 個(A/A-r/B/C,完整支援集合)→ 自動產出 WebSite/Report/
+python tools/testrom/run_tests.py        # 跑完 141 個(A/A-r/B/C)→ 自動產出 WebSite/Report/
 ```
 
 跑完後 commit `WebSite/Report/` 即發佈到 GitHub Pages(`erspicu.github.io/AprVisual/Report/`)。
 
-## 範圍與分級(139 = 完整支援集合)
+## 範圍與分級(141 = NROM 全集 + CNROM 2 個)
 
-- 母集合:`nes-test-roms-master/checked/` 全 184 個 → NROM(mapper 0)且非 PAL = **139**。
+- 母集合:`nes-test-roms-master/checked/` 全 184 個 → NROM(mapper 0)非 PAL = 139,
+  加 **CNROM(mapper 3,2026-07-03 起支援)** 2 個(`cpu_dummy_reads` B 類、`test_ppu_read_buffer` A 類)= **141**。
+  - CNROM 實作:行為層 CHR bank latch(`WireCore.Handlers.cs` 的 `SetupCnrom`/`AttachCnromLatch`/`DoMapperLatch`
+    + `DoMemRead` 的 `BankPtr`),netlist 零改動;mapper ∉ {0,3} 載入時明確報錯。
+    位元一致迴歸過(mapper-0 煙霧 checksum 不變);cpu_dummy_reads PASS(47 幀)、read_buffer 60 幀畫面正確。
+  - read_joy3(m3 另 4 個)仍排除:需要手把輸入注入(S1 未實作)。
+  - mapper 1(MMC1)評估過不做:解鎖的 11 個幾乎全是已跑單項的合併版,價值低;動態 mirroring 工程量中等。
 - S1 是開關級模擬,**~5 秒 wall-clock / 幀**,所以判定手段刻意排除「連續 90 幀穩定畫面」那種等待型方式:
   - **A(83)**:blargg `$6000` 協定 —— 每幀讀一 byte,結果一寫入立即停。**首選**。
     - **apu_mixer 4 個(2026-07-03 加回,語義注意)**:其 `$6000=0` 只代表「音頻序列播完沒當機」,
@@ -47,7 +53,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 ## Runner(`tools/testrom/run_tests.py`)
 
-- **測試清單 = `tools/testrom/catalog.json`**(139 筆 = 完整支援集合,含 class/maxFrames/expectedCrcs;class B 由 runner 自動加 --screen-verdict)。由 `tools/testrom/gen_catalog.py` 產生;若要重生,依據是 AprNes 的 `site/report/results.json`。
+- **測試清單 = `tools/testrom/catalog.json`**(141 筆,含 class/maxFrames/expectedCrcs;class B 由 runner 自動加 --screen-verdict)。由 `tools/testrom/gen_catalog.py` 產生;若要重生,依據是 AprNes 的 `site/report/results.json`。
 - **預設 6 個 worker、共用佇列**(先到先拿,自然錯開),啟動各錯開 20 秒(netlist 組建是重載階段)。`--jobs 4` 可退回 4 路。
 - **鎖核:邏輯核 2、6、10、14、4、12**(3700X:前 4 = 物理核 1/3/5/7;第 5、6 個 worker 加物理核 2/6 → 每 CCX 各 3 個)。
   **刻意避開物理核 0**(OS 雜訊),物理核 4 也留空。SMT 邏輯對 (2i, 2i+1) = 物理核 i。
@@ -74,7 +80,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 - 一幀 ≈ 5 秒 wall(Zen2,~142K hc/s;714,732 hc/幀)。載入(組 netlist+上電)另加 ~2-3 秒。
 - 煙霧測試實測:`$6000` 簽章在第 ~4 幀就出現(協定啟動很快)。
-- 典型 blargg 單項要模擬 2-10 秒(120-600 幀)→ 多數測試 2-15 分鐘;139 個 ÷ 6 workers ≈ **半天到一天**(apu_mixer 4 個各 1-2 小時是尾巴)。
+- 典型 blargg 單項要模擬 2-10 秒(120-600 幀)→ 多數測試 2-15 分鐘;141 個 ÷ 6 workers ≈ **半天到一天**(apu_mixer 4 個各 1-2 小時是尾巴)。
 - 第一輪跑完後,用報告裡的 frames 分佈回頭**調小 catalog 的 maxFrames**(逾時預算目前保守:A=900、A-r=1500)。
 
 ## 幀數校準(AprNesRef oracle,2026-07-02 加入)
@@ -96,7 +102,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 ## 已知事項 / 待辦
 
-- [ ] 第一輪 139 個全跑 → 檢視 pass/fail(FAIL = switch-level vs 行為層的真實差異,逐一開 MD 研究);預算已由校準自動設定。
+- [ ] 第一輪 141 個全跑 → 檢視 pass/fail(FAIL = switch-level vs 行為層的真實差異,逐一開 MD 研究);預算已由校準自動設定。
 - [x] A-r 軟重設路徑已實證(2026-07-02):apu_reset 的 4015_cleared / irq_flag_cleared 皆 PASS,detection=`6000+reset`、resets=1、32-33 幀(~3 分鐘)。apu_reset 其實很快,慢的只有 apu_mixer。
 - [x] B 類(46)已實作(2026-07-02):`--screen-verdict` + `FindNametableVerdict`;校準證實安全(零陷阱 ROM)且便宜(標記幀 p50=21)。
 - [ ] 失敗的測試 = 真正有價值的發現(switch-level 對 behavioral 的差異),逐一開 MD 記錄。

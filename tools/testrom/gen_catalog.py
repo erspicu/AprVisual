@@ -68,7 +68,10 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     # means "tone sequence completed" — the real mixing verdict is auditory (inverse-wave
     # cancellation; no mixer-readback register exists). Treat a PASS as a smoke test.
     # Slowest group: calibrated verdict frames 608-1159 (~1-2 h each on S1).
-    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d == "pal_apu_tests":
+    # Mapper scope: NROM (0) + CNROM (3, behavioral CHR bank latch, 2026-07-03).
+    # read_joy3 (m3) excluded — needs controller input S1 doesn't inject.
+    mapper = (b[6] >> 4) | (b[7] & 0xF0)
+    if mapper not in (0, 3) or d in ("pal_apu_tests", "read_joy3"):
         continue
     cls = classify(rel)
     if cls in ("A", "A-r", "B", "C"):

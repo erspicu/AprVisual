@@ -38,7 +38,7 @@ namespace AprVisual.Sim
         // static handler (no Action delegate / no closure) for the hot kinds (memory / video). The per-instance
         // context lives directly on this object (it IS the dispatch unit — so a field read is one hop, NOT the
         // extra hop the rejected ctx-holder added). Generic Action is kept only for rare/test watchers.
-        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video }
+        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video, MapperLatch }
 
         internal sealed class CallbackInfo
         {
@@ -57,6 +57,11 @@ namespace AprVisual.Sim
             public int* Addr;
             public int* DataOut;
             public byte* MemData;
+
+            // mapper context (MemRead with banking / MapperLatch) — CNROM (mapper 3). BankPtr points at a
+            // handler-lifetime int holding the current CHR bank offset, pre-shifted (bank << 13). NULL for
+            // every non-banked memory: mapper-0 paths never touch it (bit-exactness preserved).
+            public int* BankPtr;
 
             // video handler context (Video)
             public int Pclk1;
@@ -83,6 +88,7 @@ namespace AprVisual.Sim
         internal static void ResetHandlers()
         {
             ClockNode = EmptyNode;   // [H1] re-resolved by AttachClockHandler each rebuild
+            ResetMapperState();      // CNROM bank register (handler-lifetime, freed below)
             _callbacks.Clear();
             _pendingCallbacks.Clear();
             _processingCallbacks.Clear();
@@ -137,6 +143,7 @@ namespace AprVisual.Sim
                         case HandlerKind.MemRead:      DoMemRead(cb); break;
                         case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
                         case HandlerKind.Video:        DoVideo(cb); break;
+                        case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
                         default:                       cb.Callback!(); break;   // Generic (rare / test)
                     }
                 }
@@ -146,11 +153,24 @@ namespace AprVisual.Sim
 
         // ── typed handler bodies (were per-instance closures; now static, dispatched by Kind) ──
         // ROM / read-only RAM: on chip-select active, drive the data-out bus with mem[addr].
+        // BankPtr (CNROM CHR banking) adds the pre-shifted bank offset above the module's address lines;
+        // it is null for every mapper-0 memory, so the plain path is untouched.
         private static void DoMemRead(CallbackInfo cb)
         {
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
+            if (cb.BankPtr != null) address |= *cb.BankPtr;
             WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+        }
+
+        // CNROM (mapper 3) bank latch: a CPU write into PRG space ($8000-$FFFF: /romsel low, R/W low)
+        // latches the data bus into the CHR bank register (stored pre-shifted, masked to the bank count).
+        // Bus conflicts (AND with ROM byte) are not modeled — same simplification as AprNes Mapper003.
+        private static void DoMapperLatch(CallbackInfo cb)
+        {
+            if (NodeStates[cb.Cs] != 0) return;   // /romsel inactive
+            if (NodeStates[cb.We] != 0) return;   // R/W high = read
+            *cb.BankPtr = (ReadBits(cb.DataOut, cb.DLen) & cb.Mask) << 13;
         }
 
         // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
@@ -344,8 +364,57 @@ namespace AprVisual.Sim
                 Kind = readOnly ? HandlerKind.MemRead : HandlerKind.MemReadWrite,
                 Cs = cs, We = we, Mask = mem.Length - 1,
                 Addr = addr, ALen = alen, DataOut = dataOut, DLen = dlen, MemData = mem.Data,
+                // CNROM: the CHR ROM handler gets the shared bank register (null for everything else)
+                BankPtr = prefix == "cart.chr." ? _cnromChrBank : null,
             });
         }
+
+        // ── CNROM (mapper 3) — behavioral bank latch, same abstraction level as the ROM handlers ──
+        // The cart stays the stock NROM netlist (cart-mmu0 + chrrom wiring); only the behavioral layer
+        // changes: the CHR Memory is enlarged to the full CHR size (SetupCnrom, before CopyRomBytes) and
+        // the CHR read handler indexes it through *_cnromChrBank (pre-shifted bank << 13). A MapperLatch
+        // callback watches the PRG module's bus and latches CPU writes to $8000-$FFFF into the register.
+        private static int* _cnromChrBank;   // handler-lifetime; null when the loaded cart isn't CNROM
+
+        /// <summary>Enlarge the CHR Memory to the full banked size and allocate the bank register.
+        /// MUST run before CopyRomBytes (which fills the buffer) and AttachMemoryHandlers (which
+        /// captures MemData/BankPtr). Per-pass: ResetHandlers frees everything at rebuild.</summary>
+        public static void SetupCnrom(int chrRomLength)
+        {
+            _cnromChrBank = AllocHandlerArray<int>(1);   // zeroed → power-on bank 0
+            var chr = ResolveMemory("cart.chr.rom");
+            if (chr != null && chr.Length < chrRomLength)
+            {
+                chr.Data = AllocHandlerArray<byte>(chrRomLength);   // old buffer freed at rebuild with the rest
+                chr.Length = chrRomLength;
+            }
+        }
+
+        /// <summary>Register the CNROM bank-latch callback (call after AttachMemoryHandlers).</summary>
+        public static void AttachCnromLatch(int chrBanks)
+        {
+            int cs = LookupNode("cart.prg.cs");    // = /romsel (active low)
+            int rw = LookupNode("cart.prg.rw");    // CPU R/W (0 = write)
+            var dataL = new List<int>(); ResolveNodes("cart.prg.d[7:0]", dataL);
+            if (cs == EmptyNode || rw == EmptyNode || dataL.Count == 0)
+            { Console.Error.WriteLine("AttachCnromLatch: missing cart.prg cs/rw/d[] — CNROM banking disabled"); return; }
+
+            int dlen = dataL.Count;
+            int* data = AllocHandlerArray<int>(dlen);
+            for (int i = 0; i < dlen; i++) data[i] = dataL[i];
+
+            var trigger = new List<int> { cs, rw };
+            trigger.AddRange(dataL);
+            RegisterCallback(trigger, new CallbackInfo
+            {
+                Kind = HandlerKind.MapperLatch,
+                Cs = cs, We = rw, Mask = chrBanks - 1,   // We field reused for R/W (same active-low-write sense)
+                DataOut = data, DLen = dlen, BankPtr = _cnromChrBank,
+            });
+        }
+
+        /// <summary>Per-rebuild reset of mapper state (called from ResetHandlers).</summary>
+        private static void ResetMapperState() => _cnromChrBank = null;
 
         /// <summary>
         /// Video output. On each ppu.pclk1 rising edge, for the visible area (hpos &lt; 256, vpos &lt; 240)

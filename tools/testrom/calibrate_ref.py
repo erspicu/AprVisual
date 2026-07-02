@@ -44,7 +44,9 @@ def supported_roms():
         d = rel.split("/")[0]
         if len(b) < 16 or b[:4] != b"NES\x1a":
             continue
-        if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d == "pal_apu_tests":
+        mapper = (b[6] >> 4) | (b[7] & 0xF0)
+        # S1 scope: NROM + CNROM. read_joy3 (m3) excluded — needs controller input S1 doesn't inject.
+        if mapper not in (0, 3) or d in ("pal_apu_tests", "read_joy3"):
             continue
         roms.append(rel)
     return roms
@@ -84,7 +86,10 @@ def main():
     print(f"=== calibrating {len(roms)} ROMs, {args.jobs} threads ===", flush=True)
 
     t0 = time.time()
+    # --filter runs MERGE into the existing file (a filtered sweep must not clobber the full one)
     merged = {}
+    if args.filter and os.path.isfile(OUT_JSON):
+        merged = json.load(open(OUT_JSON, encoding="utf-8")).get("roms", {})
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         for rel, rec, err in ex.map(run_one, roms):
             if rec is None:

@@ -157,10 +157,28 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
   <div class="progress-bar"><div class="p" id="bar-p"></div><div class="f" id="bar-f"></div><div class="t" id="bar-t"></div></div>
   <div class="progress-text" id="progress-text"></div>
 </div>
-<div class="note"><strong>Scope:</strong> 139 NROM / NTSC test ROMs judged via the blargg <code>$6000</code> protocol
- (classes A, A-r), per-frame screen-text markers (class B), or on-screen CRC (class C).
- apu_mixer's $6000 pass only certifies sequence completion (its real verdict is auditory) — treat as smoke tests.
- Detection runs once per simulated frame; a single test takes minutes-to-an-hour of wall time at switch level.</div>
+<div class="note"><strong>Scope:</strong> 141 NROM/CNROM NTSC test ROMs. Detection runs once per simulated frame
+ (a single test takes minutes-to-an-hour of wall time at switch level); the class badge on each card says how
+ the verdict is detected:
+ <div style="margin-top:.5rem;display:grid;grid-template-columns:auto 1fr;gap:.25rem .7rem;font-size:.8rem">
+   <span class="badge cls" style="justify-self:start">A</span>
+   <span>blargg <code>$6000</code> protocol — the ROM writes its result to <code>$6000</code>
+    (0 = pass, else fail code); the engine reads one byte per frame and stops the moment the result appears.</span>
+   <span class="badge cls" style="justify-self:start">A-r</span>
+   <span>same <code>$6000</code> protocol, <strong>plus the ROM requests soft resets</strong>: status
+    <code>$6000=$81</code> asks the runner to press Reset — the engine waits 6 frames, pulses the console's
+    res line for 192 half-cycles (<code>WireCore.SoftReset</code>), and the test continues across the reset
+    (up to 10 times). Used by the apu_reset / cpu_reset suites, which verify post-reset hardware state.</span>
+   <span class="badge cls" style="justify-self:start">B</span>
+   <span>screen text — no <code>$6000</code>; the engine decodes nametable 0 every frame (blargg CHR maps
+    tile&nbsp;=&nbsp;ASCII) and stops at a terminal <code>Passed</code>/<code>Failed</code>/<code>$0X</code> marker
+    (2-frame confirm; no 90-frame stability wait).</span>
+   <span class="badge cls" style="justify-self:start">C</span>
+   <span>on-screen CRC — the ROM prints a CRC32; it is compared against the per-console accept set
+    (dmc_dma visual tests).</span>
+ </div>
+ <div style="margin-top:.5rem">apu_mixer's $6000 pass only certifies sequence completion (its real verdict is
+ auditory) — treat those 4 as smoke tests.</div></div>
 <div class="controls">
   <div class="btn-group" id="fbtns">
     <button class="active" data-f="all">All</button><button data-f="pass">Pass</button>

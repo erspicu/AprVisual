@@ -13,6 +13,14 @@ OUT_DIR    = os.path.join(SCRIPT_DIR, "out")
 CATALOG    = os.path.join(SCRIPT_DIR, "catalog.json")
 REPORT_DIR = os.path.join(REPO, "WebSite", "Report")
 
+# Originals stay PNG under out/screenshots/; the site gets lossless WebP (~70% smaller).
+try:
+    from PIL import Image
+    HAVE_PIL = True
+except ImportError:
+    HAVE_PIL = False
+    print("(PIL not available — site screenshots will be PNG copies)")
+
 def key_of(t):
     return f"{t['suite']}/{t['rom']}".replace("/", "__")
 
@@ -20,13 +28,18 @@ cat = json.load(open(CATALOG, encoding="utf-8"))
 rows, engine_ver = [], ""
 counts = {"pass": 0, "fail": 0, "timeout": 0, "pending": 0}
 
-os.makedirs(os.path.join(REPORT_DIR, "screenshots"), exist_ok=True)
+# screenshots/ is a pure build artifact — wipe and regenerate from out/ (originals stay there as PNG)
+shot_root = os.path.join(REPORT_DIR, "screenshots")
+if os.path.isdir(shot_root):
+    shutil.rmtree(shot_root)
+os.makedirs(shot_root, exist_ok=True)
 
+site_ext = ".webp" if HAVE_PIL else ".png"
 for t in cat["tests"]:
     k = key_of(t)
     jpath = os.path.join(OUT_DIR, "results", k + ".json")
     shot_src = os.path.join(OUT_DIR, "screenshots", t["suite"].replace("/", os.sep), t["rom"].replace(".nes", ".png"))
-    shot_rel = f"screenshots/{t['suite']}/{t['rom'].replace('.nes', '.png')}"
+    shot_rel = f"screenshots/{t['suite']}/{t['rom'].replace('.nes', site_ext)}"
 
     row = {"suite": t["suite"], "rom": t["rom"], "class": t["class"],
            "status": "pending", "exit_code": -1, "result_text": "", "screenshot": "",
@@ -46,9 +59,12 @@ for t in cat["tests"]:
         except Exception as e:
             row["result_text"] = f"(result json unreadable: {e})"
     if os.path.isfile(shot_src):
-        dst = os.path.join(REPORT_DIR, "screenshots", t["suite"].replace("/", os.sep), t["rom"].replace(".nes", ".png"))
+        dst = os.path.join(REPORT_DIR, "screenshots", t["suite"].replace("/", os.sep), t["rom"].replace(".nes", site_ext))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(shot_src, dst)
+        if HAVE_PIL:
+            Image.open(shot_src).save(dst, "WEBP", lossless=True, method=6)
+        else:
+            shutil.copyfile(shot_src, dst)
         row["screenshot"] = shot_rel
     counts[row["status"] if row["status"] in counts else "pending"] += 1
     rows.append(row)

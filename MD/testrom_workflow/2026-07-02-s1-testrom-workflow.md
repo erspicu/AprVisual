@@ -64,6 +64,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 ## 報告(`tools/testrom/build_report.py` → `WebSite/Report/`)
 
+- **圖檔政策:原始截圖在 `tools/testrom/out/screenshots/` 永遠保留 PNG;上網頁前由 build_report 轉無損 WebP(~70% 更小,PIL `lossless=True, method=6`)**。`WebSite/Report/screenshots/` 是純建置產物,每次重建先清空再轉。
 - 合併 catalog × out/results → `WebSite/Report/results.json`(schema 與 AprNes 相容:suite/rom/status/exit_code/result_text/screenshot,外加 class/detection/frames/simSeconds/wallSeconds)。
 - `index.html` 自足式(結果內嵌,離線可開):統計/進度條/類別與偵測方式徽章/截圖燈箱/套件折疊/搜尋;catalog 有但還沒跑的顯示 **pending**。
 - 發佈 = commit + push `WebSite/Report/`(GitHub Pages 從 main 的 WebSite/ 部署)。
@@ -78,7 +79,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 ## 已知事項 / 待辦
 
 - [ ] 第一輪 89 個全跑(過夜)→ 檢視 pass/fail → 調 maxFrames。
-- [ ] A-r 軟重設路徑第一次實跑要盯:`# [test] auto soft reset #N` 行有沒有出現、重設後測試有沒有重新啟動。
+- [x] A-r 軟重設路徑已實證(2026-07-02):apu_reset 的 4015_cleared / irq_flag_cleared 皆 PASS,detection=`6000+reset`、resets=1、32-33 幀(~3 分鐘)。apu_reset 其實很快,慢的只有 apu_mixer。
 - [ ] B 類(46)之後做:`RunOneTest` 加「每幀掃 nametable 終端文字」偵測(`FindNametableCrc` 旁邊加 `FindNametableVerdict`),catalog 加 class B 條目。
 - [ ] 失敗的測試 = 真正有價值的發現(switch-level 對 behavioral 的差異),逐一開 MD 記錄。
 - 引擎判定與 AprNes 的差異:S1 沒有(也不需要)畫面穩定偵測、手把注入(`read_joy3` 不在 NROM 集內)、PAL(2C07 是另一顆晶片,netlist 層根本不存在)。

@@ -157,9 +157,9 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
   <div class="progress-bar"><div class="p" id="bar-p"></div><div class="f" id="bar-f"></div><div class="t" id="bar-t"></div></div>
   <div class="progress-text" id="progress-text"></div>
 </div>
-<div class="note"><strong>Scope:</strong> 135 NROM / NTSC test ROMs judged via the blargg <code>$6000</code> protocol
+<div class="note"><strong>Scope:</strong> 139 NROM / NTSC test ROMs judged via the blargg <code>$6000</code> protocol
  (classes A, A-r), per-frame screen-text markers (class B), or on-screen CRC (class C).
- apu_mixer (4) is excluded — its verdict is auditory, not programmatic.
+ apu_mixer's $6000 pass only certifies sequence completion (its real verdict is auditory) — treat as smoke tests.
  Detection runs once per simulated frame; a single test takes minutes-to-an-hour of wall time at switch level.</div>
 <div class="controls">
   <div class="btn-group" id="fbtns">

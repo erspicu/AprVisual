@@ -64,11 +64,11 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     d = rel.split("/")[0]
     if len(b) < 16 or b[:4] != b"NES\x1a":
         continue
-    # apu_mixer excluded 2026-07-02: its $6000 pass only means "tone sequence completed" —
-    # the real verdict is auditory (inverse-wave cancellation, judged by ear / the reference
-    # recordings; the 2A03 has no mixer-readback register). Slowest group, weakest verdict.
-    # (apu_reset was briefly excluded 2026-07-02, then re-added the same day — user call.)
-    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d in ("pal_apu_tests", "apu_mixer"):
+    # apu_mixer caveat (kept in the set since 2026-07-03, user call): its $6000 pass only
+    # means "tone sequence completed" — the real mixing verdict is auditory (inverse-wave
+    # cancellation; no mixer-readback register exists). Treat a PASS as a smoke test.
+    # Slowest group: calibrated verdict frames 608-1159 (~1-2 h each on S1).
+    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d == "pal_apu_tests":
         continue
     cls = classify(rel)
     if cls in ("A", "A-r", "B", "C"):

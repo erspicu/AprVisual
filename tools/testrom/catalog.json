@@ -3,6 +3,30 @@
   "romBase": "nes-test-roms-master/checked",
   "tests": [
     {
+      "suite": "apu_mixer",
+      "rom": "dmc.nes",
+      "class": "A",
+      "maxFrames": 1562
+    },
+    {
+      "suite": "apu_mixer",
+      "rom": "noise.nes",
+      "class": "A",
+      "maxFrames": 2400
+    },
+    {
+      "suite": "apu_mixer",
+      "rom": "square.nes",
+      "class": "A",
+      "maxFrames": 2064
+    },
+    {
+      "suite": "apu_mixer",
+      "rom": "triangle.nes",
+      "class": "A",
+      "maxFrames": 1336
+    },
+    {
       "suite": "apu_reset",
       "rom": "4015_cleared.nes",
       "class": "A-r",

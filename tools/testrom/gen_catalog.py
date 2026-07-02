@@ -45,7 +45,10 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     d = rel.split("/")[0]
     if len(b) < 16 or b[:4] != b"NES\x1a":
         continue
-    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d == "pal_apu_tests":
+    # apu_mixer excluded 2026-07-02: its $6000 pass only means "tone sequence completed" —
+    # the real verdict is auditory (inverse-wave cancellation, judged by ear / the reference
+    # recordings; the 2A03 has no mixer-readback register). Slowest group, weakest verdict.
+    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d in ("pal_apu_tests", "apu_mixer"):
         continue
     cls = classify(rel)
     if cls in ("A", "A-r", "C"):

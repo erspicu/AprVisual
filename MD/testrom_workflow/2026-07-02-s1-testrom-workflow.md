@@ -7,16 +7,20 @@
 ## 一句話總覽
 
 ```
-python tools/testrom/run_tests.py        # 跑完 93 個(A/A-r/C)→ 自動產出 WebSite/Report/
+python tools/testrom/run_tests.py        # 跑完 89 個(A/A-r/C)→ 自動產出 WebSite/Report/
 ```
 
 跑完後 commit `WebSite/Report/` 即發佈到 GitHub Pages(`erspicu.github.io/AprVisual/Report/`)。
 
-## 範圍與分級(為什麼是 93 個)
+## 範圍與分級(為什麼是 89 個)
 
 - 母集合:`nes-test-roms-master/checked/` 全 184 個 → NROM(mapper 0)且非 PAL = **139**。
 - S1 是開關級模擬,**~5 秒 wall-clock / 幀**,所以判定手段刻意排除「連續 90 幀穩定畫面」那種等待型方式:
-  - **A(83)**:blargg `$6000` 協定 —— 每幀讀一 byte,結果一寫入立即停。**首選**。
+  - **A(83→79)**:blargg `$6000` 協定 —— 每幀讀一 byte,結果一寫入立即停。**首選**。
+    - **apu_mixer 4 個已剔除(2026-07-02)**:讀原始碼確認其 `$6000=0` 只代表「音頻序列播完沒當機」;
+      真正的判定(反相波抵銷是否無聲)是**聽覺判斷**(人耳/參考錄音,2A03 沒有混音讀回暫存器)。
+      又是最慢的一組(播音 15+ 模擬秒)→ 判定價值最低 × 成本最高,先跳過。
+      未來若要真驗混音:S1 可直接 tap 2A03 netlist 的 DAC 輸出節點 dump 波形比對參考錄音(行為層模擬器做不到)。
   - **A-r(8)**:`$6000` + 自動軟重設(`apu_reset/` 6 個、`cpu_reset/` 2 個)—— 協定回 `$6000=$81` 要求重設,引擎等 6 幀後 `WireCore.SoftReset()`(拉 res 線 192 半週期),最多 10 次。
   - **C(2)**:畫面 CRC(`dmc_dma_during_read4/dma_2007_read.nes`、`double_2007_read.nes`)—— 每幀掃 nametable 找孤立 8 位 hex,連續 2 幀相同才採信,與合法 CRC 集合比對。
   - **B(46,暫緩)**:畫面文字型(舊 blargg:sprite_hit、vbl_nmi_timing、blargg_apu_2005 等)。之後做法:每幀掃 nametable 找終端 `Passed`/`Failed`/`$0X` 標記(不等穩定)。**尚未實作**。
@@ -43,7 +47,7 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 ## Runner(`tools/testrom/run_tests.py`)
 
-- **測試清單 = `tools/testrom/catalog.json`**(93 筆,含 class/maxFrames/expectedCrcs)。由 `temp/gen_catalog.py` 邏輯產生;若要重生,依據是 AprNes 的 `site/report/results.json`。
+- **測試清單 = `tools/testrom/catalog.json`**(89 筆,含 class/maxFrames/expectedCrcs)。由 `tools/testrom/gen_catalog.py` 產生;若要重生,依據是 AprNes 的 `site/report/results.json`。
 - **4 個 worker、共用佇列**(先到先拿,自然錯開),啟動各錯開 20 秒(netlist 組建是重載階段)。
 - **鎖核:邏輯核 2、6、10、14**(3700X:= 物理核 1/3/5/7,兩個 CCX 各 2 個)。
   **刻意避開核 0**(OS 雜訊)。SMT 邏輯對 (2i, 2i+1) = 物理核 i。
@@ -68,12 +72,12 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 
 - 一幀 ≈ 5 秒 wall(Zen2,~142K hc/s;714,732 hc/幀)。載入(組 netlist+上電)另加 ~2-3 秒。
 - 煙霧測試實測:`$6000` 簽章在第 ~4 幀就出現(協定啟動很快)。
-- 典型 blargg 單項要模擬 2-10 秒(120-600 幀)→ **每測試約 10-50 分鐘**;93 個 ÷ 4 workers ≈ **一個晚上到一天**。
+- 典型 blargg 單項要模擬 2-10 秒(120-600 幀)→ **每測試約 10-50 分鐘**;89 個 ÷ 4 workers ≈ **一個晚上到一天**。
 - 第一輪跑完後,用報告裡的 frames 分佈回頭**調小 catalog 的 maxFrames**(逾時預算目前保守:A=900、A-r=1500)。
 
 ## 已知事項 / 待辦
 
-- [ ] 第一輪 93 個全跑(過夜)→ 檢視 pass/fail → 調 maxFrames。
+- [ ] 第一輪 89 個全跑(過夜)→ 檢視 pass/fail → 調 maxFrames。
 - [ ] A-r 軟重設路徑第一次實跑要盯:`# [test] auto soft reset #N` 行有沒有出現、重設後測試有沒有重新啟動。
 - [ ] B 類(46)之後做:`RunOneTest` 加「每幀掃 nametable 終端文字」偵測(`FindNametableCrc` 旁邊加 `FindNametableVerdict`),catalog 加 class B 條目。
 - [ ] 失敗的測試 = 真正有價值的發現(switch-level 對 behavioral 的差異),逐一開 MD 記錄。

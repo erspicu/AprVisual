@@ -140,8 +140,8 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
   <div class="progress-bar"><div class="p" id="bar-p"></div><div class="f" id="bar-f"></div><div class="t" id="bar-t"></div></div>
   <div class="progress-text" id="progress-text"></div>
 </div>
-<div class="note"><strong>Scope:</strong> 83 NROM / NTSC test ROMs judged via the blargg <code>$6000</code> protocol
- (classes A, A-r) or on-screen CRC (class C). Screen-text ROMs (46, class B) are a later phase; apu_mixer (4) and apu_reset (6) are excluded/deferred — auditory verdict / slow APU reset cycles.
+<div class="note"><strong>Scope:</strong> 89 NROM / NTSC test ROMs judged via the blargg <code>$6000</code> protocol
+ (classes A, A-r) or on-screen CRC (class C). Screen-text ROMs (46, class B) are a later phase; apu_mixer (4) is excluded — its verdict is auditory, not programmatic.
  Detection runs once per simulated frame; a single test takes minutes-to-an-hour of wall time at switch level.</div>
 <div class="controls">
   <div class="btn-group" id="fbtns">

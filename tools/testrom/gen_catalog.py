@@ -48,9 +48,8 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     # apu_mixer excluded 2026-07-02: its $6000 pass only means "tone sequence completed" —
     # the real verdict is auditory (inverse-wave cancellation, judged by ear / the reference
     # recordings; the 2A03 has no mixer-readback register). Slowest group, weakest verdict.
-    # apu_reset excluded 2026-07-02: long reset+APU-timing cycles, deferred with the rest of
-    # the slow APU family (user call); cpu_reset (also A-r) stays and covers the soft-reset path.
-    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d in ("pal_apu_tests", "apu_mixer", "apu_reset"):
+    # (apu_reset was briefly excluded 2026-07-02, then re-added the same day — user call.)
+    if ((b[6] >> 4) | (b[7] & 0xF0)) != 0 or d in ("pal_apu_tests", "apu_mixer"):
         continue
     cls = classify(rel)
     if cls in ("A", "A-r", "C"):

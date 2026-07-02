@@ -92,3 +92,4 @@ tools/perf/out/
 !tools/perf/web/x64/
 !tools/perf/web/x64/*.json
 AprNesRef/
+AC_ref/

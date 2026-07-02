@@ -43,7 +43,7 @@ for t in cat["tests"]:
 
     row = {"suite": t["suite"], "rom": t["rom"], "class": t["class"],
            "status": "pending", "exit_code": -1, "result_text": "", "screenshot": "",
-           "detection": "", "frames": 0, "simSeconds": 0, "wallSeconds": 0, "resetCount": 0}
+           "detection": "", "frames": 0, "simSeconds": 0, "wallSeconds": 0, "resetCount": 0, "khcPerSec": 0}
     if os.path.isfile(jpath):
         try:
             r = json.load(open(jpath, encoding="utf-8"))
@@ -54,7 +54,8 @@ for t in cat["tests"]:
                        frames=r.get("frames", 0),
                        simSeconds=r.get("simSeconds", 0),
                        wallSeconds=r.get("wallSeconds", 0),
-                       resetCount=r.get("resetCount", 0))
+                       resetCount=r.get("resetCount", 0),
+                       khcPerSec=round(r.get("halfCycles", 0) / r.get("wallSeconds", 1) / 1000, 1) if r.get("wallSeconds", 0) > 0 else 0)
             engine_ver = r.get("engineVersion", engine_ver) or engine_ver
         except Exception as e:
             row["result_text"] = f"(result json unreadable: {e})"
@@ -235,7 +236,7 @@ html+='</div><div class="info">';
 html+='<span class="badge '+t.status+'">'+t.status+'</span> <span class="badge cls">'+esc(t['class'])+'</span>';
 if(t.detection)html+=' <span class="badge det">'+esc(t.detection)+'</span>';
 html+='<div class="rom-name">'+esc(t.rom)+'</div><div class="suite-name">'+esc(t.suite)+'</div>';
-if(t.frames)html+='<div class="meta">'+t.frames+' frames \\u00b7 sim '+t.simSeconds.toFixed(1)+'s \\u00b7 wall '+Math.round(t.wallSeconds/60)+'min'+(t.resetCount?' \\u00b7 '+t.resetCount+' reset':'')+'</div>';
+if(t.frames)html+='<div class="meta">'+t.frames+' frames \\u00b7 sim '+t.simSeconds.toFixed(1)+'s \\u00b7 wall '+Math.round(t.wallSeconds/60)+'min'+(t.khcPerSec?' \\u00b7 '+t.khcPerSec+' khc/s':'')+(t.resetCount?' \\u00b7 '+t.resetCount+' reset':'')+'</div>';
 if(t.result_text){html+='<button class="expand-btn" onclick="toggleResult(\\''+rid+'\\')">Details &#9656;</button>';
 html+='<div class="result-text" id="'+rid+'">'+esc(t.result_text)+'</div>'}
 html+='</div></div>'});

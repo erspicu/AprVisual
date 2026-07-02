@@ -1,6 +1,6 @@
 # S1 測試失敗根因分析 —— 與滿分 AprNes 的差距在哪裡
 
-> 2026-07-03。**純 study,未改任何 code。** 樣本 = 第一輪跑到目前為止的 **22 個 FAIL**(批次仍在跑,B 類可能再添)。
+> 2026-07-03。**純 study,未改任何 code。** 初稿以跑到一半的 22 個 FAIL 分析;**完跑後定稿:141 個全數完成 —— 115 PASS / 26 FAIL / 0 TIMEOUT**,新增 4 個 FAIL 已補入(見 §1.B、§1.E 的「完跑補充」)。
 > 對照組 = AprNes(同一批測試全 PASS)。
 > 使用者的三個懷疑:(1) 上電記憶體初始化差異 (2) CPU/PPU 與測試 ROM 預期硬體的差異 (3) 行為層記憶體/匯流排實作簡化。
 > **結論先講:三個懷疑全部命中,並可再細分成六個根因類別;另有一個重要的哲學發現 —— 有些測試 S1 失敗正是因為它比 AprNes 更像真硬體。**
@@ -41,6 +41,11 @@ AprNes 作法:硬編碼 `P=$34, S=$FD, A/X/Y=0`(`Main.cs:281`、`CPU.cs:8`)+ 慣
 測試以常見對齊校準;我們的人工 reset 程序讓除頻器 settle 到**另一種合法相位**。
 frame 級 vbl 時序(01-04 PASS)不受影響,只有 sub-CPU-cycle 邊沿判定(NMI 壓抑/開關窗口)會偏移。
 
+**完跑補充(證據再強化)**:舊版 `vbl_nmi_timing` 套件跑完後,`1.frame_basics`/`2.vbl_timing`/
+`3.even_odd_frames`/`4.vbl_clear_timing` PASS,而 **`5.nmi_suppression`、`6.nmi_disable`、`7.nmi_timing`
+三個 NMI 邊沿測試 FAIL** —— 與新版套件 05-08 的失敗完全同構。**兩個獨立套件、同一道 NMI 邊沿分界線**,
+相位假說跨套件一致。本類最終成員:新版 4 + 舊版 3 = 7 個(加上疑似的 nmi_and_brk、sprdma×2 最多 10 個)。
+
 AprNes 作法:根本沒有相位問題 —— 它是行為層 `tick()`(1 CPU cycle = 3 PPU dots 固定對齊)+
 顯式 `nmi_delay → nmi_pending` 兩段管線($2002 讀可取消 delay 不可取消 pending)——
 **直接把測試要的答案寫成規則**。
@@ -71,6 +76,7 @@ AprNes 作法:根本沒有相位問題 —— 它是行為層 `tick()`(1 CPU cyc
 | `apu_test/7-dmc_basics` #19 | 「one-byte buffer 應立即填充」—— DMC 取樣 DMA(RDY 停 CPU + 匯流排取指)與行為 ROM 的互動時序 |
 | `dmc_dma_during_read4` 三個(2007_read、double_2007、4016_read) | CRC 不在合法集合。注意:**合法集合本身就有 2-4 個機種變體** —— 我們的 CRC 可能是「另一顆合法晶片」的答案,也可能是 DMA 時序 bug;無實機無法仲裁 |
 | `sprdma_and_dmc_dma` ×2 | DMA 週期計數擺動 —— 歸 B 類相位或本類,trace 才能分 |
+| `test_ppu_read_buffer` #67(完跑補充) | CNROM 卡帶;基礎 PPU I/O 與「Direct poke」「DMA with ROM」子測試全 OK(**CNROM banking 本身無誤**),敗在「DMA + PPU bus」組合子測試(sprite-0 hit + $4014 DMA + PPU 匯流排同時進行)—— DMA 與 PPU 匯流排互動的細節時序 |
 
 ### F. 非官方立即定址指令 —— 3 個
 
@@ -82,6 +88,18 @@ AprNes 作法:根本沒有相位問題 —— 它是行為層 `tick()`(1 CPU cyc
 - 但 `AAC/ASR/ARR` 一般認為是穩定指令,三測試一致失敗 → 指向共同機制
   (這族全是「A AND #imm」資料路徑,內部 SB/DB 匯流排合併行為)。
   可能是 Visual2A03 netlist 在該區的描繪誤差,或我們的 operand 取值時序。**需要單指令 trace study。**
+
+### 完跑後的最終分佈(26 FAIL)
+
+| 類 | 個數 | 成員 |
+|---|---|---|
+| A 上電 | 2 | registers、power_up_palette |
+| B 相位/NMI邊沿 | 7(~10) | 新版 05-08 ×4、舊版 5/6/7.nmi ×3(+疑似:nmi_and_brk、sprdma×2) |
+| C 類比未建模 | 3 | ppu_open_bus、oam_read、cpu_dummy_writes_oam |
+| D open-bus 殘值 | 1 | test_cpu_exec_space_apu |
+| E APU/DMA 細節 | 7 | irq_flag ×2、dmc_basics、dma_2007×2、dma_4016、read_buffer #67 |
+| F 非官方指令 | 3 | 02-immediate ×2、03-immediate |
+| (B/E 邊界) | 3 | nmi_and_brk、sprdma ×2 |
 
 ## 2. AprNes 為什麼滿分 —— 定性
 

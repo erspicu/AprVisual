@@ -56,6 +56,18 @@ The engine is not specialized to the NES. We run it **unchanged** on three stand
 
 (same machine, NOP-sled, pinned; all bit-exact across the renumber/locality variants — and the full C++ engine port matches C# per-node checksums on all three chips.) The ~376–599× JS→ours headline factors cleanly: the two compiled naive baselines land within **~1.4×** of each other, so the **~70–85×** step from JavaScript is a one-time *language dividend* (interpreter→compiled), and our methods add a further **~5–8× over a naive switch-level simulator in the same language** (consistent with ~2.5× over the optimized C++ ancestor). We also ported the **full** optimized engine to C++: at the naive algorithm native C++ is ~1.4–1.5× faster than C#, but the fully-tuned C# engine is ~1.27–1.56× faster than a faithful C++ port — an inversion driven by the .NET JIT + dynamic PGO and a shared packed cache layout, **not** a language ceiling. Across JS→C#→C++ the language never moves the needle more than ~1.5×; the contribution is the algorithm. Re-run unchanged on a **Raspberry Pi 5 (Arm Cortex-A76)**, the engine is **bit-exact across the instruction set** — the *identical* full-state checksum as on x64 — and posts the **first ARM-verified entry on the [leaderboard](https://baxermux.org/myemu/AprVisual/)**; the language dividend and the ~4–7× algorithmic gain reproduce, and the C#/C++ inversion shrinks to within ~8% (the language axis matters even less on ARM). Expressed as a clock these bare CPUs simulate at ~31–73 kHz, within ~14–128× of their 1980s home computers (vs ~302× for the whole NES). Full write-up: **[WebSite/cross-cpu.html](https://erspicu.github.io/AprVisual/cross-cpu.html)**; the bare-CPU bench is `src/AprVisual.etc` (`--cpu-bench <dir> --chip 6502|6800|z80 [--naive]`), the original-JS baseline is `tools/visual6502-node`, and the C++ ports are `tools/cpp-naive` + `tools/cpp-ours`.
 
+## Hardware test-ROM validation (2026-07)
+
+Once the engine was fast enough to be a tool, we pointed it at the standard NES accuracy batteries: **all 141 NROM/CNROM NTSC ROMs** in the `nes-test-roms` collection (blargg's suites and friends), judged **unattended, once per simulated frame** — the blargg `$6000` protocol, ROM-requested soft resets (the engine pulses the console's reset line mid-run), terminal screen text decoded straight from the nametable, or an on-screen CRC. Frame budgets are calibrated by an instrumented copy of our behavioral emulator [AprNes](https://github.com/erspicu/AprNes) acting as a fast oracle; the batch runs on core-pinned parallel workers. (CNROM arrived as a behavioral CHR-bank latch — the 2A03/2C02 netlists stay untouched.)
+
+**Result: 115 PASS / 26 FAIL / 0 timeouts — and every FAIL is root-caused** into six categories: power-on state, CPU÷12/PPU÷4 clock-phase alignment, unmodeled analog decay, open-bus residuals, APU/DMA detail timing, and unofficial-opcode behavior.
+
+**[Interactive report →](https://erspicu.github.io/AprVisual/Report/)** — per-test screenshots, detection method, frame counts, per-test khc/s, and the exact hardware model (RP2A03G + RP2C02G die tracings; what is transistor-level and what is behavioral).
+
+The interesting half: some failures are failures *of faithfulness*. `cpu_dummy_writes_oam` declares its own prerequisite ("OAM reads must be reliable") holds on emulators **but not on the real NES** — a behavioral emulator passes with a plain OAM array, while the switch-level 2C02, whose OAM is physical DRAM cells, fails the way real silicon does. Conventional emulators earn full marks by implementing the consensus rules the tests encode; a netlist gives you the physics of one specific chip.
+
+Infrastructure in `tools/testrom/`: catalog-driven parallel runner (`run_tests.py`, resume-aware), the AprNes calibration oracle (`calibrate_ref.py`), and the self-contained report generator (`build_report.py`).
+
 ## Run the benchmark
 
 The easiest path is the prebuilt, self-contained package (no .NET install needed; Windows + macOS, both engines):
@@ -84,7 +96,8 @@ The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless con
 | `src/AprVisual.S2/` | The Escape-1 investigation engine (automatic logic extraction; `--miter`/`--compile`/`--cones`) — concluded; the negative-result record. |
 | `src/AprVisual.etc/` | An S1 fork for validating **other** CPUs: a raw Visual 6502 netlist loader + pin-level NOP-sled bench for the 6502 / 6800 / Z80 (`--cpu-bench`), plus a faithful C# port of the reference chipsim.js algorithm (`--naive`) for the language-vs-algorithm split. See `cross-cpu.html`. |
 | `src/AprVisual.Deprecated/` | The original WinForms engine + tooling (rendering, ROM parsing) + the S2/S3/S4 IR/codegen/GPU experiments — reference only. |
-| `WebSite/` | The GitHub Pages project site (served at the link above). |
+| `WebSite/` | The GitHub Pages project site (served at the link above) — incl. `Report/`, the generated test-ROM report. |
+| `tools/testrom/` | Test-ROM validation: catalog + parallel core-pinned runner + AprNes calibration oracle + report generator. |
 | `MD/` | Design & analysis docs (Traditional Chinese). |
 | `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query) — incl. `visual6502-node/` (headless Node.js baseline running the original Visual 6502 JS sim) and `cpp-naive/` + `cpp-ours/` (C++ ports of the reference and the full engine, for the language-vs-algorithm split). |
 

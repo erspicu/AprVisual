@@ -178,7 +178,40 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
     (dmc_dma visual tests).</span>
  </div>
  <div style="margin-top:.5rem">apu_mixer's $6000 pass only certifies sequence completion (its real verdict is
- auditory) — treat those 4 as smoke tests.</div></div>
+ auditory) — treat those 4 as smoke tests.</div>
+ <details style="margin-top:.6rem">
+  <summary style="cursor:pointer;color:#5dadec"><strong>Hardware model — what is netlist, what is behavioral</strong></summary>
+  <div style="margin-top:.5rem;overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;min-width:640px">
+   <tr style="color:#5dadec;text-align:left"><th style="padding:.15rem .6rem .15rem 0">Part</th><th style="padding:.15rem .6rem">Device</th><th style="padding:.15rem .6rem">Simulation level</th></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">CPU</td><td style="padding:.15rem .6rem">Ricoh <strong>RP2A03G</strong> (NTSC)</td>
+    <td style="padding:.15rem .6rem"><strong>Transistor netlist</strong> — Quietust's Visual2A03 die tracing: the whole die
+     (6502 core with BCD disabled, APU, OAM-DMA, controller I/O)</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">PPU</td><td style="padding:.15rem .6rem">Ricoh <strong>RP2C02G</strong> (NTSC)</td>
+    <td style="padding:.15rem .6rem"><strong>Transistor netlist</strong> — Quietust's Visual2C02 die tracing,
+     <em>including palette RAM and OAM as physical storage cells</em> (not hoisted to handlers)</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">Board glue</td><td style="padding:.15rem .6rem">NES-001: 74LS373 (PPU AD-bus latch),
+     74LS139 (address decoder), 2&times;74LS368, 74HC04, CIC, controller ports</td>
+    <td style="padding:.15rem .6rem"><strong>Gate-level transistor modules</strong> (hand-authored netlist defs, MetalNES lineage)</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">Memories</td><td style="padding:.15rem .6rem">2 KB CPU RAM (u1), 2 KB CIRAM (u4),
+     cart PRG/CHR ROM, 8 KB cart WRAM (test ROMs)</td>
+    <td style="padding:.15rem .6rem"><strong>Behavioral byte arrays</strong> behind <em>physical tri-state pass-gates</em>
+     (chip-select wiring is netlist, so open-bus hold emerges physically; missing: charge decay, access time)</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">Mapper</td><td style="padding:.15rem .6rem">NROM / CNROM</td>
+    <td style="padding:.15rem .6rem">NROM = pure wiring; CNROM = <strong>behavioral</strong> CHR bank latch on the PRG bus</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">Clock</td><td style="padding:.15rem .6rem">21.477 MHz master</td>
+    <td style="padding:.15rem .6rem"><strong>Behavioral</strong> half-cycle toggle; the &divide;12 CPU / &divide;4 PPU dividers are inside the dies</td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0">Video out</td><td style="padding:.15rem .6rem">framebuffer</td>
+    <td style="padding:.15rem .6rem">Measurement tap: palette-RAM cells read at each pclk1 edge (does not affect the sim)</td></tr>
+  </table></div>
+  <div style="margin-top:.4rem">Composed system: <strong>14,723 nodes / 26,775 transistors</strong>
+   (after connection-merge lowering; raw 15,164 / 27,305). The RP2A03G + RP2C02G pair is the same revision
+   AccuracyCoin targets.</div>
+  <div style="margin-top:.4rem">Lineage: the engine is AprVisual.S1's C# re-implementation of
+   <a href="../metalnes.html">MetalNES</a>'s wire / group-resolution core (itself descended from
+   visual6502.org's chipsim); the chip netlists are Quietust's Visual2A03 / Visual2C02 die tracings and the
+   board/system module definitions follow MetalNES's system-def format — see
+   <a href="../lineage.html">the lineage page</a> for full credits.</div>
+ </details></div>
 <div class="controls">
   <div class="btn-group" id="fbtns">
     <button class="active" data-f="all">All</button><button data-f="pass">Pass</button>

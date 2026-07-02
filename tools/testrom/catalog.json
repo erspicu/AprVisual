@@ -6,157 +6,157 @@
       "suite": "apu_reset",
       "rom": "4015_cleared.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_reset",
       "rom": "4017_timing.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_reset",
       "rom": "4017_written.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_reset",
       "rom": "irq_flag_cleared.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_reset",
       "rom": "len_ctrs_enabled.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_reset",
       "rom": "works_immediately.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "1-len_ctr.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "2-len_table.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "3-irq_flag.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "4-jitter.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "5-len_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 350
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "6-irq_flag_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "7-dmc_basics.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "apu_test/rom_singles",
       "rom": "8-dmc_rates.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "cpu_dummy_writes",
       "rom": "cpu_dummy_writes_oam.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 750
     },
     {
       "suite": "cpu_dummy_writes",
       "rom": "cpu_dummy_writes_ppumem.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 590
     },
     {
       "suite": "cpu_exec_space",
       "rom": "test_cpu_exec_space_apu.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 684
     },
     {
       "suite": "cpu_exec_space",
       "rom": "test_cpu_exec_space_ppuio.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "cpu_interrupts_v2/rom_singles",
       "rom": "1-cli_latency.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "cpu_interrupts_v2/rom_singles",
       "rom": "2-nmi_and_brk.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 336
     },
     {
       "suite": "cpu_interrupts_v2/rom_singles",
       "rom": "3-nmi_and_irq.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 382
     },
     {
       "suite": "cpu_interrupts_v2/rom_singles",
       "rom": "4-irq_and_dma.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "cpu_interrupts_v2/rom_singles",
       "rom": "5-branch_delays_irq.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 890
     },
     {
       "suite": "cpu_reset",
       "rom": "ram_after_reset.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 424
     },
     {
       "suite": "cpu_reset",
       "rom": "registers.nes",
       "class": "A-r",
-      "maxFrames": 1500
+      "maxFrames": 434
     },
     {
       "suite": "dmc_dma_during_read4",
       "rom": "dma_2007_read.nes",
       "class": "C",
-      "maxFrames": 900,
+      "maxFrames": 300,
       "expectedCrcs": [
         "159A7A8F",
         "5E3DF9C4"
@@ -166,7 +166,7 @@
       "suite": "dmc_dma_during_read4",
       "rom": "double_2007_read.nes",
       "class": "C",
-      "maxFrames": 900,
+      "maxFrames": 300,
       "expectedCrcs": [
         "85CFD627",
         "F018C287",
@@ -178,373 +178,373 @@
       "suite": "instr_misc/rom_singles",
       "rom": "01-abs_x_wrap.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_misc/rom_singles",
       "rom": "02-branch_wrap.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_misc/rom_singles",
       "rom": "03-dummy_reads.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_misc/rom_singles",
       "rom": "04-dummy_reads_apu.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 402
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "01-implied.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 316
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "02-immediate.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "03-zero_page.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 354
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "04-zp_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 644
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "05-absolute.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 346
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "06-abs_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 852
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "07-ind_x.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 416
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "08-ind_y.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 396
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "09-branches.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "10-stack.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 452
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "11-jmp_jsr.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "12-rts.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "13-rti.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "14-brk.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v3/rom_singles",
       "rom": "15-special.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "01-basics.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "02-implied.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 316
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "03-immediate.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "04-zero_page.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 356
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "05-zp_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 642
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "06-absolute.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 342
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "07-abs_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 852
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "08-ind_x.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 414
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "09-ind_y.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 396
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "10-branches.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "11-stack.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 450
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "12-jmp_jsr.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "13-rts.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "14-rti.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "15-brk.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_test-v5/rom_singles",
       "rom": "16-special.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "instr_timing/rom_singles",
       "rom": "1-instr_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 2146
     },
     {
       "suite": "instr_timing/rom_singles",
       "rom": "2-branch_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 402
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "01-implied.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "02-immediate.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "03-zero_page.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "04-zp_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 470
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "05-absolute.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "06-abs_xy.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 608
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "07-ind_x.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 330
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "08-ind_y.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 318
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "09-branches.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "10-stack.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 378
     },
     {
       "suite": "nes_instr_test/rom_singles",
       "rom": "11-special.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "oam_read",
       "rom": "oam_read.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "ppu_open_bus",
       "rom": "ppu_open_bus.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 624
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "01-vbl_basics.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 406
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "02-vbl_set_time.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 468
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "03-vbl_clear_time.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 444
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "04-nmi_control.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "05-nmi_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 544
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "06-suppression.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 550
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "07-nmi_on_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 500
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "08-nmi_off_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 548
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "09-even_odd_frames.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 300
     },
     {
       "suite": "ppu_vbl_nmi/rom_singles",
       "rom": "10-even_odd_timing.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 414
     },
     {
       "suite": "sprdma_and_dmc_dma",
       "rom": "sprdma_and_dmc_dma.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 400
     },
     {
       "suite": "sprdma_and_dmc_dma",
       "rom": "sprdma_and_dmc_dma_512.nes",
       "class": "A",
-      "maxFrames": 900
+      "maxFrames": 400
     }
   ]
 }

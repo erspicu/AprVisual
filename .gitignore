@@ -91,3 +91,4 @@ tools/perf/out/
 # so re-include the dir + its json to match arm64 — this is the source of /version/'s chart)
 !tools/perf/web/x64/
 !tools/perf/web/x64/*.json
+AprNesRef/

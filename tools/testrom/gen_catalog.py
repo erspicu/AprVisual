@@ -19,6 +19,25 @@ recs = {}
 for r in json.load(open(RESULTS, encoding="utf-8")):
     recs[f"{r['suite']}/{r['rom']}"] = r
 
+# Frame budgets from the AprNesRef calibration sweep (tools/testrom/calibrate_ref.py):
+# budget = 2 * measured verdict/marker frame + 120, clamped to [300, 2400]. Falls back to
+# 900 (A/C) / 1500 (A-r) when no calibration record exists.
+CALIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration_ref.json")
+_calib = json.load(open(CALIB, encoding="utf-8"))["roms"] if os.path.isfile(CALIB) else {}
+
+def budget_for(rel, cls):
+    r = _calib.get(rel)
+    if not r or "error" in r:
+        return 1500 if cls == "A-r" else 900
+    base = r.get("verdictFrame", -1)
+    if r.get("detection") != "6000":                       # screen path: the 90-frame stability
+        fm = r.get("firstMarkerFrame", -1)                 # tail is AprNes-specific — S1 stops at
+        if fm > 0:                                         # the marker, so budget from that.
+            base = fm
+    if base <= 0:
+        return 1500 if cls == "A-r" else 900
+    return min(2400, max(300, base * 2 + 120))
+
 def classify(rel):
     rec = recs.get(rel)
     if rec is None:
@@ -55,9 +74,7 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
     if cls in ("A", "A-r", "C"):
         suite = "/".join(rel.split("/")[:-1])
         rom = rel.split("/")[-1]
-        entry = {"suite": suite, "rom": rom, "class": cls, "maxFrames": 900}
-        if cls == "A-r":
-            entry["maxFrames"] = 1500   # reset loops add sim time
+        entry = {"suite": suite, "rom": rom, "class": cls, "maxFrames": budget_for(rel, cls)}
         if rel in EXPECTED_CRCS:
             entry["expectedCrcs"] = EXPECTED_CRCS[rel]
         tests.append(entry)

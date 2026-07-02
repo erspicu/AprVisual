@@ -76,10 +76,27 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 - 典型 blargg 單項要模擬 2-10 秒(120-600 幀)→ **每測試約 10-50 分鐘**;89 個 ÷ 4 workers ≈ **一個晚上到一天**。
 - 第一輪跑完後,用報告裡的 frames 分佈回頭**調小 catalog 的 maxFrames**(逾時預算目前保守:A=900、A-r=1500)。
 
+## 幀數校準(AprNesRef oracle,2026-07-02 加入)
+
+- **構想**:用行為層 AprNes 當快速 oracle,量測每個 ROM「結果實際發生在第幾幀」,回頭精調 S1 預算。
+- **AprNesRef/**(gitignored)= 從 github.com/erspicu/AprNes clone 的改造版:`TestRunnerCore.cs` 加 `--calib-json`,
+  每幀記錄:終端標記首次出現幀(firstMarkerFrame)、畫面最後變動幀、verdict 幀、偵測路徑、最終 CRC。
+  改動已在 AprNesRef 內部 local commit(不 push 回原 repo)。build:MSBuild Debug x64 + `/t:Restore`。
+- **跑法**:`python tools/testrom/calibrate_ref.py`(139 個 4 執行緒約 44 秒)→ `tools/testrom/calibration_ref.json`。
+- **gen_catalog.py 會自動吃校準檔**:預算 = verdict/marker 幀 × 2 + 120,夾 [300, 2400]。
+- **2026-07-02 首輪校準發現**:
+  - 91/48($6000/畫面)與分類第三度吻合;AprNes 全 139 PASS(ground truth)。
+  - `instr_timing/1-instr_timing` 要 1013 幀 —— 舊 900 預算會假逾時,校準後 2146。
+  - apu_mixer 實測 608-1159 幀,證實剔除正確。
+  - **B 類標記幀中位數僅 21 幀**(max 613)→ S1 做 B 類每幀掃 nametable,46 個約 2-4 小時就能跑完,
+    比照搬 90 幀穩定法省 ~12 倍(例:palette_ram 第 18 幀 vs 第 211 幀)。
+  - **零陷阱 ROM**:沒有任何 ROM 在畫面仍變動時提前出現標記 → 每幀判讀安全。
+  - C 類 CRC 自動擷取且與已知集合吻合。
+
 ## 已知事項 / 待辦
 
 - [ ] 第一輪 89 個全跑(過夜)→ 檢視 pass/fail → 調 maxFrames。
 - [x] A-r 軟重設路徑已實證(2026-07-02):apu_reset 的 4015_cleared / irq_flag_cleared 皆 PASS,detection=`6000+reset`、resets=1、32-33 幀(~3 分鐘)。apu_reset 其實很快,慢的只有 apu_mixer。
-- [ ] B 類(46)之後做:`RunOneTest` 加「每幀掃 nametable 終端文字」偵測(`FindNametableCrc` 旁邊加 `FindNametableVerdict`),catalog 加 class B 條目。
+- [ ] B 類(46)之後做:`RunOneTest` 加「每幀掃 nametable 終端文字」偵測;校準已證實安全且便宜(標記幀 p50=21,46 個約 2-4 小時)。
 - [ ] 失敗的測試 = 真正有價值的發現(switch-level 對 behavioral 的差異),逐一開 MD 記錄。
 - 引擎判定與 AprNes 的差異:S1 沒有(也不需要)畫面穩定偵測、手把注入(`read_joy3` 不在 NROM 集內)、PAL(2C07 是另一顆晶片,netlist 層根本不存在)。

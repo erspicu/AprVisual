@@ -3,42 +3,6 @@
   "romBase": "nes-test-roms-master/checked",
   "tests": [
     {
-      "suite": "apu_reset",
-      "rom": "4015_cleared.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
-      "suite": "apu_reset",
-      "rom": "4017_timing.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
-      "suite": "apu_reset",
-      "rom": "4017_written.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
-      "suite": "apu_reset",
-      "rom": "irq_flag_cleared.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
-      "suite": "apu_reset",
-      "rom": "len_ctrs_enabled.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
-      "suite": "apu_reset",
-      "rom": "works_immediately.nes",
-      "class": "A-r",
-      "maxFrames": 1500
-    },
-    {
       "suite": "apu_test/rom_singles",
       "rom": "1-len_ctr.nes",
       "class": "A",

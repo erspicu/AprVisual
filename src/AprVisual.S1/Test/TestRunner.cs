@@ -34,6 +34,7 @@ namespace AprVisual.Test
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
             string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
             string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
+            string? busTracePath = null;     // --bus-trace: $4013/$4015 + RDY-stall cycle microscope (DMC #19 study)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -97,6 +98,7 @@ namespace AprVisual.Test
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
                     case "--rdy-probe":       if (i + 1 < args.Length) rdyProbePath = args[++i]; break;                       // DIAGNOSTIC: rdy transition counts
+                    case "--bus-trace":       if (i + 1 < args.Length) busTracePath = args[++i]; break;                       // DIAGNOSTIC: DMC bus microscope
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -139,6 +141,7 @@ namespace AprVisual.Test
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
             if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
             if (rdyProbePath  != null) return RdyProbe(rdyProbePath, shotFrames > 3 ? shotFrames : 35);
+            if (busTracePath  != null) return BusTrace(busTracePath, shotFrames > 3 ? shotFrames : 29);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
@@ -1454,6 +1457,82 @@ namespace AprVisual.Test
                 File.WriteAllText(_testJsonPath!, sb.ToString());
             }
             catch (Exception ex) { Console.Error.WriteLine($"# (test json write failed: {ex.Message})"); }
+        }
+
+        // ── --bus-trace: microscope for the DMC #19 study. Fast-forwards N frames (--frames), then
+        //    steps hc-by-hc for 2 frames detecting phi2 falling edges (CPU cycle boundaries) and logs
+        //    every bus cycle touching $4013/$4015 plus every RDY-stalled cycle: relative cycle index,
+        //    AB, DB, R/W, RDY. Shows the enable→first-fetch→readback chain cycle by cycle. ──
+        private static int _btPrevIrq = -2, _btPrevSet = -2, _btPrevEn = -2, _btTail;
+        private static unsafe int BusTrace(string romPath, int startFrame)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int phi2 = WireCore.LookupNode("cpu.phi2");
+                int rw   = WireCore.LookupNode("cpu.rw");
+                int rdy  = WireCore.LookupNode("cpu.rdy");
+                var ab = new List<int>(); WireCore.ResolveNodes("cpu.ab[15:0]", ab, quiet: true);
+                var db = new List<int>(); WireCore.ResolveNodes("cpu.db[7:0]", db, quiet: true);
+                int[] abN = ab.ToArray(), dbN = db.ToArray();
+                if (phi2 == WireCore.EmptyNode || rw == WireCore.EmptyNode || abN.Length != 16 || dbN.Length != 8)
+                { Console.Error.WriteLine($"bus-trace: node resolution failed (phi2={phi2} rw={rw} ab={abN.Length} db={dbN.Length})"); return 2; }
+                // DMC IRQ microscope nodes (named in the 2A03 netlist)
+                int nIrq = WireCore.LookupNode("cpu.pcm_irq");
+                int nSet = WireCore.LookupNode("cpu.set_pcm_irq");
+                int nEn  = WireCore.LookupNode("cpu.pcm_irqen");
+                int nClk1 = WireCore.LookupNode("cpu.apu_clk1");
+                int nClk2e = WireCore.LookupNode("cpu.apu_clk2e");
+                int nAbp = WireCore.LookupNode("cpu.ab_use_pcm");
+                int[] nLc = new int[12];
+                for (int b = 0; b < 12; b++) nLc[b] = WireCore.LookupNode("cpu.pcm_lc" + b);
+                Console.WriteLine($"# lc nodes: {string.Join(",", nLc)}");
+                Console.WriteLine($"# pcm nodes: irq={nIrq} set={nSet} en={nEn} clk1={nClk1} clk2e={nClk2e} abp={nAbp}");
+
+                Console.WriteLine($"# bus-trace: fast-forward {startFrame} frames, then 2 frames hc-stepped");
+                for (int f = 0; f < startFrame; f++) WireCore.RunFrame();
+                Console.WriteLine($"# --- tracing (cycle index = CPU cycles since trace start) ---");
+
+                long cyc = 0, lastPrintedCyc = -999;
+                int prevPhi = WireCore.NodeStates[phi2];
+                const long HcSpan = 714_732L * 2;
+                for (long i = 0; i < HcSpan; i++)
+                {
+                    WireCore.Step(1);
+                    int ph = WireCore.NodeStates[phi2];
+                    if (prevPhi == 1 && ph == 0)   // phi2 falling = CPU cycle boundary
+                    {
+                        cyc++;
+                        int a = WireCore.ReadBits(abN);
+                        int r = WireCore.NodeStates[rdy];
+                        int vIrq = nIrq != WireCore.EmptyNode ? WireCore.NodeStates[nIrq] : -1;
+                        int vSet = nSet != WireCore.EmptyNode ? WireCore.NodeStates[nSet] : -1;
+                        int vEn  = nEn  != WireCore.EmptyNode ? WireCore.NodeStates[nEn]  : -1;
+                        bool irqChanged = vIrq != _btPrevIrq || vSet != _btPrevSet || vEn != _btPrevEn;
+                        _btPrevIrq = vIrq; _btPrevSet = vSet; _btPrevEn = vEn;
+                        if (a == 0x4013 || a == 0x4015 || r == 0 || irqChanged) _btTail = 30;
+                        if (_btTail > 0)
+                        {
+                            _btTail--;
+                            int d = WireCore.ReadBits(dbN);
+                            int w = WireCore.NodeStates[rw];
+                            int c1 = nClk1 != WireCore.EmptyNode ? WireCore.NodeStates[nClk1] : -1;
+                            int c2e = nClk2e != WireCore.EmptyNode ? WireCore.NodeStates[nClk2e] : -1;
+                            int abp = nAbp != WireCore.EmptyNode ? WireCore.NodeStates[nAbp] : -1;
+                            int lc = 0;
+                            for (int b = 11; b >= 0; b--) lc = (lc << 1) | (nLc[b] != WireCore.EmptyNode ? WireCore.NodeStates[nLc[b]] : 0);
+                            if (cyc - lastPrintedCyc > 1) Console.WriteLine("#   ...");
+                            Console.WriteLine($"#  cyc {cyc,7}: AB={a:X4} DB={d:X2} {(w == 0 ? "W" : "r")} RDY={r}  irq={vIrq} set={vSet} en={vEn}  clk1={c1} clk2e={c2e} abp={abp} lc={lc:X3}");
+                            lastPrintedCyc = cyc;
+                        }
+                    }
+                    prevPhi = ph;
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
         }
 
         // ── --rdy-probe: per-frame count of cpu.rdy transitions (DMC/OAM DMA stall activity),

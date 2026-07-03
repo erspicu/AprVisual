@@ -323,7 +323,22 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    <span class="en">A <strong>perfect complementary 2+2 split — zero intersection</strong>: on this silicon model no single power-on state
    satisfies both groups, so any fixed-alignment system (including a real NES that is not power-cycled between tests)
    pays this price. We fix alignment 7 (the one blargg's NMI-edge tests were calibrated on);
-   10-even_odd_timing's FAIL is the documented cost of that choice.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 零交集</strong>:在這個矽晶模型上,沒有任何單一上電狀態能同時滿足兩組測試;任何固定對齊的系統(包括一台不重開機換對齊的真 NES)都要付這個代價。我們固定在對齊 7(blargg 的 NMI 邊沿測試所校準的那個);10-even_odd_timing 的 FAIL 就是這個選擇的已文件化成本。</span></div>
+   10-even_odd_timing's FAIL is the documented cost of that choice.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 零交集</strong>:在這個矽晶模型上,沒有任何單一上電狀態能同時滿足兩組測試;任何固定對齊的系統(包括一台不重開機換對齊的真 NES)都要付這個代價。我們固定在對齊 7(blargg 的 NMI 邊沿測試所校準的那個);10-even_odd_timing 的 FAIL 就是這個選擇的已文件化成本。</span><br>
+   <span class="en"><em>Completeness check:</em> the four alignments above are the <strong>entire</strong> reachable space, not a sample.
+   Intermediate reset-release offsets (K=2, K=4) were also run and quantize onto the same classes
+   (K=2&nbsp;&equiv;&nbsp;alignment&nbsp;7, K=4&nbsp;&equiv;&nbsp;alignment&nbsp;5 — identical verdicts, per-test fail codes and frame counts;
+   the divider pair restarts on whole clk0 periods, so only these four relative phases physically exist).
+   For contrast, TriCNES — a reference emulator that passes all ten — reaches that result by hand-tuning its power-on
+   offset until the suite passed; its own source comments the choice with
+   <em>"Shouldn't this be 0? I don't know why, but this passes all the tests if this is 7, so...?"</em>
+   (Emulator.cs, power-on init). That is calibration in alignment space, not evidence that a single physical
+   power-on state satisfies both groups.</span><span class="zh"><em>完備性檢查:</em>上表四種對齊是<strong>全部</strong>可達空間,不是抽樣。
+   中間的 reset 釋放偏移(K=2、K=4)也實測過,量化塌縮回同樣的類別
+   (K=2&nbsp;&equiv;&nbsp;對齊&nbsp;7、K=4&nbsp;&equiv;&nbsp;對齊&nbsp;5 —— 判定、失敗碼、幀數完全一致;
+   除頻器對以整個 clk0 週期重啟,所以物理上就只存在這四種相對相位)。
+   對照:全過這十項的參考模擬器 TriCNES,是把上電偏移當參數手調到整套通過為止 —— 其原始碼對這個選擇的註解是
+   <em>「Shouldn't this be 0? I don't know why, but this passes all the tests if this is 7, so...?」</em>
+   (Emulator.cs 上電初始化)。那是在對齊空間裡做校準,不是「存在單一物理上電狀態能同時滿足兩組」的證據。</span></div>
 
   <div style="margin-top:.7rem"><strong><span class="en">3. PPU open-bus decay — <code>ppu_open_bus</code> (fixed via documented shim)</span><span class="zh">3. PPU open-bus 衰減 —— <code>ppu_open_bus</code>(已用文件化 shim 修復)</span></strong><br>
    <em><span class="en">Author's readme</span><span class="zh">作者的 readme</span></em> (<code>ppu_open_bus/readme.txt</code>):

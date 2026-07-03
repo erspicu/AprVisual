@@ -1186,6 +1186,10 @@ namespace AprVisual.Test
             var rom = NesRom.LoadFromFile(path);
             if (rom is null) { Console.WriteLine($"FAIL(load) | {Path.GetFileName(path)}"); return 2; }
 
+            // Test mode emulates the conventional console power-up state (palette residue + P=$34;
+            // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
+            WireCore.PowerUpStateShim = true;
+
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
             int resultCode = -1, frames = 0, resetCount = 0;

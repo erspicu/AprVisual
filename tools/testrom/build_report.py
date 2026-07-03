@@ -220,6 +220,61 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    <a href="../lineage.html">the lineage page</a> for full credits.</span><span class="zh">血緣:引擎是 AprVisual.S1 對 <a href="../metalnes.html">MetalNES</a> wire/群組解析核心的 C# 重寫(其前身為 visual6502.org 的 chipsim);晶片 netlist 為 Quietust 的 Visual2A03 / Visual2C02 晶粒描繪,主機板/系統模組定義沿用 MetalNES 的 system-def 格式 —— 完整致謝見<a href="../lineage.html">血緣頁</a>。</span></div>
  </details>
  <details style="margin-top:.6rem">
+  <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Why do test ROMs still fail when we run the real chip's netlist?</span><span class="zh">為什麼拿「真晶片的 netlist」來跑,測試 ROM 還是會錯?</span></strong></summary>
+  <div style="margin-top:.5rem"><span class="en">A fair question — if the transistors are the real chip's transistors, shouldn't every test pass?
+   No, and the reasons are instructive:</span><span class="zh">很合理的疑問 —— 電晶體都是真晶片的電晶體了,不是每個測試都該過嗎?並不是,而且原因本身就很有教育價值:</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">1. The two dies are not the whole console.</span><span class="zh">1. 兩顆晶粒不等於一整台主機。</span></strong><br>
+   <span class="en">The netlists cover exactly two silicon dies — the CPU (RP2A03) and the PPU (RP2C02). A working NES also
+   contains work RAM, video RAM, the cartridge (ROM chips plus mapper circuitry), the clock crystal, controllers, and
+   all the board wiring between them. Everything outside the two dies has to be re-created as a
+   <em>behavioral layer</em>: ordinary program code that must answer the bus exactly the way the real part would.
+   That is where errors have room to live — usually not in <em>what</em> value is returned, but in <em>which
+   fraction of a cycle</em> it is returned, whether the bus floats afterwards, and how long a stale value lingers.
+   Several bugs we fixed during this campaign lived precisely on that seam (power-up palette state, PPU open-bus
+   decay), and the investigations still open are probing the same seam.</span><span class="zh">netlist 只涵蓋兩顆矽晶粒 —— CPU(RP2A03)與 PPU(RP2C02)。一台能動的 NES 還有工作 RAM、顯示 RAM、卡帶(ROM 晶片加 mapper 電路)、石英振盪器、手把,以及把這些全部接起來的電路板走線。晶粒以外的一切都得用<em>行為層</em>重建:用普通程式碼扮演那顆零件,對匯流排做出跟實品一模一樣的回應。錯誤的空間就在這裡 —— 通常不是「回傳<em>什麼值</em>」錯了,而是「在一個 cycle 的<em>哪個瞬間</em>回傳」、「回完之後匯流排有沒有浮接」、「殘值會殘留多久」這種細節。這次戰役修掉的幾個 bug 正好都住在這條接縫上(上電 palette 狀態、PPU open-bus 衰減),還在追查的問題也都在探同一條縫。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">2. "The NES" is not one machine.</span><span class="zh">2. 「NES」不是一台機器,是一個家族。</span></strong><br>
+   <span class="en">Nintendo shipped multiple CPU revisions (RP2A03E&nbsp;/&nbsp;G&nbsp;/&nbsp;H&nbsp;&hellip;), multiple PPU revisions,
+   and multiple board designs (front-loader NES-001, top-loader NES-101, the Famicom, licensed clones) — and the
+   revisions differ in measurable, test-visible ways. A test ROM is calibrated against <em>the author's own
+   console</em>; a different console can honestly produce a different result. That is why this project pins a single
+   reference machine — <strong>NES-001 with RP2A03G + RP2C02G</strong>, the exact revisions the Visual2A03/2C02
+   dies were photographed from — and implements the behavioral layer to <em>that</em> machine's personality.
+   Matching some other console's quirk would be wrong for ours.</span><span class="zh">任天堂出過多個 CPU 版次(RP2A03E&nbsp;/&nbsp;G&nbsp;/&nbsp;H&nbsp;&hellip;)、多個 PPU 版次、多種電路板(前插式 NES-001、上插式 NES-101、Famicom、授權相容機)—— 而且版次之間的差異是量得到、測試看得到的。測試 ROM 是拿<em>作者自己那台主機</em>校準的;換一台主機,誠實地跑出不同結果是完全可能的。所以本專案釘死一台參考機 —— <strong>NES-001 配 RP2A03G + RP2C02G</strong>,正是 Visual2A03/2C02 晶粒照片的來源版次 —— 行為層就照<em>這台</em>的個性實作。去遷就別台主機的怪癖,對我們這台反而是錯的。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">3. Part of the chip is analog, and a switch-level model is digital.</span><span class="zh">3. 晶片有一部分是類比電路,而開關級模型是數位的。</span></strong><br>
+   <span class="en">The netlist abstraction treats each transistor as an on/off switch and each node as 0/1 with a few
+   strength classes. The real chip is analog NMOS silicon: OAM is dynamic RAM whose charge leaks away, floating
+   buses hold their last value for a temperature-dependent fraction of a second, power-on drops every latch into a
+   random analog equilibrium, and the APU's sound output is literally an analog mixing network. Tests that measure
+   these phenomena (oam_read's decay patterns, ppu_open_bus's ~600&nbsp;ms decay time) are measuring
+   <em>physics</em>, not logic — a digital model can only approximate them with explicitly documented shims, or
+   honestly fail.</span><span class="zh">netlist 抽象把每顆電晶體當成通/斷的開關、每個節點當成 0/1 加上幾級強度。真晶片卻是類比的 NMOS 矽:OAM 是會漏電的動態記憶體、浮接的匯流排會把上一個值保持零點幾秒(時間還隨溫度變)、上電瞬間每個閂鎖掉進隨機的類比平衡點、APU 的聲音輸出根本就是一張類比混音網路。量測這些現象的測試(oam_read 的衰減圖樣、ppu_open_bus 約 600&nbsp;ms 的衰減時間)量的是<em>物理</em>,不是邏輯 —— 數位模型只能用明文記載的 shim 去近似,或者誠實地失敗。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">4. The netlist itself is a hand-made transcription of die photographs.</span><span class="zh">4. netlist 本身是人工從晶粒照片描繪出來的。</span></strong><br>
+   <span class="en">Visual2A03/2C02 were produced by tracing polygons off die micrographs by hand (Quietust's work — heroic
+   and remarkably accurate, as our own zero-diff verification against the upstream data confirms). But it is a
+   <em>lumped</em> model: no parasitic capacitance network, no analog transistor sizing, no continuous propagation
+   delays. Behavior that hinges on a race between two signals inside a single clock phase can legitimately resolve
+   differently in the model than in silicon — the model is faithful to the <em>connectivity</em>, not to every
+   picosecond of the <em>electrodynamics</em>.</span><span class="zh">Visual2A03/2C02 是人工對著晶粒顯微照片一筆一筆描出多邊形做成的(Quietust 的工作 —— 壯舉級的準確,我們對上游資料做過雙向零差異驗證)。但它是一個<em>集總</em>模型:沒有寄生電容網路、沒有類比的電晶體尺寸、沒有連續的傳播延遲。凡是取決於「同一個時脈相位內兩條信號誰先到」的行為,模型和矽晶就有可能合法地解出不同答案 —— 模型忠實的是<em>連接關係</em>,不是電磁動力學的每一皮秒。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">5. Real power-up state is undefined — a simulator must pick one.</span><span class="zh">5. 真機的上電狀態是未定義的 —— 模擬器卻必須挑一個。</span></strong><br>
+   <span class="en">Real silicon wakes into random latch states: blargg's own readmes document the <em>same console</em>
+   giving different oam_read patterns on different power-ons, and the CPU&divide;12&nbsp;/&nbsp;PPU&divide;4 clock
+   alignment lottery (four possible fine alignments, some tests mutually exclusive across them — see the dossier
+   below). A deterministic simulator has to choose one reproducible power-up; whichever it chooses, some test
+   somewhere is calibrated to a different roll of the dice.</span><span class="zh">真矽晶醒來時每個閂鎖都是隨機的:blargg 自己的 readme 就記載<em>同一台主機</em>不同次開機會給出不同的 oam_read 圖樣,還有 CPU&divide;12&nbsp;/&nbsp;PPU&divide;4 時脈對齊的抽籤(四種細對齊,某些測試在不同對齊間互斥 —— 見下方卷宗)。一個確定性的模擬器必須挑一種可重現的上電狀態;不管挑哪種,總有某個測試是照別的骰子點數校準的。</span></div>
+
+  <div style="margin-top:.7rem"><span class="en"><strong>So a FAIL on this page means one of three things:</strong> a behavioral-layer
+   integration bug (we find it and fix it — the score's climb is exactly that process), a machine-profile difference
+   (documented against our pinned NES-001&nbsp;/&nbsp;G-revision target), or physics beyond a digital model
+   (documented as a faithful deviation with evidence — next section). The netlist gives us something no behavioral
+   emulator has: when a test fails, we can put a probe on the actual named transistor nodes and watch the failure
+   happen cycle by cycle.</span><span class="zh"><strong>所以本頁的一個 FAIL,只會是三種情況之一:</strong>行為層整合 bug(找到就修 —— 分數一路爬升就是這個過程)、機型差異(對照我們釘死的 NES-001&nbsp;/&nbsp;G 版次目標據實記載),或是數位模型構不到的物理(以忠實偏差記載並附證據 —— 見下一節)。而 netlist 給了我們行為層模擬器都沒有的東西:測試失敗時,可以把探針直接搭上有名字的電晶體節點,逐 cycle 看著失敗發生。</span></div>
+ </details>
+ <details style="margin-top:.6rem">
   <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Faithful deviations — where failing IS the faithful result (evidence dossier)</span><span class="zh">忠實偏差 —— 失敗本身就是忠實的結果(證據卷宗)</span></strong></summary>
   <div style="margin-top:.5rem"><span class="en">Some FAILs below are not simulator bugs: the switch-level model reproduces real-silicon
    behaviors that the tests themselves document as hardware-dependent. Every claim here is backed three ways:

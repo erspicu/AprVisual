@@ -93,3 +93,4 @@ tools/perf/out/
 !tools/perf/web/x64/*.json
 AprNesRef/
 AC_ref/
+TriCNES_ref/

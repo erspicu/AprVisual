@@ -270,13 +270,16 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    pays this price. We fix alignment 7 (the one blargg's NMI-edge tests were calibrated on);
    10-even_odd_timing's FAIL is the documented cost of that choice.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 零交集</strong>:在這個矽晶模型上,沒有任何單一上電狀態能同時滿足兩組測試;任何固定對齊的系統(包括一台不重開機換對齊的真 NES)都要付這個代價。我們固定在對齊 7(blargg 的 NMI 邊沿測試所校準的那個);10-even_odd_timing 的 FAIL 就是這個選擇的已文件化成本。</span></div>
 
-  <div style="margin-top:.7rem"><strong><span class="en">3. PPU open-bus decay — <code>ppu_open_bus</code> (fix planned)</span><span class="zh">3. PPU open-bus 衰減 —— <code>ppu_open_bus</code>(修復計畫中)</span></strong><br>
+  <div style="margin-top:.7rem"><strong><span class="en">3. PPU open-bus decay — <code>ppu_open_bus</code> (fixed via documented shim)</span><span class="zh">3. PPU open-bus 衰減 —— <code>ppu_open_bus</code>(已用文件化 shim 修復)</span></strong><br>
    <em><span class="en">Author's readme</span><span class="zh">作者的 readme</span></em> (<code>ppu_open_bus/readme.txt</code>):
    <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
    "If a bit isn't refreshed with a 1 for about 600 milliseconds, it will decay to 0 (some decay sooner, depending on
    the NES and temperature)."</blockquote>
    <span class="en">Temperature-dependent charge leakage is an analog phenomenon the switch-level model cannot express (floating nodes
-   hold indefinitely); a documented behavioral decay timer is the planned fix.</span><span class="zh">依溫度而異的電荷洩漏是開關級模型無法表達的類比現象(浮空節點永久保持);計畫以文件化的行為衰減計時器修復。</span></div>
+   hold indefinitely). Fixed (test mode only): a behavioral timer zeroes the PPU's io-bus latch nodes
+   (<code>_io_db</code>) after ~600 ms without a value change — the same modelling used by the AccuracyCoin author's own
+   emulator <a href="https://github.com/100thCoin/TriCNES" target="_blank" rel="noopener">TriCNES</a> (per-bit decay
+   timers, constant measured on his console).</span><span class="zh">依溫度而異的電荷洩漏是開關級模型無法表達的類比現象(浮空節點永久保持)。已修復(僅測試模式):行為計時器在值 ~600 ms 未變後把 PPU 的 io 匯流排閂鎖節點(<code>_io_db</code>)歸零 —— 與 AccuracyCoin 作者自己的模擬器 <a href="https://github.com/100thCoin/TriCNES" target="_blank" rel="noopener">TriCNES</a> 相同的建模方式(per-bit 衰減計時器,常數為其主機實測值)。</span></div>
 
   <div style="margin-top:.7rem"><strong><span class="en">4. Power-up state — <code>power_up_palette</code>, <code>registers</code> (fixed via documented shim)</span><span class="zh">4. 上電狀態 —— <code>power_up_palette</code>、<code>registers</code>(已用文件化 shim 修復)</span></strong><br>
    <em><span class="en">Author's own source comment</span><span class="zh">作者原始碼開頭的註解</span></em> (<code>blargg_ppu_tests_2005.09.15b/source/power_up_palette.asm</code>, line 1):

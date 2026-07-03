@@ -1207,6 +1207,18 @@ namespace AprVisual.Test
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
+                // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
+                // register") leaks to 0 in ~600 ms when not refreshed (ppu_open_bus readme: "some decay
+                // sooner, depending on the NES and temperature"); floating netlist nodes hold forever.
+                // Approximation: if the latch value is nonzero and unchanged for ~36 frames (~600 ms),
+                // force it to 0 (drive low, settle, release — the dynamic node then float-holds 0).
+                var ioDb = new List<int>();
+                WireCore.ResolveNodes("ppu._io_db[7:0]", ioDb, quiet: true);   // _io_db = the io data-bus LATCH side (io_db is the live internal bus)
+                int[] ioDbN = ioDb.Count == 8 ? ioDb.ToArray() : Array.Empty<int>();
+                int ioPrev = -1, ioStable = 0;
+                const int IoDecayFrames = 36;
+                Console.Error.WriteLine($"# [shim] _io_db decay armed: resolved {ioDb.Count}/8 nodes");
+
                 long t0 = WireCore.Time;
                 int resetAtFrame = -1;
                 bool waitRestart = false;      // after a soft reset, ignore the stale 0x81 until the ROM writes something else
@@ -1217,6 +1229,22 @@ namespace AprVisual.Test
                 for (frames = 1; frames <= _testMaxFrames; frames++)
                 {
                     WireCore.RunFrame();
+
+                    // open-bus decay shim (see above): value-change resets the clock; same value for
+                    // ~600 ms of simulated time ⇒ the charge leaks away on real silicon.
+                    if (ioDbN.Length == 8)
+                    {
+                        int v = WireCore.ReadBits(ioDbN);
+                        if (v != ioPrev) { ioPrev = v; ioStable = 0; }
+                        else if (v != 0 && ++ioStable >= IoDecayFrames)
+                        {
+                            foreach (int n in ioDbN) WireCore.SetLow(n);
+                            foreach (int n in ioDbN) WireCore.SetFloat(n);
+                            int after = WireCore.ReadBits(ioDbN);
+                            Console.Error.WriteLine($"# [shim] _io_db decay fired at frame {frames}: {v:X2} -> {after:X2}{(after != 0 ? "  (DID NOT STICK)" : "")}");
+                            ioPrev = after; ioStable = 0;
+                        }
+                    }
 
                     var r = WireCore.CheckUnitTest();
                     if (r.Found)

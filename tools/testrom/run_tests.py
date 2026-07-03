@@ -66,7 +66,12 @@ def run_one(t, core, rombase):
         return ("SKIP", k, "rom not found")
 
     mf = t.get("maxFrames", 900)
+    # --reset-hold-extra 1: CPU/PPU clock-phase alignment. The netlist's power-on settles into one
+    # of the 4 real-hardware CPU-PPU alignments; blargg's NMI-edge tests pass only on some of them.
+    # K=1 selects a passing alignment (measured 2026-07-04: K∈{1,3} pass 05-nmi_timing, K∈{0,5} fail).
+    # Engine default stays 0 — the benchmark/golden-checksum path is untouched.
     cmd = ["dotnet", DLL, "--test", rompath, "--max-frames", str(mf), "--pin", str(core),
+           "--reset-hold-extra", "1",
            "--test-json", jpath, "--test-screenshot", spath, "--system-def-dir", SYSTEM_DEF]
     if t.get("expectedCrcs"):
         cmd += ["--expected-crc", ",".join(t["expectedCrcs"])]

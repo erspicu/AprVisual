@@ -648,16 +648,16 @@
   "suite": "cpu_interrupts_v2/rom_singles",
   "rom": "2-nmi_and_brk.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "NMI BRK 00\n27  36  00 \n27  36  00 \n26  36  00 \n26  36  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n27  36  00 \n\n0D4EB8F9\n2-nmi_and_brk\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "NMI BRK 00\n27  36  00 \n26  36  00 \n26  36  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n36  00  00 \n27  36  00 \n27  36  00 \n\n2-nmi_and_brk\n\nPassed",
   "screenshot": "screenshots/cpu_interrupts_v2/rom_singles/2-nmi_and_brk.webp",
   "detection": "6000",
-  "frames": 134,
-  "simSeconds": 2.23,
-  "wallSeconds": 730.1,
+  "frames": 111,
+  "simSeconds": 1.85,
+  "wallSeconds": 626.3,
   "resetCount": 0,
-  "khcPerSec": 131.1
+  "khcPerSec": 126.6
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -1600,9 +1600,9 @@
   "detection": "6000",
   "frames": 145,
   "simSeconds": 2.41,
-  "wallSeconds": 818.4,
+  "wallSeconds": 860.8,
   "resetCount": 0,
-  "khcPerSec": 126.6
+  "khcPerSec": 120.3
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1615,9 +1615,9 @@
   "detection": "6000",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 986.6,
+  "wallSeconds": 994.8,
   "resetCount": 0,
-  "khcPerSec": 128.2
+  "khcPerSec": 127.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1630,9 +1630,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 902.4,
+  "wallSeconds": 928.6,
   "resetCount": 0,
-  "khcPerSec": 130.6
+  "khcPerSec": 126.9
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1645,69 +1645,69 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 206.0,
+  "wallSeconds": 205.2,
   "resetCount": 0,
-  "khcPerSec": 117.7
+  "khcPerSec": 118.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "05-nmi_timing.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "00 4\n01 4\n02 3\n03 3\n04 3\n05 3\n06 3\n07 3\n08 2\n09 2\n\n3C0FD427\n05-nmi_timing\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "00 4\n01 4\n02 4\n03 3\n04 3\n05 3\n06 3\n07 3\n08 3\n09 2\n\n05-nmi_timing\n\nPassed",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/05-nmi_timing.webp",
   "detection": "6000",
-  "frames": 229,
-  "simSeconds": 3.81,
-  "wallSeconds": 1276.8,
+  "frames": 215,
+  "simSeconds": 3.58,
+  "wallSeconds": 1217.9,
   "resetCount": 0,
-  "khcPerSec": 128.1
+  "khcPerSec": 126.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "06-suppression.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "00 - N\n01 - N\n02 - N\n03 - N\n04 - -\n05 V -\n06 V N\n07 V N\n08 V N\n09 V N\n\n9C51DAF3\n06-suppression\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "00 - N\n01 - N\n02 - N\n03 - N\n04 - -\n05 V -\n06 V -\n07 V N\n08 V N\n09 V N\n\n06-suppression\n\nPassed",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/06-suppression.webp",
   "detection": "6000",
-  "frames": 209,
-  "simSeconds": 3.48,
-  "wallSeconds": 1143.7,
+  "frames": 218,
+  "simSeconds": 3.63,
+  "wallSeconds": 1235.1,
   "resetCount": 0,
-  "khcPerSec": 130.6
+  "khcPerSec": 126.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "07-nmi_on_timing.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "00 N\n01 N\n02 N\n03 N\n04 -\n05 -\n06 -\n07 -\n08 -\n\nF4AFB970\n07-nmi_on_timing\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "00 N\n01 N\n02 N\n03 N\n04 N\n05 -\n06 -\n07 -\n08 -\n\n07-nmi_on_timing\n\nPassed",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/07-nmi_on_timing.webp",
   "detection": "6000",
-  "frames": 187,
-  "simSeconds": 3.11,
-  "wallSeconds": 1050.4,
+  "frames": 193,
+  "simSeconds": 3.21,
+  "wallSeconds": 1089.1,
   "resetCount": 0,
-  "khcPerSec": 127.2
+  "khcPerSec": 126.6
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "08-nmi_off_timing.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "03 -\n04 -\n05 -\n06 N\n07 N\n08 N\n09 N\n0A N\n0B N\n0C N\n\n1F8BA6BD\n08-nmi_off_timing\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "03 -\n04 -\n05 -\n06 -\n07 N\n08 N\n09 N\n0A N\n0B N\n0C N\n\n08-nmi_off_timing\n\nPassed",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/08-nmi_off_timing.webp",
   "detection": "6000",
-  "frames": 224,
-  "simSeconds": 3.73,
-  "wallSeconds": 1239.0,
+  "frames": 217,
+  "simSeconds": 3.61,
+  "wallSeconds": 1272.4,
   "resetCount": 0,
-  "khcPerSec": 129.2
+  "khcPerSec": 121.8
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1720,24 +1720,24 @@
   "detection": "6000",
   "frames": 74,
   "simSeconds": 1.23,
-  "wallSeconds": 438.0,
+  "wallSeconds": 462.6,
   "resetCount": 0,
-  "khcPerSec": 120.6
+  "khcPerSec": 114.2
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "10-even_odd_timing.nes",
   "class": "A",
-  "status": "pass",
-  "exit_code": 0,
-  "result_text": "08 08 09 07 \n10-even_odd_timing\n\nPassed",
+  "status": "fail",
+  "exit_code": 3,
+  "result_text": "08 07 \nClock is skipped too late, relative to enabling BG\n\n10-even_odd_timing\n\nFailed #3",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/10-even_odd_timing.webp",
   "detection": "6000",
-  "frames": 138,
-  "simSeconds": 2.3,
-  "wallSeconds": 758.7,
+  "frames": 75,
+  "simSeconds": 1.25,
+  "wallSeconds": 429.8,
   "resetCount": 0,
-  "khcPerSec": 129.9
+  "khcPerSec": 124.6
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1750,9 +1750,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 795.9,
+  "wallSeconds": 783.8,
   "resetCount": 0,
-  "khcPerSec": 126.5
+  "khcPerSec": 128.5
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1765,9 +1765,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 791.3,
+  "wallSeconds": 818.4,
   "resetCount": 0,
-  "khcPerSec": 127.3
+  "khcPerSec": 123.1
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -2020,9 +2020,9 @@
   "detection": "screen",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 1142.8,
+  "wallSeconds": 1138.8,
   "resetCount": 0,
-  "khcPerSec": 110.6
+  "khcPerSec": 111.0
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2035,9 +2035,9 @@
   "detection": "screen",
   "frames": 150,
   "simSeconds": 2.5,
-  "wallSeconds": 800.0,
+  "wallSeconds": 833.0,
   "resetCount": 0,
-  "khcPerSec": 133.9
+  "khcPerSec": 128.6
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2050,9 +2050,9 @@
   "detection": "screen",
   "frames": 95,
   "simSeconds": 1.58,
-  "wallSeconds": 539.7,
+  "wallSeconds": 555.3,
   "resetCount": 0,
-  "khcPerSec": 125.7
+  "khcPerSec": 122.2
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2065,53 +2065,53 @@
   "detection": "screen",
   "frames": 113,
   "simSeconds": 1.88,
-  "wallSeconds": 620.9,
+  "wallSeconds": 621.6,
   "resetCount": 0,
-  "khcPerSec": 130.0
+  "khcPerSec": 129.8
  },
  {
   "suite": "vbl_nmi_timing",
   "rom": "5.nmi_suppression.nes",
   "class": "B",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "(screen: Failed = failed)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "(screen: Passed = passed)",
   "screenshot": "screenshots/vbl_nmi_timing/5.nmi_suppression.webp",
   "detection": "screen",
-  "frames": 107,
-  "simSeconds": 1.78,
-  "wallSeconds": 581.7,
+  "frames": 162,
+  "simSeconds": 2.7,
+  "wallSeconds": 944.7,
   "resetCount": 0,
-  "khcPerSec": 131.4
+  "khcPerSec": 122.5
  },
  {
   "suite": "vbl_nmi_timing",
   "rom": "6.nmi_disable.nes",
   "class": "B",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "(screen: Failed = failed)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "(screen: Passed = passed)",
   "screenshot": "screenshots/vbl_nmi_timing/6.nmi_disable.webp",
   "detection": "screen",
-  "frames": 53,
-  "simSeconds": 0.88,
-  "wallSeconds": 289.2,
+  "frames": 105,
+  "simSeconds": 1.75,
+  "wallSeconds": 594.0,
   "resetCount": 0,
-  "khcPerSec": 130.8
+  "khcPerSec": 126.2
  },
  {
   "suite": "vbl_nmi_timing",
   "rom": "7.nmi_timing.nes",
   "class": "B",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "(screen: Failed = failed)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "(screen: Passed = passed)",
   "screenshot": "screenshots/vbl_nmi_timing/7.nmi_timing.webp",
   "detection": "screen",
-  "frames": 53,
-  "simSeconds": 0.88,
-  "wallSeconds": 283.9,
+  "frames": 105,
+  "simSeconds": 1.75,
+  "wallSeconds": 582.9,
   "resetCount": 0,
-  "khcPerSec": 133.2
+  "khcPerSec": 128.6
  }
 ]

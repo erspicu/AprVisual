@@ -220,6 +220,12 @@ namespace AprVisual.Sim
         //      (and cpu_reset/registers' expectation) power on with P=$34; only the Z bit differs.
         // Benchmarks never set this flag — the golden-checksum path is byte-for-byte untouched.
         public static bool PowerUpStateShim = false;
+
+        // ── clock-phase experiment (--reset-hold-extra K): extra half-cycles of /res assertion. ──
+        // Probes whether the CPU ÷12 / PPU ÷4 divider alignment depends on the reset-release moment
+        // (if the dividers free-run from power-on, a global extra step shifts both equally and the
+        // RELATIVE phase is unchanged — the experiment's first question). See MD/testrom fail analysis §B.
+        public static int ResetHoldExtraHc = 0;
         private static readonly byte[] PowerUpPalette = {
             0x09, 0x01, 0x00, 0x01, 0x00, 0x02, 0x02, 0x0D, 0x08, 0x10, 0x08, 0x24, 0x00, 0x00, 0x04, 0x2C,
             0x09, 0x01, 0x34, 0x03, 0x00, 0x04, 0x00, 0x14, 0x08, 0x3A, 0x00, 0x02, 0x00, 0x20, 0x2C, 0x08,
@@ -290,7 +296,7 @@ namespace AprVisual.Sim
             if (N_Res != EmptyNode)
             {
                 SetHigh(N_Res);
-                Step(12 * 8 * 2);                         // = 192 half-cycles with reset asserted
+                Step(12 * 8 * 2 + ResetHoldExtraHc);      // = 192 half-cycles with reset asserted (+ phase-experiment extra)
                 SetLow(N_Res);
             }
             else

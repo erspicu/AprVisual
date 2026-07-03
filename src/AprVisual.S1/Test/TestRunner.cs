@@ -32,6 +32,7 @@ namespace AprVisual.Test
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
+            string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -92,6 +93,8 @@ namespace AprVisual.Test
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
+                    case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
+                    case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -132,6 +135,7 @@ namespace AprVisual.Test
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
+            if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
@@ -1419,6 +1423,33 @@ namespace AprVisual.Test
                 File.WriteAllText(_testJsonPath!, sb.ToString());
             }
             catch (Exception ex) { Console.Error.WriteLine($"# (test json write failed: {ex.Message})"); }
+        }
+
+        // ── --phase-probe: bit-string dump of cpu.phi2 / ppu.pclk0 / ppu.pclk1 per half-cycle right
+        //    after power-on reset. First instrument of the clock-phase-alignment experiment: shows
+        //    whether --reset-hold-extra K shifts the CPU÷12 vs PPU÷4 divider alignment. ──
+        private static unsafe int PhaseProbe(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int phi2  = WireCore.LookupNode("cpu.phi2");
+                int pclk0 = WireCore.LookupNode("ppu.pclk0");
+                Console.WriteLine($"# phase-probe: resetHoldExtra={WireCore.ResetHoldExtraHc}");
+                var phi = new StringBuilder(); var p0 = new StringBuilder();
+                for (int i = 0; i < 48; i++)
+                {
+                    WireCore.Step(1);
+                    phi.Append((char)('0' + WireCore.NodeStates[phi2]));
+                    p0.Append((char)('0' + WireCore.NodeStates[pclk0]));
+                }
+                Console.WriteLine($"phi2 ={phi}");
+                Console.WriteLine($"pclk0={p0}");
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
         }
 
         // ── --trace: step N 6502 cycles and dump the CPU's named state each cycle ──

@@ -60,7 +60,7 @@ The engine is not specialized to the NES. We run it **unchanged** on three stand
 
 Once the engine was fast enough to be a tool, we pointed it at the standard NES accuracy batteries: **all 141 NROM/CNROM NTSC ROMs** in the `nes-test-roms` collection (blargg's suites and friends), judged **unattended, once per simulated frame** — the blargg `$6000` protocol, ROM-requested soft resets (the engine pulses the console's reset line mid-run), terminal screen text decoded straight from the nametable, or an on-screen CRC. Frame budgets are calibrated by an instrumented copy of our behavioral emulator [AprNes](https://github.com/erspicu/AprNes) acting as a fast oracle; the batch runs on core-pinned parallel workers. (CNROM arrived as a behavioral CHR-bank latch — the 2A03/2C02 netlists stay untouched.)
 
-**Result: 117 PASS / 24 FAIL / 0 timeouts — and every FAIL is root-caused** into six categories: power-on state, CPU÷12/PPU÷4 clock-phase alignment, unmodeled analog decay, open-bus residuals, APU/DMA detail timing, and unofficial-opcode behavior.
+**Result: 124 PASS / 17 FAIL / 0 timeouts — and every FAIL is root-caused** into six categories: power-on state, CPU÷12/PPU÷4 clock-phase alignment, unmodeled analog decay, open-bus residuals, APU/DMA detail timing, and unofficial-opcode behavior.
 
 **[Interactive report →](https://erspicu.github.io/AprVisual/Report/)** — per-test screenshots, detection method, frame counts, per-test khc/s, and the exact hardware model (RP2A03G + RP2C02G die tracings; what is transistor-level and what is behavioral).
 

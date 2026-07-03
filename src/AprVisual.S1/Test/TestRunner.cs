@@ -23,6 +23,8 @@ namespace AprVisual.Test
         private static string? _testShotPath;             // --test-screenshot: final-frame PNG for the report page
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
+        private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
+                                                          // some ROMs keep rendering disabled until after publishing the verdict bytes)
 
         public static int Run(string[] args)
         {
@@ -89,6 +91,7 @@ namespace AprVisual.Test
                         }
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
+                    case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -1290,6 +1293,14 @@ namespace AprVisual.Test
                     resultCode = 3;
                 }
 
+                // --shot-delay: run extra frames after the verdict so the ROM can finish PRESENTING its
+                // result (the dmc_dma family keeps rendering disabled while it works the $2007 bus and only
+                // enables the screen after publishing the verdict text/CRC to VRAM — which the detection
+                // reads directly, so the framebuffer lags). Cosmetic only: frames / wallSeconds /
+                // halfCycles in the JSON stay at the verdict point.
+                if (_testShotDelay > 0 && _testShotPath != null && status != "timeout")
+                    for (int i = 0; i < _testShotDelay; i++) WireCore.RunFrame();
+
                 // final-frame screenshot (for the report page)
                 if (_testShotPath != null)
                 {
@@ -1451,6 +1462,7 @@ namespace AprVisual.Test
                     [--screen-verdict]                     B-class: per-frame nametable scan for terminal Passed/Failed/$0X markers
                     [--test-json <out.json>]               write a structured per-test result record (for tools/testrom/)
                     [--test-screenshot <out.png>]          save the final frame as PNG (for the report page)
+                    [--shot-delay <N>]                     run N extra frames after the verdict before the screenshot (cosmetic)
                     [--region ntsc|pal|dendy]
                     [--benchmark]                          also time each test
                   AprVisual.S1 --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary

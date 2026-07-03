@@ -760,9 +760,9 @@
   "detection": "crc",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 116.9,
+  "wallSeconds": 112.1,
   "resetCount": 0,
-  "khcPerSec": 127.9
+  "khcPerSec": 133.4
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -775,9 +775,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 144.3,
+  "wallSeconds": 142.8,
   "resetCount": 0,
-  "khcPerSec": 128.4
+  "khcPerSec": 129.7
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -805,9 +805,9 @@
   "detection": "crc",
   "frames": 13,
   "simSeconds": 0.22,
-  "wallSeconds": 74.2,
+  "wallSeconds": 72.8,
   "resetCount": 0,
-  "khcPerSec": 124.4
+  "khcPerSec": 126.8
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -820,9 +820,9 @@
   "detection": "screen",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 85.4,
+  "wallSeconds": 83.7,
   "resetCount": 0,
-  "khcPerSec": 124.8
+  "khcPerSec": 127.4
  },
  {
   "suite": "instr_misc/rom_singles",

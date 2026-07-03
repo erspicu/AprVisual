@@ -359,6 +359,36 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    <span class="en"><a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a>
    lists palette contents as "unspecified" at power on. Test mode injects the consensus table (and clears the Z flag to
    the real power-on P=$34) into the netlist cells via a drive&rarr;settle&rarr;release sequence; the benchmark path is untouched.</span><span class="zh"><a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a> 將 palette 上電內容列為「未定義」。測試模式以驅動&rarr;settle&rarr;釋放的程序把共識表(並把 Z flag 清為真實上電的 P=$34)注入 netlist cell;benchmark 路徑不受影響。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">5. The DMC IRQ latch race — an analog behavior two independent silicon models both lose (fixed via documented shim)</span><span class="zh">5. DMC IRQ 閂鎖賽跑 —— 兩個獨立矽晶模型都輸掉的類比行為(已用文件化 shim 修復)</span></strong><br>
+   <span class="en">blargg's <code>7-dmc_basics</code> test 19 (<code>apu_test/source/7-dmc_basics.s</code>: <em>"There should be
+   a one-byte buffer that's filled immediately if empty"</em>) enables a 1-byte DMC sample and immediately reads $4015,
+   expecting $80 (IRQ flag set) — it passes on real hardware. Half-cycle probing of the netlist located the failure in a
+   single pass-transistor latch (Visual2A03 t14402): the latch's input falls in the <em>same half-cycle</em> its clock
+   (apu_clk1) closes. Real NMOS silicon resolves this race "data wins" — the gate keeps conducting while the clock decays
+   through threshold — but a discrete two-state simulation must evaluate the settled state, where the gate is simply off,
+   so the IRQ flag lands one APU cycle late. Decisively, <a href="https://github.com/emu-russia/breaknes" target="_blank"
+   rel="noopener">emu-russia's APUSim</a> — an independent schematic-level model reverse-engineered from the same die —
+   <em>fails the same test the same way</em> (we ran it: it reads $10 where hardware reads $80), while behavioral emulators
+   pass by construction. This is a limit of the digital abstraction, not a transcription or engine bug (our netlist has a
+   verified zero diff against the upstream Visual2A03 data). Test mode arms a documented micro-shim that applies the
+   latch's intended edge semantics — capture the input value at the clock's falling edge — inert except in the race case.
+   One shim flipped four tests to PASS (<code>7-dmc_basics</code>, <code>sprdma_and_dmc_dma</code> &times;2,
+   <code>dma_2007_read</code>) with zero regressions. References:
+   <a href="https://www.nesdev.org/wiki/DMA" target="_blank" rel="noopener">NESdev: DMA</a> (cycle-level DMC DMA structure),
+   <a href="https://github.com/emu-russia/breaks" target="_blank" rel="noopener">Breaking NES wiki</a> (2A03 DPCM circuit).</span><span class="zh">blargg 的 <code>7-dmc_basics</code> 測試 19(<code>apu_test/source/7-dmc_basics.s</code>:<em>「There should be
+   a one-byte buffer that's filled immediately if empty」</em>)啟用 1-byte DMC 取樣後立即讀 $4015,期望 $80(IRQ 旗標已設)——
+   真機通過。對 netlist 做半週期探測後,失敗點鎖定在單一一個 pass-transistor 閂鎖(Visual2A03 t14402):閂鎖的輸入
+   在其時脈(apu_clk1)關門的<em>同一個半週期</em>下降。真 NMOS 矽晶把這場賽跑解成「資料贏」—— 時脈電壓衰減穿越門檻期間
+   pass gate 仍導通 —— 但離散二值模擬只能取穩定後的狀態,門就是關的,IRQ 旗標因此晚一個 APU cycle。決定性的是:
+   <a href="https://github.com/emu-russia/breaknes" target="_blank" rel="noopener">emu-russia 的 APUSim</a> ——
+   從同一晶粒獨立逆向的電路級模型 —— <em>以同樣方式輸掉同一個測試</em>(我們實跑:真機讀 $80 之處它讀 $10),
+   而行為層模擬器則建構上直接通過。這是數位抽象的極限,不是轉錄或引擎 bug(我們的 netlist 對上游 Visual2A03 資料
+   有雙向零差異驗證)。測試模式武裝一個文件化 micro-shim,實作閂鎖本意的邊沿語意 —— 在時脈下降沿捕捉輸入值 ——
+   賽跑情況以外完全不作用。一個 shim 翻正四個測試(<code>7-dmc_basics</code>、<code>sprdma_and_dmc_dma</code> &times;2、
+   <code>dma_2007_read</code>),零回歸。參考:
+   <a href="https://www.nesdev.org/wiki/DMA" target="_blank" rel="noopener">NESdev: DMA</a>(cycle 級 DMC DMA 結構)、
+   <a href="https://github.com/emu-russia/breaks" target="_blank" rel="noopener">Breaking NES wiki</a>(2A03 DPCM 電路)。</span></div>
  </details></div>
 <div class="controls">
   <div class="btn-group" id="fbtns">

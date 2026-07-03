@@ -1464,12 +1464,14 @@ namespace AprVisual.Test
         //    every bus cycle touching $4013/$4015 plus every RDY-stalled cycle: relative cycle index,
         //    AB, DB, R/W, RDY. Shows the enable→first-fetch→readback chain cycle by cycle. ──
         private static int _btPrevIrq = -2, _btPrevSet = -2, _btPrevEn = -2, _btTail;
+        private static unsafe int S(int node) => node != WireCore.EmptyNode ? WireCore.NodeStates[node] : -1;
         private static unsafe int BusTrace(string romPath, int startFrame)
         {
             var rom = NesRom.LoadFromFile(romPath);
             if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
             try
             {
+                WireCore.RegisterRawIdAliases = true;
                 WireCore.LoadSystem(rom);
                 int phi2 = WireCore.LookupNode("cpu.phi2");
                 int rw   = WireCore.LookupNode("cpu.rw");
@@ -1489,6 +1491,13 @@ namespace AprVisual.Test
                 int[] nLc = new int[12];
                 for (int b = 0; b < 12; b++) nLc[b] = WireCore.LookupNode("cpu.pcm_lc" + b);
                 Console.WriteLine($"# lc nodes: {string.Join(",", nLc)}");
+                // DPCM IRQ pipeline stages (raw-id aliases; APUSim correspondence in comments)
+                int nPcmFf    = WireCore.LookupNode("cpu.#13907"); // pcm_ff (inverted side feeding the latch)
+                int nPcmLatch = WireCore.LookupNode("cpu.#13947"); // pcm_latch (pass gate on apu_clk1)
+                int nDmc1     = WireCore.LookupNode("cpu.#11427"); // DMC1 = NOR(pcm_latch, NOT(ACLK2))
+                int nNotDmc1  = WireCore.LookupNode("cpu.#11518"); // NOT(DMC1) input to set_pcm_irq NOR
+                int nSoutSide = WireCore.LookupNode("cpu.#11473"); // sout_latch complement side
+                Console.WriteLine($"# pipeline nodes: pcmff={nPcmFf} pcmlatch={nPcmLatch} dmc1={nDmc1} ndmc1={nNotDmc1} sout={nSoutSide}");
                 Console.WriteLine($"# pcm nodes: irq={nIrq} set={nSet} en={nEn} clk1={nClk1} clk2e={nClk2e} abp={nAbp}");
 
                 Console.WriteLine($"# bus-trace: fast-forward {startFrame} frames, then 2 frames hc-stepped");
@@ -1502,6 +1511,11 @@ namespace AprVisual.Test
                 {
                     WireCore.Step(1);
                     int ph = WireCore.NodeStates[phi2];
+                    if (_btTail > 0)   // half-cycle microscope inside the event window
+                    {
+                        int a = WireCore.ReadBits(abN);
+                        Console.WriteLine($"#    hc phi2={ph} AB={a:X4} clk1={S(nClk1)} clk2e={S(nClk2e)} abp={S(nAbp)} | pcmff*={S(nPcmFf)} pcmlatch={S(nPcmLatch)} dmc1={S(nDmc1)} ndmc1={S(nNotDmc1)} sout*={S(nSoutSide)} set={S(nSet)} irq={S(nIrq)}");
+                    }
                     if (prevPhi == 1 && ph == 0)   // phi2 falling = CPU cycle boundary
                     {
                         cyc++;

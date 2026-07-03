@@ -71,6 +71,40 @@ APUSim 跑起來**(ref/breaknes_apusim/ 已抓 dpcm/dma/clkgen;還需 BaseLogic 
 RDY/int_ff/$4015 readback 逐 cycle 真值表,直接 diff 我們的 trace。分歧的
 第一個 cycle = 要修的級。
 
+## APUSim 真值表(2026-07-04 補充 —— 重大轉折)
+
+寫了獨立 harness(`temp/apusim_harness/harness.cpp`,clang++ 直編
+`ref/breaknes/` 的 APUSim + 閘級 M6502Core,friend-class 打洞觀測內部),
+跑同樣的 $4010=$8F / $4013=0 / $4015=$10 / `lda $4015` 序列:
+
+```
+cyc 34: W $4015(enable)
+cyc 38: r $4015 RDY=0(halt;寫入後第 4 個 CPU cycle ✓ NESdev「3rd or 4th」)
+cyc 39: dummy RDY=0
+cyc 40: fetch $C000(PCM=1、pcm_ff↑)RDY=0     ← 偷 3 cycles
+cyc 41: r $4015 重執行 → 讀到 $10(bit4 未清、bit7 未設)
+cyc 42: pcm_latch 捕捉(ACLK1 透明窗)
+cyc 43: int_ff ↑(IRQ 旗標,fetch+3)
+--- result: ram[0]=$10 (expect $80) ---
+```
+
+**APUSim 也不過 blargg #19** —— 而且比我們更晚($10 vs 我們 $00)。
+兩個獨立矽晶模型同敗,行為層模型(TriCNES)靠「同 cycle 完成」通過。
+事實矩陣:
+
+| 模型 | 讀回 | stall | IRQ set |
+|---|---|---|---|
+| 真機(blargg 校準)| $80 | ? | resume 時已可見 |
+| 我們(Visual2A03 netlist)| $00 | 2 cycles | fetch+3(第二個 clk2e)|
+| APUSim(獨立電路逆向)| $10 | 3 cycles | fetch+3(第一個 ACLK1 捕捉 + 下一個 ACLK2)|
+| TriCNES(行為層)| $80 | 2-4 | fetch 同 cycle |
+
+新工作假說:APUSim 把 ACLK1 建成「只在 φ1 高」的窄窗,我們的 netlist 取樣卻顯示
+`apu_clk1` 在 fetch 的 φ2 尾端仍高 —— 若真矽晶的 ACLK1 窗較寬(蓋到 φ2),
+pass-gate 在 fetch 當週期就該讓 pcm_latch 捕捉 → DMC1 在下一個 clk2e(= resume)
+→ 旗標 resume 可見 = 真機。數位模型的窄窗量化正好丟掉這一個 cycle。
+→ 半週期顯微鏡實驗進行中(`cpu.#13907`/`cpu.#13947` raw-id 別名 + hc 級 log)。
+
 ## 修復原則檢查(Rule 1)
 
 真機(NES-001 + RP2A03G)穩定通過 #19 → 我們偏離實機 → **該修**。

@@ -58,6 +58,11 @@ namespace AprVisual.Sim
         public static string GetNodeName(int id) => _nameByNode.TryGetValue(id, out string? n) ? n : (id == Npwr ? "vcc" : id == Ngnd ? "vss" : id.ToString());
         public static bool IsPwrGnd(int nn) => nn == Npwr || nn == Ngnd;
 
+        /// <summary>When set BEFORE LoadSystem, AddInstance also registers "&lt;inst&gt;.#&lt;rawId&gt;"
+        /// name aliases for every raw netlist node id (probe access to unnamed nodes). Diagnostic
+        /// only — default off; does not create nodes the build wouldn't create.</summary>
+        public static bool RegisterRawIdAliases = false;
+
         /// <summary>Drop build-time data that the simulation hot path doesn't read. Called from
         /// LoadSystem() after Reset() has populated the unmanaged arrays. Keeps the _nodeByName
         /// / _nameByNode maps and the Node[] shell (for LookupNode / probe-style diags), but
@@ -258,6 +263,29 @@ namespace AprVisual.Sim
 
                 // setupNodes
                 foreach (var (name, id) in def.NodeNames) AddNode(Remap(id), CombinePrefix(prefix, name));
+
+                // Optional diagnostic aliases: register "<inst>.#<rawId>" for every raw netlist node id
+                // so probe instruments (--bus-trace) can watch UNNAMED nodes. Only ids the normal build
+                // would create anyway (guards mirror AddTransistor's), so NodeCount / checksum are
+                // untouched. Off by default; enabled by TestRunner before LoadSystem.
+                if (RegisterRawIdAliases)
+                {
+                    var rawIds = new HashSet<int>(def.NodeNames.Values);
+                    foreach (var sd in def.Segs) if (!sd.Node.IsName) rawIds.Add(sd.Node.Id);
+                    foreach (var td in def.Trans)
+                    {
+                        if (td.Gate.IsName || td.C1.IsName || td.C2.IsName) continue;
+                        if (td.Gate.Id == EmptyNode || td.C1.Id == EmptyNode || td.C2.Id == EmptyNode) continue;
+                        if (td.C1.Id == td.C2.Id) continue;
+                        rawIds.Add(td.Gate.Id); rawIds.Add(td.C1.Id); rawIds.Add(td.C2.Id);
+                    }
+                    foreach (int id in rawIds)
+                    {
+                        int rn = Remap(id);
+                        if (rn == EmptyNode || rn == Ngnd || rn == Npwr) continue;
+                        AddNode(rn, CombinePrefix(prefix, "#" + id));
+                    }
+                }
 
                 // setupPins — add a "#<pin>" alias for each pin's node (documentation / layout; not load-bearing)
                 foreach (var pd in def.Pins)

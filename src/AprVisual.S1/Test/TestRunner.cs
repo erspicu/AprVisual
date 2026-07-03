@@ -33,6 +33,7 @@ namespace AprVisual.Test
             string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
             string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
+            string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -95,6 +96,7 @@ namespace AprVisual.Test
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
+                    case "--rdy-probe":       if (i + 1 < args.Length) rdyProbePath = args[++i]; break;                       // DIAGNOSTIC: rdy transition counts
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -136,6 +138,7 @@ namespace AprVisual.Test
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
             if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
+            if (rdyProbePath  != null) return RdyProbe(rdyProbePath, shotFrames > 3 ? shotFrames : 35);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
@@ -1451,6 +1454,38 @@ namespace AprVisual.Test
                 File.WriteAllText(_testJsonPath!, sb.ToString());
             }
             catch (Exception ex) { Console.Error.WriteLine($"# (test json write failed: {ex.Message})"); }
+        }
+
+        // ── --rdy-probe: per-frame count of cpu.rdy transitions (DMC/OAM DMA stall activity),
+        //    stepping hc-by-hc so sub-frame RDY pulses are visible. DMC-DMA trace-study instrument. ──
+        private static unsafe int RdyProbe(string romPath, int frameCount)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int rdy = WireCore.LookupNode("cpu.rdy");
+                if (rdy == WireCore.EmptyNode) { Console.Error.WriteLine("no cpu.rdy node"); return 2; }
+                Console.WriteLine($"# rdy-probe: node {rdy}, initial state {WireCore.NodeStates[rdy]}");
+                const long HcPerFrame = 714_732;
+                int prev = WireCore.NodeStates[rdy];
+                for (int f = 1; f <= frameCount; f++)
+                {
+                    int trans = 0; long lowHc = 0;
+                    for (long i = 0; i < HcPerFrame; i++)
+                    {
+                        WireCore.Step(1);
+                        int v = WireCore.NodeStates[rdy];
+                        if (v != prev) { trans++; prev = v; }
+                        if (v == 0) lowHc++;
+                    }
+                    Console.WriteLine($"# f{f,3}: rdy transitions={trans,6}  low-hc={lowHc,7}");
+                    Console.Out.Flush();
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
         }
 
         // ── --phase-probe: bit-string dump of cpu.phi2 / ppu.pclk0 / ppu.pclk1 per half-cycle right

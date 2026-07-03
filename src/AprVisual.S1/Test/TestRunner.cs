@@ -1199,6 +1199,7 @@ namespace AprVisual.Test
             // Test mode emulates the conventional console power-up state (palette residue + P=$34;
             // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
             WireCore.PowerUpStateShim = true;
+            WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
@@ -1211,6 +1212,7 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
+                WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
@@ -1473,6 +1475,7 @@ namespace AprVisual.Test
             {
                 WireCore.RegisterRawIdAliases = true;
                 WireCore.LoadSystem(rom);
+                WireCore.EnableDmcLatchShim();
                 int phi2 = WireCore.LookupNode("cpu.phi2");
                 int rw   = WireCore.LookupNode("cpu.rw");
                 int rdy  = WireCore.LookupNode("cpu.rdy");

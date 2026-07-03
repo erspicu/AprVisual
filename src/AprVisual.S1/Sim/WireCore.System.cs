@@ -276,6 +276,50 @@ namespace AprVisual.Sim
             Console.Error.WriteLine($"# [shim] Z flag post-reset inject: cpu.p1={NodeStates[zNode]} P=${ReadReg(R_CpuP):X2}");
         }
 
+        // ── DMC pcm_latch edge-capture shim (test mode only) ────────────────────────────────
+        // The DPCM control's pcm_latch pass gate (t14402: gate=apu_clk1, 13907↔13947) has a
+        // same-half-cycle race at the clock's falling edge: the latch input (pcm_ff, set by the
+        // DMA-fetch PCM strobe during phi2) falls in the SAME half-cycle apu_clk1 closes. Real
+        // NMOS silicon resolves the race "data wins" via analog clock-decay overlap (blargg
+        // 7-dmc_basics #19 reads $80 on hardware); any quiescent-settle binary model resolves
+        // "gate closed first" and the DMC IRQ flag lands one full ACLK late (emu-russia's
+        // APUSim quantizes it away identically — verified 2026-07-04, see
+        // MD/testrom/2026-07-04-dmc19-aclk-pipeline-analysis.md). This shim implements the
+        // latch's intended edge semantic explicitly: at apu_clk1's falling edge, capture the
+        // post-settle value of the latch input. Inert everywhere else: after any transparent
+        // phase the two sides are already equal, so the copy fires only in the race case.
+        public static bool DmcLatchShim = false;
+        private static int _dmcShimClk1 = EmptyNode, _dmcShimFf = EmptyNode, _dmcShimLatch = EmptyNode;
+        private static int _dmcShimPrevClk1;
+
+        /// <summary>Resolve the shim's nodes and arm it. Call after LoadSystem, with
+        /// RegisterRawIdAliases enabled before it (the latch nodes are unnamed raw ids).</summary>
+        public static void EnableDmcLatchShim()
+        {
+            _dmcShimClk1  = LookupNode("cpu.apu_clk1");
+            _dmcShimFf    = LookupNode("cpu.#13907");
+            _dmcShimLatch = LookupNode("cpu.#13947");
+            if (_dmcShimClk1 == EmptyNode || _dmcShimFf == EmptyNode || _dmcShimLatch == EmptyNode)
+            { Console.Error.WriteLine("# [shim] DMC latch shim: nodes unresolved — disabled"); DmcLatchShim = false; return; }
+            _dmcShimPrevClk1 = NodeStates[_dmcShimClk1];
+            DmcLatchShim = true;
+        }
+
+        internal static void DmcLatchShimStep()
+        {
+            int cur = NodeStates[_dmcShimClk1];
+            if (_dmcShimPrevClk1 == 1 && cur == 0)
+            {
+                int v = NodeStates[_dmcShimFf];
+                if (NodeStates[_dmcShimLatch] != v)
+                {
+                    if (v == 1) SetHigh(_dmcShimLatch); else SetLow(_dmcShimLatch);
+                    SetFloat(_dmcShimLatch);
+                }
+            }
+            _dmcShimPrevClk1 = cur;
+        }
+
         /// <summary>
         /// Reset the NES. <paramref name="full"/> = power-on (clear RAMs, re-power node state, re-alloc the
         /// framebuffer); otherwise a soft reset. Then assert /res for 192 half-cycles and deassert.

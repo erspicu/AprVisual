@@ -792,6 +792,7 @@ namespace AprVisual.Sim
                 EnqueueNode(clk);
                 ProcessQueue();
             }
+            if (DmcLatchShim) DmcLatchShimStep();   // test-mode only; see WireCore.System.cs
             Time++;
         }
     }

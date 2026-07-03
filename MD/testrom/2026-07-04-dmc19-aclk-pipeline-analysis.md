@@ -1,7 +1,10 @@
 # DMC #19(7-dmc_basics)ACLK 管線分析 —— 顯微鏡完整證據鏈
 
 日期:2026-07-04
-狀態:**包圍圈縮至單一電路級;待 APUSim 真值表仲裁**
+狀態:**已修復 —— `7-dmc_basics` 全數 PASS(27 幀)。** 根因 = pcm_latch
+pass-gate 在 apu_clk1 下降沿的單半週期類比賽跑(真矽晶「資料贏」,二值模型
+「門先關」);修法 = `WireCore.DmcLatchShim` 邊沿捕捉 micro-shim(測試模式
+限定、預設關、golden checksum 不動)。細節見文末「修復」章。
 
 ## 失敗現象(bit 級確認)
 
@@ -119,3 +122,34 @@ pcm_irqen + apu_clk1/apu_clk2e/ab_use_pcm + pcm_lc[11:0](12-bit,附 node-id
 
 教訓重申:4-bit lc 探針曾因低位全 0 誤導(真值 0x010)——
 **探針一律印 node-id 解析結果 + 全寬度讀值**。
+
+## 修復(2026-07-04 定案)
+
+半週期顯微鏡(`cpu.#13907`/`cpu.#13947` raw-id 別名)直擊根因:
+
+```
+cyc 20620(fetch)hc 13:apu_clk1 ↓ 與 13907(pcm_ff 輸出)↓ 同一半週期
+→ 13947(pcm_latch)未捕捉 → 下個 clk1 窗(20622)才跟上 → DMC1/IRQ 晚一 ACLK
+```
+
+- 13907↔13910 交叉耦合 = pcm_ff RS 閂鎖;t14402(gate=apu_clk1)= 通往
+  13947 的 pass gate。netlist 的 apu_clk1 高窗橫跨 φ1 + φ2 前段(比 APUSim
+  的 φ1-only 寬),關門沿與 PCM strobe 觸發的資料沿同落 hc 13。
+- **quiescent-settle 二值語意內,同半週期的「關門 vs 資料」賽跑必然判門贏**
+  (最終態 clk1=0 → pass gate 斷,無論波內順序)。真 NMOS 靠時脈衰減期的
+  導通重疊讓資料滑進 —— 本質類比,連接性無法表達。APUSim 同樣量化丟失
+  (其 harness 讀 $10 同敗)—— 兩個獨立矽晶模型同敗、行為層模型
+  (TriCNES)通過,佐證這是抽象層的極限而非轉錄/引擎 bug。
+- 修法:`WireCore.EnableDmcLatchShim()`(WireCore.System.cs)——
+  在 apu_clk1 下降沿若閂鎖兩側不等,將 13907 的 post-settle 值
+  drive→settle→release 進 13947(= 閂鎖「取樣於關門沿」的本意語意)。
+  透明相已同步時為 no-op,精確只覆蓋賽跑情況。
+- 佈署:TestRunner(RunOneTest + BusTrace)設 `RegisterRawIdAliases`
+  (載入時註冊 `cpu.#<rawid>` 別名)並武裝 shim;benchmark 路徑兩旗標皆
+  false → **預設模式零行為改變**。
+- 結果:`7-dmc_basics` **Passed**(27 幀;原本 FAIL#19 於 31 幀)——
+  #19 之後的所有子測試一併通過。DMC/DMA 家族回歸重驗進行中。
+- 殘留:halt 排程仍比 AC 實測晚一 APU cycle(同類賽跑住在 run_latch/
+  en_latch 級)—— 目前無測試因此失敗;若 dmc_dma 家族重驗顯示需要,
+  再評估把 shim 推廣成「ACLK pass-gate 邊沿捕捉」通則(需 minimal
+  prototype + 全家族驗證)。

@@ -136,116 +136,156 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
 .modal-overlay img{max-width:min(90vw,768px);max-height:85vh;image-rendering:pixelated;border:2px solid var(--border);border-radius:4px}
 .modal-overlay .modal-title{margin-top:1rem;background:var(--surface);padding:.4rem 1rem;border-radius:8px;font-size:.85rem;border:1px solid var(--border)}
 .empty-msg{text-align:center;color:var(--dim);padding:3rem}
+.en,.zh{display:none}
+body.lang-en .en,body.lang-zh .zh{display:revert}
+.lang-sw{position:absolute;top:1rem;right:1.2rem;display:flex;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.lang-sw button{padding:.3rem .7rem;border:none;background:var(--surface);color:var(--text);cursor:pointer;font-size:.78rem}
+.lang-sw button.active{background:var(--accent);color:#fff}
 .footer{text-align:center;color:var(--dim);font-size:.73rem;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)}
 </style>
 </head>
-<body>
+<body class="lang-en">
+<div class="lang-sw"><button id="btn-en" class="active" onclick="setLang('en')">English</button><button id="btn-zh" onclick="setLang('zh')">中文</button></div>
 <div class="header">
   <h1>AprVisual.S1 Switch-Level Test Report</h1>
-  <div class="sub">transistor/switch-level NES simulation (Visual2A03 + Visual2C02 netlists) &mdash; every result below is computed by
-  propagating individual transistor state changes, not by a behavioral emulator.</div>
+  <div class="sub"><span class="en">transistor/switch-level NES simulation (Visual2A03 + Visual2C02 netlists) &mdash; every result below is computed by
+  propagating individual transistor state changes, not by a behavioral emulator.</span><span class="zh">電晶體/開關級 NES 模擬(Visual2A03 + Visual2C02 netlist)—— 以下每一筆結果都是逐一傳播電晶體狀態變化算出來的,不是行為層模擬器。</span></div>
   <div class="sub" id="build-info"></div>
 </div>
 <div class="stats">
-  <div class="stat pass"><div class="num" id="n-pass">0</div><div class="lbl">Passed</div></div>
-  <div class="stat fail"><div class="num" id="n-fail">0</div><div class="lbl">Failed</div></div>
-  <div class="stat timeout"><div class="num" id="n-to">0</div><div class="lbl">Timeout</div></div>
-  <div class="stat pending"><div class="num" id="n-pend">0</div><div class="lbl">Pending</div></div>
-  <div class="stat"><div class="num" id="n-total">0</div><div class="lbl">Total</div></div>
+  <div class="stat pass"><div class="num" id="n-pass">0</div><div class="lbl"><span class="en">Passed</span><span class="zh">通過</span></div></div>
+  <div class="stat fail"><div class="num" id="n-fail">0</div><div class="lbl"><span class="en">Failed</span><span class="zh">失敗</span></div></div>
+  <div class="stat timeout"><div class="num" id="n-to">0</div><div class="lbl"><span class="en">Timeout</span><span class="zh">逾時</span></div></div>
+  <div class="stat pending"><div class="num" id="n-pend">0</div><div class="lbl"><span class="en">Pending</span><span class="zh">待跑</span></div></div>
+  <div class="stat"><div class="num" id="n-total">0</div><div class="lbl"><span class="en">Total</span><span class="zh">總數</span></div></div>
 </div>
 <div class="progress-wrap">
   <div class="progress-bar"><div class="p" id="bar-p"></div><div class="f" id="bar-f"></div><div class="t" id="bar-t"></div></div>
   <div class="progress-text" id="progress-text"></div>
 </div>
-<div class="note"><strong>Scope:</strong> 141 NROM/CNROM NTSC test ROMs. Detection runs once per simulated frame
+<div class="note"><span class="en"><strong>Scope:</strong> 141 NROM/CNROM NTSC test ROMs. Detection runs once per simulated frame
  (a single test takes minutes-to-an-hour of wall time at switch level); the class badge on each card says how
- the verdict is detected:
+ the verdict is detected:</span><span class="zh"><strong>範圍:</strong>141 個 NROM/CNROM NTSC 測試 ROM。判定每模擬幀執行一次
+ (開關級下單一測試需數分鐘到一小時的牆鐘時間);每張卡片上的類別徽章標示其判定方式:</span>
  <div style="margin-top:.5rem;display:grid;grid-template-columns:auto 1fr;gap:.25rem .7rem;font-size:.8rem">
    <span class="badge cls" style="justify-self:start">A</span>
-   <span>blargg <code>$6000</code> protocol — the ROM writes its result to <code>$6000</code>
-    (0 = pass, else fail code); the engine reads one byte per frame and stops the moment the result appears.</span>
+   <span><span class="en">blargg <code>$6000</code> protocol — the ROM writes its result to <code>$6000</code>
+    (0 = pass, else fail code); the engine reads one byte per frame and stops the moment the result appears.</span><span class="zh">blargg <code>$6000</code> 協定 —— ROM 把結果寫到 <code>$6000</code>(0=通過,其他=失敗碼);引擎每幀讀一個 byte,結果一出現立即停止。</span></span>
    <span class="badge cls" style="justify-self:start">A-r</span>
-   <span>same <code>$6000</code> protocol, <strong>plus the ROM requests soft resets</strong>: status
+   <span><span class="en">same <code>$6000</code> protocol, <strong>plus the ROM requests soft resets</strong>: status
     <code>$6000=$81</code> asks the runner to press Reset — the engine waits 6 frames, pulses the console's
     res line for 192 half-cycles (<code>WireCore.SoftReset</code>), and the test continues across the reset
-    (up to 10 times). Used by the apu_reset / cpu_reset suites, which verify post-reset hardware state.</span>
+    (up to 10 times). Used by the apu_reset / cpu_reset suites, which verify post-reset hardware state.</span><span class="zh">同樣的 <code>$6000</code> 協定,<strong>但 ROM 會主動要求軟重設</strong>:狀態 <code>$6000=$81</code> 表示「請按 Reset」—— 引擎等 6 幀後把主機 res 線拉 192 個半週期(<code>WireCore.SoftReset</code>),測試跨越重設繼續(最多 10 次)。apu_reset / cpu_reset 套件用它驗證重設後的硬體狀態。</span></span>
    <span class="badge cls" style="justify-self:start">B</span>
-   <span>screen text — no <code>$6000</code>; the engine decodes nametable 0 every frame (blargg CHR maps
+   <span><span class="en">screen text — no <code>$6000</code>; the engine decodes nametable 0 every frame (blargg CHR maps
     tile&nbsp;=&nbsp;ASCII) and stops at a terminal <code>Passed</code>/<code>Failed</code>/<code>$0X</code> marker
-    (2-frame confirm; no 90-frame stability wait).</span>
+    (2-frame confirm; no 90-frame stability wait).</span><span class="zh">畫面文字 —— 無 <code>$6000</code>;引擎每幀解碼 nametable 0(blargg 的 CHR 對映 tile=ASCII),遇到終端 <code>Passed</code>/<code>Failed</code>/<code>$0X</code> 標記即停(連續 2 幀確認;不等 90 幀穩定)。</span></span>
    <span class="badge cls" style="justify-self:start">C</span>
-   <span>on-screen CRC — the ROM prints a CRC32; it is compared against the per-console accept set
-    (dmc_dma visual tests).</span>
+   <span><span class="en">on-screen CRC — the ROM prints a CRC32; it is compared against the per-console accept set
+    (dmc_dma visual tests).</span><span class="zh">畫面 CRC —— ROM 印出 CRC32,與依機種而異的合法集合比對(dmc_dma 視覺測試)。</span></span>
  </div>
- <div style="margin-top:.5rem">apu_mixer's $6000 pass only certifies sequence completion (its real verdict is
- auditory) — treat those 4 as smoke tests.</div>
+ <div style="margin-top:.5rem"><span class="en">apu_mixer's $6000 pass only certifies sequence completion (its real verdict is
+ auditory) — treat those 4 as smoke tests.</span><span class="zh">apu_mixer 的 $6000 通過只代表「音頻序列播完沒當機」(真正的判定是聽覺的)—— 那 4 個請視為 smoke test。</span></div>
  <details style="margin-top:.6rem">
-  <summary style="cursor:pointer;color:#5dadec"><strong>Hardware model — what is netlist, what is behavioral</strong></summary>
+  <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Hardware model — what is netlist, what is behavioral</span><span class="zh">硬體模型 —— 哪些是 netlist、哪些是行為層</span></strong></summary>
   <div style="margin-top:.5rem;overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;min-width:640px">
-   <tr style="color:#5dadec;text-align:left"><th style="padding:.15rem .6rem .15rem 0">Part</th><th style="padding:.15rem .6rem">Device</th><th style="padding:.15rem .6rem">Simulation level</th></tr>
+   <tr style="color:#5dadec;text-align:left"><th style="padding:.15rem .6rem .15rem 0"><span class="en">Part</span><span class="zh">部件</span></th><th style="padding:.15rem .6rem"><span class="en">Device</span><span class="zh">器件</span></th><th style="padding:.15rem .6rem"><span class="en">Simulation level</span><span class="zh">模擬層級</span></th></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">CPU</td><td style="padding:.15rem .6rem">Ricoh <strong>RP2A03G</strong> (NTSC)</td>
-    <td style="padding:.15rem .6rem"><strong>Transistor netlist</strong> — Quietust's Visual2A03 die tracing: the whole die
-     (6502 core with BCD disabled, APU, OAM-DMA, controller I/O)</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Transistor netlist</strong> — Quietust's Visual2A03 die tracing: the whole die
+     (6502 core with BCD disabled, APU, OAM-DMA, controller I/O)</span><span class="zh"><strong>電晶體 netlist</strong> —— Quietust 的 Visual2A03 晶粒描繪:整顆晶片(BCD 停用的 6502 核心、APU、OAM-DMA、手把 I/O)</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">PPU</td><td style="padding:.15rem .6rem">Ricoh <strong>RP2C02G</strong> (NTSC)</td>
-    <td style="padding:.15rem .6rem"><strong>Transistor netlist</strong> — Quietust's Visual2C02 die tracing,
-     <em>including palette RAM and OAM as physical storage cells</em> (not hoisted to handlers)</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Transistor netlist</strong> — Quietust's Visual2C02 die tracing,
+     <em>including palette RAM and OAM as physical storage cells</em> (not hoisted to handlers)</span><span class="zh"><strong>電晶體 netlist</strong> —— Quietust 的 Visual2C02 晶粒描繪,<em>palette RAM 與 OAM 保持為物理儲存 cell</em>(未抽成 handler)</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Board glue</td><td style="padding:.15rem .6rem">NES-001: 74LS373 (PPU AD-bus latch),
      74LS139 (address decoder), 2&times;74LS368, 74HC04, CIC, controller ports</td>
-    <td style="padding:.15rem .6rem"><strong>Gate-level transistor modules</strong> (hand-authored netlist defs, MetalNES lineage)</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Gate-level transistor modules</strong> (hand-authored netlist defs, MetalNES lineage)</span><span class="zh"><strong>閘級電晶體模組</strong>(手寫 netlist 定義,MetalNES 血緣)</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Memories</td><td style="padding:.15rem .6rem">2 KB CPU RAM (u1), 2 KB CIRAM (u4),
      cart PRG/CHR ROM, 8 KB cart WRAM (test ROMs)</td>
-    <td style="padding:.15rem .6rem"><strong>Behavioral byte arrays</strong> behind <em>physical tri-state pass-gates</em>
-     (chip-select wiring is netlist, so open-bus hold emerges physically; missing: charge decay, access time)</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Behavioral byte arrays</strong> behind <em>physical tri-state pass-gates</em>
+     (chip-select wiring is netlist, so open-bus hold emerges physically; missing: charge decay, access time)</span><span class="zh"><strong>行為層位元組陣列</strong>,接在<em>物理三態 pass-gate</em> 後面(晶片選取接線是 netlist,open-bus 保持是物理湧現;缺:電荷衰減、存取時間)</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Mapper</td><td style="padding:.15rem .6rem">NROM / CNROM</td>
-    <td style="padding:.15rem .6rem">NROM = pure wiring; CNROM = <strong>behavioral</strong> CHR bank latch on the PRG bus</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en">NROM = pure wiring; CNROM = <strong>behavioral</strong> CHR bank latch on the PRG bus</span><span class="zh">NROM = 純接線;CNROM = PRG 匯流排上的<strong>行為層</strong> CHR bank latch</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Clock</td><td style="padding:.15rem .6rem">21.477 MHz master</td>
-    <td style="padding:.15rem .6rem"><strong>Behavioral</strong> half-cycle toggle; the &divide;12 CPU / &divide;4 PPU dividers are inside the dies</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Behavioral</strong> half-cycle toggle; the &divide;12 CPU / &divide;4 PPU dividers are inside the dies</span><span class="zh"><strong>行為層</strong>半週期翻轉;&divide;12 CPU / &divide;4 PPU 除頻器在晶粒內</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Video out</td><td style="padding:.15rem .6rem">framebuffer</td>
-    <td style="padding:.15rem .6rem">Measurement tap: palette-RAM cells read at each pclk1 edge (does not affect the sim)</td></tr>
+    <td style="padding:.15rem .6rem"><span class="en">Measurement tap: palette-RAM cells read at each pclk1 edge (does not affect the sim)</span><span class="zh">量測 tap:每個 pclk1 邊沿讀 palette-RAM cell(不影響模擬)</span></td></tr>
   </table></div>
-  <div style="margin-top:.4rem">Composed system: <strong>14,723 nodes / 26,775 transistors</strong>
+  <div style="margin-top:.4rem"><span class="en">Composed system: <strong>14,723 nodes / 26,775 transistors</strong>
    (after connection-merge lowering; raw 15,164 / 27,305). The RP2A03G + RP2C02G pair is the same revision
-   AccuracyCoin targets.</div>
-  <div style="margin-top:.4rem">Lineage: the engine is AprVisual.S1's C# re-implementation of
+   AccuracyCoin targets.</span><span class="zh">組成後的系統:<strong>14,723 節點 / 26,775 電晶體</strong>(connection-merge lowering 後;原始 15,164 / 27,305)。RP2A03G + RP2C02G 正是 AccuracyCoin 鎖定的版次。</span></div>
+  <div style="margin-top:.4rem"><span class="en">Lineage: the engine is AprVisual.S1's C# re-implementation of
    <a href="../metalnes.html">MetalNES</a>'s wire / group-resolution core (itself descended from
    visual6502.org's chipsim); the chip netlists are Quietust's Visual2A03 / Visual2C02 die tracings and the
    board/system module definitions follow MetalNES's system-def format — see
-   <a href="../lineage.html">the lineage page</a> for full credits.</div>
+   <a href="../lineage.html">the lineage page</a> for full credits.</span><span class="zh">血緣:引擎是 AprVisual.S1 對 <a href="../metalnes.html">MetalNES</a> wire/群組解析核心的 C# 重寫(其前身為 visual6502.org 的 chipsim);晶片 netlist 為 Quietust 的 Visual2A03 / Visual2C02 晶粒描繪,主機板/系統模組定義沿用 MetalNES 的 system-def 格式 —— 完整致謝見<a href="../lineage.html">血緣頁</a>。</span></div>
  </details>
  <details style="margin-top:.6rem">
-  <summary style="cursor:pointer;color:#5dadec"><strong>Faithful deviations — where failing IS the faithful result</strong></summary>
-  <div style="margin-top:.5rem">Some FAILs below are not simulator bugs: the switch-level model reproduces real-silicon
-   behaviors that the tests themselves document as hardware-dependent. Each claim links to its evidence.</div>
-  <div style="margin-top:.5rem"><strong>1. OAM is dynamic RAM — oam_read &amp; cpu_dummy_writes_oam.</strong>
-   The 2C02's OAM is DRAM on the die and physical storage cells in our netlist (not a plain array).
-   <a href="https://www.nesdev.org/wiki/PPU_OAM" target="_blank" rel="noopener">NESdev: PPU OAM</a> — "OAM uses dynamic
-   memory (which will slowly decay if the PPU is not rendering)";
-   <a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a> —
-   "The contents of OAM are unspecified both at power on and at reset due to DRAM decay."
-   Strongest evidence: <em>blargg's own oam_read readme</em> shows his NTSC front-loader NES produces four random
-   patterns after power/reset — <strong>three of the four are "Failed"</strong> (CRCs 694ADBE0, E9E8E60F, 44551956).
-   cpu_dummy_writes_oam's on-screen text likewise declares its prerequisite ("OAM reads MUST be reliable") holds on
-   emulators "but NOT on the real NES". Our fails sit inside the documented real-hardware behavior family.</div>
-  <div style="margin-top:.5rem"><strong>2. CPU&divide;12 / PPU&divide;4 power-on alignment — 10-even_odd_timing.</strong>
-   A real console powers up in one of four CPU-PPU fine alignments
-   (<a href="https://forums.nesdev.org/viewtopic.php?t=6186" target="_blank" rel="noopener">NESdev forum: CPU-PPU clock
-   alignment</a> — "the beginning of a CPU tick could be offset by 0-3 master clock ticks");
-   the odd-frame dot skip is alignment-sensitive
-   (<a href="https://www.nesdev.org/wiki/PPU_frame_timing" target="_blank" rel="noopener">NESdev: PPU frame timing</a>).
-   We enumerated all four alignments deterministically (engine flag <code>--reset-hold-extra</code>; the probe also
-   revealed the CPU divider free-runs from power-on while the PPU divider restarts at /res release): the NMI-edge
-   suites pass on alignments {7,5}, 10-even_odd_timing passes exactly on the other two {1,3} — <strong>a perfect
-   complementary 2+2 split; no single alignment satisfies both</strong>, matching real hardware where these tests are passed across separate power-cycles. The runner uses
-   alignment 7 (blargg's NMI-test alignment); 10-even_odd_timing's FAIL is the price real silicon also pays there.</div>
-  <div style="margin-top:.5rem"><strong>3. PPU open-bus decay — ppu_open_bus (fix planned).</strong>
-   Per blargg's readme the PPU "decay register" fades to 0 in ~600 ms, "some decay sooner, depending on the NES and
-   temperature" — an analog leakage phenomenon. The switch-level model's floating nodes hold charge indefinitely
-   (no leakage term), so the decay sub-test fails; a documented behavioral decay timer is the planned fix.</div>
-  <div style="margin-top:.5rem"><strong>4. Power-up state (fixed via documented shim).</strong>
-   Palette contents are "unspecified at power on" (<a href="https://www.nesdev.org/wiki/PPU_power_up_state"
-   target="_blank" rel="noopener">NESdev</a>); power_up_palette checks blargg's specific console's residue. Test mode
-   injects the consensus table (and clears the Z flag to the real power-on P=$34) into the netlist cells using a
-   drive&rarr;settle&rarr;release sequence — the benchmark path is untouched.</div>
+  <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Faithful deviations — where failing IS the faithful result (evidence dossier)</span><span class="zh">忠實偏差 —— 失敗本身就是忠實的結果(證據卷宗)</span></strong></summary>
+  <div style="margin-top:.5rem"><span class="en">Some FAILs below are not simulator bugs: the switch-level model reproduces real-silicon
+   behaviors that the tests themselves document as hardware-dependent. Every claim here is backed three ways:
+   <b>(a)</b> the test author's own words, quoted verbatim with the file path inside the <code>nes-test-roms</code>
+   collection so anyone can verify locally; <b>(b)</b> NESdev wiki / forum references; <b>(c)</b> how reference-grade
+   emulators model the same variability.</span><span class="zh">以下部分 FAIL 不是模擬器 bug:開關級模型重現了測試自己都記載為「依硬體而異」的真實矽晶行為。每一條主張都有三重佐證:<b>(a)</b> 測試作者的原文逐字引用,附 <code>nes-test-roms</code> 合集內的檔案路徑,任何人可本地驗證;<b>(b)</b> NESdev wiki/論壇文獻;<b>(c)</b> 參考級模擬器對同一變異性的建模方式。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">1. OAM is dynamic RAM — <code>oam_read</code>, <code>cpu_dummy_writes_oam</code></span><span class="zh">1. OAM 是動態記憶體(DRAM)—— <code>oam_read</code>、<code>cpu_dummy_writes_oam</code></span></strong><br>
+   <span class="en">Our 2C02 keeps OAM as physical DRAM cells in the netlist (not a plain array); oam_read fails with a
+   <code>*</code>-patterned dump (CRC E03E03AD).</span><span class="zh">我們的 2C02 把 OAM 保持為 netlist 中的物理 DRAM cell(不是普通陣列);oam_read 以帶 <code>*</code> 圖樣的 dump 失敗(CRC E03E03AD)。</span><br>
+   <em><span class="en">Author's own readme</span><span class="zh">作者自己的 readme</span></em> (<code>oam_read/readme.txt</code>):
+   <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
+   "On my NTSC front-loader NES, I get the following four general patterns at random after power/reset"</blockquote>
+   <span class="en">— and of blargg's four documented real-hardware patterns, <strong>three end in "Failed"</strong>
+   (CRCs 694ADBE0, E9E8E60F, 44551956); only one passes. Our result is a member of that documented family.</span><span class="zh">—— blargg 記錄的四種真實硬體圖樣中,<strong>三種以「Failed」收場</strong>(CRC 694ADBE0、E9E8E60F、44551956),只有一種通過。我們的結果正是這個已記載家族的一員。</span><br>
+   <em><span class="en">The other test declares its own limitation on screen</span><span class="zh">另一個測試在畫面上自述其限制</span></em> (cpu_dummy_writes_oam):
+   <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
+   "Requirement: OAM memory reads MUST be reliable. This is often the case on emulators, but NOT on the real NES."</blockquote>
+   <span class="en">Community: <a href="https://www.nesdev.org/wiki/PPU_OAM" target="_blank" rel="noopener">NESdev: PPU OAM</a>
+   ("OAM uses dynamic memory (which will slowly decay if the PPU is not rendering)");
+   <a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a>
+   ("The contents of OAM are unspecified both at power on and at reset due to DRAM decay").
+   Reference emulators: <a href="https://github.com/SourMesen/Mesen2" target="_blank" rel="noopener">Mesen2</a> ships an
+   opt-in <code>EnablePpuOamRowCorruption</code> setting (Core/Shared/SettingTypes.h) precisely because real OAM misbehaves.</span><span class="zh">社群文獻:<a href="https://www.nesdev.org/wiki/PPU_OAM" target="_blank" rel="noopener">NESdev: PPU OAM</a>(「OAM 使用動態記憶體(PPU 未渲染時會慢慢衰減)」);<a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a>(「OAM 內容在上電與重設時均為未定義,因 DRAM 衰減」)。參考級模擬器:<a href="https://github.com/SourMesen/Mesen2" target="_blank" rel="noopener">Mesen2</a> 內建可選的 <code>EnablePpuOamRowCorruption</code> 設定(Core/Shared/SettingTypes.h)—— 正因為真實 OAM 會出錯。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">2. CPU&divide;12 / PPU&divide;4 power-on alignment — <code>10-even_odd_timing</code></span><span class="zh">2. CPU&divide;12 / PPU&divide;4 上電對齊 —— <code>10-even_odd_timing</code></span></strong><br>
+   <span class="en">A real console powers up in one of several CPU-PPU fine alignments
+   (<a href="https://forums.nesdev.org/viewtopic.php?t=6186" target="_blank" rel="noopener">NESdev forum: "CPU-PPU clock
+   alignment"</a>, with blargg's own analysis in-thread; the odd-frame dot skip is documented at
+   <a href="https://www.nesdev.org/wiki/PPU_frame_timing" target="_blank" rel="noopener">NESdev: PPU frame timing</a>).
+   Reference emulators: Mesen2 ships <code>RandomizeCpuPpuAlignment</code> (Core/NES/NesCpu.cpp) and logs the drawn
+   alignment per power-on — the variability is standard knowledge.</span><span class="zh">真實主機上電時會落入數種 CPU-PPU 細對齊之一
+   (<a href="https://forums.nesdev.org/viewtopic.php?t=6186" target="_blank" rel="noopener">NESdev 論壇:「CPU-PPU clock alignment」</a>,串內有 blargg 本人的分析;奇數幀 dot-skip 行為見
+   <a href="https://www.nesdev.org/wiki/PPU_frame_timing" target="_blank" rel="noopener">NESdev: PPU frame timing</a>)。
+   參考級模擬器:Mesen2 內建 <code>RandomizeCpuPpuAlignment</code>(Core/NES/NesCpu.cpp)並在每次上電記錄抽到的對齊 —— 這種變異性是社群標準知識。</span><br>
+   <span class="en">We <em>deterministically enumerated all four alignments</em> (engine flag <code>--reset-hold-extra</code>; the probe also
+   revealed the CPU divider free-runs from power-on while the PPU divider restarts at /res release) and measured:</span><span class="zh">我們<em>確定性地列舉了全部四種對齊</em>(引擎旗標 <code>--reset-hold-extra</code>;探針同時發現 CPU 除頻器自上電起自由運轉、PPU 除頻器在 /res 釋放時重啟),實測如下:</span>
+   <div style="margin:.4rem 0 .4rem .8rem;overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem">
+    <tr style="color:#5dadec;text-align:left"><th style="padding:.1rem .6rem .1rem 0"><span class="en">Alignment (K)</span><span class="zh">對齊(K)</span></th>
+     <th style="padding:.1rem .6rem"><span class="en">NMI-edge family (8 tests)</span><span class="zh">NMI 邊沿家族(8 個)</span></th><th style="padding:.1rem .6rem">10-even_odd_timing</th></tr>
+    <tr><td style="padding:.1rem .6rem .1rem 0">1 (K=0)</td><td style="padding:.1rem .6rem">FAIL</td><td style="padding:.1rem .6rem">PASS</td></tr>
+    <tr><td style="padding:.1rem .6rem .1rem 0"><strong><span class="en">7 (K=1) &larr; chosen</span><span class="zh">7(K=1)&larr; 定案</span></strong></td><td style="padding:.1rem .6rem">PASS</td><td style="padding:.1rem .6rem">FAIL</td></tr>
+    <tr><td style="padding:.1rem .6rem .1rem 0">5 (K=3)</td><td style="padding:.1rem .6rem">PASS</td><td style="padding:.1rem .6rem">FAIL</td></tr>
+    <tr><td style="padding:.1rem .6rem .1rem 0">3 (K=5)</td><td style="padding:.1rem .6rem">FAIL</td><td style="padding:.1rem .6rem">PASS</td></tr>
+   </table></div>
+   <span class="en">A <strong>perfect complementary 2+2 split — zero intersection</strong>: on this silicon model no single power-on state
+   satisfies both groups, so any fixed-alignment system (including a real NES that is not power-cycled between tests)
+   pays this price. We fix alignment 7 (the one blargg's NMI-edge tests were calibrated on);
+   10-even_odd_timing's FAIL is the documented cost of that choice.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 零交集</strong>:在這個矽晶模型上,沒有任何單一上電狀態能同時滿足兩組測試;任何固定對齊的系統(包括一台不重開機換對齊的真 NES)都要付這個代價。我們固定在對齊 7(blargg 的 NMI 邊沿測試所校準的那個);10-even_odd_timing 的 FAIL 就是這個選擇的已文件化成本。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">3. PPU open-bus decay — <code>ppu_open_bus</code> (fix planned)</span><span class="zh">3. PPU open-bus 衰減 —— <code>ppu_open_bus</code>(修復計畫中)</span></strong><br>
+   <em><span class="en">Author's readme</span><span class="zh">作者的 readme</span></em> (<code>ppu_open_bus/readme.txt</code>):
+   <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
+   "If a bit isn't refreshed with a 1 for about 600 milliseconds, it will decay to 0 (some decay sooner, depending on
+   the NES and temperature)."</blockquote>
+   <span class="en">Temperature-dependent charge leakage is an analog phenomenon the switch-level model cannot express (floating nodes
+   hold indefinitely); a documented behavioral decay timer is the planned fix.</span><span class="zh">依溫度而異的電荷洩漏是開關級模型無法表達的類比現象(浮空節點永久保持);計畫以文件化的行為衰減計時器修復。</span></div>
+
+  <div style="margin-top:.7rem"><strong><span class="en">4. Power-up state — <code>power_up_palette</code>, <code>registers</code> (fixed via documented shim)</span><span class="zh">4. 上電狀態 —— <code>power_up_palette</code>、<code>registers</code>(已用文件化 shim 修復)</span></strong><br>
+   <em><span class="en">Author's own source comment</span><span class="zh">作者原始碼開頭的註解</span></em> (<code>blargg_ppu_tests_2005.09.15b/source/power_up_palette.asm</code>, line 1):
+   <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
+   "Reports whether initial values in palette at power-up match those that my NES has. These values are probably
+   unique to my NES."</blockquote>
+   <span class="en"><a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a>
+   lists palette contents as "unspecified" at power on. Test mode injects the consensus table (and clears the Z flag to
+   the real power-on P=$34) into the netlist cells via a drive&rarr;settle&rarr;release sequence; the benchmark path is untouched.</span><span class="zh"><a href="https://www.nesdev.org/wiki/PPU_power_up_state" target="_blank" rel="noopener">NESdev: PPU power-up state</a> 將 palette 上電內容列為「未定義」。測試模式以驅動&rarr;settle&rarr;釋放的程序把共識表(並把 Z flag 清為真實上電的 P=$34)注入 netlist cell;benchmark 路徑不受影響。</span></div>
  </details></div>
 <div class="controls">
   <div class="btn-group" id="fbtns">
@@ -257,9 +297,22 @@ select,input[type=text]{padding:.42rem .85rem;border:1px solid var(--border);bor
 </div>
 <div id="content"></div>
 <div class="modal-overlay" id="modal"><img id="modal-img" src="" alt=""><div class="modal-title" id="modal-title"></div></div>
-<div class="footer">Generated by AprVisual.S1 test runner (tools/testrom/) &mdash;
+<div class="footer"><span class="en">Generated by AprVisual.S1 test runner (tools/testrom/) &mdash;</span><span class="zh">由 AprVisual.S1 測試執行器產生(tools/testrom/)——</span>
  <a href="https://github.com/erspicu/AprVisual">github.com/erspicu/AprVisual</a></div>
 <script>
+function setLang(l){
+  document.body.className='lang-'+l;
+  document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+  document.getElementById('btn-en').classList.toggle('active',l==='en');
+  document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+  try{localStorage.setItem('aprvisual-lang',l);}catch(e){}
+}
+(function(){
+  var l=null;
+  try{l=localStorage.getItem('aprvisual-lang');}catch(e){}
+  if(l!=='en'&&l!=='zh'){l=(navigator.language||'').toLowerCase().indexOf('zh')===0?'zh':'en';}
+  setLang(l);
+})();
 var BUILD_DATE='__BUILD_DATE__', ENGINE='__ENGINE__';
 var RESULTS=__RESULTS__;
 document.getElementById('build-info').textContent='engine '+(ENGINE||'?')+' \\u00b7 generated '+BUILD_DATE;

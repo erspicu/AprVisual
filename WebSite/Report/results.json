@@ -10,9 +10,9 @@
   "detection": "6000",
   "frames": 721,
   "simSeconds": 12.0,
-  "wallSeconds": 4406.1,
+  "wallSeconds": 4299.6,
   "resetCount": 0,
-  "khcPerSec": 116.9
+  "khcPerSec": 119.8
  },
  {
   "suite": "apu_mixer",
@@ -243,16 +243,16 @@
   "suite": "apu_test/rom_singles",
   "rom": "7-dmc_basics.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 19,
-  "result_text": "There should be a one-byte buffer that's filled immediately if empty\n\n7-dmc_basics\n\nFailed #19",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "7-dmc_basics\n\nPassed",
   "screenshot": "screenshots/apu_test/rom_singles/7-dmc_basics.webp",
   "detection": "6000",
-  "frames": 31,
-  "simSeconds": 0.52,
-  "wallSeconds": 201.2,
+  "frames": 27,
+  "simSeconds": 0.45,
+  "wallSeconds": 168.0,
   "resetCount": 0,
-  "khcPerSec": 109.8
+  "khcPerSec": 114.5
  },
  {
   "suite": "apu_test/rom_singles",
@@ -265,9 +265,9 @@
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 176.7,
+  "wallSeconds": 177.7,
   "resetCount": 0,
-  "khcPerSec": 117.0
+  "khcPerSec": 116.3
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -685,9 +685,9 @@
   "detection": "6000",
   "frames": 69,
   "simSeconds": 1.15,
-  "wallSeconds": 499.2,
+  "wallSeconds": 496.0,
   "resetCount": 0,
-  "khcPerSec": 98.7
+  "khcPerSec": 99.3
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -753,16 +753,16 @@
   "suite": "dmc_dma_during_read4",
   "rom": "dma_2007_read.nes",
   "class": "C",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "screen CRC 4AEFDE12 (NOT in expected set)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "screen CRC 5E3DF9C4 (matched)",
   "screenshot": "screenshots/dmc_dma_during_read4/dma_2007_read.webp",
   "detection": "crc",
-  "frames": 21,
-  "simSeconds": 0.35,
-  "wallSeconds": 112.1,
+  "frames": 22,
+  "simSeconds": 0.37,
+  "wallSeconds": 120.0,
   "resetCount": 0,
-  "khcPerSec": 133.4
+  "khcPerSec": 130.5
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -775,9 +775,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 142.8,
+  "wallSeconds": 139.8,
   "resetCount": 0,
-  "khcPerSec": 129.7
+  "khcPerSec": 132.5
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -788,11 +788,11 @@
   "result_text": "(screen: Failed = failed)",
   "screenshot": "screenshots/dmc_dma_during_read4/dma_4016_read.webp",
   "detection": "screen",
-  "frames": 20,
-  "simSeconds": 0.33,
-  "wallSeconds": 140.7,
+  "frames": 19,
+  "simSeconds": 0.32,
+  "wallSeconds": 128.0,
   "resetCount": 0,
-  "khcPerSec": 101.2
+  "khcPerSec": 105.6
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -800,14 +800,14 @@
   "class": "C",
   "status": "fail",
   "exit_code": 1,
-  "result_text": "screen CRC AD987CB5 (NOT in expected set)",
+  "result_text": "screen CRC D84F6815 (NOT in expected set)",
   "screenshot": "screenshots/dmc_dma_during_read4/double_2007_read.webp",
   "detection": "crc",
   "frames": 13,
   "simSeconds": 0.22,
-  "wallSeconds": 72.8,
+  "wallSeconds": 74.0,
   "resetCount": 0,
-  "khcPerSec": 126.8
+  "khcPerSec": 124.8
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -820,9 +820,9 @@
   "detection": "screen",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 83.7,
+  "wallSeconds": 83.6,
   "resetCount": 0,
-  "khcPerSec": 127.4
+  "khcPerSec": 127.5
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -1743,31 +1743,31 @@
   "suite": "sprdma_and_dmc_dma",
   "rom": "sprdma_and_dmc_dma.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "T+ Clocks (decimal)\n00 527\n01 528\n02 527\n03 528\n04 527\n05 528\n06 527\n07 526\n08 525\n09 526\n0A 525\n0B 526\n0C 525\n0D 526\n0E 525\n0F 526\n\n6808EEDA\nSPRDMA and DMC DMA\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "T+ Clocks (decimal)\n00 527\n01 528\n02 527\n03 528\n04 527\n05 526\n06 525\n07 526\n08 525\n09 526\n0A 525\n0B 526\n0C 525\n0D 526\n0E 525\n0F 526\n\nSPRDMA and DMC DMA\n\nPassed",
   "screenshot": "screenshots/sprdma_and_dmc_dma/sprdma_and_dmc_dma.webp",
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 783.8,
+  "wallSeconds": 761.3,
   "resetCount": 0,
-  "khcPerSec": 128.5
+  "khcPerSec": 132.3
  },
  {
   "suite": "sprdma_and_dmc_dma",
   "rom": "sprdma_and_dmc_dma_512.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "T+ Clocks (decimal)\n00 525\n01 526\n02 525\n03 526\n04 525\n05 526\n06 524\n07 525\n08 526\n09 527\n0A 527\n0B 528\n0C 526\n0D 527\n0E 527\n0F 528\n\n1C775959\nSPRDMA and DMC DMA\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "T+ Clocks (decimal)\n00 525\n01 526\n02 525\n03 526\n04 524\n05 525\n06 526\n07 527\n08 527\n09 528\n0A 526\n0B 527\n0C 527\n0D 528\n0E 527\n0F 528\n\nSPRDMA and DMC DMA\n\nPassed",
   "screenshot": "screenshots/sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.webp",
   "detection": "6000",
-  "frames": 141,
-  "simSeconds": 2.35,
-  "wallSeconds": 818.4,
+  "frames": 140,
+  "simSeconds": 2.33,
+  "wallSeconds": 756.9,
   "resetCount": 0,
-  "khcPerSec": 123.1
+  "khcPerSec": 132.1
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",

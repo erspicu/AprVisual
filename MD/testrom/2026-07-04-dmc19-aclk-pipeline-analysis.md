@@ -148,7 +148,14 @@ cyc 20620(fetch)hc 13:apu_clk1 ↓ 與 13907(pcm_ff 輸出)↓ 同一半週期
   (載入時註冊 `cpu.#<rawid>` 別名)並武裝 shim;benchmark 路徑兩旗標皆
   false → **預設模式零行為改變**。
 - 結果:`7-dmc_basics` **Passed**(27 幀;原本 FAIL#19 於 31 幀)——
-  #19 之後的所有子測試一併通過。DMC/DMA 家族回歸重驗進行中。
+  #19 之後的所有子測試一併通過。
+- **家族回歸重驗(--filter dmc/dma --rerun)**:一個 shim 淨救 4 個測試 ——
+  `7-dmc_basics`、`sprdma_and_dmc_dma`、`sprdma_and_dmc_dma_512`、
+  `dma_2007_read` 全翻 PASS;原 PASS 群(dmc.nes、8-dmc_rates、
+  dma_2007_write、read_write_2007、4-irq_and_dma)零回歸。
+  總分 **125/16 → 129/12(91.5%)**。DMC 家族殘留:dma_4016_read
+  (DMA dummy read 雙時脈 $4016 手把移位 —— 行為層手把整合區)、
+  double_2007_read(CRC 類)。
 - 殘留:halt 排程仍比 AC 實測晚一 APU cycle(同類賽跑住在 run_latch/
   en_latch 級)—— 目前無測試因此失敗;若 dmc_dma 家族重驗顯示需要,
   再評估把 shim 推廣成「ACLK pass-gate 邊沿捕捉」通則(需 minimal

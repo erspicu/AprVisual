@@ -34,7 +34,9 @@ namespace AprVisual.Test
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
             string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
             string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
-            string? busTracePath = null;     // --bus-trace: $4013/$4015 + RDY-stall cycle microscope (DMC #19 study)
+            string? busTracePath = null;
+            string? microPath = null;
+            string? opProbePath = null; int opProbeAddr = -1;     // --bus-trace: $4013/$4015 + RDY-stall cycle microscope (DMC #19 study)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -74,6 +76,8 @@ namespace AprVisual.Test
                     case "--fc-taint-stats":  if (i + 1 < args.Length) fcTaintPath = args[++i]; break;        // same-state-prune eligibility: FC-free vs FC-tainted channel components (diagnostic only)
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--array-footprint": _dumpArrayFootprint = true; break;                              // print hot unmanaged-array base+size at setup (IBS/SPE bucketing)
+                    case "--micro":           if (i + 1 < args.Length) microPath = args[++i]; break;   // DIAGNOSTIC: run N frames, dump work RAM $0200-$07FF
+                    case "--op-probe":        if (i + 2 < args.Length) { opProbePath = args[++i]; opProbeAddr = Convert.ToInt32(args[++i], 16); } break;   // DIAGNOSTIC: hc-log datapath buses when AB hits addr
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -141,6 +145,8 @@ namespace AprVisual.Test
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
             if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
             if (rdyProbePath  != null) return RdyProbe(rdyProbePath, shotFrames > 3 ? shotFrames : 35);
+            if (microPath     != null) return MicroDump(microPath, 3);
+            if (opProbePath   != null) return OpProbe(opProbePath, opProbeAddr);
             if (busTracePath  != null) return BusTrace(busTracePath, shotFrames > 3 ? shotFrames : 29);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
@@ -1213,6 +1219,7 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
+                WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
@@ -1467,6 +1474,90 @@ namespace AprVisual.Test
         //    AB, DB, R/W, RDY. Shows the enable→first-fetch→readback chain cycle by cycle. ──
         private static int _btPrevIrq = -2, _btPrevSet = -2, _btPrevEn = -2, _btTail;
         private static unsafe int S(int node) => node != WireCore.EmptyNode ? WireCore.NodeStates[node] : -1;
+        // ── --op-probe: hc-granularity datapath microscope. Triggers when AB == addr; logs
+        //    db/idl/alua/alub/sb buses + accumulator for the next ~10 CPU cycles. ──
+        private static unsafe int OpProbe(string romPath, int trigAddr)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.RegisterRawIdAliases = true;
+                WireCore.LoadSystem(rom);
+                WireCore.EnableDmcLatchShim();
+                WireCore.EnableAluLatchShim();
+                int phi2 = WireCore.LookupNode("cpu.phi2");
+                int[] Bus(string expr, int width) { var l = new List<int>(); WireCore.ResolveNodes(expr, l, quiet: true); return l.Count == width ? l.ToArray() : Array.Empty<int>(); }
+                int[] abN = Bus("cpu.ab[15:0]", 16), dbN = Bus("cpu.db[7:0]", 8);
+                int[] idl = Bus("cpu.idl[7:0]", 8), alua = Bus("cpu.alua[7:0]", 8), alub = Bus("cpu.alub[7:0]", 8);
+                int[] sb = Bus("cpu.sb[7:0]", 8), acc = Bus("cpu.a[7:0]", 8), aluOut = Bus("cpu.alu[7:0]", 8);
+                string[] ctlNames = { "dpc24_ACSB", "dpc11_SBADD", "dpc12_0ADD", "dpc9_DBADD", "dpc8_nDBADD",
+                                      "dpc15_ANDS", "dpc17_SUMS", "dpc14_SRS", "dpc13_ORS",
+                                      "dpc19_ADDSB7", "dpc20_ADDSB06", "dpc23_SBAC", "dpc25_SBDB" };
+                int[] ctl = new int[ctlNames.Length];
+                for (int c = 0; c < ctlNames.Length; c++) ctl[c] = WireCore.LookupNode("cpu." + ctlNames[c]);
+                var plaRows = new List<(string Name, int Node)>();
+                foreach (var kv in WireCore.AllNodeNames())
+                    if (kv.Key.StartsWith("cpu.op-", StringComparison.Ordinal) || kv.Key.StartsWith("cpu.x-op-", StringComparison.Ordinal))
+                        plaRows.Add((kv.Key.Substring(4), kv.Value));
+                plaRows.Sort((x, y) => string.CompareOrdinal(x.Name, y.Name));
+                Console.WriteLine($"# pla rows resolved: {plaRows.Count}");
+                string prevFiring = "";
+                Console.WriteLine($"# op-probe: trig=AB={trigAddr:X4}; ctl: {string.Join(" ", ctlNames)}");
+                string B(int[] ns) => ns.Length == 0 ? "--" : WireCore.ReadBits(ns).ToString("X2");
+                long hcLeft = -1, cyc = 0; int prevPhi = WireCore.NodeStates[phi2];
+                for (long i = 0; i < 714_732L * 3 && hcLeft != 0; i++)
+                {
+                    WireCore.Step(1);
+                    int ph = WireCore.NodeStates[phi2];
+                    if (prevPhi == 1 && ph == 0) cyc++;
+                    int a = WireCore.ReadBits(abN);
+                    if (hcLeft < 0 && a == trigAddr) { hcLeft = 24 * 10; Console.WriteLine($"# trigger at cyc {cyc}"); }
+                    if (hcLeft > 0)
+                    {
+                        hcLeft--;
+                        var cs = new StringBuilder();
+                        for (int c = 0; c < ctl.Length; c++) cs.Append(ctl[c] != WireCore.EmptyNode ? (char)('0' + WireCore.NodeStates[ctl[c]]) : '-');
+                        Console.WriteLine($"# cyc{cyc,6} phi2={ph} AB={a:X4} DB={B(dbN)} idl={B(idl)} alua={B(alua)} alub={B(alub)} sb={B(sb)} A={B(acc)} ADD={B(aluOut)} ctl={cs}");
+                        var fir = new StringBuilder();
+                        foreach (var (nm2, nd) in plaRows) if (WireCore.NodeStates[nd] == 1) fir.Append(nm2).Append(' ');
+                        string f = fir.ToString();
+                        if (f != prevFiring) { Console.WriteLine($"#      firing: {f}"); prevFiring = f; }
+                    }
+                    prevPhi = ph;
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
+        // ── --micro: run N frames then hex-dump work RAM $0200-$07FF (micro-ROM result harvesting) ──
+        private static unsafe int MicroDump(string romPath, int frames)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            try
+            {
+                WireCore.RegisterRawIdAliases = true;
+                WireCore.LoadSystem(rom);
+                WireCore.EnableDmcLatchShim();
+                WireCore.EnableAluLatchShim();
+                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                var ram = WireCore.ResolveMemory("u1.ram");
+                if (ram == null) { Console.Error.WriteLine("u1.ram unresolved"); return 2; }
+                Console.WriteLine($"# marker $07FF = {ram.Read(0x7FF):X2}");
+                var sb = new StringBuilder();
+                for (int a = 0x200; a < 0x800; a += 16)
+                {
+                    sb.Clear(); sb.Append(a.ToString("X4")).Append(':');
+                    for (int j = 0; j < 16; j++) sb.Append(' ').Append(ram.Read(a + j).ToString("X2"));
+                    Console.WriteLine(sb.ToString());
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static unsafe int BusTrace(string romPath, int startFrame)
         {
             var rom = NesRom.LoadFromFile(romPath);

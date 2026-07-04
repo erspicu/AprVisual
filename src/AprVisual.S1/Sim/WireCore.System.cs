@@ -318,6 +318,58 @@ namespace AprVisual.Sim
                 }
             }
             _dmcShimPrevClk1 = cur;
+            if (AluLatchShim) AluLatchShimStep();
+        }
+
+        // ── ALU input-latch hold shim (test mode only) ───────────────────────────────────────
+        // The complement of the DMC race, with the OPPOSITE physical polarity: on unofficial
+        // "combined" immediate ops (ANC/ALR/ARR/LXA) the execute-phase phi1->phi2 boundary
+        // collapses the SB/DB buses in the same half-cycle the ALU input-latch select lines
+        // (SBADD/DBADD) close. Real silicon closes the gate BEFORE the collapse propagates
+        // (hold time met), so alua/alub keep their phi1 values; a quiescent settle lets the
+        // collapse ripple THROUGH the closing gates and the ALU latches a self-consistent
+        // garbage fixed point. Shim: snapshot alua/alub each half-cycle; when the select line
+        // falls, restore any bit the same step corrupted (= the latch's intended hold semantic).
+        public static bool AluLatchShim = false;
+        private static int _aluShimSbadd = EmptyNode, _aluShimDbadd = EmptyNode;
+        private static int[] _aluShimA = Array.Empty<int>(), _aluShimB = Array.Empty<int>();
+        private static readonly byte[] _aluShimPrevA = new byte[8], _aluShimPrevB = new byte[8];
+        private static int _aluShimPrevSbadd, _aluShimPrevDbadd;
+
+        public static void EnableAluLatchShim()
+        {
+            _aluShimSbadd = LookupNode("cpu.dpc11_SBADD");
+            _aluShimDbadd = LookupNode("cpu.dpc9_DBADD");
+            var la = new List<int>(); ResolveNodes("cpu.alua[7:0]", la, quiet: true);
+            var lb = new List<int>(); ResolveNodes("cpu.alub[7:0]", lb, quiet: true);
+            if (_aluShimSbadd == EmptyNode || _aluShimDbadd == EmptyNode || la.Count != 8 || lb.Count != 8)
+            { Console.Error.WriteLine("# [shim] ALU latch shim: nodes unresolved — disabled"); AluLatchShim = false; return; }
+            _aluShimA = la.ToArray(); _aluShimB = lb.ToArray();
+            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
+            _aluShimPrevSbadd = NodeStates[_aluShimSbadd];
+            _aluShimPrevDbadd = NodeStates[_aluShimDbadd];
+            AluLatchShim = true;
+        }
+
+        private static void AluLatchShimStep()
+        {
+            int sa = NodeStates[_aluShimSbadd], db = NodeStates[_aluShimDbadd];
+            if (_aluShimPrevSbadd == 1 && sa == 0)
+                for (int i = 0; i < 8; i++)
+                {
+                    int n = _aluShimA[i];
+                    if (NodeStates[n] != _aluShimPrevA[i])
+                    { if (_aluShimPrevA[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
+                }
+            if (_aluShimPrevDbadd == 1 && db == 0)
+                for (int i = 0; i < 8; i++)
+                {
+                    int n = _aluShimB[i];
+                    if (NodeStates[n] != _aluShimPrevB[i])
+                    { if (_aluShimPrevB[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
+                }
+            _aluShimPrevSbadd = sa; _aluShimPrevDbadd = db;
+            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
         }
 
         /// <summary>

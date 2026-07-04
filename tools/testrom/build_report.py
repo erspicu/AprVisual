@@ -87,6 +87,22 @@ build_date = time.strftime("%Y-%m-%d %H:%M:%S")
 # contiguous run (a full --rerun); mixed-age accumulations skew the span.
 perf_line_en = perf_line_zh = ""
 if perf_samples:
+    # Exclude stale accumulations: cluster samples into runs by start-time gaps
+    # (>30 min idle = a different run) and keep only the LATEST contiguous run,
+    # so mixed-age results directories don't skew the span/aggregate numbers.
+    n_all = len(perf_samples)
+    ivs = sorted((m - w, m, h, w) for h, w, m in perf_samples)   # (start, end, hc, wall)
+    GAP = 1800
+    cluster = [ivs[0]]
+    cover_end = ivs[0][1]
+    for iv in ivs[1:]:
+        if iv[0] > cover_end + GAP:
+            cluster = [iv]            # new run starts; reset
+            cover_end = iv[1]
+        else:
+            cluster.append(iv)
+            cover_end = max(cover_end, iv[1])
+    perf_samples = [(h, w, m) for (st, m, h, w) in cluster]
     tot_hc = sum(h for h, w, m in perf_samples)
     tot_wall = sum(w for h, w, m in perf_samples)
     khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
@@ -97,12 +113,12 @@ if perf_samples:
         conc = tot_wall / span
         perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs "
-                        f"({tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours); "
+                        f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours); "
                         f"aggregate multi-worker throughput &asymp; <strong>{agg_khc:,.0f} khc/s</strong> "
                         f"(&asymp;{conc:.1f}&times; effective concurrency over a {span/3600:.1f} h wall-clock span "
                         f"&mdash; rough estimate from result timestamps; loads/report gaps included).")
         perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
-                        f"({len(perf_samples)} 筆計時,共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時);"
+                        f"({len(perf_samples)} 筆計時,取 {n_all} 筆中最新連續段;共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時);"
                         f"多工聚合吞吐 &asymp; <strong>{agg_khc:,.0f} khc/s</strong>"
                         f"(有效並行 &asymp;{conc:.1f}&times;,牆鐘跨度 {span/3600:.1f} 小時 "
                         f"&mdash; 由結果檔時間戳粗估,含載入與報告空檔)。")

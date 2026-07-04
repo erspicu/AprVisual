@@ -107,3 +107,16 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 - [x] B 類(46)已實作(2026-07-02):`--screen-verdict` + `FindNametableVerdict`;校準證實安全(零陷阱 ROM)且便宜(標記幀 p50=21)。
 - [ ] 失敗的測試 = 真正有價值的發現(switch-level 對 behavioral 的差異),逐一開 MD 記錄。
 - 引擎判定與 AprNes 的差異:S1 沒有(也不需要)畫面穩定偵測、手把注入(`read_joy3` 不在 NROM 集內)、PAL(2C07 是另一顆晶片,netlist 層根本不存在)。
+
+
+## 2026-07-04 增補:catalog 欄位與手把輸入
+
+- runner 預設 **7 workers**(乾淨實體核 2,6,10,14,4,12,8;核 0 只在 --jobs 8 時當第 8 條 lane)
+- 結果 JSON 增豐:`startedAt/finishedAt/startedEpoch/finishedEpoch/elapsedSeconds/core`
+  (吞吐統計直接用時間戳;報告頁自動分群取最新連續段)
+- catalog 新欄位:
+  - `passMarker`:B-class 自訂完成標記(read_joy3 的 `Conflicts:` / `Errors:`)
+  - `input`:腳本手把輸入,AprNes 相容格式 `"A:2,B:3.5,...:holdSec"`(test_buttons)
+- 手把 = 行為層(nes-pad-behavioral 影子模組 + Joypad handler,測試模式限定);
+  `--input` 在 --test 與 --micro 皆可用
+- catalog 145:checked/ 的 mapper 0+3 全數入編(唯 PAL 套件除外)

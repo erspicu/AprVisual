@@ -92,6 +92,11 @@ with open(OUT, "w", encoding="utf-8") as fp:
         {"suite": "read_joy3", "rom": "thorough_test.nes", "class": "B", "maxFrames": 900},
         {"suite": "read_joy3", "rom": "count_errors.nes", "class": "B", "maxFrames": 600, "passMarker": "Conflicts:"},
         {"suite": "read_joy3", "rom": "count_errors_fast.nes", "class": "B", "maxFrames": 600, "passMarker": "Errors:"},
+        # test_buttons prompts for each button in sequence; the scripted input (--input)
+        # presses them via the behavioral joypad. With this, ALL checked/ mapper-3 ROMs
+        # are in the catalog.
+        {"suite": "read_joy3", "rom": "test_buttons.nes", "class": "B", "maxFrames": 1200,
+         "input": "A:2,B:3.5,Select:5,Start:6.5,Up:8,Down:9.5,Left:11,Right:12.5"},
     ])
     json.dump({"schema": "aprvisual-testrom-catalog/1", "romBase": "nes-test-roms-master/checked", "tests": tests}, fp, indent=2)
 

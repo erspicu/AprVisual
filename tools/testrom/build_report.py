@@ -287,6 +287,11 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
      cart PRG/CHR ROM, 8 KB cart WRAM (test ROMs)</td>
     <td style="padding:.15rem .6rem"><span class="en"><strong>Behavioral byte arrays</strong> behind <em>physical tri-state pass-gates</em>
      (chip-select wiring is netlist, so open-bus hold emerges physically; missing: charge decay, access time)</span><span class="zh"><strong>行為層位元組陣列</strong>,接在<em>物理三態 pass-gate</em> 後面(晶片選取接線是 netlist,open-bus 保持是物理湧現;缺:電荷衰減、存取時間)</span></td></tr>
+   <tr><td style="padding:.15rem .6rem .15rem 0"><span class="en">Controllers</span><span class="zh">手把</span></td><td style="padding:.15rem .6rem">2&times; NES pad (CD4021 shift register)</td>
+    <td style="padding:.15rem .6rem"><span class="en"><strong>Behavioral</strong> 4021 protocol handler driving the pad's serial line through the board's
+     real LS368 path (test mode; scripted input via <code>--input</code>). The gate-level 4021 cannot express a released
+     button under quiescent-settle semantics — its latch pass-gates backdrive the button nodes and in-group GND beats
+     any external drive.</span><span class="zh"><strong>行為層</strong> 4021 協定 handler,經電路板真實的 LS368 路徑驅動手把序列線(測試模式;<code>--input</code> 腳本輸入)。閘級 4021 在穩態解析語意下無法表達「放開的按鍵」—— 閂鎖 pass-gate 反向驅動按鍵節點,群組內 GND 勝過任何外部驅動。</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Mapper</td><td style="padding:.15rem .6rem">NROM / CNROM</td>
     <td style="padding:.15rem .6rem"><span class="en">NROM = pure wiring; CNROM = <strong>behavioral</strong> CHR bank latch on the PRG bus</span><span class="zh">NROM = 純接線;CNROM = PRG 匯流排上的<strong>行為層</strong> CHR bank latch</span></td></tr>
    <tr><td style="padding:.15rem .6rem .15rem 0">Clock</td><td style="padding:.15rem .6rem">21.477 MHz master</td>

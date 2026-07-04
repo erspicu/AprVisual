@@ -877,6 +877,13 @@
       "class": "B",
       "maxFrames": 600,
       "passMarker": "Errors:"
+    },
+    {
+      "suite": "read_joy3",
+      "rom": "test_buttons.nes",
+      "class": "B",
+      "maxFrames": 1200,
+      "input": "A:2,B:3.5,Select:5,Start:6.5,Up:8,Down:9.5,Left:11,Right:12.5"
     }
   ]
 }

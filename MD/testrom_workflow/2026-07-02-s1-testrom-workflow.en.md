@@ -109,3 +109,16 @@ dotnet AprVisual.S1.dll --test <rom.nes>
 - [x] Class B (46) implemented (2026-07-02): `--screen-verdict` + `FindNametableVerdict`; calibration confirms it is safe (zero trap ROMs) and cheap (marker-frame p50=21).
 - [ ] Failing tests = the genuinely valuable findings (switch-level vs behavioral differences); record each in its own MD doc.
 - Differences between the engine's detection and AprNes: S1 has no (and needs no) screen-stability detection, controller injection (`read_joy3` is not in the NROM set), or PAL (the 2C07 is a different chip; it simply does not exist at the netlist level).
+
+
+## Addendum 2026-07-04: catalog fields & controller input
+
+- Runner defaults to **7 workers** (clean physical cores 2,6,10,14,4,12,8; core 0 only as the 8th lane via --jobs 8)
+- Result JSONs enriched: `startedAt/finishedAt/startedEpoch/finishedEpoch/elapsedSeconds/core`
+  (throughput stats use explicit timestamps; the report clusters to the latest contiguous run)
+- New catalog fields:
+  - `passMarker`: custom B-class completion marker (read_joy3's `Conflicts:` / `Errors:`)
+  - `input`: scripted controller input, AprNes-compatible `"A:2,B:3.5,...:holdSec"` (test_buttons)
+- Controllers are BEHAVIORAL (nes-pad-behavioral shadow module + Joypad handler, test mode only);
+  `--input` works in --test and --micro
+- Catalog 145: every mapper 0+3 ROM under checked/ is enrolled (PAL suites excepted)

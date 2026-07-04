@@ -83,6 +83,7 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 | pass-gate dynamic latch | pcm_latch, alua/alub, A/X registers | ✅ (floats and holds after the gate closes) | drive→settle→release |
 | cross-coupled regenerative pair | palette cells, pcm_irq | ❌ single side snaps back | **complementary dual-side** drive, then release |
 | actively-refreshed loop | P flags (p1/p7 reloaded every cycle from upstream) | ❌ reverted within a cycle | **dual-side pair + sustained drive across several cycles**, then release (every loop phase captures the new state; self-holds) |
+| gate-level TTL latch modules (pslatch family) | nes-pad's CD4021 | ❌ **structurally undrivable**: the latch pass-gates backdrive the input nodes; in-group GND always wins, so a released button can never be written | move the whole module to the **behavioral layer** (nes-pad-behavioral + Joypad handler; same abstraction as the cartridge) |
 
 ### 2.5 Power-up/alignment is a discrete lottery
 
@@ -151,13 +152,22 @@ run_latch/en_latch stages) — if ever needed, generalize the shim into an
 | `--micro <rom>` | run 3 frames, dump work RAM (micro-ROM result harvesting) | TestRunner |
 | `--rdy-probe` / `--phase-probe` | RDY transition stats / divider phase bit-strings | TestRunner |
 | `RegisterRawIdAliases` | registers `cpu.#<rawid>` aliases at load → unnamed nodes probeable (default off) | WireCore.Module |
+| `--input "A:2,Start:6.5:0.5"` | scripted controller input (AprNes-compatible; button:sec[:holdSec]), feeds the behavioral Joypad handler | TestRunner + WireCore.Handlers |
+| `--pass-marker <text>` | custom B-class completion marker (for tally ROMs that never print Passed, e.g. read_joy3) | TestRunner |
+| `--watch <n1,n2,...>` | per-frame (--micro) / per-hc (--op-probe) state print of arbitrary nodes | TestRunner |
+| `--no-alu-shim` | A/B toggle for the ALU hold shim (diagnostics) | TestRunner |
 | micro-ROM generator + analyzer | 640-combo unofficial-op semantics diff | temp/micro_imm/ |
 | APUSim ground-truth harness | clang++ builds emu-russia APUSim + gate-level 6502; friend-class access to internals | temp/apusim_harness/ |
 | static cone walker | transdefs upstream-cone BFS (pull/pass classification) | temp/ (written as needed) |
 
 Probe iron rules (hard-earned): **always print node-id resolution + full-width values**
 (a 4-bit lc probe once misled with all-zero low bits); in this netlist's sampling,
-`cpu.sync` leads by one cycle (sync=1 at fall N flags cycle N+1 as the opcode fetch).
+`cpu.sync` leads by one cycle (sync=1 at fall N flags cycle N+1 as the opcode fetch);
+**always verify the trigger window covers the target event** (two window-artifact
+incidents: $4016 reads fell outside the window, nearly misdiagnosing the decode as dead);
+a behavioral shift register must advance on a "read definitively over" edge (the joy
+deselect edge) — the pad clk's falling edge lands before the CPU samples and advances
+one bit early.
 
 ## 5. The boxing-in method (methodology)
 

@@ -26,6 +26,8 @@ dotnet build AprVisual.sln                                                      
 dotnet run --project src/AprVisual.S1 -- --benchmark path\game.nes --bench-hc 200000  # throughput hc/s + NodeStates checksum
 dotnet run --project src/AprVisual.S1 -- --test path\test.nes                         # run to blargg $6000 PASS/FAIL, exit code
 dotnet run --project src/AprVisual.S1 -- --test-dir path\nes-test-roms\
+#   test-mode extras: --screen-verdict / --pass-marker <txt> / --expected-crc / --reset-hold-extra K /
+#   --input "A:2,Start:6.5" (behavioral joypad) ; diagnostics: --bus-trace / --op-probe / --micro / --watch
 # Deprecated fork — src/AprVisual.Deprecated/ (WinForms live window; reference only):
 dotnet run --project src/AprVisual.Deprecated -- --rom path\game.nes                  # window: live 256x240 switch-level sim
 ```

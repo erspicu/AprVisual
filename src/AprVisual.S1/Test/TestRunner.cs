@@ -1220,6 +1220,7 @@ namespace AprVisual.Test
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
                 WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
+                WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
@@ -1542,6 +1543,7 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 WireCore.EnableDmcLatchShim();
                 WireCore.EnableAluLatchShim();
+                WireCore.EnableLxaMagicShim();
                 for (int f = 0; f < frames; f++) WireCore.RunFrame();
                 var ram = WireCore.ResolveMemory("u1.ram");
                 if (ram == null) { Console.Error.WriteLine("u1.ram unresolved"); return 2; }

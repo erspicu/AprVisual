@@ -1,7 +1,9 @@
 # Unofficial immediate 三連(ANC/ALR/ARR/LXA)—— ALU 輸入閂鎖賽跑
 
 日期:2026-07-05
-狀態:micro-ROM 640 組合 **0 mismatch**(shim 後);blargg 三 ROM 驗證中
+狀態:**全部修復** —— micro-ROM 640/640;blargg 三 ROM(v3-02/v5-03/nes-02)
+全 Passed。兩個 shim:ALU 輸入閂鎖 hold(修 ANC/ALR/ARR)+ LXA magic=$FF
+(修 ATX)。全 141 回歸重驗進行中。
 
 ## 失敗現象
 
@@ -62,10 +64,34 @@
   真機錄的,ATX 行的最終判定看 blargg ROM 實跑
 - blargg 三 ROM(v3-02 / v5-03 / nes-02)驗證中;之後 instr_test 全家族回歸
 
+## LXA magic shim(2026-07-05 定案)
+
+四次迭代的引擎物理課:
+1. 事後強制 A/X/N/Z(單發)→ A/X ✓ 但 P 被沖:**旗標是主動再生迴路**,
+   單發 force 一個 cycle 內被復原;且旗標在 operand 週期尾就已更新
+2. 延後強制 → 無效(同因)
+3. 壓制 ACSB 控制線 → 無效:**LUT 優先序 = 群組內 VCC 導通 > 外部 drive-low**,
+   主動驅動的控制線壓不住
+4. ✅ **A/X 單發 force + 旗標雙側成對({p1,#566}、{p7,#1045})持續驅動
+   3 cycles 再 SetFloat** —— 持續驅動讓迴路所有相位捕捉新態,release 後自持
+   (power-up palette 雙側教訓的進階版)
+
+偵測:φ2 fall 狀態機;注意**本 netlist 取樣點上 cpu.sync 超前一拍**
+(fall N 的 sync=1 表示 cycle N+1 是 opcode fetch)。
+
+證據:NESdev(magic 隨晶片/溫度而異)、TriCNES 原始碼(magic=$FF +
+「supposedly different depending on the CPU's temperature」註解)、blargg
+checksum 實錄(其主機 $FF 類,三 ROM 通過所證)。我們裸 netlist 的 $00 =
+二值 GND-wins 對比例式匯流排打架的量化;$FF 修正 = NTSC G 版次共識。
+
+## 結果總表
+
+- micro-ROM:344 mismatch → **0/640**(ANC/ALR/ARR/LXA 全對,含旗標)
+- blargg:v3-02 / v5-03 / nes-02 全 **Passed**(原本三個全 FAIL)
+- 預期計分:129/12 → 132/9(等全 141 回歸確認)
+
 ## 待辦
 
-- blargg 結果→若 ATX 行仍 FAIL:LXA magic 屬「依晶片而異」的忠實偏差候選
-  (NESdev 記載 magic 隨晶片/溫度變),掛證據卷宗
-- instr_test 全套件回歸(shim 對官方指令的誤傷檢查 —— 三 ROM 本身即金絲雀)
-- 效能註記:shim 每半週期兩個 NodeStates 載入 + 分支(測試模式);快照迴圈
-  16 bytes copy —— 對 --test 吞吐影響可忽略
+- 全 141 回歸(shim 是全 CPU 域,防誤傷官方指令 —— 三 ROM 本身已是強金絲雀)
+- 報告頁卷宗補 LXA magic 條目
+- raw-id 別名與 pin 別名的 `#` 前綴衝突(小 id 撞號)—— 之後清理

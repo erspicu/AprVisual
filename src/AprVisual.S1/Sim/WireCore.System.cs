@@ -370,6 +370,82 @@ namespace AprVisual.Sim
                 }
             _aluShimPrevSbadd = sa; _aluShimPrevDbadd = db;
             for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
+            if (LxaMagicShim) LxaMagicShimStep();
+        }
+
+        // ── LXA ($AB) magic-constant shim (test mode only) ───────────────────────────────────
+        // LXA/ATX: A = X = (A | MAGIC) & imm. The MAGIC constant is a ratioed analog bus fight
+        // (AC pulls the merged SB/IDB line against the data-latch driver during a short window);
+        // real chips yield $EE/$FF and it is documented as chip- and temperature-dependent
+        // (NESdev unofficial opcodes; TriCNES source: "can supposedly be different depending on
+        // the CPU's temperature"). Our binary GND-wins resolution quantizes the fight to
+        // MAGIC=$00. Both blargg's console (instr_test checksums) and AccuracyCoin's author's
+        // console behave as MAGIC=$FF, the NTSC G-revision consensus — this shim applies that:
+        // when opcode $AB completes, force A = X = imm and N/Z accordingly. Behavioral patch at
+        // the same honesty level as the CNROM mapper: the abstraction cannot express the analog
+        // strength contest, so the behavioral layer supplies the reference machine's outcome.
+        public static bool LxaMagicShim = false;
+        private static int _lxaPhi2 = EmptyNode, _lxaSync = EmptyNode;
+        private static int _lxaP1 = EmptyNode, _lxaP7 = EmptyNode, _lxaZLoop = EmptyNode, _lxaNotN = EmptyNode;
+        private static int[] _lxaDb = Array.Empty<int>(), _lxaA = Array.Empty<int>(), _lxaX = Array.Empty<int>();
+        private static int _lxaPrevPhi2, _lxaArm, _lxaImm;
+        private static bool _lxaPrevSync;
+
+        public static void EnableLxaMagicShim()
+        {
+            _lxaPhi2 = LookupNode("cpu.phi2");
+            _lxaSync = LookupNode("cpu.sync");
+            _lxaP1 = LookupNode("cpu.p1");
+            _lxaP7 = LookupNode("cpu.p7");
+            _lxaZLoop = LookupNode("cpu.#566");
+            _lxaNotN  = LookupNode("cpu.#1045");
+            var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
+            var a  = new List<int>(); ResolveNodes("cpu.a[7:0]",  a,  quiet: true);
+            var x  = new List<int>(); ResolveNodes("cpu.x[7:0]",  x,  quiet: true);
+            if (_lxaPhi2 == EmptyNode || _lxaSync == EmptyNode || _lxaP1 == EmptyNode || _lxaP7 == EmptyNode
+                || db.Count != 8 || a.Count != 8 || x.Count != 8)
+            { Console.Error.WriteLine("# [shim] LXA magic shim: nodes unresolved — disabled"); LxaMagicShim = false; return; }
+            _lxaDb = db.ToArray(); _lxaA = a.ToArray(); _lxaX = x.ToArray();
+            _lxaPrevPhi2 = NodeStates[_lxaPhi2];
+            _lxaArm = 0;
+            LxaMagicShim = true;
+        }
+
+        private static void LxaMagicShimStep()
+        {
+            int ph = NodeStates[_lxaPhi2];
+            if (_lxaPrevPhi2 == 1 && ph == 0)   // phi2 falling = end of a CPU cycle
+            {
+                int dbv = ReadBits(_lxaDb);
+                // In this netlist's phi2-fall sampling, cpu.sync leads by one cycle: sync==1 at
+                // the fall of cycle N flags cycle N+1 as the opcode fetch. Use the PREVIOUS
+                // fall's sync to classify the current cycle.
+                bool fetchNow = _lxaPrevSync;
+                _lxaPrevSync = NodeStates[_lxaSync] == 1;
+                void Force(int node, int bit) { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }
+                if (_lxaArm >= 3 && _lxaArm < 6) _lxaArm++;
+                if (_lxaArm == 6)
+                {
+                    // Release the sustained flag drive (held across PHP-style immediate readers)
+                    SetFloat(_lxaP7); SetFloat(_lxaNotN); SetFloat(_lxaP1); SetFloat(_lxaZLoop);
+                    _lxaArm = 0;
+                }
+                else if (_lxaArm == 2 && fetchNow)
+                {
+                    int imm = _lxaImm;
+                    for (int i = 0; i < 8; i++) { int b = (imm >> i) & 1; Force(_lxaA[i], b); Force(_lxaX[i], b); }
+                    // Flags: both latches are actively-refreshed loops that revert a one-shot
+                    // force; hold a sustained drive on the pair for 3 cycles instead, then float.
+                    int n = (imm >> 7) & 1, z = imm == 0 ? 1 : 0;
+                    void Drive(int node, int bit) { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); }
+                    Drive(_lxaP7, n); Drive(_lxaNotN, n ^ 1);
+                    Drive(_lxaP1, z); Drive(_lxaZLoop, z);
+                    _lxaArm = 3;
+                }
+                if (fetchNow && dbv == 0xAB) _lxaArm = 1;
+                else if (_lxaArm == 1) { _lxaImm = dbv; _lxaArm = 2; }
+            }
+            _lxaPrevPhi2 = ph;
         }
 
         /// <summary>

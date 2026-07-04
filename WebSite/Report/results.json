@@ -10,9 +10,9 @@
   "detection": "6000",
   "frames": 721,
   "simSeconds": 12.0,
-  "wallSeconds": 4299.6,
+  "wallSeconds": 4422.4,
   "resetCount": 0,
-  "khcPerSec": 119.8
+  "khcPerSec": 116.5
  },
  {
   "suite": "apu_mixer",
@@ -25,9 +25,9 @@
   "detection": "6000",
   "frames": 1160,
   "simSeconds": 19.3,
-  "wallSeconds": 6772.6,
+  "wallSeconds": 6904.5,
   "resetCount": 0,
-  "khcPerSec": 122.4
+  "khcPerSec": 120.1
  },
  {
   "suite": "apu_mixer",
@@ -40,9 +40,9 @@
   "detection": "6000",
   "frames": 970,
   "simSeconds": 16.14,
-  "wallSeconds": 5699.9,
+  "wallSeconds": 5853.0,
   "resetCount": 0,
-  "khcPerSec": 121.6
+  "khcPerSec": 118.4
  },
  {
   "suite": "apu_mixer",
@@ -55,9 +55,9 @@
   "detection": "6000",
   "frames": 607,
   "simSeconds": 10.1,
-  "wallSeconds": 3804.1,
+  "wallSeconds": 3826.4,
   "resetCount": 0,
-  "khcPerSec": 114.0
+  "khcPerSec": 113.4
  },
  {
   "suite": "apu_reset",
@@ -70,9 +70,9 @@
   "detection": "6000+reset",
   "frames": 32,
   "simSeconds": 0.53,
-  "wallSeconds": 216.6,
+  "wallSeconds": 216.4,
   "resetCount": 1,
-  "khcPerSec": 105.0
+  "khcPerSec": 105.1
  },
  {
   "suite": "apu_reset",
@@ -85,9 +85,9 @@
   "detection": "6000+reset",
   "frames": 48,
   "simSeconds": 0.8,
-  "wallSeconds": 311.7,
+  "wallSeconds": 310.6,
   "resetCount": 1,
-  "khcPerSec": 109.7
+  "khcPerSec": 110.1
  },
  {
   "suite": "apu_reset",
@@ -100,9 +100,9 @@
   "detection": "6000+reset",
   "frames": 59,
   "simSeconds": 0.98,
-  "wallSeconds": 392.4,
+  "wallSeconds": 385.0,
   "resetCount": 2,
-  "khcPerSec": 107.0
+  "khcPerSec": 109.1
  },
  {
   "suite": "apu_reset",
@@ -115,9 +115,9 @@
   "detection": "6000+reset",
   "frames": 33,
   "simSeconds": 0.55,
-  "wallSeconds": 219.5,
+  "wallSeconds": 220.0,
   "resetCount": 1,
-  "khcPerSec": 106.9
+  "khcPerSec": 106.7
  },
  {
   "suite": "apu_reset",
@@ -130,9 +130,9 @@
   "detection": "6000+reset",
   "frames": 38,
   "simSeconds": 0.63,
-  "wallSeconds": 256.9,
+  "wallSeconds": 249.3,
   "resetCount": 1,
-  "khcPerSec": 105.3
+  "khcPerSec": 108.5
  },
  {
   "suite": "apu_reset",
@@ -145,9 +145,9 @@
   "detection": "6000+reset",
   "frames": 39,
   "simSeconds": 0.65,
-  "wallSeconds": 255.4,
+  "wallSeconds": 259.6,
   "resetCount": 1,
-  "khcPerSec": 108.7
+  "khcPerSec": 106.9
  },
  {
   "suite": "apu_test/rom_singles",
@@ -160,9 +160,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 131.5,
+  "wallSeconds": 132.1,
   "resetCount": 0,
-  "khcPerSec": 113.7
+  "khcPerSec": 113.2
  },
  {
   "suite": "apu_test/rom_singles",
@@ -175,9 +175,9 @@
   "detection": "6000",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 107.2,
+  "wallSeconds": 106.3,
   "resetCount": 0,
-  "khcPerSec": 106.1
+  "khcPerSec": 107.0
  },
  {
   "suite": "apu_test/rom_singles",
@@ -190,9 +190,9 @@
   "detection": "6000",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 147.7,
+  "wallSeconds": 151.2,
   "resetCount": 0,
-  "khcPerSec": 110.9
+  "khcPerSec": 108.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -205,9 +205,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 134.3,
+  "wallSeconds": 134.7,
   "resetCount": 0,
-  "khcPerSec": 111.3
+  "khcPerSec": 111.0
  },
  {
   "suite": "apu_test/rom_singles",
@@ -220,9 +220,9 @@
   "detection": "6000",
   "frames": 114,
   "simSeconds": 1.9,
-  "wallSeconds": 657.9,
+  "wallSeconds": 666.1,
   "resetCount": 0,
-  "khcPerSec": 123.8
+  "khcPerSec": 122.2
  },
  {
   "suite": "apu_test/rom_singles",
@@ -235,9 +235,9 @@
   "detection": "6000",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 136.8,
+  "wallSeconds": 139.2,
   "resetCount": 0,
-  "khcPerSec": 114.5
+  "khcPerSec": 112.5
  },
  {
   "suite": "apu_test/rom_singles",
@@ -250,9 +250,9 @@
   "detection": "6000",
   "frames": 27,
   "simSeconds": 0.45,
-  "wallSeconds": 168.0,
+  "wallSeconds": 170.3,
   "resetCount": 0,
-  "khcPerSec": 114.5
+  "khcPerSec": 113.0
  },
  {
   "suite": "apu_test/rom_singles",
@@ -265,9 +265,9 @@
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 177.7,
+  "wallSeconds": 180.8,
   "resetCount": 0,
-  "khcPerSec": 116.3
+  "khcPerSec": 114.3
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -280,9 +280,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 146.9,
+  "wallSeconds": 154.1,
   "resetCount": 0,
-  "khcPerSec": 126.1
+  "khcPerSec": 120.2
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -295,9 +295,9 @@
   "detection": "screen",
   "frames": 12,
   "simSeconds": 0.2,
-  "wallSeconds": 77.9,
+  "wallSeconds": 76.3,
   "resetCount": 0,
-  "khcPerSec": 109.3
+  "khcPerSec": 111.6
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -310,9 +310,9 @@
   "detection": "screen",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 103.2,
+  "wallSeconds": 103.6,
   "resetCount": 0,
-  "khcPerSec": 117.2
+  "khcPerSec": 116.7
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -325,9 +325,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 95.9,
+  "wallSeconds": 96.4,
   "resetCount": 0,
-  "khcPerSec": 118.6
+  "khcPerSec": 118.0
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -340,9 +340,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 133.5,
+  "wallSeconds": 137.8,
   "resetCount": 0,
-  "khcPerSec": 122.7
+  "khcPerSec": 118.9
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -355,9 +355,9 @@
   "detection": "screen",
   "frames": 24,
   "simSeconds": 0.4,
-  "wallSeconds": 137.8,
+  "wallSeconds": 138.7,
   "resetCount": 0,
-  "khcPerSec": 124.0
+  "khcPerSec": 123.2
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -370,9 +370,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 121.2,
+  "wallSeconds": 116.3,
   "resetCount": 0,
-  "khcPerSec": 111.6
+  "khcPerSec": 116.3
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -385,9 +385,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.4,
+  "wallSeconds": 96.6,
   "resetCount": 0,
-  "khcPerSec": 118.0
+  "khcPerSec": 117.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -415,9 +415,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 95.3,
+  "wallSeconds": 97.9,
   "resetCount": 0,
-  "khcPerSec": 119.4
+  "khcPerSec": 116.2
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -430,9 +430,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.6,
+  "wallSeconds": 96.8,
   "resetCount": 0,
-  "khcPerSec": 117.8
+  "khcPerSec": 117.5
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -445,9 +445,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 110.2,
+  "wallSeconds": 115.0,
   "resetCount": 0,
-  "khcPerSec": 122.7
+  "khcPerSec": 117.6
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -460,9 +460,9 @@
   "detection": "screen",
   "frames": 20,
   "simSeconds": 0.33,
-  "wallSeconds": 115.3,
+  "wallSeconds": 121.1,
   "resetCount": 0,
-  "khcPerSec": 123.5
+  "khcPerSec": 117.5
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -475,9 +475,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 115.8,
+  "wallSeconds": 117.1,
   "resetCount": 0,
-  "khcPerSec": 116.8
+  "khcPerSec": 115.5
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -490,9 +490,9 @@
   "detection": "screen",
   "frames": 24,
   "simSeconds": 0.4,
-  "wallSeconds": 137.4,
+  "wallSeconds": 143.2,
   "resetCount": 0,
-  "khcPerSec": 124.4
+  "khcPerSec": 119.4
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -505,9 +505,9 @@
   "detection": "screen",
   "frames": 20,
   "simSeconds": 0.33,
-  "wallSeconds": 118.4,
+  "wallSeconds": 123.0,
   "resetCount": 0,
-  "khcPerSec": 120.2
+  "khcPerSec": 115.7
  },
  {
   "suite": "branch_timing_tests",
@@ -520,9 +520,9 @@
   "detection": "screen",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 82.7,
+  "wallSeconds": 84.4,
   "resetCount": 0,
-  "khcPerSec": 120.3
+  "khcPerSec": 117.8
  },
  {
   "suite": "branch_timing_tests",
@@ -535,9 +535,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 92.1,
+  "wallSeconds": 94.6,
   "resetCount": 0,
-  "khcPerSec": 123.5
+  "khcPerSec": 120.3
  },
  {
   "suite": "branch_timing_tests",
@@ -550,9 +550,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 92.4,
+  "wallSeconds": 94.4,
   "resetCount": 0,
-  "khcPerSec": 123.1
+  "khcPerSec": 120.5
  },
  {
   "suite": "cpu_dummy_reads",
@@ -565,24 +565,24 @@
   "detection": "screen",
   "frames": 47,
   "simSeconds": 0.78,
-  "wallSeconds": 342.6,
+  "wallSeconds": 347.3,
   "resetCount": 0,
-  "khcPerSec": 97.9
+  "khcPerSec": 96.6
  },
  {
   "suite": "cpu_dummy_writes",
   "rom": "cpu_dummy_writes_oam.nes",
   "class": "A",
   "status": "fail",
-  "exit_code": 2,
-  "result_text": " [0;37mTEST: cpu_dummy_writes_oam\n [0;33mThis program verifies that the\nCPU does 2x writes properly.\nAny read-modify-write opcode\nshould first write the origi-\nnal value; then the calculated\nvalue exactly 1 cycle later.\n\nRequirement: OAM memory reads\nMUST be reliable. This is\noften the case on emulators,\nbut NOT on the real NES.\nNevertheless, this test can be\nused to see if the CPU in the\nemulator is built properly.\n\n [0;37m [0;37mTesting OAM.  The screen will go blank for a moment now.\n [0;37m [0;33mFAIL. 4332 FAILED READS.\n [0;37mVerifying opcodes...\n [0;37m0E [0;37m2E [0;37m4E [0;37m6E [0;37mCE [0;37mEE  [0;37m1E [0;37m3E [0;37m5E [0;37m7E [0;37mDE [0;37mFE  [0;37m*12\n [0;37m0F [0;37m2F [0;37m4F [0;37m6F [0;37mCF [0;37mEF  [0;37m1F [0;37m3F [0;37m5F [0;37m7F [0;37mDF [0;37mFF  [0;37m*12\n [0;37m03 [0;37m23 [0;37m43 [0;37m63 [0;37mC3 [0;37mE3  [0;37m13 [0;37m33 [0;37m53 [0;37m73 [0;37mD3 [0;37mF3  [0;37m*12\n [0;37m1B [0;37m3B [0;37m5B [0;37m7B [0;37mDB [0;37mFB               [0;37m*6\n [0;37m [0;33m42 OPCODES FAILED THE TEST\n [0;37mProbably because [0;37m\nOAM reading is too unreliable.\n\nFailed #2",
+  "exit_code": 5,
+  "result_text": " [0;37mTEST: cpu_dummy_writes_oam\n [0;33mThis program verifies that the\nCPU does 2x writes properly.\nAny read-modify-write opcode\nshould first write the origi-\nnal value; then the calculated\nvalue exactly 1 cycle later.\n\nRequirement: OAM memory reads\nMUST be reliable. This is\noften the case on emulators,\nbut NOT on the real NES.\nNevertheless, this test can be\nused to see if the CPU in the\nemulator is built properly.\n\n [0;37m [0;37mTesting OAM.  The screen will go blank for a moment now.\n [0;37mOK;  [0;37mVerifying opcodes...\n [0;37m0E [0;37m2E [0;37m4E [0;37m6E [0;37mCE [0;37mEE  [0;37m1E [0;37m3E [0;37m5E [0;37m7E [0;37mDE [0;37mFE  [0;37m*12\n [0;37m0F [0;37m2F [0;37m4F [0;37m6F [0;37mCF [0;37mEF  [0;37m1F [0;37m3F [0;37m5F [0;37m7F [0;37mDF [0;37mFF  [0;37m*12\n [0;37m03 [0;37m23 [0;37m43 [0;37m63 [0;37mC3 [0;37mE3  [0;37m13 [0;37m33 [0;37m53 [0;37m73 [0;37mD3 [0;37mF3  [0;37m*12\n [0;37m1B [0;37m3B [0;37m5B [0;37m7B [0;37mDB [0;37mFB               [0;37m*6\n [0;37m [0;33m42 OPCODES FAILED THE TEST\n [0;37m\nSome opcodes failed the test.\n\nFailed #5",
   "screenshot": "screenshots/cpu_dummy_writes/cpu_dummy_writes_oam.webp",
   "detection": "6000",
-  "frames": 320,
-  "simSeconds": 5.32,
-  "wallSeconds": 2263.7,
+  "frames": 335,
+  "simSeconds": 5.57,
+  "wallSeconds": 2389.0,
   "resetCount": 0,
-  "khcPerSec": 101.0
+  "khcPerSec": 100.2
  },
  {
   "suite": "cpu_dummy_writes",
@@ -595,9 +595,9 @@
   "detection": "6000",
   "frames": 220,
   "simSeconds": 3.66,
-  "wallSeconds": 1634.7,
+  "wallSeconds": 1676.3,
   "resetCount": 0,
-  "khcPerSec": 96.2
+  "khcPerSec": 93.8
  },
  {
   "suite": "cpu_exec_space",
@@ -610,9 +610,9 @@
   "detection": "6000",
   "frames": 55,
   "simSeconds": 0.92,
-  "wallSeconds": 411.0,
+  "wallSeconds": 406.1,
   "resetCount": 0,
-  "khcPerSec": 95.5
+  "khcPerSec": 96.7
  },
  {
   "suite": "cpu_exec_space",
@@ -625,9 +625,9 @@
   "detection": "6000",
   "frames": 44,
   "simSeconds": 0.73,
-  "wallSeconds": 306.9,
+  "wallSeconds": 310.0,
   "resetCount": 0,
-  "khcPerSec": 102.3
+  "khcPerSec": 101.3
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -640,9 +640,9 @@
   "detection": "6000",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 109.3,
+  "wallSeconds": 112.2,
   "resetCount": 0,
-  "khcPerSec": 110.6
+  "khcPerSec": 107.8
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -655,9 +655,9 @@
   "detection": "6000",
   "frames": 111,
   "simSeconds": 1.85,
-  "wallSeconds": 626.3,
+  "wallSeconds": 629.7,
   "resetCount": 0,
-  "khcPerSec": 126.6
+  "khcPerSec": 125.9
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -670,7 +670,7 @@
   "detection": "6000",
   "frames": 134,
   "simSeconds": 2.23,
-  "wallSeconds": 736.7,
+  "wallSeconds": 736.6,
   "resetCount": 0,
   "khcPerSec": 129.9
  },
@@ -685,9 +685,9 @@
   "detection": "6000",
   "frames": 69,
   "simSeconds": 1.15,
-  "wallSeconds": 496.0,
+  "wallSeconds": 510.2,
   "resetCount": 0,
-  "khcPerSec": 99.3
+  "khcPerSec": 96.5
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -715,9 +715,9 @@
   "detection": "6000+reset",
   "frames": 153,
   "simSeconds": 2.55,
-  "wallSeconds": 1115.7,
+  "wallSeconds": 1135.9,
   "resetCount": 1,
-  "khcPerSec": 97.9
+  "khcPerSec": 96.2
  },
  {
   "suite": "cpu_reset",
@@ -730,9 +730,9 @@
   "detection": "6000+reset",
   "frames": 159,
   "simSeconds": 2.65,
-  "wallSeconds": 1117.5,
+  "wallSeconds": 1181.9,
   "resetCount": 1,
-  "khcPerSec": 101.6
+  "khcPerSec": 96.1
  },
  {
   "suite": "cpu_timing_test6",
@@ -760,9 +760,9 @@
   "detection": "crc",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 120.0,
+  "wallSeconds": 126.3,
   "resetCount": 0,
-  "khcPerSec": 130.5
+  "khcPerSec": 124.0
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -775,9 +775,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 139.8,
+  "wallSeconds": 143.5,
   "resetCount": 0,
-  "khcPerSec": 132.5
+  "khcPerSec": 129.1
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -790,9 +790,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 128.0,
+  "wallSeconds": 131.9,
   "resetCount": 0,
-  "khcPerSec": 105.6
+  "khcPerSec": 102.5
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -805,9 +805,9 @@
   "detection": "crc",
   "frames": 13,
   "simSeconds": 0.22,
-  "wallSeconds": 74.0,
+  "wallSeconds": 72.3,
   "resetCount": 0,
-  "khcPerSec": 124.8
+  "khcPerSec": 127.7
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -820,9 +820,9 @@
   "detection": "screen",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 83.6,
+  "wallSeconds": 85.5,
   "resetCount": 0,
-  "khcPerSec": 127.5
+  "khcPerSec": 124.7
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -835,9 +835,9 @@
   "detection": "6000",
   "frames": 12,
   "simSeconds": 0.2,
-  "wallSeconds": 78.2,
+  "wallSeconds": 77.8,
   "resetCount": 0,
-  "khcPerSec": 108.9
+  "khcPerSec": 109.5
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -850,9 +850,9 @@
   "detection": "6000",
   "frames": 13,
   "simSeconds": 0.22,
-  "wallSeconds": 85.7,
+  "wallSeconds": 86.2,
   "resetCount": 0,
-  "khcPerSec": 107.7
+  "khcPerSec": 107.1
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -865,9 +865,9 @@
   "detection": "6000",
   "frames": 57,
   "simSeconds": 0.95,
-  "wallSeconds": 334.3,
+  "wallSeconds": 327.9,
   "resetCount": 0,
-  "khcPerSec": 121.7
+  "khcPerSec": 124.1
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -880,9 +880,9 @@
   "detection": "6000",
   "frames": 142,
   "simSeconds": 2.36,
-  "wallSeconds": 813.5,
+  "wallSeconds": 802.5,
   "resetCount": 0,
-  "khcPerSec": 124.7
+  "khcPerSec": 126.4
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -895,24 +895,24 @@
   "detection": "6000",
   "frames": 98,
   "simSeconds": 1.63,
-  "wallSeconds": 584.7,
+  "wallSeconds": 558.7,
   "resetCount": 0,
-  "khcPerSec": 119.7
+  "khcPerSec": 125.3
  },
  {
   "suite": "instr_test-v3/rom_singles",
   "rom": "02-immediate.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "0B AAC #n\n2B AAC #n\n4B ASR #n\n6B ARR #n\nAB ATX #n\n\n02-immediate\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "02-immediate\n\nPassed",
   "screenshot": "screenshots/instr_test-v3/rom_singles/02-immediate.webp",
   "detection": "6000",
-  "frames": 92,
-  "simSeconds": 1.53,
-  "wallSeconds": 568.3,
+  "frames": 89,
+  "simSeconds": 1.48,
+  "wallSeconds": 529.7,
   "resetCount": 0,
-  "khcPerSec": 115.6
+  "khcPerSec": 120.0
  },
  {
   "suite": "instr_test-v3/rom_singles",

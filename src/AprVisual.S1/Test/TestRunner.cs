@@ -35,7 +35,7 @@ namespace AprVisual.Test
         {
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
-            string? probePath = null, probeVblPath = null, dumpNodeName = null, benchPath = null;
+            string? probePath = null, probeVblPath = null, probe2001Path = null, dumpNodeName = null, benchPath = null;
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
             string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
             string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
@@ -72,6 +72,7 @@ namespace AprVisual.Test
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
                     case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
                     case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
+                    case "--probe-2001":      if (i + 1 < args.Length) probe2001Path = args[++i]; break;
                     case "--dump-node":       if (i + 1 < args.Length) dumpNodeName = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
@@ -160,6 +161,7 @@ namespace AprVisual.Test
             if (busTracePath  != null) return BusTrace(busTracePath, shotFrames > 3 ? shotFrames : 29);
             if (probePath     != null) return Probe2002(probePath);
             if (probeVblPath  != null) return ProbeVbl(probeVblPath);
+            if (probe2001Path != null) return Probe2001(probe2001Path);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
             if (benchPath     != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount, logDir);
             if (benchPath     != null) return Benchmark(benchPath, shotFrames);
@@ -219,6 +221,7 @@ namespace AprVisual.Test
                   AprVisual.S1 --dump-node <name>          introspect one node (pull-up / gated trans / channel-end trans)
                   AprVisual.S1 --probe2002 <rom>           trace bus/PPU signals at the next $2002 read after vblank
                   AprVisual.S1 --probe-vbl <rom>           trace the 2C02 vbl flag latch through the $2002 read path
+                  AprVisual.S1 --probe-2001 <rom>          trace a $2001 write -> bkg_enable -> rendering chain + the dot-339 skip window
                   AprVisual.S1 --selftest                  run hand-built inverter/NAND/pass/callback/static-merge circuits
 
                 Diagnostic flags (compose with the above):

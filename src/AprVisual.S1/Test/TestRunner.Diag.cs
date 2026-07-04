@@ -509,6 +509,85 @@ namespace AprVisual.Test
         }
 
         // ── --probe-vbl: trace the 2C02 latched vblank flag through the $2002 read path ──
+        // ── --probe-2001: even_odd arbitration M2 — measure the $2001 WRITE-effect path.
+        //    Window A: first $2001 write after warm-up — cpu grid (ab/rw/phi2) vs /w2001 strobe,
+        //    bkg_enable register bit and the rendering_1..4 enable pipeline, in hpos coordinates.
+        //    Window B: the pre-render dot-339 skip — skip_dot / even_frame_toggle / hpos sequence. ──
+        private static int Probe2001(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)} — probing $2001 write-effect + dot-339 skip");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int[] ab = ResolveQ("cpu.ab[15:0]"), db = ResolveQ("cpu.db[7:0]");
+                int[] hp = ResolveQ("ppu.hpos[8:0]"), vp = ResolveQ("ppu.vpos[8:0]");
+                int rw    = WireCore.LookupNode("cpu.rw");
+                int phi2  = WireCore.LookupNode("cpu.phi2");
+                int w2001 = WireCore.LookupNode("ppu./w2001");
+                int wreg  = WireCore.LookupNode("ppu.write_2001_reg");
+                int bkg   = WireCore.LookupNode("ppu.bkg_enable");
+                int spr   = WireCore.LookupNode("ppu.spr_enable");
+                int r1 = WireCore.LookupNode("ppu.rendering_1"), r2 = WireCore.LookupNode("ppu.rendering_2");
+                int r3 = WireCore.LookupNode("ppu.rendering_3"), r4 = WireCore.LookupNode("ppu.rendering_4");
+                int h339  = WireCore.LookupNode("ppu.hpos_eq_339_and_rendering");
+                int skip  = WireCore.LookupNode("ppu.skip_dot");
+                int evenT = WireCore.LookupNode("ppu.even_frame_toggle");
+                Console.WriteLine($"# ids: /w2001={w2001} write_2001_reg={wreg} bkg_enable={bkg} rendering_1..4={r1},{r2},{r3},{r4} h339={h339} skip_dot={skip} even_toggle={evenT}");
+                int H1(int n) => n != WireCore.EmptyNode && WireCore.IsNodeHigh(n) ? 1 : 0;
+                int Rd(int[] a) => WireCore.ReadBits(a);
+
+                for (int f = 0; f < 3; f++) WireCore.RunFrame();
+
+                string last = "";
+                for (int wa = 0; wa < 3; wa++)
+                {
+                    bool found = false;
+                    for (long i = 0; i < 8_000_000; i++)
+                    {
+                        WireCore.Step(1);
+                        if (Rd(ab) == 0x2001 && H1(rw) == 0 && (Rd(db) & 0x08) != 0) { found = true; break; }
+                    }
+                    if (!found) { Console.WriteLine("# no $2001 ENABLE write seen in 8M half-cycles"); break; }
+                    Console.WriteLine($"# A{wa} (enable write): t vpos hpos | ab db rw phi2 | /w2001 wreg bkg spr | r1 r2 r3 r4");
+                    last = "";
+                    for (int j = 0; j < 120; j++)
+                    {
+                        string line = $"{Rd(ab):X4} {Rd(db):X2} {(H1(rw) != 0 ? 'R' : 'W')} {H1(phi2)} | {H1(w2001)} {H1(wreg)} {H1(bkg)} {H1(spr)} | {H1(r1)} {H1(r2)} {H1(r3)} {H1(r4)}";
+                        if (line != last) { Console.WriteLine($"  {WireCore.Time,9} {Rd(vp),3} {Rd(hp),3} | {line}"); last = line; }
+                        WireCore.Step(1);
+                    }
+                }
+
+                for (int win = 0; win < 10; win++)
+                {
+                    bool foundB = false;
+                    for (long i = 0; i < 4_000_000; i++)
+                    {
+                        WireCore.Step(1);
+                        if (Rd(vp) == 261 && Rd(hp) >= 330) { foundB = true; break; }
+                    }
+                    if (!foundB) { Console.WriteLine("# pre-render window not reached"); return 1; }
+                    Console.WriteLine($"# B{win}: t vpos hpos | h339 skip evenT | r4 bkg");
+                    last = "";
+                    for (int j = 0; j < 220; j++)
+                    {
+                        int h = Rd(hp);
+                        if (h >= 336 || h <= 3)
+                        {
+                            string line = $"{H1(h339)} {H1(skip)} {H1(evenT)} | {H1(r4)} {H1(bkg)}";
+                            string full = $"{Rd(vp),3} {h,3} | {line}";
+                            if (full != last) { Console.WriteLine($"  {WireCore.Time,9} {full}"); last = full; }
+                        }
+                        WireCore.Step(1);
+                    }
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static int ProbeVbl(string romPath)
         {
             var rom = NesRom.LoadFromFile(romPath);

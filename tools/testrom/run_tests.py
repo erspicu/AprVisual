@@ -122,7 +122,7 @@ def run_one(t, core, rombase):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs", type=int, default=7)   # 7 clean physical cores; core 0 (8th lane) is opt-in via --jobs 8
-    ap.add_argument("--filter", default=None, help="substring filter on suite/rom")
+    ap.add_argument("--filter", default=None, help="substring filter on suite/rom; comma-separated = OR (one combined batch)")
     ap.add_argument("--class", dest="cls", default=None, help="A / A-r / C")
     ap.add_argument("--limit", type=int, default=0, help="run only the first N pending tests")
     ap.add_argument("--rerun", action="store_true", help="ignore existing result JSONs")
@@ -138,7 +138,10 @@ def main():
     rombase = os.path.join(REPO, cat["romBase"].replace("/", os.sep))
     tests = cat["tests"]
     if args.filter:
-        tests = [t for t in tests if args.filter.lower() in f"{t['suite']}/{t['rom']}".lower()]
+        # Comma-separated substrings, OR semantics — run several families as ONE batch so all
+        # workers stay busy (separate sequential --filter invocations leave cores idle).
+        pats = [f.strip().lower() for f in args.filter.split(",") if f.strip()]
+        tests = [t for t in tests if any(pat in f"{t['suite']}/{t['rom']}".lower() for pat in pats)]
     if args.cls:
         tests = [t for t in tests if t["class"] == args.cls]
     def has_final(t):

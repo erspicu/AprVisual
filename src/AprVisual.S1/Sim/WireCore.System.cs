@@ -121,7 +121,6 @@ namespace AprVisual.Sim
                 AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
                 if (isCnrom) AttachCnromLatch(Math.Max(1, rom.ChrRom.Length / 8192));   // CNROM: CPU write to $8000+ latches the CHR bank
                 if (EnableJoypadHandler) AttachJoypadHandler();   // behavioral controller (test mode)
-                if (EnableDbl2007Shim) AttachDbl2007Shim();       // $2007 double-read merge (per-test opt-in)
                 AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
 
                 ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)
@@ -488,6 +487,104 @@ namespace AprVisual.Sim
                 now = NodeStates[_fiFlag];
             }
             _fiPrev = now;
+            if (Dbl2007Shim) Dbl2007ShimStep();
+        }
+
+        // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
+        // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
+        // buffer advance in the netlist — matching real hardware — but the reload's
+        // staging→inbuf→io→db propagation AND the CPU's A load complete inside the same
+        // final-phi2 settle wave (op-probe verified), so the CPU read-through gets the NEW
+        // buffer value where all four blargg-documented real patterns keep old/transitional
+        // values (double_2007_read). Behavioral references model exactly this at the memory
+        // layer: a read that lands mid-reload returns the OLD buffer (AprNes ppu_r_2007 state
+        // machine, TriCNES read-latch pipeline). The shim is the logical stand-in for the
+        // missing physical propagation delay — hence GLOBAL in test mode, not per-test.
+        // ZERO-FOOTPRINT (Gemini consult 2026-07-05): no fake nodes/transistors — a load-time
+        // attach renumbers the netlist and re-rolls alignment-lottery races in unrelated
+        // tests (measured: dma_2007_read@K=1 flipped to a non-real pattern with zero shim
+        // firings). Detection polls in the existing test-mode shim chain; the force uses the
+        // instrument-grade InstClampLow (Gnd-class, wins the whole wave — measured: every
+        // Set-flag force at every discrete boundary loses, the A load consumes the mid-wave
+        // transient). Armed only when the reload lands inside a GENUINE CPU $2007 sample:
+        // address bus on a $2007 mirror, read mode, RDY high (a DMC-DMA stall parks ab on
+        // $2007 through zombie cycles the CPU never consumes — the real sample comes cycles
+        // later with full propagation time), phi2 HIGH (a reload landing in phi1 precedes
+        // the next sample by over half a cycle — real HW propagates it; measured on
+        // dma_2007_read, where clamping such a reload zeroed the X readout), and not the
+        // palette bypass. Clamps only the bits that ROSE (presented value = old∧new, the same
+        // transitional class as the documented real patterns); the buffer itself keeps the
+        // netlist's merged single advance. Measured race spans: fall 1 hc (micro) to 7 hc
+        // (blargg @K=1) after the reload — i.e. the window is "same active phi2 phase".
+        public static bool Dbl2007Shim = false;
+        private static readonly bool _d27Debug = Environment.GetEnvironmentVariable("PB_DEBUG") != null;
+        private static int _d27Pal = EmptyNode, _d27Rw = EmptyNode, _d27Rdy = EmptyNode, _d27Phi2 = EmptyNode, _d27Nr2007 = EmptyNode;
+        private static int[] _d27Inbuf = Array.Empty<int>(), _d27Ab = Array.Empty<int>(), _d27Db = Array.Empty<int>();
+        private static int _d27Prev, _d27Clamped, _d27Phi2Prev;
+        private static long _d27T0;
+
+        public static void EnableDbl2007Shim()
+        {
+            _d27Pal  = LookupNode("ppu.read_2007_output_palette");
+            _d27Nr2007 = LookupNode("ppu./r2007");
+            _d27Rw   = LookupNode("cpu.rw");
+            _d27Rdy  = LookupNode("cpu.rdy");
+            _d27Phi2 = LookupNode("cpu.phi2");
+            var ib = new List<int>(); ResolveNodes("ppu.inbuf[7:0]", ib, quiet: true);
+            var ab = new List<int>(); ResolveNodes("cpu.ab[15:0]", ab, quiet: true);
+            var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
+            if (_d27Pal == EmptyNode || _d27Rw == EmptyNode || _d27Rdy == EmptyNode || _d27Phi2 == EmptyNode
+                || _d27Nr2007 == EmptyNode || ib.Count != 8 || ab.Count != 16 || db.Count != 8)
+            { Console.Error.WriteLine("# [shim] dbl2007 shim: nodes unresolved — disabled"); Dbl2007Shim = false; return; }
+            _d27Inbuf = ib.ToArray(); _d27Ab = ab.ToArray(); _d27Db = db.ToArray();
+            _d27Prev = ReadBits(_d27Inbuf);
+            _d27Phi2Prev = NodeStates[_d27Phi2];
+            _d27Clamped = 0;
+            Dbl2007Shim = true;
+        }
+
+        private static void Dbl2007ShimStep()
+        {
+            int now = ReadBits(_d27Inbuf);
+            if (now != _d27Prev)
+            {
+                if (_d27Clamped == 0
+                    && NodeStates[_d27Nr2007] == 0
+                    && NodeStates[_d27Phi2] != 0
+                    && NodeStates[_d27Pal] == 0
+                    && (ReadBits(_d27Ab) & 0xE007) == 0x2007
+                    && NodeStates[_d27Rw] != 0 && NodeStates[_d27Rdy] != 0)
+                {
+                    // Reload landed inside a genuine CPU $2007 sample: /r2007 pulse ACTIVE and
+                    // phi2 HIGH — the data phase whose imminent fall the reload races. Guards
+                    // measured against dma_2007_read: ab parks on $2007 between pulses during
+                    // a DMC-DMA stall (nr guard), and a reload landing in phi1 (phi2 guard)
+                    // precedes the next sample by half a cycle — real HW propagates both, so
+                    // clamping there zeroed the X readout (44&~44=00). Clamp the risen bits
+                    // low as a boundary condition of the next wave (phi2 fall + phi1 + A load);
+                    // if the fall does not arrive within the analog window (2 hc), the release
+                    // path below undoes the clamp BEFORE the sample.
+                    int rose = now & ~_d27Prev & 0xFF;
+                    if (_d27Debug) Console.Error.WriteLine($"# [d27] t={Time} CLAMP {_d27Prev:X2}->{now:X2} rose={rose:X2} ab={ReadBits(_d27Ab):X4} nr={NodeStates[_d27Nr2007]} rdy={NodeStates[_d27Rdy]} phi2={NodeStates[_d27Phi2]}");
+                    for (int i = 0; i < 8; i++)
+                        if (((rose >> i) & 1) != 0) InstClampLow(_d27Db[i]);
+                    _d27Clamped = rose;
+                    _d27T0 = Time;
+                }
+                _d27Prev = now;
+            }
+            int phi2 = NodeStates[_d27Phi2];
+            if (_d27Clamped != 0
+                && ((_d27Phi2Prev == 1 && phi2 == 0)      // CPU sample edge passed (post-settle)
+                    || Time - _d27T0 > 24))               // safety: never hold past one CPU cycle
+            {
+                if (_d27Debug) Console.Error.WriteLine($"# [d27] t={Time} REL dt={Time - _d27T0} why={(_d27Phi2Prev == 1 && phi2 == 0 ? "fall" : "safety")}");
+                for (int i = 0; i < 8; i++)
+                    if (((_d27Clamped >> i) & 1) != 0) InstRelease(_d27Db[i]);
+                _d27Clamped = 0;
+                _d27Prev = ReadBits(_d27Inbuf);
+            }
+            _d27Phi2Prev = phi2;
         }
 
 

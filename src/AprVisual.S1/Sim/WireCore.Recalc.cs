@@ -757,6 +757,32 @@ namespace AprVisual.Sim
         public static void SetLow (int nn)  { if (SetLowQueued(nn))   ProcessQueue(); }
         public static void SetFloat(int nn) { if (SetFloatQueued(nn)) ProcessQueue(); }
 
+        // ── Instrument-grade force/release (EDA VPI-style; Gemini consult 2026-07-05) ────────
+        // Test instruments sometimes must OVERRIDE an actively-driven group (the Set* class
+        // ranks below Gnd/Pwr by design — behavioral RAM must not out-drive real rails).
+        // Rather than attaching fake ground transistors at load time — which renumbers nodes
+        // and re-rolls alignment-lottery races in unrelated tests (probe effect, measured on
+        // dma_2007_read) — InstClampLow ORs the Gnd flag directly into the node: group-OR
+        // resolution then behaves EXACTLY as if a conducting path to vss joined the group,
+        // with zero graph change. Discipline (per the consult): test-mode shims only, never
+        // on the golden path; only on nodes without a static Gnd flag (guarded); releases are
+        // the caller's responsibility (ResetNes rebuilds all flags, clearing any leak).
+        public static void InstClampLow(int nn)
+        {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            if ((ns.Flags & NodeFlags.Gnd) != 0) return;   // already grounded (or a real rail)
+            ns.Flags |= NodeFlags.Gnd;
+            EnqueueNode(nn); ProcessQueue();
+        }
+
+        public static void InstRelease(int nn)
+        {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            if ((ns.Flags & NodeFlags.Gnd) == 0) return;
+            ns.Flags &= ~NodeFlags.Gnd;
+            EnqueueNode(nn); ProcessQueue();
+        }
+
         public static void SetHigh(string name)  => SetHigh(RequireNode(name));
         public static void SetLow (string name)  => SetLow (RequireNode(name));
         public static void SetFloat(string name) => SetFloat(RequireNode(name));

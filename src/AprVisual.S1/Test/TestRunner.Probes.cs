@@ -93,12 +93,12 @@ namespace AprVisual.Test
             {
                 WireCore.RegisterRawIdAliases = true;
                 WireCore.EnableJoypadHandler = true;
-                WireCore.EnableDbl2007Shim = true;
                 WireCore.LoadSystem(rom);
                 WireCore.EnableDmcLatchShim();
                 if (!_noAluShim) WireCore.EnableAluLatchShim();
                 WireCore.EnableLxaMagicShim();
                 WireCore.EnableFrameIrqShim();
+                WireCore.EnableDbl2007Shim();
                 var microInput = ParseInputSpec(_inputSpec);
                 if (microInput.Count > 0 && !WireCore.PadInit()) microInput.Clear();
                 var watch = new List<(string Name, int Node)>();

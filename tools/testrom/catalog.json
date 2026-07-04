@@ -334,8 +334,7 @@
     "F018C287",
     "440EF923",
     "E52F41A5"
-   ],
-   "dbl2007Shim": true
+   ]
   },
   {
    "suite": "dmc_dma_during_read4",
@@ -647,8 +646,7 @@
    "suite": "ppu_read_buffer",
    "rom": "test_ppu_read_buffer.nes",
    "class": "A",
-   "maxFrames": 2400,
-   "dbl2007Shim": true
+   "maxFrames": 2400
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",

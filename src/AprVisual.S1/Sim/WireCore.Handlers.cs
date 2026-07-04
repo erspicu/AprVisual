@@ -427,6 +427,7 @@ namespace AprVisual.Sim
         public static readonly byte[] JoyButtons = new byte[2];   // bit0=A .. bit7=Right
         private static readonly byte[] _joyShift = new byte[2];
         private static readonly int[] _joyCount = new int[2];
+        private static readonly int[] _joyDriven = new int[2];     // last driven d0 value (-1 = force first drive)
         internal static bool _joyArmed;
 
         private static void DoJoypad(CallbackInfo cb)
@@ -442,7 +443,13 @@ namespace AprVisual.Sim
             else if (cb.VidPrev && !selected && _joyCount[pad] < 8) _joyCount[pad]++;
             cb.VidPrev = selected;
             int bit = _joyCount[pad] < 8 ? (_joyShift[pad] >> _joyCount[pad]) & 1 : 1;
-            WriteBits(cb.DataOut, 1, bit ^ 1);            // LS368 inverts back onto the bus
+            int d0 = bit ^ 1;                             // LS368 inverts back onto the bus
+            // The drive flag is persistent, so re-writing an unchanged value only costs a
+            // redundant settle — and polling loops (test_buttons' wait-for-press) invoke this
+            // callback thousands of times per frame. Skip when the presented value is unchanged.
+            if (d0 == _joyDriven[pad]) return;
+            _joyDriven[pad] = d0;
+            WriteBits(cb.DataOut, 1, d0);
         }
 
         /// <summary>Attach the behavioral joypad callbacks (both ports). Test mode only —
@@ -470,6 +477,7 @@ namespace AprVisual.Sim
             JoyButtons[0] = JoyButtons[1] = 0;
             _joyShift[0] = _joyShift[1] = 0;
             _joyCount[0] = _joyCount[1] = 8;
+            _joyDriven[0] = _joyDriven[1] = -1;
             _joyArmed = true;
         }
 

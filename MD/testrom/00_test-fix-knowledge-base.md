@@ -14,6 +14,7 @@
 | 2026-07-04 | 125/16 → 129/12 | DMC latch shim (one shim, +4) |
 | 2026-07-05 | 129/12 → 132/9 (predicted) | ALU latch hold shim + LXA magic shim (+3) |
 | 2026-07-04 | **133/8 (94.3%) — full regression closed** | all 141 re-run in 6.6 h, zero unexpected reds; surprise: oam_read landed on the passing pattern (+1 over prediction); throughput: 113.4 khc/s per test, steady-state 680 khc/s @ 6 lanes |
+| 2026-07-05 | **142/3 (97.9%)** | double_2007_read solved: global zero-footprint Dbl2007Shim (instrument-grade InstClampLow; Gemini consult settled the general principle, 2.6 probe effect); dma_2007_read collateral fully recovered after three misfire lessons; read_buffer #67 same-root hypothesis disproven (still FAIL with the shim); 10-even_odd reclassified as a ~1-dot integration offset (fix campaign started) |
 | 2026-07-05 | **141/4 (97.2%)** | exec_space_apu solved: board tie polarity (u7/u8 spare inputs vss → floating TTL should read high) + cold-port bit0; full $4000→$40FF walk passes; tie blast-radius regression 7/7 green |
 | 2026-07-04 | **140/5 (96.6%)** | FrameIrqShim: third member of the same-wave transient family (w4017 wave × apu_clk1 edge flips the RS pair; r4015's partial decode aggravates); both irq_flag tests pass; 26-test frame-IRQ family regression, zero collateral |
 | 2026-07-04 | **138/7 (95.2%, catalog 145)** | behavioral joypad + `--input` injection: all four read_joy3 tests enrolled and PASS (incl. test_buttons' scripted 8-button run end-to-end); **dma_4016_read remaining FAIL flipped** (the DMA double-clock corruption emerges naturally from real bus traffic — no dedicated fix) |
@@ -166,25 +167,22 @@ rebuilds flags, clearing any leak).
 | cpu_dummy_writes_oam | the test declares on-screen that its prerequisite fails on real NES | on-screen statement + NESdev power-up state |
 | ~~10-even_odd_timing~~ | **moved out of faithful deviations (reclassified 2026-07-05)**: the zero intersection is this model's ~1-dot integration offset, not a real-machine property (§2.5); now a known integration limitation awaiting PPUSim arbitration | full K-sweep matrix + completeness proof + Gemini consult + golden-alignment community consensus |
 
-### 3.3 Remaining FAILs (4, updated 2026-07-05) and working hypotheses
+### 3.3 Remaining FAILs (3, updated 2026-07-05) and current state
 
-| Test | Area | Hypothesis / next step |
+| test | area | state / next step |
 |---|---|---|
-| double_2007_read | back-to-back $2007 reads | **characterized**: real consecutive read pulses merge/skip (analog pulse-width); we execute both cleanly (5th pattern D84F6815); shim direction = "ignore the second consecutive read" |
-| test_ppu_read_buffer | #67: sprite0 hit + OAM DMA sourced from the PPU I/O bus ($4014=$20) | **characterized**: includes 32 DMA reads of $2007; likely shares the double_2007 root; queued after it |
-| cpu_dummy_writes_oam, 10-even_odd | — | faithful deviations (§3.2), remain FAIL |
+| 10-even_odd_timing | CPU-PPU alignment | **fix campaign in progress**: reclassified as a ~1-dot absolute-phase offset in the two-netlist integration (2.5); arbitration = PPUSim cross-check of BIT $2002 absolute master-clock latency (/RD->D7); the K-sweep already rules out a pure phase rotation, so the offset lives in signal-path delay (same "same-wave idealization" family as dbl2007) |
+| test_ppu_read_buffer | #67: sprite0 hit + OAM DMA sourced from the PPU I/O bus ($4014=$20) | **same-root hypothesis disproven** (still FAIL after the dbl2007 shim fixed double_2007); the screen lists four candidates: improper DMA reads / PPU bus not preserving last transferred values / $2002 read mismatch / $2004 read modifying OAM — separate microscope investigation |
+| cpu_dummy_writes_oam | — | faithful deviation (3.2), remains FAIL (RP2C02G revision-specific OAMADDR corruption) |
 
-**Theoretical ceiling: 143/145 (98.6%) — two steps away** (double_2007_read's
-VRAM access-delay route + a same-root retest of read_buffer #67) — 2 permanent faithful FAILs (10-even_odd,
-dummy_writes_oam); oam_read belongs to the faithful lottery family (currently PASS).
-The other 6 are hypothesized fixable, but deep investigation may reclassify them
-(same standard as before: deterministic on real hardware → shim; genuinely
-machine-dependent → faithful deviation).
+**Ceiling narrative updated**: if the even_odd arbitration + correction succeeds ->
+**144/1 (99.3%)**, with cpu_dummy_writes_oam the only permanent faithful FAIL;
+read_buffer #67's root cause is undetermined and not counted as a promise.
 
-Known deviation currently failing no test: the DMA halt schedule runs one APU cycle later
-than AccuracyCoin's hardware measurement (same §2.1 race family, living in the
-run_latch/en_latch stages) — if ever needed, generalize the shim into an
-"ACLK pass-gate edge-capture" rule (minimal prototype first).
+Known deviation with no failing test today: DMA halt scheduling one APU cycle later
+than AC's real-hardware measurement (same 2.1 race family, living at the
+run_latch/en_latch stage) — if ever needed, generalize via "ACLK pass-gate edge
+capture" (minimal prototype first).
 
 ## 4. Instrument inventory (all reusable)
 

@@ -760,9 +760,9 @@
   "detection": "crc",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 126.3,
+  "wallSeconds": 121.0,
   "resetCount": 0,
-  "khcPerSec": 124.0
+  "khcPerSec": 129.5
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -775,9 +775,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 143.5,
+  "wallSeconds": 144.1,
   "resetCount": 0,
-  "khcPerSec": 129.1
+  "khcPerSec": 128.5
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -798,16 +798,16 @@
   "suite": "dmc_dma_during_read4",
   "rom": "double_2007_read.nes",
   "class": "C",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "screen CRC D84F6815 (NOT in expected set)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "screen CRC 85CFD627 (matched)",
   "screenshot": "screenshots/dmc_dma_during_read4/double_2007_read.webp",
   "detection": "crc",
-  "frames": 13,
-  "simSeconds": 0.22,
-  "wallSeconds": 72.3,
+  "frames": 14,
+  "simSeconds": 0.23,
+  "wallSeconds": 80.6,
   "resetCount": 0,
-  "khcPerSec": 127.7
+  "khcPerSec": 123.4
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -820,9 +820,9 @@
   "detection": "screen",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 85.5,
+  "wallSeconds": 83.9,
   "resetCount": 0,
-  "khcPerSec": 124.7
+  "khcPerSec": 127.1
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -1583,11 +1583,11 @@
   "result_text": " [0;37mTEST:test_ppu_read_buffer\n-----------------------------\nTesting basic PPU memory I/O.\n [0;37mPerforming tests that combine\nsprite 0 hit flag, $4014 DMA\nand the RAM mirroring...\n [0;33mGraphical artifacts during\nthis test are OK and expected.\n\n [0;37m              Hi   No-Hi\n [0;37mDirect poke   [0;33m OK   [0;33m OK  \n [0;37mDMA with ROM   [0;33m OK   [0;33m OK  \n [0;37mDMA + PPU bus [0;37m FAIL [0;33m OK  \n [0;37mDMA with RAM  \n\n [0;37m-----------------------------\n This next test wil take a while.\n In order to distract you with\n entertainment, art is provided.\n Contemplate on the art while\n the test is in progress.\n\n\n\n [0;37m-----------------------------\nFailed tests: [0;33m 67\n [0;37m-----------------------------\n [0;37mSprite 0 hit test using DMA\n($4014) using PPU I/O bus\nas source\n^ In this test, $4014 <- #$20.\n  Possible causes for failure:\n- DMA does not do proper reads\n- PPU bus does not preserve\n  last transferred values\n- $2002 read returned a value\n  that differs from expected\n- $2004 read modifies the OAM\n\nFailed #67",
   "screenshot": "screenshots/ppu_read_buffer/test_ppu_read_buffer.webp",
   "detection": "6000",
-  "frames": 1289,
-  "simSeconds": 21.45,
-  "wallSeconds": 9747.7,
+  "frames": 1290,
+  "simSeconds": 21.46,
+  "wallSeconds": 9461.7,
   "resetCount": 0,
-  "khcPerSec": 94.5
+  "khcPerSec": 97.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",

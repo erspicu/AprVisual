@@ -117,7 +117,7 @@ def run_one(t, core, rombase):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--jobs", type=int, default=6)
+    ap.add_argument("--jobs", type=int, default=7)   # 7 clean physical cores; core 0 (8th lane) is opt-in via --jobs 8
     ap.add_argument("--filter", default=None, help="substring filter on suite/rom")
     ap.add_argument("--class", dest="cls", default=None, help="A / A-r / C")
     ap.add_argument("--limit", type=int, default=0, help="run only the first N pending tests")

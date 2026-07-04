@@ -625,9 +625,9 @@
   "detection": "6000",
   "frames": 44,
   "simSeconds": 0.73,
-  "wallSeconds": 310.0,
+  "wallSeconds": 303.8,
   "resetCount": 0,
-  "khcPerSec": 101.3
+  "khcPerSec": 103.3
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",

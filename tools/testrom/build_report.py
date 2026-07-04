@@ -370,10 +370,11 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    <b>(a)</b> the test author's own words, quoted verbatim with the file path inside the <code>nes-test-roms</code>
    collection so anyone can verify locally; <b>(b)</b> NESdev wiki / forum references; <b>(c)</b> how reference-grade
    emulators model the same variability.</span><span class="zh">以下部分 FAIL 不是模擬器 bug:開關級模型重現了測試自己都記載為「依硬體而異」的真實矽晶行為。每一條主張都有三重佐證:<b>(a)</b> 測試作者的原文逐字引用,附 <code>nes-test-roms</code> 合集內的檔案路徑,任何人可本地驗證;<b>(b)</b> NESdev wiki/論壇文獻;<b>(c)</b> 參考級模擬器對同一變異性的建模方式。</span></div>
-  <div style="margin-top:.5rem">🥊 <span class="en"><strong>Adversarial Q&amp;A</strong> — we wrote the strongest challenges a veteran emulator
-   developer could raise against these classifications, then answered each with evidence and falsifiable predictions:
-   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-05-faithful-deviation-adversarial-qa.en.md" target="_blank" rel="noopener">Faithful Deviations — Adversarial Q&amp;A (EN)</a>.</span><span class="zh"><strong>對抗性攻防</strong> —— 我們先替資深模擬器開發者把對這些分類最強的質疑寫好,再逐條以證據與可否證預測應答:
-   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-05-faithful-deviation-adversarial-qa.md" target="_blank" rel="noopener">忠實偏差對抗性攻防(繁中)</a>。</span></div>
+  <div style="margin-top:.5rem">📖 <span class="en"><strong>In-depth Q&amp;A</strong> — why these tests are <em>supposed</em> to fail on this machine:
+   the questions emulator developers most often ask, answered with mechanisms, revision comparisons and verifiable predictions:
+   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-05-faithful-deviation-qa.en.md" target="_blank" rel="noopener">Faithful Deviations — In-Depth Q&amp;A (EN)</a>.</span><span class="zh"><strong>深入解說 Q&amp;A</strong> —— 為什麼這些測試在這台機器上「不通過」反而是對的:
+   把模擬器開發者最常問的問題,連同機制、版次對照與可驗證的預測一次說清楚:
+   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-05-faithful-deviation-qa.md" target="_blank" rel="noopener">忠實偏差深入解說 Q&amp;A(繁中)</a>。</span></div>
 
   <div style="margin-top:.7rem"><strong><span class="en">1. OAM is dynamic RAM — <code>oam_read</code>, <code>cpu_dummy_writes_oam</code></span><span class="zh">1. OAM 是動態記憶體(DRAM)—— <code>oam_read</code>、<code>cpu_dummy_writes_oam</code></span></strong><br>
    <span class="en">Our 2C02 keeps OAM as physical DRAM cells in the netlist (not a plain array), so oam_read's verdict

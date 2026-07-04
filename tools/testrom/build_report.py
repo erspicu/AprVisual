@@ -114,20 +114,40 @@ if perf_samples:
     tot_busy = sum(fin - st for st, fin, h, w in perf_samples)       # process time (concurrency)
     khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
     span = max(fin for st, fin, h, w in perf_samples) - min(st for st, fin, h, w in perf_samples)
+    # Interval-sweep concurrency profile: the campaign aggregate (total hc / span) is
+    # dragged down by lane idle — the 20 s/worker startup stagger, inter-test gaps and
+    # the tail drain as lanes finish. Sweep +1/-1 events to get the active-lane
+    # timeline; peak lanes + per-busy-second rate give the STEADY-STATE throughput
+    # (what the box sustains while all lanes are busy), independent of those gaps.
+    events = []
+    for st, fin, h, w in perf_samples:
+        events.append((st, 1)); events.append((fin, -1))
+    events.sort()
+    peak = cur = 0
+    for _, d in events:
+        cur += d
+        peak = max(peak, cur)
+    mean_active = tot_busy / span if span > 0 else 0
+    per_busy_khc = tot_hc / tot_busy / 1000 if tot_busy > 0 else 0   # one lane's sustained rate incl. load overhead
+    steady_khc = per_busy_khc * peak
+    util = mean_active / peak if peak > 0 else 0
     if span > 0 and len(perf_samples) >= 8:
         agg_khc = tot_hc / span / 1000
         conc = tot_busy / span
         perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs "
-                        f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours); "
-                        f"aggregate multi-worker throughput &asymp; <strong>{agg_khc:,.0f} khc/s</strong> "
-                        f"(&asymp;{conc:.1f}&times; effective concurrency over a {span/3600:.1f} h wall-clock span "
-                        f"&mdash; rough estimate from result timestamps; loads/report gaps included).")
+                        f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours). "
+                        f"Campaign aggregate <strong>{agg_khc:,.0f} khc/s</strong> over the {span/3600:.1f} h span; "
+                        f"steady-state &asymp; <strong>{steady_khc:,.0f} khc/s</strong> at {peak} lanes "
+                        f"(per-lane sustained rate &times; peak lanes &mdash; excludes the 20 s/worker startup stagger, "
+                        f"inter-test gaps and tail drain; lane utilization {util*100:.0f}%, mean {mean_active:.1f} lanes active). "
+                        f"Estimates from result timestamps.")
         perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
-                        f"({len(perf_samples)} 筆計時,取 {n_all} 筆中最新連續段;共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時);"
-                        f"多工聚合吞吐 &asymp; <strong>{agg_khc:,.0f} khc/s</strong>"
-                        f"(有效並行 &asymp;{conc:.1f}&times;,牆鐘跨度 {span/3600:.1f} 小時 "
-                        f"&mdash; 由結果檔時間戳粗估,含載入與報告空檔)。")
+                        f"({len(perf_samples)} 筆計時,取 {n_all} 筆中最新連續段;共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時)。"
+                        f"戰役實測聚合 <strong>{agg_khc:,.0f} khc/s</strong>(跨度 {span/3600:.1f} 小時);"
+                        f"穩態吞吐 &asymp; <strong>{steady_khc:,.0f} khc/s</strong>(單 lane 持續速率 &times; 峰值 {peak} lanes "
+                        f"&mdash; 已排除每 worker 20 秒錯開起跑、測試間空檔與尾段收工;lane 使用率 {util*100:.0f}%,平均 {mean_active:.1f} lanes 活躍)。"
+                        f"皆由結果檔時間戳估算。")
     else:
         perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs.")

@@ -1,10 +1,12 @@
 # Faithful Deviations — an In-Depth Q&A: why some tests are *supposed* to fail here
 
-> Two tests in the report (`10-even_odd_timing`, `cpu_dummy_writes_oam`) are
-> ones we **do not intend to make pass**. That sounds counter-intuitive, so
-> this document walks through the questions readers — especially fellow
-> emulator developers — are most likely to ask, together with the full
-> evidence. Traditional-Chinese master: `2026-07-05-faithful-deviation-qa.md`.
+> The report carries two long-standing FAILs. `cpu_dummy_writes_oam` is a
+> faithful deviation we **do not intend to make pass**; `10-even_odd_timing`
+> was **reclassified on 2026-07-05** as a *known limitation of this
+> simulator's two-netlist integration* (an unarbitrated ~1-dot absolute-phase
+> offset) — not a real-machine property, and not yet a fix. This document
+> walks through the questions readers — especially fellow emulator
+> developers — are most likely to ask, together with the full evidence. Traditional-Chinese master: `2026-07-05-faithful-deviation-qa.md`.
 > Complete evidence chains: the [knowledge base](00_test-fix-knowledge-base.md)
 > and the report page's dossier.
 
@@ -26,62 +28,64 @@ The category has explicit admission criteria — ALL of:
 
 ---
 
-## Case 1: `10-even_odd_timing` — the power-on alignment trade-off
+## Case 1: `10-even_odd_timing` — power-on alignment and an unarbitrated 1-dot integration offset
 
-### Q | I've heard a real NES can sometimes pass all ten ppu_vbl_nmi tests. Why do you state it can't here?
+### Q | I've heard a real NES can pass all ten ppu_vbl_nmi tests. What is your position?
 
-**A:** Our claim is considerably more precise than "it can't":
+**A:** The same as the community's: **a real console can**. blargg developed and
+validated the suite on real NTSC hardware, and a "golden alignment" passing all
+ten in a single power-on is understood to exist. Our simulator currently passes
+nine of the ten (the 8-test NMI-edge family among them); 10-even_odd fails at
+our pinned alignment — and we publish the full measurements:
 
-- What we state is: **on this silicon model**, no state in the reachable
-  power-on alignment space (fully enumerated, below) satisfies both the
-  NMI-edge family (8 tests) and 10-even_odd simultaneously.
-- "Fully enumerated" is not sampling: a K=0..5 sweep showed that
-  intermediate reset offsets quantize onto the same 4 classes (K=2≡K=1,
-  K=4≡K=3 — identical verdicts, fail codes and frame counts); the divider
-  pair restarts on whole clk0 periods, so **only these 4 relative phases
-  physically exist**.
-- "The PPU ÷4 divider restarts at /res release while the CPU ÷12 free-runs"
-  is not a rule we designed — it is **emergent netlist behavior**, measured
-  with probes.
-- A real-console observation contradicting this would be genuinely valuable
-  data: it would localize a concrete correction (a 1-dot relative offset
-  between our two divider models). We list exactly this as an open question
-  in the dossier.
+- The power-on alignment space is **completely enumerated** (not sampled): a
+  K=0..5 sweep shows intermediate reset offsets quantize onto 4 relative phase
+  classes (the divider pair restarts on whole clk0 periods); "CPU ÷12 free-runs,
+  PPU ÷4 restarts at /res release" is probed emergent behavior, consistent with
+  the community's black-box findings.
+- **On this model**, the NMI-edge family passes {7,5} and 10-even_odd passes
+  {1,3} — zero intersection. But real hardware has a golden alignment, so this
+  zero intersection is **not a property of the real machine**.
 
-**Testable:** on an NTSC NES-001, record — **within a single power-on** (no
-power cycling) — video of both `05-nmi_timing` and `10-even_odd_timing`
-passing. With that data we could correct the divider-phase model. That is
-progress for everyone.
+### Q | Then where does the zero intersection come from?
 
-### Q | Why alignment 7? Couldn't you pick another one?
+**A:** Our diagnosis (2026-07-05, checked against external technical review):
+an **absolute-phase offset in the two-netlist board-level integration**, on the
+order of one dot, not yet arbitrated. Visual2A03 and Visual2C02 are each
+accurate die models; the board-level glue joining them has three candidate
+offset sources (by likelihood):
 
-**A:** Any **fixed**-alignment system (including a real NES that is not
-power-cycled) must trade one test group against the other — that is the
-nature of this test family, not an implementation defect. We chose the phase
-blargg's NMI-edge tests were calibrated on (8 tests vs 1), and published the
-**complete alignment × verdict matrix** together with its cost (the single
-10-even_odd FAIL), so readers can see the whole picture themselves.
+1. **The cross-die $2002 read path is idealized to zero delay** — on real
+   hardware the CPU's /RD reaching the PPU and the PPU returning D7 (the VBL
+   flag) crosses two clock domains with physical transit time; in simulation
+   that span is 0, which can make the CPU read VBL "one dot early".
+2. The exact moment the reset release starts the PPU divider (pad rise times
+   are unmodeled).
+3. Clock-pad-to-divider buffer delays, which may differ between the two dies.
 
-### Q | Behavioral emulators pass all ten. Could your simulation simply be off by one dot?
+The effect of such an offset is precisely to shift the two test groups' passing
+phases apart — manufacturing the *appearance* of mutual exclusion.
 
-**A:** Honestly stated: **the relative phase space is fully verified; the
-absolute dot positions are emergent netlist values with no independent
-arbitration yet** — the one open point of this entry, written out as such.
-Two pieces of context:
+### Q | Why alignment 7? Why not just fix the offset?
 
-- How behavioral emulators pass all ten is worth knowing: TriCNES (whose
-  author owns real hardware) tunes its power-on offset until the suite
-  passes; its own source comment reads "Shouldn't this be 0? I don't know
-  why, but this passes all the tests if this is 7, so...?" — that is
-  calibration within alignment space, which is a different thing from a
-  physical power-on state that satisfies both groups.
-- Scheduled follow-up: emu-russia's **PPUSim** (an independent
-  schematic-level reverse-engineering of the same 2C02 die) can run the same
-  scenario as an arbiter; we already used this method once in the DMC case
-  (two independent silicon models agreeing → the property belongs to the
-  abstraction, not to either implementation).
+**A:** Alignment 7 is the phase blargg's NMI-edge tests were calibrated on
+(8 tests vs 1). As for fixing the offset: adjusting it *before measuring it*
+would turn the power-on phase into a second hand-tuned parameter — the path our
+reference contrast took (TriCNES's author tuned the offset until everything
+passed; the source comments "I don't know why, but this passes all the tests
+if this is 7, so...?"). We chose to publish the complete in-model enumeration
+first, then run the arbitration experiment: cross-check `BIT $2002`'s
+**absolute master-clock latency** (/RD to data return) against emu-russia's
+**PPUSim** (an independent schematic-level reverse-engineering of the same
+2C02 die, already used for two-model corroboration in our DMC case). Measure
+the offset, correct it — after which the NMI family and 10-even_odd should
+pass at the *same* alignment. That is what genuinely fixing this item looks
+like.
 
----
+**Testable:** if you own an NTSC NES-001 and record — within one power-on —
+both 05-nmi_timing and 10-even_odd_timing passing, that directly demonstrates
+the golden alignment; we would gladly add it to the dossier as another line of
+arbitration evidence.
 
 ## Case 2: `cpu_dummy_writes_oam` — a revision-specific hardware bug
 
@@ -181,8 +185,8 @@ either outcome is valuable data.
 
 ## Closing
 
-The common structure of both deviations: **the tests encode the specific
-physics of the author's machine as expectations.** Behavioral emulators
+The structure of faithful deviations like cpu_dummy_writes_oam: **the tests
+encode the specific physics of the author's machine as expectations.** Behavioral emulators
 implement the consensus rules the community distilled, and naturally pass
 everything; a transistor-level simulation reproduces the physics of one
 specific chip, and therefore honestly diverges exactly where the physics

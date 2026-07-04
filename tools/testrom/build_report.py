@@ -131,10 +131,22 @@ if perf_samples:
     per_busy_khc = tot_hc / tot_busy / 1000 if tot_busy > 0 else 0   # one lane's sustained rate incl. load overhead
     steady_khc = per_busy_khc * peak
     util = mean_active / peak if peak > 0 else 0
+    from datetime import datetime as _dt
+    t_start = min(st for st, fin, h, w in perf_samples)
+    t_end   = max(fin for st, fin, h, w in perf_samples)
+    def _fmt(ts): return _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    def _dur(sec):
+        h_, m_ = int(sec // 3600), int(sec % 3600 // 60)
+        return (f"{h_} h {m_} m" if h_ else f"{m_} m"), (f"{h_} 小時 {m_} 分" if h_ else f"{m_} 分")
+    dur_en, dur_zh = _dur(span)
+    camp_en = (f"<strong>Campaign:</strong> started <strong>{_fmt(t_start)}</strong>, "
+               f"finished <strong>{_fmt(t_end)}</strong> &mdash; total <strong>{dur_en}</strong> wall clock. ")
+    camp_zh = (f"<strong>本輪回歸:</strong><strong>{_fmt(t_start)}</strong> 開跑,"
+               f"<strong>{_fmt(t_end)}</strong> 完成,總歷時 <strong>{dur_zh}</strong>。")
     if span > 0 and len(perf_samples) >= 8:
         agg_khc = tot_hc / span / 1000
         conc = tot_busy / span
-        perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
+        perf_line_en = camp_en + (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs "
                         f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours). "
                         f"Campaign aggregate <strong>{agg_khc:,.0f} khc/s</strong> over the {span/3600:.1f} h span; "
@@ -142,16 +154,16 @@ if perf_samples:
                         f"(per-lane sustained rate &times; peak lanes &mdash; excludes the 20 s/worker startup stagger, "
                         f"inter-test gaps and tail drain; lane utilization {util*100:.0f}%, mean {mean_active:.1f} lanes active). "
                         f"Estimates from result timestamps.")
-        perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
+        perf_line_zh = camp_zh + (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
                         f"({len(perf_samples)} 筆計時,取 {n_all} 筆中最新連續段;共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時)。"
                         f"戰役實測聚合 <strong>{agg_khc:,.0f} khc/s</strong>(跨度 {span/3600:.1f} 小時);"
                         f"穩態吞吐 &asymp; <strong>{steady_khc:,.0f} khc/s</strong>(單 lane 持續速率 &times; 峰值 {peak} lanes "
                         f"&mdash; 已排除每 worker 20 秒錯開起跑、測試間空檔與尾段收工;lane 使用率 {util*100:.0f}%,平均 {mean_active:.1f} lanes 活躍)。"
                         f"皆由結果檔時間戳估算。")
     else:
-        perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
+        perf_line_en = camp_en + (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs.")
-        perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
+        perf_line_zh = camp_zh + (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
                         f"({len(perf_samples)} 筆計時)。")
 
 html = """<!DOCTYPE html>
@@ -270,6 +282,46 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
   the engine's semantic limits vs real silicon, the full fix table (root cause &rarr; fix), instruments and method:
   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_test-fix-knowledge-base.md" target="_blank" rel="noopener">Test-Fix Knowledge Base (EN)</a>.</span><span class="zh"><strong>知識庫</strong> —— 所有調查的總綱 living document:FAIL 三分類、引擎語意極限、修復總表(根因&rarr;修法)、工具鏈與方法論:
   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_%E6%B8%AC%E8%A9%A6%E4%BF%AE%E5%BE%A9%E7%9F%A5%E8%AD%98%E5%BA%AB_%E7%B8%BD%E7%B6%B1.md" target="_blank" rel="noopener">測試修復知識庫(繁中)</a>。</span></div>
+ <details style="margin-top:.6rem">
+  <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">How we test &amp; how the performance numbers are computed</span><span class="zh">測試方式與效能計算方法</span></strong></summary>
+  <div style="margin-top:.5rem">
+   <div><span class="en"><strong>Harness.</strong> Every ROM runs in its own headless engine process, one test per physical
+    core (affinity-pinned, 7 lanes), launched from a catalog of all tests with per-test budgets. The power-on CPU&ndash;PPU
+    clock alignment is pinned to one reproducible phase (the same trade-off a real console makes at power-on &mdash; see the
+    dossiers), so verdicts are deterministic run-to-run. Each result JSON records start/finish timestamps, simulated
+    half-cycles and engine wall time.</span><span class="zh"><strong>測試框架。</strong>每個 ROM 都在獨立的 headless 引擎行程中執行,
+    一測一實體核心(affinity 綁定,7 lanes),由完整測試目錄排程,各測有自己的幀數/時間預算。上電 CPU&ndash;PPU 時脈對齊固定在單一可重現相位
+    (與真機上電時的取捨相同 —— 見卷宗),同一輪跑幾次判定都一致。每筆結果 JSON 記錄開始/結束時間戳、模擬半週期數與引擎牆鐘時間。</span></div>
+   <div style="margin-top:.4rem"><span class="en"><strong>Verdicts.</strong> Three detection channels, matching each test's design:
+    the blargg $6000 protocol (signature DE B0 61; status &lt; $80 = done, 0 = pass; $81 = the ROM requests a soft reset, honored
+    automatically), screen CRC32 against the author-documented accept sets (alignment-dependent tests list every real-hardware
+    pattern), and on-screen pass-marker text. Tests that need controller input use a scripted behavioral joypad
+    (button:frame schedules).</span><span class="zh"><strong>判定。</strong>依各測試的設計走三種偵測通道:blargg $6000 協定
+    (簽章 DE B0 61;狀態 &lt; $80 = 結束、0 = 通過;$81 = ROM 要求軟重置,自動照辦)、畫面 CRC32 對照作者記載的合法集合
+    (對齊相關的測試會列出每一種真機圖樣)、以及畫面通過字樣掃描。需要手把的測試用腳本化行為層手把(按鍵:幀數排程)。</span></div>
+   <div style="margin-top:.4rem"><span class="en"><strong>Clean campaigns.</strong> A full regression starts from an empty results
+    directory, and the aggregator only uses the newest contiguous run (results separated by &gt;30 min of idle are treated as a
+    different campaign) &mdash; numbers on this page never mix runs.</span><span class="zh"><strong>乾淨戰役。</strong>全量回歸從清空的
+    結果目錄開始,統計也只取最新的連續一段(間隔超過 30 分鐘視為另一輪)—— 本頁數字不會混到不同輪的紀錄。</span></div>
+   <div style="margin-top:.4rem"><span class="en"><strong>Performance metrics.</strong> One <em>half-cycle</em> (hc) is half a period
+    of the NES 21.477 MHz master clock &mdash; the engine's atomic settle step; a real console advances &asymp;42.95 M hc/s.
+    Per-test speed = half-cycles &divide; engine wall seconds (khc/s). <em>Weighted mean</em> = total hc &divide; total core-seconds
+    (per-core efficiency). <em>Campaign aggregate</em> = total hc &divide; wall-clock span from first start to last finish
+    (includes lane idle: staggered starts, inter-test gaps, tail drain). <em>Steady-state</em> = per-busy-second rate &times; peak
+    concurrent lanes, from an interval sweep over every test's start/finish events &mdash; what the machine sustains while all
+    lanes are busy, with idle excluded. All three are estimates derived from the recorded timestamps.</span><span class="zh">
+    <strong>效能計算。</strong>一個<em>半週期</em>(hc)= NES 21.477 MHz 主時脈的半個週期,是引擎的最小穩定步;真機速度 &asymp;42.95M hc/s。
+    單測速度 = 半週期數 &divide; 引擎牆鐘秒數(khc/s)。<em>加權平均</em> = 總 hc &divide; 總核心秒數(單核效率)。
+    <em>戰役聚合</em> = 總 hc &divide; 從第一測開跑到最後一測完成的牆鐘跨度(含 lane 閒置:錯開起跑、測試間空檔、尾段收工)。
+    <em>穩態吞吐</em> = 忙碌秒速率 &times; 峰值並行 lane 數,由所有測試的開始/結束事件做區間掃描求得 —— 即「所有 lane 都在忙」時
+    機器實際維持的速度,已排除閒置。三者皆由結果檔時間戳推估。</span></div>
+   <div style="margin-top:.4rem"><span class="en"><strong>Integrity.</strong> The engine's default (benchmark) path is never touched by
+    test instrumentation &mdash; its state checksum is bit-identical with and without the test harness. Every deviation handling is a
+    documented test-mode shim (see the knowledge base and the in-depth Q&amp;A linked above).</span><span class="zh"><strong>誠信。</strong>
+    引擎預設(基準測試)路徑不受任何測試儀器影響 —— 掛不掛測試框架,狀態 checksum 逐位元相同。所有偏差處理都是文件化的測試模式 shim
+    (見上方知識庫與深入 Q&amp;A)。</span></div>
+  </div>
+ </details>
  <details style="margin-top:.6rem">
   <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Hardware model — what is netlist, what is behavioral</span><span class="zh">硬體模型 —— 哪些是 netlist、哪些是行為層</span></strong></summary>
   <div style="margin-top:.5rem;overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;min-width:640px">
@@ -418,10 +470,15 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
     <tr><td style="padding:.1rem .6rem .1rem 0">5 (K=3)</td><td style="padding:.1rem .6rem">PASS</td><td style="padding:.1rem .6rem">FAIL</td></tr>
     <tr><td style="padding:.1rem .6rem .1rem 0">3 (K=5)</td><td style="padding:.1rem .6rem">FAIL</td><td style="padding:.1rem .6rem">PASS</td></tr>
    </table></div>
-   <span class="en">A <strong>perfect complementary 2+2 split — zero intersection</strong>: on this silicon model no single power-on state
-   satisfies both groups, so any fixed-alignment system (including a real NES that is not power-cycled between tests)
-   pays this price. We fix alignment 7 (the one blargg's NMI-edge tests were calibrated on);
-   10-even_odd_timing's FAIL is the documented cost of that choice.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 零交集</strong>:在這個矽晶模型上,沒有任何單一上電狀態能同時滿足兩組測試;任何固定對齊的系統(包括一台不重開機換對齊的真 NES)都要付這個代價。我們固定在對齊 7(blargg 的 NMI 邊沿測試所校準的那個);10-even_odd_timing 的 FAIL 就是這個選擇的已文件化成本。</span><br>
+   <span class="en">A <strong>perfect complementary 2+2 split — zero intersection on this model</strong>. Community knowledge points the
+   other way for real hardware: blargg developed and validated the suite on a real console, and a &ldquo;golden
+   alignment&rdquo; passing all ten in a single power-on is understood to exist. We therefore read the zero
+   intersection <strong>not</strong> as a property of the real machine but as a <strong>known limitation of our two-netlist
+   board-level integration</strong>: an unarbitrated absolute-phase offset of roughly one dot (candidate sources:
+   the idealized zero-delay $2002 read path between the two dies, the reset-release timing that starts the PPU
+   divider, unmodeled clock-pad buffer delays). We fix alignment 7 (the phase blargg's NMI-edge tests were
+   calibrated on); 10-even_odd_timing's FAIL is the documented cost until that offset is arbitrated &mdash; the
+   planned experiment is a PPUSim cross-check of the $2002 read's absolute master-clock latency.</span><span class="zh"><strong>完美的 2+2 互補分裂 —— 在本模型上零交集</strong>。但社群知識指向另一邊:blargg 是在真機上開發並驗證整套測試的,公認存在能單次上電十項全過的「golden alignment」。因此我們把零交集解讀為<strong>我們雙 netlist 板級整合的已知限制</strong>,而非真機的性質:一個約 1 dot、尚未仲裁的絕對相位偏移(候選來源:兩顆晶片間被理想化為零延遲的 $2002 讀取路徑、啟動 PPU 除頻器的 reset 釋放時序、未建模的時鐘 pad 緩衝延遲)。我們固定在對齊 7(blargg NMI 邊沿測試校準的相位);在偏移仲裁完成前,10-even_odd_timing 的 FAIL 是已文件化的成本 —— 計畫中的仲裁實驗是用 PPUSim 交叉比對 $2002 讀取的絕對 master-clock 延遲。</span><br>
    <span class="en"><em>Completeness check:</em> the four alignments above are the <strong>entire</strong> reachable space, not a sample.
    Intermediate reset-release offsets (K=2, K=4) were also run and quantize onto the same classes
    (K=2&nbsp;&equiv;&nbsp;alignment&nbsp;7, K=4&nbsp;&equiv;&nbsp;alignment&nbsp;5 — identical verdicts, per-test fail codes and frame counts;
@@ -429,14 +486,15 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    For contrast, TriCNES — a reference emulator that passes all ten — reaches that result by hand-tuning its power-on
    offset until the suite passed; its own source comments the choice with
    <em>"Shouldn't this be 0? I don't know why, but this passes all the tests if this is 7, so...?"</em>
-   (Emulator.cs, power-on init). That is calibration in alignment space, not evidence that a single physical
-   power-on state satisfies both groups.</span><span class="zh"><em>完備性檢查:</em>上表四種對齊是<strong>全部</strong>可達空間,不是抽樣。
+   (Emulator.cs, power-on init). Read together with the golden-alignment consensus, that hand-tuned success is consistent with the pass
+   intervals genuinely overlapping on real silicon &mdash; which is exactly why we localize our zero-intersection to an
+   integration offset on our side rather than to the tests.</span><span class="zh"><em>完備性檢查:</em>上表四種對齊是<strong>全部</strong>可達空間,不是抽樣。
    中間的 reset 釋放偏移(K=2、K=4)也實測過,量化塌縮回同樣的類別
    (K=2&nbsp;&equiv;&nbsp;對齊&nbsp;7、K=4&nbsp;&equiv;&nbsp;對齊&nbsp;5 —— 判定、失敗碼、幀數完全一致;
    除頻器對以整個 clk0 週期重啟,所以物理上就只存在這四種相對相位)。
    對照:全過這十項的參考模擬器 TriCNES,是把上電偏移當參數手調到整套通過為止 —— 其原始碼對這個選擇的註解是
    <em>「Shouldn't this be 0? I don't know why, but this passes all the tests if this is 7, so...?」</em>
-   (Emulator.cs 上電初始化)。那是在對齊空間裡做校準,不是「存在單一物理上電狀態能同時滿足兩組」的證據。</span></div>
+   (Emulator.cs 上電初始化)。把這個手調成功與 golden-alignment 共識放在一起看,恰好說明真矽晶上兩組通過區間確實有交集 —— 這也正是我們把零交集定位在自己這側的整合偏移、而不是測試本身的原因。</span></div>
 
   <div style="margin-top:.7rem"><strong><span class="en">3. PPU open-bus decay — <code>ppu_open_bus</code> (fixed via documented shim)</span><span class="zh">3. PPU open-bus 衰減 —— <code>ppu_open_bus</code>(已用文件化 shim 修復)</span></strong><br>
    <em><span class="en">Author's readme</span><span class="zh">作者的 readme</span></em> (<code>ppu_open_bus/readme.txt</code>):

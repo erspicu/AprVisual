@@ -94,12 +94,50 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
   phases ({1,7,5,3}); a K=0..5 sweep proved even phases physically don't exist (K=2≡K=1,
   K=4≡K=3 — the divider pair quantizes to whole clk0 periods).
 - The NMI-edge family (8 tests) passes {7,5}; 10-even_odd passes {1,3} — **zero
-  intersection over the complete enumeration**. We pin alignment 7 (K=1, blargg's
-  calibration phase); 10-even_odd's FAIL is the documented cost.
-- The truth behind TriCNES passing all ten: its power-on offset is a hand-tuned parameter
-  (author's own words: "I don't know why, but this passes all the tests if this is 7,
-  so...?") — calibration in alignment space, not evidence that one physical power-on
-  state satisfies both groups.
+  intersection under complete enumeration (on this model)**. Pinned to alignment 7 (K=1,
+  blargg's calibration phase); 10-even_odd's FAIL is the documented cost.
+- **Reclassified (2026-07-05, Gemini consult q/a_even_odd_doctrine)**: a golden
+  alignment passing all ten in one power-on is understood to exist on real hardware
+  (blargg developed the suite on a real console) — the zero intersection is **not a
+  real-machine property** but an **unarbitrated ~1-dot absolute-phase offset in our
+  two-netlist board-level integration**. Candidate sources (by likelihood): the
+  idealized zero-delay cross-die $2002 read path, the reset-release timing that starts
+  the PPU divider, unmodeled clock-pad buffer delays. TriCNES's hand-tuned offset=7
+  passing everything corroborates the golden-alignment picture (the pass intervals do
+  overlap on real silicon). Arbitration experiment: PPUSim cross-check of BIT $2002's
+  absolute master-clock latency (/RD→D7). The phase-space model itself (4 classes,
+  CPU÷12 free-run, PPU÷4 restart at /res) matches community consensus.
+
+### 2.6 The probe effect: load-time graph changes re-roll the lottery (2026-07-05, settled by Gemini consult)
+
+**Measured fact**: attaching 9 fake nodes/transistors for the double_2007 shim (which
+never fired once) flipped the unrelated dma_2007_read @K=1 from PASS to a pattern real
+hardware cannot produce (X=00) — purely because class-major renumbering shifted every
+node id, changing intra-wave settle order and flipping the "DMA halt vs read"
+alignment-lottery race. **Any load-time graph change re-rolls the dice for every
+same-wave-race test.**
+
+**The principle** (consult record `tools/knowledgebase/q/a_dbl2007_footprint_20260705.md`):
+test instruments need an *absolute-override force*, not graph edits — the EDA-standard
+answer is a VPI-style force/release. Per-test scoping was ruled overfitting/technical
+debt; a shim that stands in for physical propagation delay must apply **globally**.
+
+**Implementation**: `InstClampLow`/`InstRelease` (WireCore.Recalc) — ORs the `Gnd` flag
+into a node at runtime; group-OR resolution then behaves exactly as if a conducting vss
+path joined the group (top of the LUT, overrides active drivers), with **zero graph
+change**; golden-checksum A/B bit-identical. Discipline: test-mode shims only, only on
+nodes without a static Gnd flag, releases are the caller's responsibility (ResetNes
+rebuilds flags, clearing any leak).
+
+**Three mis-fire lessons for the arming guards** (each with a measured corpse):
+1. `/r2007` low ≠ the CPU is reading: decode glitches stretch the window — grounding
+   into an opcode fetch turned $8D into $8C (STY).
+2. During a DMC-DMA stall the address bus parks on $2007 through zombie cycles the CPU
+   never consumes; a reload landing *between* pulses is the same — the real sample comes
+   cycles later, fully propagated.
+3. A reload landing in **phi1** likewise (over half a cycle from the next sample edge).
+   The correct race window = **the reload lands inside the same active phi2 phase**
+   (measured fall distances: micro dt=1 hc, blargg@K=1 dt=7 hc).
 
 ## 3. Fix table (problem → root cause → fix)
 
@@ -118,6 +156,7 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 | 11 | test_cpu_exec_space_apu | $4016 opcode fetch reads $5C (NOP abs,X) instead of $40 (RTI) → PC drifts | board-def tie polarity: LS368 spare inputs tied to vss, real floating TTL reads high (cat. 1) + cold-port bit0 | load-time connection override (6 ties vss→vcc, behavioral-joypad mode only) + cold-port rule; TriCNES/AprNes/NESdev triple-confirmed | +1 |
 | 10 | 3-irq_flag ×2 | writing $00/$80 to $4017 falsely clears the frame-IRQ flag | intra-settle transient flips the RS pair (§2.1 family; r4015's ab1-less partial decode aggravates) | **FrameIrqShim**: restore the pair when the flag falls with all three legitimate clear terms (#13170 read-clear / intmode level / _res) inactive | +2 |
 | 9 | dma_4016_read + the four read_joy3 tests | controller reads entirely broken (gate-level 4021 structurally undrivable, §2.4 4th texture) | missing behavioral part (cat. 1) | **behavioral joypad**: nes-pad-behavioral shadow module + Joypad handler (4021 protocol, advance on joy-deselect edge), scripted `--input`; DMA corruption emerges from real bus traffic | +5 (catalog +4 all pass, remaining −1) |
+| 12 | double_2007_read | the merged double read returns the NEW buffer value (all four real patterns are old/transitional) | the reload's staging→inbuf→io→db propagation AND the CPU's A load complete in the **same settle wave** (op-probe verified; §2.1 family — real silicon's propagation loses that race; every Set-class force at every discrete boundary measurably loses) | **Dbl2007Shim** (global, zero-footprint, §2.6): when a reload lands inside a genuine sample phase (/r2007 low + phi2 high + ab decodes a $2007 mirror + R/W read + RDY high + non-palette), InstClampLow clamps the risen bits = old∧new (same transitional class as the real patterns), released at the phi2 fall; the buffer keeps the netlist's merged single advance | +1 (85CFD627 = blargg's first listed real pattern; dma_2007_read 5E3DF9C4 with zero clamps) |
 
 ### 3.2 Faithful deviations (not fixed; evidence dossier on the report page)
 
@@ -125,7 +164,7 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 |---|---|---|
 | oam_read | OAM is DRAM; blargg recorded 4 real-console patterns, 3 end in "Failed"; **since the 2026-07 shim set the deterministic power-on lands on the passing pattern (now PASS)** — the lottery itself is the faithful behavior; future engine changes may flip it again | author's readme + NESdev PPU OAM + Mesen2's opt-in corruption setting |
 | cpu_dummy_writes_oam | the test declares on-screen that its prerequisite fails on real NES | on-screen statement + NESdev power-up state |
-| 10-even_odd_timing | alignment mutual exclusion (§2.5); any fixed-alignment system pays this | full K-sweep matrix + completeness proof + TriCNES hand-tuning contrast |
+| ~~10-even_odd_timing~~ | **moved out of faithful deviations (reclassified 2026-07-05)**: the zero intersection is this model's ~1-dot integration offset, not a real-machine property (§2.5); now a known integration limitation awaiting PPUSim arbitration | full K-sweep matrix + completeness proof + Gemini consult + golden-alignment community consensus |
 
 ### 3.3 Remaining FAILs (4, updated 2026-07-05) and working hypotheses
 
@@ -160,6 +199,9 @@ run_latch/en_latch stages) — if ever needed, generalize the shim into an
 | `--pass-marker <text>` | custom B-class completion marker (for tally ROMs that never print Passed, e.g. read_joy3) | TestRunner |
 | `--watch <n1,n2,...>` | per-frame (--micro) / per-hc (--op-probe) state print of arbitrary nodes | TestRunner |
 | `--no-alu-shim` | A/B toggle for the ALU hold shim (diagnostics) | TestRunner |
+| `--no-dbl2007-shim` | A/B toggle for the $2007 double-read merge shim (diagnostics) | TestRunner |
+| `InstClampLow` / `InstRelease` | instrument-grade force/release (Gnd class, zero graph footprint; §2.6) | WireCore.Recalc |
+| `PB_DEBUG=1` | clamp/release event log for the dbl2007 shim (env var) | WireCore.System |
 | micro-ROM generator + analyzer | 640-combo unofficial-op semantics diff | temp/micro_imm/ |
 | APUSim ground-truth harness | clang++ builds emu-russia APUSim + gate-level 6502; friend-class access to internals | temp/apusim_harness/ |
 | static cone walker | transdefs upstream-cone BFS (pull/pass classification) | temp/ (written as needed) |

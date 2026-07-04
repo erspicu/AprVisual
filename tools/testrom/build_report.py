@@ -367,13 +367,17 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
    emulators model the same variability.</span><span class="zh">以下部分 FAIL 不是模擬器 bug:開關級模型重現了測試自己都記載為「依硬體而異」的真實矽晶行為。每一條主張都有三重佐證:<b>(a)</b> 測試作者的原文逐字引用,附 <code>nes-test-roms</code> 合集內的檔案路徑,任何人可本地驗證;<b>(b)</b> NESdev wiki/論壇文獻;<b>(c)</b> 參考級模擬器對同一變異性的建模方式。</span></div>
 
   <div style="margin-top:.7rem"><strong><span class="en">1. OAM is dynamic RAM — <code>oam_read</code>, <code>cpu_dummy_writes_oam</code></span><span class="zh">1. OAM 是動態記憶體(DRAM)—— <code>oam_read</code>、<code>cpu_dummy_writes_oam</code></span></strong><br>
-   <span class="en">Our 2C02 keeps OAM as physical DRAM cells in the netlist (not a plain array); oam_read fails with a
-   <code>*</code>-patterned dump (CRC E03E03AD).</span><span class="zh">我們的 2C02 把 OAM 保持為 netlist 中的物理 DRAM cell(不是普通陣列);oam_read 以帶 <code>*</code> 圖樣的 dump 失敗(CRC E03E03AD)。</span><br>
+   <span class="en">Our 2C02 keeps OAM as physical DRAM cells in the netlist (not a plain array), so oam_read's verdict
+   is a power-on-pattern lottery, exactly as on hardware.</span><span class="zh">我們的 2C02 把 OAM 保持為 netlist 中的物理 DRAM cell(不是普通陣列),所以 oam_read 的判定是一場上電圖樣抽籤 —— 和真機完全一樣。</span><br>
    <em><span class="en">Author's own readme</span><span class="zh">作者自己的 readme</span></em> (<code>oam_read/readme.txt</code>):
    <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
    "On my NTSC front-loader NES, I get the following four general patterns at random after power/reset"</blockquote>
    <span class="en">— and of blargg's four documented real-hardware patterns, <strong>three end in "Failed"</strong>
-   (CRCs 694ADBE0, E9E8E60F, 44551956); only one passes. Our result is a member of that documented family.</span><span class="zh">—— blargg 記錄的四種真實硬體圖樣中,<strong>三種以「Failed」收場</strong>(CRC 694ADBE0、E9E8E60F、44551956),只有一種通過。我們的結果正是這個已記載家族的一員。</span><br>
+   (CRCs 694ADBE0, E9E8E60F, 44551956); only one passes. Earlier engine states produced a failing member of
+   that family (<code>*</code>-patterned dump, CRC E03E03AD); since the 2026-07 shim set the deterministic
+   power-on lands on the <strong>passing</strong> pattern — still the same documented lottery, and future
+   engine changes may legitimately shift it again. The entry stays because the variability itself is the
+   faithful behavior.</span><span class="zh">—— blargg 記錄的四種真實硬體圖樣中,<strong>三種以「Failed」收場</strong>(CRC 694ADBE0、E9E8E60F、44551956),只有一種通過。較早的引擎狀態落在失敗家族的一員(帶 <code>*</code> 圖樣的 dump,CRC E03E03AD);自 2026-07 的 shim 組合後,確定性上電落在<strong>通過</strong>的圖樣 —— 仍是同一場已記載的抽籤,未來引擎變動也可能再合法地換邊。本條目保留,因為「會變」本身就是忠實行為。</span><br>
    <em><span class="en">The other test declares its own limitation on screen</span><span class="zh">另一個測試在畫面上自述其限制</span></em> (cpu_dummy_writes_oam):
    <blockquote style="margin:.3rem 0 .3rem .8rem;padding:.3rem .6rem;border-left:3px solid #2d4a6f;color:#a8c7e8;font-style:italic">
    "Requirement: OAM memory reads MUST be reliable. This is often the case on emulators, but NOT on the real NES."</blockquote>

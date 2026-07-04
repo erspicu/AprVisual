@@ -3,7 +3,7 @@
 > **This is a continuously-updated living document**: every fix / closure updates its section.
 > Full evidence chains live in the per-topic notes (index at the end); this file keeps the
 > distilled knowledge. Traditional-Chinese master: `00_測試修復知識庫_總綱.md`.
-> Created 2026-07-05 | Last updated 2026-07-05
+> Created 2026-07-05 | Last updated 2026-07-04 (full regression closed)
 
 ## 0. Status at a glance
 
@@ -12,7 +12,8 @@
 | 2026-07-02 | — | Test infrastructure built (141-ROM catalog, A/A-r/B/C detection, parallel runner, report site) |
 | 2026-07-03 | 115/26 → 125/16 | Clock-phase alignment K=1 (+7), power-up shims (+2), decay shim (+1), CNROM |
 | 2026-07-04 | 125/16 → 129/12 | DMC latch shim (one shim, +4) |
-| 2026-07-05 | 129/12 → 132/9 (regression run confirming) | ALU latch hold shim + LXA magic shim (+3) |
+| 2026-07-05 | 129/12 → 132/9 (predicted) | ALU latch hold shim + LXA magic shim (+3) |
+| 2026-07-04 | **133/8 (94.3%) — full regression closed** | all 141 re-run in 6.6 h, zero unexpected reds; surprise: oam_read landed on the passing pattern (+1 over prediction); throughput: 113.4 khc/s per test, steady-state 680 khc/s @ 6 lanes |
 
 Reference machine: **NES-001 + RP2A03G + RP2C02G** (the revisions the Visual2A03/2C02 dies
 were photographed from; also AccuracyCoin's target). Repair doctrine (user's rule):
@@ -115,20 +116,26 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 
 | Test | Why failing IS faithful | Triple evidence |
 |---|---|---|
-| oam_read | OAM is DRAM; blargg recorded 4 real-console patterns, 3 end in "Failed"; ours is one of them | author's readme + NESdev PPU OAM + Mesen2's opt-in corruption setting |
+| oam_read | OAM is DRAM; blargg recorded 4 real-console patterns, 3 end in "Failed"; **since the 2026-07 shim set the deterministic power-on lands on the passing pattern (now PASS)** — the lottery itself is the faithful behavior; future engine changes may flip it again | author's readme + NESdev PPU OAM + Mesen2's opt-in corruption setting |
 | cpu_dummy_writes_oam | the test declares on-screen that its prerequisite fails on real NES | on-screen statement + NESdev power-up state |
 | 10-even_odd_timing | alignment mutual exclusion (§2.5); any fixed-alignment system pays this | full K-sweep matrix + completeness proof + TriCNES hand-tuning contrast |
 
-### 3.3 Remaining FAILs (9) and working hypotheses
+### 3.3 Remaining FAILs (8, confirmed by the 2026-07-04 full regression) and working hypotheses
 
 | Test | Area | Hypothesis / next step |
 |---|---|---|
 | 3-irq_flag ×2 | APU frame IRQ | not yet investigated; frame-counter IRQ flag timing, possibly the same ACLK-race family |
 | dma_4016_read | DMA dummy reads hitting $4016 | controller shift register double-clocked by DMA reads — behavioral controller integration zone |
-| double_2007_read | DMC DMA + $2007 CRC | not yet investigated |
+| double_2007_read | DMC DMA + $2007 CRC | not yet investigated; may relate to the known "DMA halt one ACLK late" residue |
 | test_ppu_read_buffer | PPU read buffer #67 | not yet investigated (the other 66 subtests pass) |
 | test_cpu_exec_space_apu | executing code from APU space | open-bus execution semantics; may interact with the decay shim |
-| oam_read, cpu_dummy_writes_oam, 10-even_odd | — | faithful deviations (§3.2), remain FAIL |
+| cpu_dummy_writes_oam, 10-even_odd | — | faithful deviations (§3.2), remain FAIL |
+
+**Theoretical ceiling: 139/141 (98.6%)** — 2 permanent faithful FAILs (10-even_odd,
+dummy_writes_oam); oam_read belongs to the faithful lottery family (currently PASS).
+The other 6 are hypothesized fixable, but deep investigation may reclassify them
+(same standard as before: deterministic on real hardware → shim; genuinely
+machine-dependent → faithful deviation).
 
 Known deviation currently failing no test: the DMA halt schedule runs one APU cycle later
 than AccuracyCoin's hardware measurement (same §2.1 race family, living in the

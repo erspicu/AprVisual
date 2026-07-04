@@ -700,9 +700,9 @@
   "detection": "6000",
   "frames": 385,
   "simSeconds": 6.41,
-  "wallSeconds": 2949.1,
+  "wallSeconds": 2968.0,
   "resetCount": 0,
-  "khcPerSec": 93.3
+  "khcPerSec": 92.7
  },
  {
   "suite": "cpu_reset",
@@ -745,9 +745,9 @@
   "detection": "screen",
   "frames": 725,
   "simSeconds": 12.06,
-  "wallSeconds": 5325.7,
+  "wallSeconds": 5449.5,
   "resetCount": 0,
-  "khcPerSec": 97.3
+  "khcPerSec": 95.1
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -925,9 +925,9 @@
   "detection": "6000",
   "frames": 117,
   "simSeconds": 1.95,
-  "wallSeconds": 676.2,
+  "wallSeconds": 675.5,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 123.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -940,9 +940,9 @@
   "detection": "6000",
   "frames": 261,
   "simSeconds": 4.34,
-  "wallSeconds": 1515.8,
+  "wallSeconds": 1488.7,
   "resetCount": 0,
-  "khcPerSec": 123.0
+  "khcPerSec": 125.3
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -955,9 +955,9 @@
   "detection": "6000",
   "frames": 111,
   "simSeconds": 1.85,
-  "wallSeconds": 644.3,
+  "wallSeconds": 666.7,
   "resetCount": 0,
-  "khcPerSec": 123.0
+  "khcPerSec": 118.9
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -970,9 +970,9 @@
   "detection": "6000",
   "frames": 366,
   "simSeconds": 6.09,
-  "wallSeconds": 2093.6,
+  "wallSeconds": 2085.7,
   "resetCount": 0,
-  "khcPerSec": 124.9
+  "khcPerSec": 125.4
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -985,9 +985,9 @@
   "detection": "6000",
   "frames": 148,
   "simSeconds": 2.46,
-  "wallSeconds": 856.5,
+  "wallSeconds": 857.1,
   "resetCount": 0,
-  "khcPerSec": 123.4
+  "khcPerSec": 123.3
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1000,9 +1000,9 @@
   "detection": "6000",
   "frames": 138,
   "simSeconds": 2.3,
-  "wallSeconds": 812.0,
+  "wallSeconds": 797.0,
   "resetCount": 0,
-  "khcPerSec": 121.4
+  "khcPerSec": 123.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1015,9 +1015,9 @@
   "detection": "6000",
   "frames": 42,
   "simSeconds": 0.7,
-  "wallSeconds": 248.6,
+  "wallSeconds": 249.9,
   "resetCount": 0,
-  "khcPerSec": 120.5
+  "khcPerSec": 119.9
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1030,9 +1030,9 @@
   "detection": "6000",
   "frames": 166,
   "simSeconds": 2.76,
-  "wallSeconds": 968.2,
+  "wallSeconds": 974.5,
   "resetCount": 0,
-  "khcPerSec": 122.5
+  "khcPerSec": 121.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1045,9 +1045,9 @@
   "detection": "6000",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 118.3,
+  "wallSeconds": 118.8,
   "resetCount": 0,
-  "khcPerSec": 114.3
+  "khcPerSec": 113.8
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1060,9 +1060,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 93.9,
+  "wallSeconds": 94.8,
   "resetCount": 0,
-  "khcPerSec": 113.5
+  "khcPerSec": 112.5
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1075,9 +1075,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 94.6,
+  "wallSeconds": 95.5,
   "resetCount": 0,
-  "khcPerSec": 112.7
+  "khcPerSec": 111.6
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1090,9 +1090,9 @@
   "detection": "6000",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 157.0,
+  "wallSeconds": 158.2,
   "resetCount": 0,
-  "khcPerSec": 118.0
+  "khcPerSec": 117.1
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1105,9 +1105,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 101.4,
+  "wallSeconds": 97.7,
   "resetCount": 0,
-  "khcPerSec": 105.1
+  "khcPerSec": 109.1
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1120,9 +1120,9 @@
   "detection": "6000",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 116.7,
+  "wallSeconds": 123.0,
   "resetCount": 0,
-  "khcPerSec": 115.9
+  "khcPerSec": 109.9
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1135,24 +1135,24 @@
   "detection": "6000",
   "frames": 98,
   "simSeconds": 1.63,
-  "wallSeconds": 567.1,
+  "wallSeconds": 572.4,
   "resetCount": 0,
-  "khcPerSec": 123.4
+  "khcPerSec": 122.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
   "rom": "03-immediate.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "0B AAC #n\n2B AAC #n\n4B ASR #n\n6B ARR #n\nAB ATX #n\n\n03-immediate\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "03-immediate\n\nPassed",
   "screenshot": "screenshots/instr_test-v5/rom_singles/03-immediate.webp",
   "detection": "6000",
-  "frames": 92,
-  "simSeconds": 1.53,
-  "wallSeconds": 589.6,
+  "frames": 88,
+  "simSeconds": 1.46,
+  "wallSeconds": 506.7,
   "resetCount": 0,
-  "khcPerSec": 111.4
+  "khcPerSec": 124.0
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1165,9 +1165,9 @@
   "detection": "6000",
   "frames": 118,
   "simSeconds": 1.96,
-  "wallSeconds": 688.6,
+  "wallSeconds": 690.9,
   "resetCount": 0,
-  "khcPerSec": 122.4
+  "khcPerSec": 122.0
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1180,9 +1180,9 @@
   "detection": "6000",
   "frames": 261,
   "simSeconds": 4.34,
-  "wallSeconds": 1522.2,
+  "wallSeconds": 1524.4,
   "resetCount": 0,
-  "khcPerSec": 122.5
+  "khcPerSec": 122.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1195,9 +1195,9 @@
   "detection": "6000",
   "frames": 112,
   "simSeconds": 1.86,
-  "wallSeconds": 650.3,
+  "wallSeconds": 643.0,
   "resetCount": 0,
-  "khcPerSec": 123.0
+  "khcPerSec": 124.4
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1210,9 +1210,9 @@
   "detection": "6000",
   "frames": 367,
   "simSeconds": 6.11,
-  "wallSeconds": 2110.1,
+  "wallSeconds": 2092.2,
   "resetCount": 0,
-  "khcPerSec": 124.3
+  "khcPerSec": 125.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1225,9 +1225,9 @@
   "detection": "6000",
   "frames": 148,
   "simSeconds": 2.46,
-  "wallSeconds": 849.3,
+  "wallSeconds": 857.1,
   "resetCount": 0,
-  "khcPerSec": 124.5
+  "khcPerSec": 123.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1240,9 +1240,9 @@
   "detection": "6000",
   "frames": 138,
   "simSeconds": 2.3,
-  "wallSeconds": 797.4,
+  "wallSeconds": 789.2,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 124.9
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1255,9 +1255,9 @@
   "detection": "6000",
   "frames": 42,
   "simSeconds": 0.7,
-  "wallSeconds": 252.1,
+  "wallSeconds": 251.9,
   "resetCount": 0,
-  "khcPerSec": 118.8
+  "khcPerSec": 118.9
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1270,9 +1270,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 956.2,
+  "wallSeconds": 961.2,
   "resetCount": 0,
-  "khcPerSec": 123.3
+  "khcPerSec": 122.6
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1285,9 +1285,9 @@
   "detection": "6000",
   "frames": 18,
   "simSeconds": 0.3,
-  "wallSeconds": 111.2,
+  "wallSeconds": 112.8,
   "resetCount": 0,
-  "khcPerSec": 115.2
+  "khcPerSec": 113.5
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1300,9 +1300,9 @@
   "detection": "6000",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 101.8,
+  "wallSeconds": 103.2,
   "resetCount": 0,
-  "khcPerSec": 111.7
+  "khcPerSec": 110.2
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1315,9 +1315,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 95.6,
+  "wallSeconds": 94.4,
   "resetCount": 0,
-  "khcPerSec": 111.5
+  "khcPerSec": 112.9
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1330,9 +1330,9 @@
   "detection": "6000",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 155.5,
+  "wallSeconds": 158.3,
   "resetCount": 0,
-  "khcPerSec": 119.1
+  "khcPerSec": 117.0
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1345,9 +1345,9 @@
   "detection": "6000",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 94.3,
+  "wallSeconds": 93.3,
   "resetCount": 0,
-  "khcPerSec": 105.5
+  "khcPerSec": 106.6
  },
  {
   "suite": "instr_timing/rom_singles",
@@ -1360,9 +1360,9 @@
   "detection": "6000",
   "frames": 1014,
   "simSeconds": 16.87,
-  "wallSeconds": 7532.2,
+  "wallSeconds": 7635.6,
   "resetCount": 0,
-  "khcPerSec": 96.2
+  "khcPerSec": 94.9
  },
  {
   "suite": "instr_timing/rom_singles",
@@ -1375,9 +1375,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 800.3,
+  "wallSeconds": 791.2,
   "resetCount": 0,
-  "khcPerSec": 125.8
+  "khcPerSec": 127.3
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1390,24 +1390,24 @@
   "detection": "6000",
   "frames": 64,
   "simSeconds": 1.06,
-  "wallSeconds": 374.0,
+  "wallSeconds": 373.8,
   "resetCount": 0,
-  "khcPerSec": 122.1
+  "khcPerSec": 122.2
  },
  {
   "suite": "nes_instr_test/rom_singles",
   "rom": "02-immediate.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "0B AAC #n\n2B AAC #n\n4B ASR #n\n6B ARR #n\nAB ATX #n\n\n02-immediate\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "02-immediate\n\nPassed",
   "screenshot": "screenshots/nes_instr_test/rom_singles/02-immediate.webp",
   "detection": "6000",
-  "frames": 63,
-  "simSeconds": 1.05,
-  "wallSeconds": 400.7,
+  "frames": 58,
+  "simSeconds": 0.97,
+  "wallSeconds": 337.7,
   "resetCount": 0,
-  "khcPerSec": 112.2
+  "khcPerSec": 122.6
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1420,9 +1420,9 @@
   "detection": "6000",
   "frames": 76,
   "simSeconds": 1.26,
-  "wallSeconds": 438.9,
+  "wallSeconds": 439.8,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 123.4
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1435,9 +1435,9 @@
   "detection": "6000",
   "frames": 175,
   "simSeconds": 2.91,
-  "wallSeconds": 993.4,
+  "wallSeconds": 1002.5,
   "resetCount": 0,
-  "khcPerSec": 125.8
+  "khcPerSec": 124.7
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1450,9 +1450,9 @@
   "detection": "6000",
   "frames": 72,
   "simSeconds": 1.2,
-  "wallSeconds": 414.9,
+  "wallSeconds": 417.2,
   "resetCount": 0,
-  "khcPerSec": 123.9
+  "khcPerSec": 123.2
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1465,9 +1465,9 @@
   "detection": "6000",
   "frames": 244,
   "simSeconds": 4.06,
-  "wallSeconds": 1379.5,
+  "wallSeconds": 1411.5,
   "resetCount": 0,
-  "khcPerSec": 126.4
+  "khcPerSec": 123.5
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1480,9 +1480,9 @@
   "detection": "6000",
   "frames": 107,
   "simSeconds": 1.78,
-  "wallSeconds": 616.8,
+  "wallSeconds": 618.8,
   "resetCount": 0,
-  "khcPerSec": 123.9
+  "khcPerSec": 123.5
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1495,9 +1495,9 @@
   "detection": "6000",
   "frames": 99,
   "simSeconds": 1.65,
-  "wallSeconds": 583.3,
+  "wallSeconds": 568.8,
   "resetCount": 0,
-  "khcPerSec": 121.2
+  "khcPerSec": 124.3
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1510,9 +1510,9 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 201.6,
+  "wallSeconds": 200.4,
   "resetCount": 0,
-  "khcPerSec": 120.2
+  "khcPerSec": 121.0
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1525,9 +1525,9 @@
   "detection": "6000",
   "frames": 128,
   "simSeconds": 2.13,
-  "wallSeconds": 722.5,
+  "wallSeconds": 734.8,
   "resetCount": 0,
-  "khcPerSec": 126.5
+  "khcPerSec": 124.4
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1540,24 +1540,24 @@
   "detection": "6000",
   "frames": 11,
   "simSeconds": 0.18,
-  "wallSeconds": 69.5,
+  "wallSeconds": 69.9,
   "resetCount": 0,
-  "khcPerSec": 112.3
+  "khcPerSec": 111.6
  },
  {
   "suite": "oam_read",
   "rom": "oam_read.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 1,
-  "result_text": "*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-*******-\n*******-**-****-\n**------**------\n*******-*******-\n*******-*******-\n**------**------\n**------**------\n\nE03E03AD\noam_read\n\nFailed",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n\noam_read\n\nPassed",
   "screenshot": "screenshots/oam_read/oam_read.webp",
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 201.0,
+  "wallSeconds": 201.7,
   "resetCount": 0,
-  "khcPerSec": 102.8
+  "khcPerSec": 102.5
  },
  {
   "suite": "ppu_open_bus",
@@ -1570,9 +1570,9 @@
   "detection": "6000",
   "frames": 251,
   "simSeconds": 4.18,
-  "wallSeconds": 1332.5,
+  "wallSeconds": 1466.4,
   "resetCount": 0,
-  "khcPerSec": 134.6
+  "khcPerSec": 122.3
  },
  {
   "suite": "ppu_read_buffer",
@@ -1583,11 +1583,11 @@
   "result_text": " [0;37mTEST:test_ppu_read_buffer\n-----------------------------\nTesting basic PPU memory I/O.\n [0;37mPerforming tests that combine\nsprite 0 hit flag, $4014 DMA\nand the RAM mirroring...\n [0;33mGraphical artifacts during\nthis test are OK and expected.\n\n [0;37m              Hi   No-Hi\n [0;37mDirect poke   [0;33m OK   [0;33m OK  \n [0;37mDMA with ROM   [0;33m OK   [0;33m OK  \n [0;37mDMA + PPU bus [0;37m FAIL [0;33m OK  \n [0;37mDMA with RAM  \n\n [0;37m-----------------------------\n This next test wil take a while.\n In order to distract you with\n entertainment, art is provided.\n Contemplate on the art while\n the test is in progress.\n\n\n\n [0;37m-----------------------------\nFailed tests: [0;33m 67\n [0;37m-----------------------------\n [0;37mSprite 0 hit test using DMA\n($4014) using PPU I/O bus\nas source\n^ In this test, $4014 <- #$20.\n  Possible causes for failure:\n- DMA does not do proper reads\n- PPU bus does not preserve\n  last transferred values\n- $2002 read returned a value\n  that differs from expected\n- $2004 read modifies the OAM\n\nFailed #67",
   "screenshot": "screenshots/ppu_read_buffer/test_ppu_read_buffer.webp",
   "detection": "6000",
-  "frames": 1290,
-  "simSeconds": 21.46,
-  "wallSeconds": 9541.3,
+  "frames": 1289,
+  "simSeconds": 21.45,
+  "wallSeconds": 9747.7,
   "resetCount": 0,
-  "khcPerSec": 96.6
+  "khcPerSec": 94.5
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1600,9 +1600,9 @@
   "detection": "6000",
   "frames": 145,
   "simSeconds": 2.41,
-  "wallSeconds": 860.8,
+  "wallSeconds": 838.5,
   "resetCount": 0,
-  "khcPerSec": 120.3
+  "khcPerSec": 123.5
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1615,9 +1615,9 @@
   "detection": "6000",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 994.8,
+  "wallSeconds": 982.6,
   "resetCount": 0,
-  "khcPerSec": 127.1
+  "khcPerSec": 128.7
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1630,9 +1630,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 928.6,
+  "wallSeconds": 894.9,
   "resetCount": 0,
-  "khcPerSec": 126.9
+  "khcPerSec": 131.7
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1645,9 +1645,9 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 205.2,
+  "wallSeconds": 204.7,
   "resetCount": 0,
-  "khcPerSec": 118.1
+  "khcPerSec": 118.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1660,9 +1660,9 @@
   "detection": "6000",
   "frames": 215,
   "simSeconds": 3.58,
-  "wallSeconds": 1217.9,
+  "wallSeconds": 1186.9,
   "resetCount": 0,
-  "khcPerSec": 126.1
+  "khcPerSec": 129.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1675,9 +1675,9 @@
   "detection": "6000",
   "frames": 218,
   "simSeconds": 3.63,
-  "wallSeconds": 1235.1,
+  "wallSeconds": 1213.4,
   "resetCount": 0,
-  "khcPerSec": 126.1
+  "khcPerSec": 128.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1690,9 +1690,9 @@
   "detection": "6000",
   "frames": 193,
   "simSeconds": 3.21,
-  "wallSeconds": 1089.1,
+  "wallSeconds": 1085.9,
   "resetCount": 0,
-  "khcPerSec": 126.6
+  "khcPerSec": 127.0
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1705,9 +1705,9 @@
   "detection": "6000",
   "frames": 217,
   "simSeconds": 3.61,
-  "wallSeconds": 1272.4,
+  "wallSeconds": 1183.0,
   "resetCount": 0,
-  "khcPerSec": 121.8
+  "khcPerSec": 131.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1720,9 +1720,9 @@
   "detection": "6000",
   "frames": 74,
   "simSeconds": 1.23,
-  "wallSeconds": 462.6,
+  "wallSeconds": 443.6,
   "resetCount": 0,
-  "khcPerSec": 114.2
+  "khcPerSec": 119.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1735,9 +1735,9 @@
   "detection": "6000",
   "frames": 75,
   "simSeconds": 1.25,
-  "wallSeconds": 429.8,
+  "wallSeconds": 426.4,
   "resetCount": 0,
-  "khcPerSec": 124.6
+  "khcPerSec": 125.6
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1750,9 +1750,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 761.3,
+  "wallSeconds": 779.9,
   "resetCount": 0,
-  "khcPerSec": 132.3
+  "khcPerSec": 129.1
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1765,9 +1765,9 @@
   "detection": "6000",
   "frames": 140,
   "simSeconds": 2.33,
-  "wallSeconds": 756.9,
+  "wallSeconds": 772.6,
   "resetCount": 0,
-  "khcPerSec": 132.1
+  "khcPerSec": 129.4
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1780,9 +1780,9 @@
   "detection": "screen",
   "frames": 33,
   "simSeconds": 0.55,
-  "wallSeconds": 209.4,
+  "wallSeconds": 210.5,
   "resetCount": 0,
-  "khcPerSec": 112.4
+  "khcPerSec": 111.8
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1795,9 +1795,9 @@
   "detection": "screen",
   "frames": 31,
   "simSeconds": 0.52,
-  "wallSeconds": 203.5,
+  "wallSeconds": 197.3,
   "resetCount": 0,
-  "khcPerSec": 108.6
+  "khcPerSec": 112.0
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1810,9 +1810,9 @@
   "detection": "screen",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 149.9,
+  "wallSeconds": 133.9,
   "resetCount": 0,
-  "khcPerSec": 99.7
+  "khcPerSec": 111.6
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1825,9 +1825,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 132.6,
+  "wallSeconds": 118.8,
   "resetCount": 0,
-  "khcPerSec": 102.0
+  "khcPerSec": 113.8
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1840,9 +1840,9 @@
   "detection": "screen",
   "frames": 30,
   "simSeconds": 0.5,
-  "wallSeconds": 192.3,
+  "wallSeconds": 189.9,
   "resetCount": 0,
-  "khcPerSec": 111.2
+  "khcPerSec": 112.6
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1855,9 +1855,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 158.1,
+  "wallSeconds": 149.8,
   "resetCount": 0,
-  "khcPerSec": 103.6
+  "khcPerSec": 109.3
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1870,9 +1870,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 173.2,
+  "wallSeconds": 169.9,
   "resetCount": 0,
-  "khcPerSec": 106.9
+  "khcPerSec": 109.0
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1885,9 +1885,9 @@
   "detection": "screen",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 138.8,
+  "wallSeconds": 139.8,
   "resetCount": 0,
-  "khcPerSec": 112.9
+  "khcPerSec": 112.0
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1900,9 +1900,9 @@
   "detection": "screen",
   "frames": 64,
   "simSeconds": 1.06,
-  "wallSeconds": 376.4,
+  "wallSeconds": 374.2,
   "resetCount": 0,
-  "khcPerSec": 121.4
+  "khcPerSec": 122.1
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1915,9 +1915,9 @@
   "detection": "screen",
   "frames": 60,
   "simSeconds": 1.0,
-  "wallSeconds": 347.3,
+  "wallSeconds": 343.6,
   "resetCount": 0,
-  "khcPerSec": 123.3
+  "khcPerSec": 124.6
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1930,9 +1930,9 @@
   "detection": "screen",
   "frames": 52,
   "simSeconds": 0.87,
-  "wallSeconds": 309.7,
+  "wallSeconds": 303.9,
   "resetCount": 0,
-  "khcPerSec": 119.8
+  "khcPerSec": 122.1
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1945,9 +1945,9 @@
   "detection": "screen",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 110.7,
+  "wallSeconds": 105.8,
   "resetCount": 0,
-  "khcPerSec": 109.2
+  "khcPerSec": 114.3
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1960,9 +1960,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 171.8,
+  "wallSeconds": 172.1,
   "resetCount": 0,
-  "khcPerSec": 107.8
+  "khcPerSec": 107.6
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1975,9 +1975,9 @@
   "detection": "screen",
   "frames": 122,
   "simSeconds": 2.03,
-  "wallSeconds": 680.2,
+  "wallSeconds": 697.2,
   "resetCount": 0,
-  "khcPerSec": 128.1
+  "khcPerSec": 125.0
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1990,9 +1990,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 166.7,
+  "wallSeconds": 149.2,
   "resetCount": 0,
-  "khcPerSec": 98.3
+  "khcPerSec": 109.8
  },
  {
   "suite": "sprite_overflow_tests",
@@ -2005,9 +2005,9 @@
   "detection": "screen",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 105.6,
+  "wallSeconds": 95.4,
   "resetCount": 0,
-  "khcPerSec": 94.2
+  "khcPerSec": 104.3
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2020,9 +2020,9 @@
   "detection": "screen",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 1138.8,
+  "wallSeconds": 1143.3,
   "resetCount": 0,
-  "khcPerSec": 111.0
+  "khcPerSec": 110.6
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2035,9 +2035,9 @@
   "detection": "screen",
   "frames": 150,
   "simSeconds": 2.5,
-  "wallSeconds": 833.0,
+  "wallSeconds": 838.7,
   "resetCount": 0,
-  "khcPerSec": 128.6
+  "khcPerSec": 127.8
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2050,9 +2050,9 @@
   "detection": "screen",
   "frames": 95,
   "simSeconds": 1.58,
-  "wallSeconds": 555.3,
+  "wallSeconds": 563.9,
   "resetCount": 0,
-  "khcPerSec": 122.2
+  "khcPerSec": 120.3
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2065,9 +2065,9 @@
   "detection": "screen",
   "frames": 113,
   "simSeconds": 1.88,
-  "wallSeconds": 621.6,
+  "wallSeconds": 616.0,
   "resetCount": 0,
-  "khcPerSec": 129.8
+  "khcPerSec": 131.0
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2080,9 +2080,9 @@
   "detection": "screen",
   "frames": 162,
   "simSeconds": 2.7,
-  "wallSeconds": 944.7,
+  "wallSeconds": 892.3,
   "resetCount": 0,
-  "khcPerSec": 122.5
+  "khcPerSec": 129.7
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2095,9 +2095,9 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 594.0,
+  "wallSeconds": 579.7,
   "resetCount": 0,
-  "khcPerSec": 126.2
+  "khcPerSec": 129.4
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2110,8 +2110,8 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 582.9,
+  "wallSeconds": 561.7,
   "resetCount": 0,
-  "khcPerSec": 128.6
+  "khcPerSec": 133.5
  }
 ]

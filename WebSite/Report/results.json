@@ -70,9 +70,9 @@
   "detection": "6000+reset",
   "frames": 32,
   "simSeconds": 0.53,
-  "wallSeconds": 216.4,
+  "wallSeconds": 211.1,
   "resetCount": 1,
-  "khcPerSec": 105.1
+  "khcPerSec": 107.8
  },
  {
   "suite": "apu_reset",
@@ -85,9 +85,9 @@
   "detection": "6000+reset",
   "frames": 48,
   "simSeconds": 0.8,
-  "wallSeconds": 310.6,
+  "wallSeconds": 318.3,
   "resetCount": 1,
-  "khcPerSec": 110.1
+  "khcPerSec": 107.4
  },
  {
   "suite": "apu_reset",
@@ -100,9 +100,9 @@
   "detection": "6000+reset",
   "frames": 59,
   "simSeconds": 0.98,
-  "wallSeconds": 385.0,
+  "wallSeconds": 376.7,
   "resetCount": 2,
-  "khcPerSec": 109.1
+  "khcPerSec": 111.5
  },
  {
   "suite": "apu_reset",
@@ -115,9 +115,9 @@
   "detection": "6000+reset",
   "frames": 33,
   "simSeconds": 0.55,
-  "wallSeconds": 220.0,
+  "wallSeconds": 217.1,
   "resetCount": 1,
-  "khcPerSec": 106.7
+  "khcPerSec": 108.1
  },
  {
   "suite": "apu_reset",
@@ -130,9 +130,9 @@
   "detection": "6000+reset",
   "frames": 38,
   "simSeconds": 0.63,
-  "wallSeconds": 249.3,
+  "wallSeconds": 250.2,
   "resetCount": 1,
-  "khcPerSec": 108.5
+  "khcPerSec": 108.1
  },
  {
   "suite": "apu_reset",
@@ -145,9 +145,9 @@
   "detection": "6000+reset",
   "frames": 39,
   "simSeconds": 0.65,
-  "wallSeconds": 259.6,
+  "wallSeconds": 249.9,
   "resetCount": 1,
-  "khcPerSec": 106.9
+  "khcPerSec": 111.1
  },
  {
   "suite": "apu_test/rom_singles",
@@ -160,9 +160,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 132.1,
+  "wallSeconds": 133.5,
   "resetCount": 0,
-  "khcPerSec": 113.2
+  "khcPerSec": 112.0
  },
  {
   "suite": "apu_test/rom_singles",
@@ -175,24 +175,24 @@
   "detection": "6000",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 106.3,
+  "wallSeconds": 110.1,
   "resetCount": 0,
-  "khcPerSec": 107.0
+  "khcPerSec": 103.3
  },
  {
   "suite": "apu_test/rom_singles",
   "rom": "3-irq_flag.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 6,
-  "result_text": "Writing $00 or $80 to $4017 shouldn't affect flag\n\n3-irq_flag\n\nFailed #6",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "3-irq_flag\n\nPassed",
   "screenshot": "screenshots/apu_test/rom_singles/3-irq_flag.webp",
   "detection": "6000",
-  "frames": 23,
-  "simSeconds": 0.38,
-  "wallSeconds": 151.2,
+  "frames": 21,
+  "simSeconds": 0.35,
+  "wallSeconds": 130.9,
   "resetCount": 0,
-  "khcPerSec": 108.3
+  "khcPerSec": 114.2
  },
  {
   "suite": "apu_test/rom_singles",
@@ -205,9 +205,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 134.7,
+  "wallSeconds": 131.6,
   "resetCount": 0,
-  "khcPerSec": 111.0
+  "khcPerSec": 113.6
  },
  {
   "suite": "apu_test/rom_singles",
@@ -220,9 +220,9 @@
   "detection": "6000",
   "frames": 114,
   "simSeconds": 1.9,
-  "wallSeconds": 666.1,
+  "wallSeconds": 627.4,
   "resetCount": 0,
-  "khcPerSec": 122.2
+  "khcPerSec": 129.8
  },
  {
   "suite": "apu_test/rom_singles",
@@ -235,9 +235,9 @@
   "detection": "6000",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 139.2,
+  "wallSeconds": 135.9,
   "resetCount": 0,
-  "khcPerSec": 112.5
+  "khcPerSec": 115.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -250,9 +250,9 @@
   "detection": "6000",
   "frames": 27,
   "simSeconds": 0.45,
-  "wallSeconds": 170.3,
+  "wallSeconds": 166.9,
   "resetCount": 0,
-  "khcPerSec": 113.0
+  "khcPerSec": 115.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -265,9 +265,9 @@
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 180.8,
+  "wallSeconds": 175.5,
   "resetCount": 0,
-  "khcPerSec": 114.3
+  "khcPerSec": 117.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -280,9 +280,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 154.1,
+  "wallSeconds": 144.8,
   "resetCount": 0,
-  "khcPerSec": 120.2
+  "khcPerSec": 127.9
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -295,24 +295,24 @@
   "detection": "screen",
   "frames": 12,
   "simSeconds": 0.2,
-  "wallSeconds": 76.3,
+  "wallSeconds": 76.9,
   "resetCount": 0,
-  "khcPerSec": 111.6
+  "khcPerSec": 110.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
   "rom": "03.irq_flag.nes",
   "class": "B",
-  "status": "fail",
-  "exit_code": 6,
-  "result_text": "(screen: $06 = failed)",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "(screen: $01 = passed)",
   "screenshot": "screenshots/blargg_apu_2005.07.30/03.irq_flag.webp",
   "detection": "screen",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 103.6,
+  "wallSeconds": 100.0,
   "resetCount": 0,
-  "khcPerSec": 116.7
+  "khcPerSec": 120.9
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -325,9 +325,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.4,
+  "wallSeconds": 94.7,
   "resetCount": 0,
-  "khcPerSec": 118.0
+  "khcPerSec": 120.1
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -340,9 +340,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 137.8,
+  "wallSeconds": 136.8,
   "resetCount": 0,
-  "khcPerSec": 118.9
+  "khcPerSec": 119.7
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -355,9 +355,9 @@
   "detection": "screen",
   "frames": 24,
   "simSeconds": 0.4,
-  "wallSeconds": 138.7,
+  "wallSeconds": 140.2,
   "resetCount": 0,
-  "khcPerSec": 123.2
+  "khcPerSec": 121.9
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -370,9 +370,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 116.3,
+  "wallSeconds": 112.1,
   "resetCount": 0,
-  "khcPerSec": 116.3
+  "khcPerSec": 120.6
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -385,9 +385,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.6,
+  "wallSeconds": 105.5,
   "resetCount": 0,
-  "khcPerSec": 117.8
+  "khcPerSec": 107.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -400,9 +400,9 @@
   "detection": "screen",
   "frames": 11,
   "simSeconds": 0.18,
-  "wallSeconds": 69.8,
+  "wallSeconds": 69.4,
   "resetCount": 0,
-  "khcPerSec": 111.8
+  "khcPerSec": 112.4
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -415,9 +415,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 97.9,
+  "wallSeconds": 98.6,
   "resetCount": 0,
-  "khcPerSec": 116.2
+  "khcPerSec": 115.4
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -430,9 +430,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.8,
+  "wallSeconds": 96.3,
   "resetCount": 0,
-  "khcPerSec": 117.5
+  "khcPerSec": 118.1
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -640,9 +640,9 @@
   "detection": "6000",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 112.2,
+  "wallSeconds": 108.9,
   "resetCount": 0,
-  "khcPerSec": 107.8
+  "khcPerSec": 111.0
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",

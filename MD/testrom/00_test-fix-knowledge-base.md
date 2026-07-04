@@ -14,6 +14,7 @@
 | 2026-07-04 | 125/16 → 129/12 | DMC latch shim (one shim, +4) |
 | 2026-07-05 | 129/12 → 132/9 (predicted) | ALU latch hold shim + LXA magic shim (+3) |
 | 2026-07-04 | **133/8 (94.3%) — full regression closed** | all 141 re-run in 6.6 h, zero unexpected reds; surprise: oam_read landed on the passing pattern (+1 over prediction); throughput: 113.4 khc/s per test, steady-state 680 khc/s @ 6 lanes |
+| 2026-07-05 | **141/4 (97.2%)** | exec_space_apu solved: board tie polarity (u7/u8 spare inputs vss → floating TTL should read high) + cold-port bit0; full $4000→$40FF walk passes; tie blast-radius regression 7/7 green |
 | 2026-07-04 | **140/5 (96.6%)** | FrameIrqShim: third member of the same-wave transient family (w4017 wave × apu_clk1 edge flips the RS pair; r4015's partial decode aggravates); both irq_flag tests pass; 26-test frame-IRQ family regression, zero collateral |
 | 2026-07-04 | **138/7 (95.2%, catalog 145)** | behavioral joypad + `--input` injection: all four read_joy3 tests enrolled and PASS (incl. test_buttons' scripted 8-button run end-to-end); **dma_4016_read remaining FAIL flipped** (the DMA double-clock corruption emerges naturally from real bus traffic — no dedicated fix) |
 
@@ -114,6 +115,7 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 | 6 | 7-dmc_basics, sprdma×2, dma_2007_read | DMC IRQ one ACLK late → $4015 reads $00 | pcm_latch closing-edge race (§2.1, data should win) | **DmcLatchShim**: at apu_clk1's falling edge, edge-capture 13907's post-settle value into 13947 | +4 |
 | 7 | ANC/ALR/ARR (4 of the immediate trio's 5 rows) | A never updates, flags wrong | ALU input latches corrupted by same-step bus collapse (§2.1, gate should win) | **AluLatchShim**: snapshot alua/alub; restore same-step corruption at SBADD/DBADD falling edges | (with #8) |
 | 8 | ATX (5th row) | LXA magic=$00 vs real $FF | ratioed bus fight quantized (§2.2) | **LxaMagicShim**: after $AB completes, force A=X=imm (one-shot) + sustained 3-cycle dual-side drive on the N/Z flag loops ({p7,#1045},{p1,#566}) | trio all pass, +3 |
+| 11 | test_cpu_exec_space_apu | $4016 opcode fetch reads $5C (NOP abs,X) instead of $40 (RTI) → PC drifts | board-def tie polarity: LS368 spare inputs tied to vss, real floating TTL reads high (cat. 1) + cold-port bit0 | load-time connection override (6 ties vss→vcc, behavioral-joypad mode only) + cold-port rule; TriCNES/AprNes/NESdev triple-confirmed | +1 |
 | 10 | 3-irq_flag ×2 | writing $00/$80 to $4017 falsely clears the frame-IRQ flag | intra-settle transient flips the RS pair (§2.1 family; r4015's ab1-less partial decode aggravates) | **FrameIrqShim**: restore the pair when the flag falls with all three legitimate clear terms (#13170 read-clear / intmode level / _res) inactive | +2 |
 | 9 | dma_4016_read + the four read_joy3 tests | controller reads entirely broken (gate-level 4021 structurally undrivable, §2.4 4th texture) | missing behavioral part (cat. 1) | **behavioral joypad**: nes-pad-behavioral shadow module + Joypad handler (4021 protocol, advance on joy-deselect edge), scripted `--input`; DMA corruption emerges from real bus traffic | +5 (catalog +4 all pass, remaining −1) |
 
@@ -125,16 +127,16 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
 | cpu_dummy_writes_oam | the test declares on-screen that its prerequisite fails on real NES | on-screen statement + NESdev power-up state |
 | 10-even_odd_timing | alignment mutual exclusion (§2.5); any fixed-alignment system pays this | full K-sweep matrix + completeness proof + TriCNES hand-tuning contrast |
 
-### 3.3 Remaining FAILs (5, updated 2026-07-04) and working hypotheses
+### 3.3 Remaining FAILs (4, updated 2026-07-05) and working hypotheses
 
 | Test | Area | Hypothesis / next step |
 |---|---|---|
 | double_2007_read | back-to-back $2007 reads | **characterized**: real consecutive read pulses merge/skip (analog pulse-width); we execute both cleanly (5th pattern D84F6815); shim direction = "ignore the second consecutive read" |
 | test_ppu_read_buffer | #67: sprite0 hit + OAM DMA sourced from the PPU I/O bus ($4014=$20) | **characterized**: includes 32 DMA reads of $2007; likely shares the double_2007 root; queued after it |
-| test_cpu_exec_space_apu | $4016/$4017 opcode fetches read bit0=1 → $41 instead of $40 (RTI) | **characterized**: behavioral pad cold ports should read 0 (blargg's machine: un-strobed port reads 0); fix = cold-port rule (present 0 until first strobe) |
 | cpu_dummy_writes_oam, 10-even_odd | — | faithful deviations (§3.2), remain FAIL |
 
-**Theoretical ceiling: 143/145 (98.6%)** — 2 permanent faithful FAILs (10-even_odd,
+**Theoretical ceiling: 143/145 (98.6%) — two steps away** (double_2007_read's
+VRAM access-delay route + a same-root retest of read_buffer #67) — 2 permanent faithful FAILs (10-even_odd,
 dummy_writes_oam); oam_read belongs to the faithful lottery family (currently PASS).
 The other 6 are hypothesized fixable, but deep investigation may reclassify them
 (same standard as before: deterministic on real hardware → shim; genuinely

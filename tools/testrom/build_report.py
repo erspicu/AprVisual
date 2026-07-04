@@ -186,6 +186,10 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
  </div>
  <div style="margin-top:.5rem"><span class="en">apu_mixer's $6000 pass only certifies sequence completion (its real verdict is
  auditory) — treat those 4 as smoke tests.</span><span class="zh">apu_mixer 的 $6000 通過只代表「音頻序列播完沒當機」(真正的判定是聽覺的)—— 那 4 個請視為 smoke test。</span></div>
+ <div style="margin-top:.5rem">📚 <span class="en"><strong>Knowledge base</strong> — the living master document of every investigation: FAIL taxonomy,
+  the engine's semantic limits vs real silicon, the full fix table (root cause &rarr; fix), instruments and method:
+  <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_test-fix-knowledge-base.md" target="_blank" rel="noopener">Test-Fix Knowledge Base (EN)</a>.</span><span class="zh"><strong>知識庫</strong> —— 所有調查的總綱 living document:FAIL 三分類、引擎語意極限、修復總表(根因&rarr;修法)、工具鏈與方法論:
+  <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_%E6%B8%AC%E8%A9%A6%E4%BF%AE%E5%BE%A9%E7%9F%A5%E8%AD%98%E5%BA%AB_%E7%B8%BD%E7%B6%B1.md" target="_blank" rel="noopener">測試修復知識庫(繁中)</a>。</span></div>
  <details style="margin-top:.6rem">
   <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">Hardware model — what is netlist, what is behavioral</span><span class="zh">硬體模型 —— 哪些是 netlist、哪些是行為層</span></strong></summary>
   <div style="margin-top:.5rem;overflow-x:auto"><table style="border-collapse:collapse;font-size:.78rem;min-width:640px">

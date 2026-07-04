@@ -857,6 +857,26 @@
       "rom": "7.nmi_timing.nes",
       "class": "B",
       "maxFrames": 340
+    },
+    {
+      "suite": "read_joy3",
+      "rom": "thorough_test.nes",
+      "class": "B",
+      "maxFrames": 900
+    },
+    {
+      "suite": "read_joy3",
+      "rom": "count_errors.nes",
+      "class": "B",
+      "maxFrames": 600,
+      "passMarker": "Conflicts:"
+    },
+    {
+      "suite": "read_joy3",
+      "rom": "count_errors_fast.nes",
+      "class": "B",
+      "maxFrames": 600,
+      "passMarker": "Errors:"
     }
   ]
 }

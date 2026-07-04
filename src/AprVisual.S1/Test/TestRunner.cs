@@ -23,6 +23,7 @@ namespace AprVisual.Test
         private static string? _testShotPath;             // --test-screenshot: final-frame PNG for the report page
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
+        private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
 
@@ -98,6 +99,7 @@ namespace AprVisual.Test
                         }
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
+                    case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
@@ -1420,6 +1422,7 @@ namespace AprVisual.Test
         {
             if (s.Contains("Passed") || s.Contains("PASSED")) { marker = "Passed"; return 0; }
             if (s.Contains("Failed") || s.Contains("FAILED")) { marker = "Failed"; return 1; }
+            if (_passMarker != null && s.Contains(_passMarker)) { marker = _passMarker; return 0; }
             for (int i = 0; i + 2 < s.Length; i++)
             {
                 if (s[i] != '$' || s[i + 1] != '0') continue;

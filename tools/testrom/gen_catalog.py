@@ -84,6 +84,15 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, "w", encoding="utf-8") as fp:
+    # Hands-off read_joy3 tests (mapper 3). test_buttons.nes is excluded — it prompts the
+    # user to physically press each button. count_errors / count_errors_fast never print
+    # "Passed"; their completion line is the informational tally (the conflict count is
+    # timing-model-dependent by design), so they carry a custom passMarker.
+    tests.extend([
+        {"suite": "read_joy3", "rom": "thorough_test.nes", "class": "B", "maxFrames": 900},
+        {"suite": "read_joy3", "rom": "count_errors.nes", "class": "B", "maxFrames": 600, "passMarker": "Conflicts:"},
+        {"suite": "read_joy3", "rom": "count_errors_fast.nes", "class": "B", "maxFrames": 600, "passMarker": "Errors:"},
+    ])
     json.dump({"schema": "aprvisual-testrom-catalog/1", "romBase": "nes-test-roms-master/checked", "tests": tests}, fp, indent=2)
 
 from collections import Counter

@@ -333,7 +333,21 @@ namespace AprVisual.Sim
             }
 
             // connections
-            foreach (var (cf, ct) in def.Connections) AddConnection(CombinePrefix(prefix, cf), CombinePrefix(prefix, ct));
+            foreach (var (cf, ct) in def.Connections)
+            {
+                string from = CombinePrefix(prefix, cf), to = CombinePrefix(prefix, ct);
+                // Behavioral-joypad correction (test mode): the board def ties the LS368 spare
+                // inputs (u7/u8 1A4/2A1/2A2 — the controller port's D3/D4/expansion lines) to
+                // vss, which the inverting buffer turns into 1s on db2-4 — so $4016/$4017 reads
+                // return $5C-patterned bytes. On a real NES-001 with nothing driving those lines
+                // the floating TTL inputs read HIGH, inverted to 0s on the bus, and open-bus
+                // opcode fetches from $4016/$4017 correctly execute as $40 = RTI
+                // (cpu_exec_space_apu). Rewire the ties to vcc when the behavioral pad is active.
+                if (EnableJoypadHandler && to == "vss"
+                    && (from is "u7.1A4" or "u7.2A1" or "u7.2A2" or "u8.1A4" or "u8.2A1" or "u8.2A2"))
+                    to = "vcc";
+                AddConnection(from, to);
+            }
 
             // forceCompute
             foreach (var fc in def.ForceCompute) ResolveNodes(CombinePrefix(prefix, fc), _forceComputeList);

@@ -121,6 +121,7 @@ namespace AprVisual.Sim
                 AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
                 if (isCnrom) AttachCnromLatch(Math.Max(1, rom.ChrRom.Length / 8192));   // CNROM: CPU write to $8000+ latches the CHR bank
                 if (EnableJoypadHandler) AttachJoypadHandler();   // behavioral controller (test mode)
+                if (EnableDbl2007Shim) AttachDbl2007Shim();       // $2007 double-read merge (per-test opt-in)
                 AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
 
                 ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)
@@ -488,6 +489,8 @@ namespace AprVisual.Sim
             }
             _fiPrev = now;
         }
+
+
 
         // ── Controller input injection (test mode) ──────────────────────────────────────────
         // The controllers are BEHAVIORAL (same abstraction level as the cartridge): the

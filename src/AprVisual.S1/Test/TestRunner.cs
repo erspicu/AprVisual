@@ -27,6 +27,7 @@ namespace AprVisual.Test
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
         private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
+        internal static bool _dbl2007Shim;                 // --dbl2007-shim: per-test opt-in (catalog dbl2007Shim)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
 
@@ -106,6 +107,7 @@ namespace AprVisual.Test
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
                     case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
+                    case "--dbl2007-shim":    _dbl2007Shim = true; break;                                                             // per-test opt-in: $2007 double-read merge shim (attach footprint re-rolls races)
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump

@@ -84,6 +84,10 @@ def run_one(t, core, rombase):
         cmd += ["--pass-marker", t["passMarker"]]
     if t.get("input"):
         cmd += ["--input", t["input"]]
+    if t.get("dbl2007Shim"):
+        # $2007 double-read merge shim: per-test opt-in — its load-time instrumentation
+        # re-rolls alignment-lottery races in unrelated tests (see knowledge base).
+        cmd += ["--dbl2007-shim"]
     if t.get("class") in ("B", "C"):
         # B/C verdicts read VRAM directly and can fire before the ROM enables rendering —
         # give the ROM 60 extra frames to present its result screen before the screenshot.

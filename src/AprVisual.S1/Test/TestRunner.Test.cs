@@ -28,6 +28,7 @@ namespace AprVisual.Test
             WireCore.PowerUpStateShim = true;
             WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
             WireCore.EnableJoypadHandler = true;    // behavioral controller (input injection + faithful bus traffic)
+            WireCore.EnableDbl2007Shim = _dbl2007Shim;   // per-test opt-in (see catalog dbl2007Shim)
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
@@ -44,7 +45,6 @@ namespace AprVisual.Test
                 if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
                 WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                 WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
-                WireCore.EnablePpuBufShim();     // $2007 read-buffer read-through hold (documented analog pulse-merge shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay

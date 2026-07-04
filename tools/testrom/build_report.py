@@ -90,9 +90,8 @@ if perf_samples:
     tot_hc = sum(h for h, w, m in perf_samples)
     tot_wall = sum(w for h, w, m in perf_samples)
     khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
-    m_first = min(m for h, w, m in perf_samples)
-    w_first = next(w for h, w, m in perf_samples if m == m_first)
-    span = max(m for h, w, m in perf_samples) - (m_first - w_first)
+    # per-test start = finish(mtime) - wallSeconds; span = earliest start .. latest finish
+    span = max(m for h, w, m in perf_samples) - min(m - w for h, w, m in perf_samples)
     if span > 0 and len(perf_samples) >= 8:
         agg_khc = tot_hc / span / 1000
         conc = tot_wall / span

@@ -448,6 +448,45 @@ namespace AprVisual.Sim
                 else if (_lxaArm == 1) { _lxaImm = dbv; _lxaArm = 2; }
             }
             _lxaPrevPhi2 = ph;
+            if (FrameIrqShim) FrameIrqShimStep();
+        }
+
+        // ── Frame-IRQ flag hold shim (test mode only) ────────────────────────────────────────
+        // The frame-IRQ RS pair (frame_irq / /frame_irq) loses its state to an intra-settle
+        // transient when a $4017 write wave coincides with the apu_clk1 falling edge (blargg
+        // apu_test 3-irq_flag #6: writing $00/$80 must NOT clear the flag). The netlist's clear
+        // terms match APUSim exactly ({read-$4015 (node 13170), frm_intmode level, _res}) and
+        // ALL are inactive post-settle at the false clear — the same same-half-cycle race family
+        // as the DMC latch. Shim: if the flag fell in a step with no legitimate clear term
+        // active, restore the pair (dual-side, cross-coupled).
+        public static bool FrameIrqShim = false;
+        private static int _fiFlag = EmptyNode, _fiNFlag = EmptyNode, _fiRdClr = EmptyNode, _fiInh = EmptyNode, _fiRes = EmptyNode;
+        private static byte _fiPrev;
+
+        public static void EnableFrameIrqShim()
+        {
+            _fiFlag  = LookupNode("cpu.frame_irq");
+            _fiNFlag = LookupNode("cpu./frame_irq");
+            _fiRdClr = LookupNode("cpu.#13170");
+            _fiInh   = LookupNode("cpu.frm_intmode");
+            _fiRes   = LookupNode("cpu._res");
+            if (_fiFlag == EmptyNode || _fiNFlag == EmptyNode || _fiRdClr == EmptyNode || _fiInh == EmptyNode || _fiRes == EmptyNode)
+            { Console.Error.WriteLine("# [shim] frame-IRQ shim: nodes unresolved — disabled"); FrameIrqShim = false; return; }
+            _fiPrev = NodeStates[_fiFlag];
+            FrameIrqShim = true;
+        }
+
+        private static void FrameIrqShimStep()
+        {
+            byte now = NodeStates[_fiFlag];
+            if (_fiPrev == 1 && now == 0
+                && NodeStates[_fiRdClr] == 0 && NodeStates[_fiInh] == 0 && NodeStates[_fiRes] == 0)
+            {
+                SetHigh(_fiFlag); SetLow(_fiNFlag);
+                SetFloat(_fiFlag); SetFloat(_fiNFlag);
+                now = NodeStates[_fiFlag];
+            }
+            _fiPrev = now;
         }
 
         // ── Controller input injection (test mode) ──────────────────────────────────────────

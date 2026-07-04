@@ -1230,6 +1230,7 @@ namespace AprVisual.Test
                 WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
                 if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
                 WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
+                WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
@@ -1560,7 +1561,7 @@ namespace AprVisual.Test
                     int ph = WireCore.NodeStates[phi2];
                     if (prevPhi == 1 && ph == 0) cyc++;
                     int a = WireCore.ReadBits(abN);
-                    if (hcLeft < 0 && a == trigAddr) { hcLeft = 24 * 10; Console.WriteLine($"# trigger at cyc {cyc}"); }
+                    if (hcLeft < 0 && a == trigAddr) { hcLeft = 24 * 20; Console.WriteLine($"# trigger at cyc {cyc}"); }
                     if (hcLeft > 0)
                     {
                         hcLeft--;
@@ -1598,6 +1599,7 @@ namespace AprVisual.Test
                 WireCore.EnableDmcLatchShim();
                 if (!_noAluShim) WireCore.EnableAluLatchShim();
                 WireCore.EnableLxaMagicShim();
+                WireCore.EnableFrameIrqShim();
                 var microInput = ParseInputSpec(_inputSpec);
                 if (microInput.Count > 0 && !WireCore.PadInit()) microInput.Clear();
                 var watch = new List<(string Name, int Node)>();

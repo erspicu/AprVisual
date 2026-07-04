@@ -171,9 +171,9 @@ Every deep investigation followed the same siege procedure, now proven:
 
 ## 6. Per-topic note index (full evidence chains)
 
-- [2026-07-03 FAIL analysis & path to full score](2026-07-03-fail-analysis-and-path-to-full-score.md) — the 6 root-cause categories + roadmap
-- [2026-07-04 reference machine profile & AccuracyCoin notes](2026-07-04-reference-machine-profile-and-accuracycoin-notes.md) — machine profile, AC/TriCNES doctrine
-- [2026-07-04 DMC #19 ACLK pipeline analysis](2026-07-04-dmc19-aclk-pipeline-analysis.md) — the DMC race, complete case (APUSim arbitration)
-- [2026-07-05 immediate trio ALU-latch race](2026-07-05-immediate-trio-alu-latch-race.md) — ALU latches + LXA magic, complete case
-- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.md) — the test workflow
+- [2026-07-03 FAIL analysis & path to full score](2026-07-03-fail-analysis-and-path-to-full-score.en.md) — the 6 root-cause categories + roadmap
+- [2026-07-04 reference machine profile & AccuracyCoin notes](2026-07-04-reference-machine-profile-and-accuracycoin-notes.en.md) — machine profile, AC/TriCNES doctrine
+- [2026-07-04 DMC #19 ACLK pipeline analysis](2026-07-04-dmc19-aclk-pipeline-analysis.en.md) — the DMC race, complete case (APUSim arbitration)
+- [2026-07-05 immediate trio ALU-latch race](2026-07-05-immediate-trio-alu-latch-race.en.md) — ALU latches + LXA magic, complete case
+- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) — the test workflow
 - Public-facing version: [live report](https://erspicu.github.io/AprVisual/Report/) (repo path `WebSite/Report/index.html`) — explainer section + hardware-model table + faithful-deviation dossier

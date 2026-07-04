@@ -24,6 +24,9 @@ namespace AprVisual.Test
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
+        private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
+        private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
+        private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
 
@@ -100,6 +103,9 @@ namespace AprVisual.Test
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
+                    case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
+                    case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
+                    case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
@@ -1208,6 +1214,7 @@ namespace AprVisual.Test
             // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
             WireCore.PowerUpStateShim = true;
             WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
+            WireCore.EnableJoypadHandler = true;    // behavioral controller (input injection + faithful bus traffic)
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
@@ -1221,7 +1228,7 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
-                WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
+                if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
                 WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
@@ -1244,8 +1251,18 @@ namespace AprVisual.Test
                 string? prevMarker = null;     // B-class: terminal marker seen last frame (2-frame confirm)
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
+                // Scripted controller input (--input): (osButtonIdx, pressFrame, releaseFrame),
+                // AprNes-compatible spec "Button:sec[:holdSec]", 60.0988 fps, default hold 10 frames.
+                var inputEvents = ParseInputSpec(_inputSpec);
+                if (inputEvents.Count > 0 && !WireCore.PadInit()) inputEvents.Clear();
+
                 for (frames = 1; frames <= _testMaxFrames; frames++)
                 {
+                    foreach (var (btn, pf, rf) in inputEvents)
+                    {
+                        if (frames == pf) { WireCore.PadSetButton(0, btn, true);  Console.Error.WriteLine($"# [pad] frame {frames}: press {ButtonName(btn)}"); }
+                        if (frames == rf) { WireCore.PadSetButton(0, btn, false); Console.Error.WriteLine($"# [pad] frame {frames}: release {ButtonName(btn)}"); }
+                    }
                     WireCore.RunFrame();
 
                     // open-bus decay shim (see above): value-change resets the clock; same value for
@@ -1418,6 +1435,28 @@ namespace AprVisual.Test
         // label, or -1 when nothing is visible. Two forms exist in the 46-ROM set (per the AprNesRef
         // calibration sweep): "Passed"/"Failed" text (30) and the old-blargg "$0X" code (16;
         // $01 = pass, $02-$0F = fail code).
+        private static readonly string[] _padNames = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
+        private static string ButtonName(int i) => i >= 0 && i < 8 ? _padNames[i] : i.ToString();
+
+        private static List<(int Btn, int Press, int Release)> ParseInputSpec(string? spec)
+        {
+            var events = new List<(int, int, int)>();
+            if (string.IsNullOrEmpty(spec)) return events;
+            const double Fps = 60.0988;
+            foreach (string entry in spec.Split(','))
+            {
+                var parts = entry.Trim().Split(':');
+                if (parts.Length < 2) continue;
+                int btn = Array.FindIndex(_padNames, n => n.Equals(parts[0].Trim(), StringComparison.OrdinalIgnoreCase));
+                if (btn < 0 || !double.TryParse(parts[1], out double sec)) continue;
+                int hold = 10;
+                if (parts.Length >= 3 && double.TryParse(parts[2], out double holdSec)) hold = Math.Max(1, (int)(holdSec * Fps));
+                int pf = Math.Max(1, (int)(sec * Fps));
+                events.Add((btn, pf, pf + hold));
+            }
+            return events;
+        }
+
         private static int FindNametableVerdict(string s, out string? marker)
         {
             if (s.Contains("Passed") || s.Contains("PASSED")) { marker = "Passed"; return 0; }
@@ -1489,7 +1528,7 @@ namespace AprVisual.Test
                 WireCore.RegisterRawIdAliases = true;
                 WireCore.LoadSystem(rom);
                 WireCore.EnableDmcLatchShim();
-                WireCore.EnableAluLatchShim();
+                if (!_noAluShim) WireCore.EnableAluLatchShim();
                 int phi2 = WireCore.LookupNode("cpu.phi2");
                 int[] Bus(string expr, int width) { var l = new List<int>(); WireCore.ResolveNodes(expr, l, quiet: true); return l.Count == width ? l.ToArray() : Array.Empty<int>(); }
                 int[] abN = Bus("cpu.ab[15:0]", 16), dbN = Bus("cpu.db[7:0]", 8);
@@ -1508,6 +1547,11 @@ namespace AprVisual.Test
                 Console.WriteLine($"# pla rows resolved: {plaRows.Count}");
                 string prevFiring = "";
                 Console.WriteLine($"# op-probe: trig=AB={trigAddr:X4}; ctl: {string.Join(" ", ctlNames)}");
+                var watchN = new List<(string Name, int Node)>();
+                if (_watchSpec != null)
+                    foreach (var w in _watchSpec.Split(','))
+                        watchN.Add((w.Trim(), WireCore.LookupNode(w.Trim())));
+                foreach (var (n2, id2) in watchN) if (id2 == WireCore.EmptyNode) Console.Error.WriteLine($"# [watch] '{n2}' unresolved");
                 string B(int[] ns) => ns.Length == 0 ? "--" : WireCore.ReadBits(ns).ToString("X2");
                 long hcLeft = -1, cyc = 0; int prevPhi = WireCore.NodeStates[phi2];
                 for (long i = 0; i < 714_732L * 3 && hcLeft != 0; i++)
@@ -1527,6 +1571,12 @@ namespace AprVisual.Test
                         foreach (var (nm2, nd) in plaRows) if (WireCore.NodeStates[nd] == 1) fir.Append(nm2).Append(' ');
                         string f = fir.ToString();
                         if (f != prevFiring) { Console.WriteLine($"#      firing: {f}"); prevFiring = f; }
+                        if (watchN.Count > 0)
+                        {
+                            var wb = new StringBuilder("#      w:");
+                            foreach (var (n2, id2) in watchN) wb.Append($" {n2}={(id2 != WireCore.EmptyNode ? WireCore.NodeStates[id2].ToString() : "?")}");
+                            Console.WriteLine(wb.ToString());
+                        }
                     }
                     prevPhi = ph;
                 }
@@ -1543,11 +1593,33 @@ namespace AprVisual.Test
             try
             {
                 WireCore.RegisterRawIdAliases = true;
+                WireCore.EnableJoypadHandler = true;
                 WireCore.LoadSystem(rom);
                 WireCore.EnableDmcLatchShim();
-                WireCore.EnableAluLatchShim();
+                if (!_noAluShim) WireCore.EnableAluLatchShim();
                 WireCore.EnableLxaMagicShim();
-                for (int f = 0; f < frames; f++) WireCore.RunFrame();
+                var microInput = ParseInputSpec(_inputSpec);
+                if (microInput.Count > 0 && !WireCore.PadInit()) microInput.Clear();
+                var watch = new List<(string Name, int Node)>();
+                if (_watchSpec != null)
+                    foreach (var w in _watchSpec.Split(','))
+                        watch.Add((w.Trim(), WireCore.LookupNode(w.Trim())));
+                foreach (var (n, id) in watch) if (id == WireCore.EmptyNode) Console.Error.WriteLine($"# [watch] '{n}' unresolved");
+                for (int f = 0; f < frames; f++)
+                {
+                    foreach (var (btn, pf, rf) in microInput)
+                    {
+                        if (f + 1 == pf) WireCore.PadSetButton(0, btn, true);
+                        if (f + 1 == rf) WireCore.PadSetButton(0, btn, false);
+                    }
+                    WireCore.RunFrame();
+                    if (watch.Count > 0)
+                    {
+                        var sb2 = new StringBuilder($"# watch f{f + 1}:");
+                        foreach (var (n, id) in watch) sb2.Append($" {n}={(id != WireCore.EmptyNode ? WireCore.NodeStates[id].ToString() : "?")}");
+                        Console.Error.WriteLine(sb2.ToString());
+                    }
+                }
                 var ram = WireCore.ResolveMemory("u1.ram");
                 if (ram == null) { Console.Error.WriteLine("u1.ram unresolved"); return 2; }
                 Console.WriteLine($"# marker $07FF = {ram.Read(0x7FF):X2}");

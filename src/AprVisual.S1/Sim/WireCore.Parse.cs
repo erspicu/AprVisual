@@ -78,6 +78,15 @@ namespace AprVisual.Sim
 
         public static void ClearLoadedDefs() => _loadedDefs.Clear();
 
+        /// <summary>Load a module def from <paramref name="fileName"/> and register it under
+        /// <paramref name="asName"/>, shadowing any later load of that name (LoadModuleDef is
+        /// cache-first). Used to swap in behavioral module variants (e.g. nes-pad-behavioral).</summary>
+        public static void PreloadModuleAs(string dir, string fileName, string asName)
+        {
+            var def = LoadModuleDef(dir, fileName);
+            _loadedDefs[asName] = def;
+        }
+
         /// <summary>
         /// Load <paramref name="dir"/>/<paramref name="name"/>.js as a module definition, recursively
         /// loading its sub-modules and external netlist files. Cached by <paramref name="name"/>.

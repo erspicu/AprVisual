@@ -36,6 +36,7 @@ namespace AprVisual.Sim
         {
             ResetBuild();   // clears all build-time state, re-registers vcc/vss
 
+            if (EnableJoypadHandler) PreloadModuleAs(SystemDefDir, "nes-pad-behavioral", "nes-pad");
             var nes001 = LoadModuleDef(SystemDefDir, "nes-001");
             var cartMmu0 = LoadModuleDef(SystemDefDir, "cart-mmu0");
 
@@ -119,6 +120,7 @@ namespace AprVisual.Sim
                 AttachClockHandler();     // WireCore.Handlers.cs — toggles "clk" each half-cycle
                 AttachMemoryHandlers();   // RAM (u1, u4) + ROM (cart.prg, cart.chr) handlers
                 if (isCnrom) AttachCnromLatch(Math.Max(1, rom.ChrRom.Length / 8192));   // CNROM: CPU write to $8000+ latches the CHR bank
+                if (EnableJoypadHandler) AttachJoypadHandler();   // behavioral controller (test mode)
                 AttachVideoHandler();     // pclk1 rising-edge pixel write to FrameBuffer
 
                 ResolveCachedNodes();   // per-pass: the capture pass's ResetNes needs N_Res (idempotent name lookups)
@@ -446,6 +448,26 @@ namespace AprVisual.Sim
                 else if (_lxaArm == 1) { _lxaImm = dbv; _lxaArm = 2; }
             }
             _lxaPrevPhi2 = ph;
+        }
+
+        // ── Controller input injection (test mode) ──────────────────────────────────────────
+        // The controllers are BEHAVIORAL (same abstraction level as the cartridge): the
+        // gate-level nes-pad (CD4021 from pslatch modules) cannot express a released button
+        // under this engine's group semantics (the latch pass-gates backdrive the buttons
+        // nodes; in-group GND beats any external drive). EnableJoypadHandler swaps in the
+        // connector-only nes-pad-behavioral def and attaches a Joypad callback that implements
+        // the 4021 latch/shift protocol, driving portN.d0 (the LS368 then inverts onto the
+        // data bus, so a pressed button reads 1 — real polarity). Button state is a plain
+        // byte per pad, bit0=A..bit7=Right (AprNes convention).
+        public static bool EnableJoypadHandler = false;   // set BEFORE LoadSystem (test mode only)
+
+        public static bool PadInit() => _joyArmed;
+
+        public static void PadSetButton(int pad, int osIdx, bool pressed)
+        {
+            if (pad < 0 || pad > 1 || osIdx < 0 || osIdx > 7) return;
+            if (pressed) JoyButtons[pad] |= (byte)(1 << osIdx);
+            else         JoyButtons[pad] &= (byte)~(1 << osIdx);
         }
 
         /// <summary>

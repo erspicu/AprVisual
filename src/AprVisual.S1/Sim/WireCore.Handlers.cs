@@ -38,7 +38,7 @@ namespace AprVisual.Sim
         // static handler (no Action delegate / no closure) for the hot kinds (memory / video). The per-instance
         // context lives directly on this object (it IS the dispatch unit — so a field read is one hop, NOT the
         // extra hop the rejected ctx-holder added). Generic Action is kept only for rare/test watchers.
-        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video, MapperLatch }
+        internal enum HandlerKind : byte { Generic = 0, MemRead, MemReadWrite, Video, MapperLatch, Joypad }
 
         internal sealed class CallbackInfo
         {
@@ -144,6 +144,7 @@ namespace AprVisual.Sim
                         case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
                         case HandlerKind.Video:        DoVideo(cb); break;
                         case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
+                        case HandlerKind.Joypad:       DoJoypad(cb); break;        // behavioral controller (test mode)
                         default:                       cb.Callback!(); break;   // Generic (rare / test)
                     }
                 }
@@ -415,6 +416,62 @@ namespace AprVisual.Sim
 
         /// <summary>Per-rebuild reset of mapper state (called from ResetHandlers).</summary>
         private static void ResetMapperState() => _cnromChrBank = null;
+
+        // ── Behavioral joypad (test mode; see WireCore.System EnableJoypadHandler) ──────────
+        // Implements the controller's CD4021: strobe (port.out) high => continuously reload the
+        // shift register from JoyButtons and present bit 0; on each pad-clock falling edge while
+        // the port is selected (joy select low) advance to the next bit; after 8 bits present 1
+        // (the real 4021 shifts in DS = ground; the LS368 inversion turns that into reads of 1).
+        // d0 is driven inverted: the board's LS368 inverts d0 onto the data bus, so a pressed
+        // button (bit=1) must present d0=0 to read back as 1.
+        public static readonly byte[] JoyButtons = new byte[2];   // bit0=A .. bit7=Right
+        private static readonly byte[] _joyShift = new byte[2];
+        private static readonly int[] _joyCount = new int[2];
+        internal static bool _joyArmed;
+
+        private static void DoJoypad(CallbackInfo cb)
+        {
+            int pad = cb.Mask;
+            bool strobe = NodeStates[cb.Cs] != 0;         // port.out (OUT0), active high
+            bool selected = NodeStates[cb.We] == 0;       // cpu.joy1/joy2, active low
+            // Advance on the DESELECT edge (read definitively over): the pad clk's falling edge
+            // lands mid-read (phi1->phi2), i.e. BEFORE the CPU samples DB at the end of phi2 —
+            // advancing there presents the next bit one read early (measured: the post-8 marker
+            // appeared on read 8). The select line asserts exactly once per $4016/$4017 read.
+            if (strobe) { _joyShift[pad] = JoyButtons[pad]; _joyCount[pad] = 0; }
+            else if (cb.VidPrev && !selected && _joyCount[pad] < 8) _joyCount[pad]++;
+            cb.VidPrev = selected;
+            int bit = _joyCount[pad] < 8 ? (_joyShift[pad] >> _joyCount[pad]) & 1 : 1;
+            WriteBits(cb.DataOut, 1, bit ^ 1);            // LS368 inverts back onto the bus
+        }
+
+        /// <summary>Attach the behavioral joypad callbacks (both ports). Test mode only —
+        /// requires the nes-pad-behavioral module (EnableJoypadHandler before LoadSystem).</summary>
+        public static void AttachJoypadHandler()
+        {
+            _joyArmed = false;
+            for (int pad = 0; pad < 2; pad++)
+            {
+                int outN = LookupNode($"port{pad}.out");
+                int clkN = LookupNode($"port{pad}.clk");
+                int d0N  = LookupNode($"port{pad}.d0");
+                int selN = LookupNode(pad == 0 ? "cpu.joy1" : "cpu.joy2");
+                if (outN == EmptyNode || clkN == EmptyNode || d0N == EmptyNode || selN == EmptyNode)
+                { Console.Error.WriteLine($"AttachJoypadHandler: port{pad} nodes unresolved — joypad disabled"); return; }
+                int* d0 = AllocHandlerArray<int>(1);
+                d0[0] = d0N;
+                RegisterCallback(new List<int> { outN, clkN, selN }, new CallbackInfo
+                {
+                    Kind = HandlerKind.Joypad,
+                    Cs = outN, Pclk1 = clkN, We = selN, Mask = pad,
+                    DataOut = d0, DLen = 1,
+                });
+            }
+            JoyButtons[0] = JoyButtons[1] = 0;
+            _joyShift[0] = _joyShift[1] = 0;
+            _joyCount[0] = _joyCount[1] = 8;
+            _joyArmed = true;
+        }
 
         /// <summary>
         /// Video output. On each ppu.pclk1 rising edge, for the visible area (hpos &lt; 256, vpos &lt; 240)

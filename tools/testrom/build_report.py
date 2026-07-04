@@ -59,7 +59,13 @@ for t in cat["tests"]:
                        khcPerSec=round(r.get("halfCycles", 0) / r.get("wallSeconds", 1) / 1000, 1) if r.get("wallSeconds", 0) > 0 else 0)
             engine_ver = r.get("engineVersion", engine_ver) or engine_ver
             if r.get("halfCycles", 0) > 0 and r.get("wallSeconds", 0) > 0:
-                perf_samples.append((r["halfCycles"], r["wallSeconds"], os.path.getmtime(jpath)))
+                # (hc, engineWall, start, finish): efficiency uses the engine's own wall
+                # (pure sim time); span/concurrency use process start/finish. Explicit
+                # runner timestamps (startedEpoch/finishedEpoch, 2026-07+) preferred;
+                # legacy files fall back to mtime and finish-minus-engineWall.
+                fin = r.get("finishedEpoch") or os.path.getmtime(jpath)
+                start = r.get("startedEpoch") or (fin - r["wallSeconds"])
+                perf_samples.append((r["halfCycles"], r["wallSeconds"], start, fin))
         except Exception as e:
             row["result_text"] = f"(result json unreadable: {e})"
     if os.path.isfile(shot_src):
@@ -91,7 +97,7 @@ if perf_samples:
     # (>30 min idle = a different run) and keep only the LATEST contiguous run,
     # so mixed-age results directories don't skew the span/aggregate numbers.
     n_all = len(perf_samples)
-    ivs = sorted((m - w, m, h, w) for h, w, m in perf_samples)   # (start, end, hc, wall)
+    ivs = sorted((st, fin, h, w) for h, w, st, fin in perf_samples)   # (start, end, hc, engineWall)
     GAP = 1800
     cluster = [ivs[0]]
     cover_end = ivs[0][1]
@@ -102,15 +108,15 @@ if perf_samples:
         else:
             cluster.append(iv)
             cover_end = max(cover_end, iv[1])
-    perf_samples = [(h, w, m) for (st, m, h, w) in cluster]
-    tot_hc = sum(h for h, w, m in perf_samples)
-    tot_wall = sum(w for h, w, m in perf_samples)
+    perf_samples = cluster
+    tot_hc = sum(h for st, fin, h, w in perf_samples)
+    tot_wall = sum(w for st, fin, h, w in perf_samples)              # engine sim time (efficiency)
+    tot_busy = sum(fin - st for st, fin, h, w in perf_samples)       # process time (concurrency)
     khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
-    # per-test start = finish(mtime) - wallSeconds; span = earliest start .. latest finish
-    span = max(m for h, w, m in perf_samples) - min(m - w for h, w, m in perf_samples)
+    span = max(fin for st, fin, h, w in perf_samples) - min(st for st, fin, h, w in perf_samples)
     if span > 0 and len(perf_samples) >= 8:
         agg_khc = tot_hc / span / 1000
-        conc = tot_wall / span
+        conc = tot_busy / span
         perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
                         f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs "
                         f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours); "

@@ -90,10 +90,22 @@ def run_one(t, core, rombase):
         rc = p.returncode
     except subprocess.TimeoutExpired:
         return ("GUARD", k, f"wall guard {guard}s exceeded (killed)")
-    mins = (time.time() - t0) / 60
+    t1 = time.time()
+    mins = (t1 - t0) / 60
     if os.path.isfile(jpath):
         try:
-            st = json.load(open(jpath, encoding="utf-8"))["status"].upper()
+            r = json.load(open(jpath, encoding="utf-8"))
+            st = r["status"].upper()
+            # Enrich with complete timing info so future statistics don't depend on
+            # file mtimes: process start/end (wall clock; start includes spawn+load,
+            # so elapsedSeconds - wallSeconds ~ load + screenshot overhead), and the
+            # pinned core (= worker lane) for concurrency/Gantt analysis.
+            iso = lambda ts: time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ts))
+            r.update(startedAt=iso(t0), finishedAt=iso(t1),
+                     startedEpoch=round(t0, 3), finishedEpoch=round(t1, 3),
+                     elapsedSeconds=round(t1 - t0, 1), core=core)
+            with open(jpath, "w", encoding="utf-8") as fp:
+                json.dump(r, fp, indent=1, ensure_ascii=False)
         except Exception:
             st = f"RC{rc}"
         return (st, k, f"{mins:.0f} min")

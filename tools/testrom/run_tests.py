@@ -31,7 +31,10 @@ SYSTEM_DEF = os.path.join(REPO, "AprVisualBenchMark", "data", "system-def")
 CATALOG    = os.path.join(SCRIPT_DIR, "catalog.json")
 OUT_DIR    = os.path.join(SCRIPT_DIR, "out")
 
-CORES   = [2, 6, 10, 14, 4, 12]   # logical cores, Zen2 3700X (logical 2i = physical i). First 4 = physical
+CORES   = [2, 6, 10, 14, 4, 12, 8, 0]   # logical cores, Zen2 3700X (logical 2i = physical i). First 4 = physical
+# Lanes 1-7 are distinct physical cores avoiding core 0 (OS noise). The 8th lane has no
+# noise-free physical core left: core 0 is used LAST (jobs=8 only) — it still adds ~0.9
+# of a core, far better than an SMT sibling (~0.25, and it would slow its pair too).
                                   # 1,3,5,7 (2 per CCX); workers 5-6 add physical 2,6 -> 3 per CCX at 6 jobs.
                                   # Physical 0 (OS) and physical 4 stay free. Measured: 4 jobs ~114 khc/s per
                                   # process (80% of solo 142); 6 jobs trades per-process speed for aggregate.

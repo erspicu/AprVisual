@@ -27,6 +27,7 @@ def key_of(t):
 cat = json.load(open(CATALOG, encoding="utf-8"))
 rows, engine_ver = [], ""
 counts = {"pass": 0, "fail": 0, "timeout": 0, "pending": 0}
+perf_samples = []   # (halfCycles, wallSeconds, result-file mtime) for throughput stats
 
 # screenshots/ is a pure build artifact — wipe and regenerate from out/ (originals stay there as PNG)
 shot_root = os.path.join(REPORT_DIR, "screenshots")
@@ -57,6 +58,8 @@ for t in cat["tests"]:
                        resetCount=r.get("resetCount", 0),
                        khcPerSec=round(r.get("halfCycles", 0) / r.get("wallSeconds", 1) / 1000, 1) if r.get("wallSeconds", 0) > 0 else 0)
             engine_ver = r.get("engineVersion", engine_ver) or engine_ver
+            if r.get("halfCycles", 0) > 0 and r.get("wallSeconds", 0) > 0:
+                perf_samples.append((r["halfCycles"], r["wallSeconds"], os.path.getmtime(jpath)))
         except Exception as e:
             row["result_text"] = f"(result json unreadable: {e})"
     if os.path.isfile(shot_src):
@@ -75,6 +78,40 @@ with open(os.path.join(REPORT_DIR, "results.json"), "w", encoding="utf-8") as fp
 
 done = counts["pass"] + counts["fail"] + counts["timeout"]
 build_date = time.strftime("%Y-%m-%d %H:%M:%S")
+
+# ── throughput stats (rough estimates; documented as such on the page) ──
+# per-test efficiency: hc-weighted mean = total hc / total wall.
+# aggregate multi-core throughput: total hc / run span, where the span is
+# reconstructed from result-file mtimes (finish times) minus the earliest
+# test's own duration. Only meaningful when the accumulation comes from one
+# contiguous run (a full --rerun); mixed-age accumulations skew the span.
+perf_line_en = perf_line_zh = ""
+if perf_samples:
+    tot_hc = sum(h for h, w, m in perf_samples)
+    tot_wall = sum(w for h, w, m in perf_samples)
+    khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
+    m_first = min(m for h, w, m in perf_samples)
+    w_first = next(w for h, w, m in perf_samples if m == m_first)
+    span = max(m for h, w, m in perf_samples) - (m_first - w_first)
+    if span > 0 and len(perf_samples) >= 8:
+        agg_khc = tot_hc / span / 1000
+        conc = tot_wall / span
+        perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
+                        f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs "
+                        f"({tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours); "
+                        f"aggregate multi-worker throughput &asymp; <strong>{agg_khc:,.0f} khc/s</strong> "
+                        f"(&asymp;{conc:.1f}&times; effective concurrency over a {span/3600:.1f} h wall-clock span "
+                        f"&mdash; rough estimate from result timestamps; loads/report gaps included).")
+        perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
+                        f"({len(perf_samples)} 筆計時,共 {tot_hc/1e9:.1f}G 半週期 / {tot_wall/3600:.1f} 核時);"
+                        f"多工聚合吞吐 &asymp; <strong>{agg_khc:,.0f} khc/s</strong>"
+                        f"(有效並行 &asymp;{conc:.1f}&times;,牆鐘跨度 {span/3600:.1f} 小時 "
+                        f"&mdash; 由結果檔時間戳粗估,含載入與報告空檔)。")
+    else:
+        perf_line_en = (f"<strong>Throughput:</strong> weighted mean per-test speed "
+                        f"<strong>{khc_avg:,.1f} khc/s</strong> over {len(perf_samples)} timed runs.")
+        perf_line_zh = (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"
+                        f"({len(perf_samples)} 筆計時)。")
 
 html = """<!DOCTYPE html>
 <html lang="en">
@@ -158,6 +195,8 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
   <div class="stat timeout"><div class="num" id="n-to">0</div><div class="lbl"><span class="en">Timeout</span><span class="zh">逾時</span></div></div>
   <div class="stat pending"><div class="num" id="n-pend">0</div><div class="lbl"><span class="en">Pending</span><span class="zh">待跑</span></div></div>
   <div class="stat"><div class="num" id="n-total">0</div><div class="lbl"><span class="en">Total</span><span class="zh">總數</span></div></div>
+ </div>
+ <div style="margin-top:.4rem;font-size:.85rem;color:#8aa8c8">&#9889; <span class="en">__PERF_EN__</span><span class="zh">__PERF_ZH__</span>
 </div>
 <div class="progress-wrap">
   <div class="progress-bar"><div class="p" id="bar-p"></div><div class="f" id="bar-f"></div><div class="t" id="bar-t"></div></div>
@@ -495,6 +534,8 @@ render();
 </html>
 """
 
+html = html.replace("__PERF_EN__", perf_line_en)
+html = html.replace("__PERF_ZH__", perf_line_zh)
 html = html.replace("__BUILD_DATE__", build_date)
 html = html.replace("__ENGINE__", engine_ver)
 html = html.replace("__RESULTS__", json.dumps(rows, ensure_ascii=False))

@@ -69,6 +69,12 @@ def run_one(t, core, rombase):
         return ("SKIP", k, "rom not found")
 
     mf = t.get("maxFrames", 900)
+    # cap the budget at 1.5x the historical verdict frame (typicalFrames): a working run
+    # reaches its verdict well within this, while a hung/regressed run is killed ~1.5x
+    # instead of running the full (generous) maxFrames. Measured at the pinned K=1 alignment.
+    tf = t.get("typicalFrames")
+    if tf:
+        mf = min(mf, int(tf * 1.5) + 5)
     # --reset-hold-extra 1: CPU/PPU clock-phase alignment. The netlist's power-on settles into one
     # of the 4 real-hardware CPU-PPU alignments; blargg's NMI-edge tests pass only on some of them.
     # K=1 selects a passing alignment (measured 2026-07-04: K∈{1,3} pass 05-nmi_timing, K∈{0,5} fail).

@@ -6,301 +6,351 @@
    "suite": "apu_mixer",
    "rom": "dmc.nes",
    "class": "A",
-   "maxFrames": 1562
+   "maxFrames": 1562,
+   "typicalFrames": 721
   },
   {
    "suite": "apu_mixer",
    "rom": "noise.nes",
    "class": "A",
-   "maxFrames": 2400
+   "maxFrames": 2400,
+   "typicalFrames": 1160
   },
   {
    "suite": "apu_mixer",
    "rom": "square.nes",
    "class": "A",
-   "maxFrames": 2064
+   "maxFrames": 2064,
+   "typicalFrames": 970
   },
   {
    "suite": "apu_mixer",
    "rom": "triangle.nes",
    "class": "A",
-   "maxFrames": 1336
+   "maxFrames": 1336,
+   "typicalFrames": 607
   },
   {
    "suite": "apu_reset",
    "rom": "4015_cleared.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 32
   },
   {
    "suite": "apu_reset",
    "rom": "4017_timing.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 48
   },
   {
    "suite": "apu_reset",
    "rom": "4017_written.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 59
   },
   {
    "suite": "apu_reset",
    "rom": "irq_flag_cleared.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 33
   },
   {
    "suite": "apu_reset",
    "rom": "len_ctrs_enabled.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 38
   },
   {
    "suite": "apu_reset",
    "rom": "works_immediately.nes",
    "class": "A-r",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 39
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "1-len_ctr.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 21
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "2-len_table.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "3-irq_flag.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 21
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "4-jitter.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 21
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "5-len_timing.nes",
    "class": "A",
-   "maxFrames": 350
+   "maxFrames": 350,
+   "typicalFrames": 114
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "6-irq_flag_timing.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 22
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "7-dmc_basics.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 27
   },
   {
    "suite": "apu_test/rom_singles",
    "rom": "8-dmc_rates.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 29
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "01.len_ctr.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "02.len_table.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 12
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "03.irq_flag.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 17
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "04.clock_jitter.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "05.len_timing_mode0.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 23
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "06.len_timing_mode1.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 24
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "07.irq_flag_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "08.irq_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "09.reset_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 11
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "10.len_halt_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "blargg_apu_2005.07.30",
    "rom": "11.len_reload_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "blargg_ppu_tests_2005.09.15b",
    "rom": "palette_ram.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "blargg_ppu_tests_2005.09.15b",
    "rom": "power_up_palette.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 20
   },
   {
    "suite": "blargg_ppu_tests_2005.09.15b",
    "rom": "sprite_ram.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "blargg_ppu_tests_2005.09.15b",
    "rom": "vbl_clear_time.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 24
   },
   {
    "suite": "blargg_ppu_tests_2005.09.15b",
    "rom": "vram_access.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 20
   },
   {
    "suite": "branch_timing_tests",
    "rom": "1.Branch_Basics.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 14
   },
   {
    "suite": "branch_timing_tests",
    "rom": "2.Backward_Branch.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "branch_timing_tests",
    "rom": "3.Forward_Branch.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "cpu_dummy_reads",
    "rom": "cpu_dummy_reads.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 47
   },
   {
    "suite": "cpu_dummy_writes",
    "rom": "cpu_dummy_writes_oam.nes",
    "class": "A",
-   "maxFrames": 750
+   "maxFrames": 750,
+   "typicalFrames": 335
   },
   {
    "suite": "cpu_dummy_writes",
    "rom": "cpu_dummy_writes_ppumem.nes",
    "class": "A",
-   "maxFrames": 590
+   "maxFrames": 590,
+   "typicalFrames": 220
   },
   {
    "suite": "cpu_exec_space",
    "rom": "test_cpu_exec_space_apu.nes",
    "class": "A",
-   "maxFrames": 684
+   "maxFrames": 684,
+   "typicalFrames": 300
   },
   {
    "suite": "cpu_exec_space",
    "rom": "test_cpu_exec_space_ppuio.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 44
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
    "rom": "1-cli_latency.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 17
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
    "rom": "2-nmi_and_brk.nes",
    "class": "A",
-   "maxFrames": 336
+   "maxFrames": 336,
+   "typicalFrames": 111
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
    "rom": "3-nmi_and_irq.nes",
    "class": "A",
-   "maxFrames": 382
+   "maxFrames": 382,
+   "typicalFrames": 134
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
    "rom": "4-irq_and_dma.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 69
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
    "rom": "5-branch_delays_irq.nes",
    "class": "A",
-   "maxFrames": 890
+   "maxFrames": 890,
+   "typicalFrames": 385
   },
   {
    "suite": "cpu_reset",
    "rom": "ram_after_reset.nes",
    "class": "A-r",
-   "maxFrames": 424
+   "maxFrames": 424,
+   "typicalFrames": 153
   },
   {
    "suite": "cpu_reset",
    "rom": "registers.nes",
    "class": "A-r",
-   "maxFrames": 434
+   "maxFrames": 434,
+   "typicalFrames": 159
   },
   {
    "suite": "cpu_timing_test6",
    "rom": "cpu_timing_test.nes",
    "class": "B",
-   "maxFrames": 1346
+   "maxFrames": 1346,
+   "typicalFrames": 725
   },
   {
    "suite": "dmc_dma_during_read4",
@@ -310,19 +360,22 @@
    "expectedCrcs": [
     "159A7A8F",
     "5E3DF9C4"
-   ]
+   ],
+   "typicalFrames": 22
   },
   {
    "suite": "dmc_dma_during_read4",
    "rom": "dma_2007_write.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "dmc_dma_during_read4",
    "rom": "dma_4016_read.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "dmc_dma_during_read4",
@@ -334,556 +387,648 @@
     "F018C287",
     "440EF923",
     "E52F41A5"
-   ]
+   ],
+   "typicalFrames": 14
   },
   {
    "suite": "dmc_dma_during_read4",
    "rom": "read_write_2007.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 15
   },
   {
    "suite": "instr_misc/rom_singles",
    "rom": "01-abs_x_wrap.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 12
   },
   {
    "suite": "instr_misc/rom_singles",
    "rom": "02-branch_wrap.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 13
   },
   {
    "suite": "instr_misc/rom_singles",
    "rom": "03-dummy_reads.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 57
   },
   {
    "suite": "instr_misc/rom_singles",
    "rom": "04-dummy_reads_apu.nes",
    "class": "A",
-   "maxFrames": 402
+   "maxFrames": 402,
+   "typicalFrames": 142
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "01-implied.nes",
    "class": "A",
-   "maxFrames": 316
+   "maxFrames": 316,
+   "typicalFrames": 98
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "02-immediate.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 89
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "03-zero_page.nes",
    "class": "A",
-   "maxFrames": 354
+   "maxFrames": 354,
+   "typicalFrames": 117
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "04-zp_xy.nes",
    "class": "A",
-   "maxFrames": 644
+   "maxFrames": 644,
+   "typicalFrames": 261
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "05-absolute.nes",
    "class": "A",
-   "maxFrames": 346
+   "maxFrames": 346,
+   "typicalFrames": 111
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "06-abs_xy.nes",
    "class": "A",
-   "maxFrames": 852
+   "maxFrames": 852,
+   "typicalFrames": 366
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "07-ind_x.nes",
    "class": "A",
-   "maxFrames": 416
+   "maxFrames": 416,
+   "typicalFrames": 148
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "08-ind_y.nes",
    "class": "A",
-   "maxFrames": 396
+   "maxFrames": 396,
+   "typicalFrames": 138
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "09-branches.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 42
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "10-stack.nes",
    "class": "A",
-   "maxFrames": 452
+   "maxFrames": 452,
+   "typicalFrames": 166
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "11-jmp_jsr.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "12-rts.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 15
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "13-rti.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 15
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "14-brk.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "instr_test-v3/rom_singles",
    "rom": "15-special.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 15
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "01-basics.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "02-implied.nes",
    "class": "A",
-   "maxFrames": 316
+   "maxFrames": 316,
+   "typicalFrames": 98
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "03-immediate.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 88
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "04-zero_page.nes",
    "class": "A",
-   "maxFrames": 356
+   "maxFrames": 356,
+   "typicalFrames": 118
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "05-zp_xy.nes",
    "class": "A",
-   "maxFrames": 642
+   "maxFrames": 642,
+   "typicalFrames": 261
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "06-absolute.nes",
    "class": "A",
-   "maxFrames": 342
+   "maxFrames": 342,
+   "typicalFrames": 112
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "07-abs_xy.nes",
    "class": "A",
-   "maxFrames": 852
+   "maxFrames": 852,
+   "typicalFrames": 367
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "08-ind_x.nes",
    "class": "A",
-   "maxFrames": 414
+   "maxFrames": 414,
+   "typicalFrames": 148
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "09-ind_y.nes",
    "class": "A",
-   "maxFrames": 396
+   "maxFrames": 396,
+   "typicalFrames": 138
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "10-branches.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 42
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "11-stack.nes",
    "class": "A",
-   "maxFrames": 450
+   "maxFrames": 450,
+   "typicalFrames": 165
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "12-jmp_jsr.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 18
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "13-rts.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 16
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "14-rti.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 15
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "15-brk.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "instr_test-v5/rom_singles",
    "rom": "16-special.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 14
   },
   {
    "suite": "instr_timing/rom_singles",
    "rom": "1-instr_timing.nes",
    "class": "A",
-   "maxFrames": 2146
+   "maxFrames": 2146,
+   "typicalFrames": 1014
   },
   {
    "suite": "instr_timing/rom_singles",
    "rom": "2-branch_timing.nes",
    "class": "A",
-   "maxFrames": 402
+   "maxFrames": 402,
+   "typicalFrames": 141
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "01-implied.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 64
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "02-immediate.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 58
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "03-zero_page.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 76
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "04-zp_xy.nes",
    "class": "A",
-   "maxFrames": 470
+   "maxFrames": 470,
+   "typicalFrames": 175
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "05-absolute.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 72
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "06-abs_xy.nes",
    "class": "A",
-   "maxFrames": 608
+   "maxFrames": 608,
+   "typicalFrames": 244
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "07-ind_x.nes",
    "class": "A",
-   "maxFrames": 330
+   "maxFrames": 330,
+   "typicalFrames": 107
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "08-ind_y.nes",
    "class": "A",
-   "maxFrames": 318
+   "maxFrames": 318,
+   "typicalFrames": 99
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "09-branches.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 34
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "10-stack.nes",
    "class": "A",
-   "maxFrames": 378
+   "maxFrames": 378,
+   "typicalFrames": 128
   },
   {
    "suite": "nes_instr_test/rom_singles",
    "rom": "11-special.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 11
   },
   {
    "suite": "oam_read",
    "rom": "oam_read.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 29
   },
   {
    "suite": "ppu_open_bus",
    "rom": "ppu_open_bus.nes",
    "class": "A",
-   "maxFrames": 624
+   "maxFrames": 624,
+   "typicalFrames": 251
   },
   {
    "suite": "ppu_read_buffer",
    "rom": "test_ppu_read_buffer.nes",
    "class": "A",
-   "maxFrames": 2400
+   "maxFrames": 2400,
+   "typicalFrames": 1290
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "01-vbl_basics.nes",
    "class": "A",
-   "maxFrames": 406
+   "maxFrames": 406,
+   "typicalFrames": 145
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "02-vbl_set_time.nes",
    "class": "A",
-   "maxFrames": 468
+   "maxFrames": 468,
+   "typicalFrames": 177
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "03-vbl_clear_time.nes",
    "class": "A",
-   "maxFrames": 444
+   "maxFrames": 444,
+   "typicalFrames": 165
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "04-nmi_control.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 34
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "05-nmi_timing.nes",
    "class": "A",
-   "maxFrames": 544
+   "maxFrames": 544,
+   "typicalFrames": 215
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "06-suppression.nes",
    "class": "A",
-   "maxFrames": 550
+   "maxFrames": 550,
+   "typicalFrames": 218
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "07-nmi_on_timing.nes",
    "class": "A",
-   "maxFrames": 500
+   "maxFrames": 500,
+   "typicalFrames": 193
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "08-nmi_off_timing.nes",
    "class": "A",
-   "maxFrames": 548
+   "maxFrames": 548,
+   "typicalFrames": 217
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "09-even_odd_frames.nes",
    "class": "A",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 74
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",
    "rom": "10-even_odd_timing.nes",
    "class": "A",
-   "maxFrames": 414
+   "maxFrames": 414,
+   "typicalFrames": 75
   },
   {
    "suite": "sprdma_and_dmc_dma",
    "rom": "sprdma_and_dmc_dma.nes",
    "class": "A",
-   "maxFrames": 400
+   "maxFrames": 400,
+   "typicalFrames": 141
   },
   {
    "suite": "sprdma_and_dmc_dma",
    "rom": "sprdma_and_dmc_dma_512.nes",
    "class": "A",
-   "maxFrames": 400
+   "maxFrames": 400,
+   "typicalFrames": 140
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "01.basics.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 33
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "02.alignment.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 31
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "03.corners.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 21
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "04.flip.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 19
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "05.left_clip.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 30
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "06.right_edge.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 23
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "07.screen_bottom.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "08.double_height.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 22
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "09.timing_basics.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 64
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "10.timing_order.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 60
   },
   {
    "suite": "sprite_hit_tests_2005.10.05",
    "rom": "11.edge_timing.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 52
   },
   {
    "suite": "sprite_overflow_tests",
    "rom": "1.Basics.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 17
   },
   {
    "suite": "sprite_overflow_tests",
    "rom": "2.Details.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 26
   },
   {
    "suite": "sprite_overflow_tests",
    "rom": "3.Timing.nes",
    "class": "B",
-   "maxFrames": 360
+   "maxFrames": 360,
+   "typicalFrames": 122
   },
   {
    "suite": "sprite_overflow_tests",
    "rom": "4.Obscure.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 23
   },
   {
    "suite": "sprite_overflow_tests",
    "rom": "5.Emulator.nes",
    "class": "B",
-   "maxFrames": 300
+   "maxFrames": 300,
+   "typicalFrames": 14
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "1.frame_basics.nes",
    "class": "B",
-   "maxFrames": 472
+   "maxFrames": 472,
+   "typicalFrames": 177
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "2.vbl_timing.nes",
    "class": "B",
-   "maxFrames": 430
+   "maxFrames": 430,
+   "typicalFrames": 150
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "3.even_odd_frames.nes",
    "class": "B",
-   "maxFrames": 320
+   "maxFrames": 320,
+   "typicalFrames": 95
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "4.vbl_clear_timing.nes",
    "class": "B",
-   "maxFrames": 356
+   "maxFrames": 356,
+   "typicalFrames": 113
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "5.nmi_suppression.nes",
    "class": "B",
-   "maxFrames": 454
+   "maxFrames": 454,
+   "typicalFrames": 162
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "6.nmi_disable.nes",
    "class": "B",
-   "maxFrames": 340
+   "maxFrames": 340,
+   "typicalFrames": 105
   },
   {
    "suite": "vbl_nmi_timing",
    "rom": "7.nmi_timing.nes",
    "class": "B",
-   "maxFrames": 340
+   "maxFrames": 340,
+   "typicalFrames": 105
   },
   {
    "suite": "read_joy3",
    "rom": "thorough_test.nes",
    "class": "B",
-   "maxFrames": 900
+   "maxFrames": 900,
+   "typicalFrames": 122
   },
   {
    "suite": "read_joy3",
    "rom": "count_errors.nes",
    "class": "B",
    "maxFrames": 600,
-   "passMarker": "Conflicts:"
+   "passMarker": "Conflicts:",
+   "typicalFrames": 59
   },
   {
    "suite": "read_joy3",
    "rom": "count_errors_fast.nes",
    "class": "B",
    "maxFrames": 600,
-   "passMarker": "Errors:"
+   "passMarker": "Errors:",
+   "typicalFrames": 36
   },
   {
    "suite": "read_joy3",
    "rom": "test_buttons.nes",
    "class": "B",
    "maxFrames": 900,
-   "input": "A:1.5,B:2.5,Select:3.5,Start:4.5,Up:5.5,Down:6.5,Left:7.5,Right:8.5"
+   "input": "A:1.5,B:2.5,Select:3.5,Start:4.5,Up:5.5,Down:6.5,Left:7.5,Right:8.5",
+   "typicalFrames": 527
   }
  ]
 }

@@ -124,6 +124,22 @@ namespace AprVisual.Test
                 var ram = WireCore.ResolveMemory("u1.ram");
                 if (ram == null) { Console.Error.WriteLine("u1.ram unresolved"); return 2; }
                 Console.WriteLine($"# marker $07FF = {ram.Read(0x7FF):X2}");
+                // physical-OAM dump (netlist SRAM cells) — read_buffer #67 diagnostic
+                for (int row = 0; row < 32; row += 16)
+                {
+                    var os = new StringBuilder($"OAM{row:X2}:");
+                    for (int b = row; b < row + 16; b++)
+                    {
+                        int val = 0;
+                        for (int bit = 0; bit < 8; bit++)
+                        {
+                            int nn = WireCore.LookupNode($"ppu.oam_ram_{b:X2}_b{bit}");
+                            if (nn != WireCore.EmptyNode && WireCore.IsNodeHigh(nn)) val |= (1 << bit);
+                        }
+                        os.Append(' ').Append(val.ToString("X2"));
+                    }
+                    Console.WriteLine(os.ToString());
+                }
                 var sb = new StringBuilder();
                 for (int a = 0x200; a < 0x800; a += 16)
                 {

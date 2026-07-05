@@ -287,14 +287,16 @@
    "rom": "test_cpu_exec_space_apu.nes",
    "class": "A",
    "maxFrames": 684,
-   "typicalFrames": 300
+   "typicalFrames": 300,
+   "needsJoypad": true
   },
   {
    "suite": "cpu_exec_space",
    "rom": "test_cpu_exec_space_ppuio.nes",
    "class": "A",
    "maxFrames": 300,
-   "typicalFrames": 44
+   "typicalFrames": 44,
+   "needsJoypad": true
   },
   {
    "suite": "cpu_interrupts_v2/rom_singles",
@@ -375,7 +377,8 @@
    "rom": "dma_4016_read.nes",
    "class": "B",
    "maxFrames": 300,
-   "typicalFrames": 16
+   "typicalFrames": 16,
+   "needsJoypad": true
   },
   {
    "suite": "dmc_dma_during_read4",
@@ -1004,7 +1007,8 @@
    "rom": "thorough_test.nes",
    "class": "B",
    "maxFrames": 900,
-   "typicalFrames": 122
+   "typicalFrames": 122,
+   "needsJoypad": true
   },
   {
    "suite": "read_joy3",
@@ -1012,7 +1016,8 @@
    "class": "B",
    "maxFrames": 600,
    "passMarker": "Conflicts:",
-   "typicalFrames": 59
+   "typicalFrames": 59,
+   "needsJoypad": true
   },
   {
    "suite": "read_joy3",
@@ -1020,7 +1025,8 @@
    "class": "B",
    "maxFrames": 600,
    "passMarker": "Errors:",
-   "typicalFrames": 36
+   "typicalFrames": 36,
+   "needsJoypad": true
   },
   {
    "suite": "read_joy3",
@@ -1028,7 +1034,8 @@
    "class": "B",
    "maxFrames": 900,
    "input": "A:1.5,B:2.5,Select:3.5,Start:4.5,Up:5.5,Down:6.5,Left:7.5,Right:8.5",
-   "typicalFrames": 527
+   "typicalFrames": 527,
+   "needsJoypad": true
   }
  ]
 }

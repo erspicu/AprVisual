@@ -27,7 +27,9 @@ namespace AprVisual.Test
             // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
             WireCore.PowerUpStateShim = true;
             WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
-            WireCore.EnableJoypadHandler = true;    // behavioral controller (input injection + faithful bus traffic)
+            WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
+                                                      // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
+                                                      // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
@@ -40,12 +42,15 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
-                WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
-                if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
-                WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
-                WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
-                WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd campaign; 0=off)
-                if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
+                if (!_noShims)
+                {
+                    WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
+                    if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
+                    WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
+                    WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
+                    WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd campaign; 0=off)
+                    if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
+                }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
@@ -83,7 +88,7 @@ namespace AprVisual.Test
 
                     // open-bus decay shim (see above): value-change resets the clock; same value for
                     // ~600 ms of simulated time ⇒ the charge leaks away on real silicon.
-                    if (ioDbN.Length == 8)
+                    if (!_noShims && ioDbN.Length == 8)
                     {
                         int v = WireCore.ReadBits(ioDbN);
                         if (v != ioPrev) { ioPrev = v; ioStable = 0; }

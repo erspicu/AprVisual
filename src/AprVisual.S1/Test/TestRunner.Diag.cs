@@ -521,6 +521,8 @@ namespace AprVisual.Test
             try
             {
                 WireCore.LoadSystem(rom);
+                WireCore.EnableDmcLatchShim();                    // shim chain gate
+                WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // honor --ppu-write-delay in the probe
                 int[] ab = ResolveQ("cpu.ab[15:0]"), db = ResolveQ("cpu.db[7:0]");
                 int[] hp = ResolveQ("ppu.hpos[8:0]"), vp = ResolveQ("ppu.vpos[8:0]");
                 int rw    = WireCore.LookupNode("cpu.rw");

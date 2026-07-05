@@ -775,11 +775,20 @@ namespace AprVisual.Sim
             EnqueueNode(nn); ProcessQueue();
         }
 
+        public static void InstClampHigh(int nn)
+        {
+            ref NodeInfo ns = ref NodeInfos[nn];
+            if ((ns.Flags & NodeFlags.Pwr) != 0) return;   // already powered (or a real rail)
+            ns.Flags |= NodeFlags.Pwr;
+            EnqueueNode(nn); ProcessQueue();
+        }
+
         public static void InstRelease(int nn)
         {
             ref NodeInfo ns = ref NodeInfos[nn];
-            if ((ns.Flags & NodeFlags.Gnd) == 0) return;
-            ns.Flags &= ~NodeFlags.Gnd;
+            var f = ns.Flags & ~(NodeFlags.Gnd | NodeFlags.Pwr);
+            if (f == ns.Flags) return;
+            ns.Flags = f;
             EnqueueNode(nn); ProcessQueue();
         }
 
@@ -819,6 +828,7 @@ namespace AprVisual.Sim
                 ProcessQueue();
             }
             if (DmcLatchShim) DmcLatchShimStep();   // test-mode only; see WireCore.System.cs
+            if (PpuWriteDelay) PpuWriteDelayStep();  // test-mode only; $2001 write-effect delay
             Time++;
         }
     }

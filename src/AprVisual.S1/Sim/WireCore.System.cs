@@ -490,6 +490,52 @@ namespace AprVisual.Sim
             if (Dbl2007Shim) Dbl2007ShimStep();
         }
 
+        // ── $2001 write-effect delay shim (test mode only, opt-in) ────────────────────────────
+        // The CPU->PPU register-write transport delay is idealized to 0 in our two-netlist
+        // board integration, so a $2001 render-enable/disable takes effect ~1 dot too early
+        // relative to the PPU's dot-339 skip decision (10-even_odd_timing fails code 3
+        // "clock skipped too late relative to enabling BG", the frame-count X off by 1).
+        // ARBITRATED: both dies agree internally — PPUSim (emu-russia RP2C02G) and our netlist
+        // both set VBL at (V=241,H=1) and skip at dot 339 — so the offset is a DIFFERENTIAL
+        // write-path delay, not a phase rotation (a global clock skew shifts read+write
+        // together and provably cannot break the complementary alignment split; measured: it
+        // desyncs CPU/PPU I/O and stalls every test). Model the missing delay by holding each
+        // bkg_enable/spr_enable TRANSITION for N hc with the instrument-grade clamp (zero graph
+        // footprint) = the register loading N hc late. The read path ($2002/VBL) is untouched,
+        // so the NMI-edge family is unaffected. Opt-in via --ppu-write-delay N (default 0=off).
+        public static bool PpuWriteDelay = false;
+        public static int PpuWriteDelayHc = 0;
+        private static int _pwdBkg = EmptyNode, _pwdSpr = EmptyNode;
+        private static int _pwdBkgPrev, _pwdSprPrev, _pwdBkgHold, _pwdSprHold;
+        private static long _pwdBkgRel = -1, _pwdSprRel = -1;
+
+        public static void EnablePpuWriteDelay(int hc)
+        {
+            if (hc <= 0) { PpuWriteDelay = false; return; }
+            _pwdBkg = LookupNode("ppu.bkg_enable");
+            _pwdSpr = LookupNode("ppu.spr_enable");
+            if (_pwdBkg == EmptyNode || _pwdSpr == EmptyNode)
+            { Console.Error.WriteLine("# [shim] ppu-write-delay: nodes unresolved — disabled"); PpuWriteDelay = false; return; }
+            _pwdBkgPrev = NodeStates[_pwdBkg]; _pwdSprPrev = NodeStates[_pwdSpr];
+            _pwdBkgRel = _pwdSprRel = -1;
+            PpuWriteDelayHc = hc;
+            PpuWriteDelay = true;
+        }
+
+        private static void PpuWriteDelayStep()
+        {
+            // bkg_enable: hold each transition for N hc (clamp old value, then release)
+            if (_pwdBkgRel >= 0)
+            { if (Time >= _pwdBkgRel) { InstRelease(_pwdBkg); _pwdBkgRel = -1; _pwdBkgPrev = NodeStates[_pwdBkg]; } }
+            else { int now = NodeStates[_pwdBkg]; if (now != _pwdBkgPrev)
+                   { _pwdBkgHold = _pwdBkgPrev; if (_pwdBkgHold == 1) InstClampHigh(_pwdBkg); else InstClampLow(_pwdBkg); _pwdBkgRel = Time + PpuWriteDelayHc; } }
+            // spr_enable
+            if (_pwdSprRel >= 0)
+            { if (Time >= _pwdSprRel) { InstRelease(_pwdSpr); _pwdSprRel = -1; _pwdSprPrev = NodeStates[_pwdSpr]; } }
+            else { int now = NodeStates[_pwdSpr]; if (now != _pwdSprPrev)
+                   { _pwdSprHold = _pwdSprPrev; if (_pwdSprHold == 1) InstClampHigh(_pwdSpr); else InstClampLow(_pwdSpr); _pwdSprRel = Time + PpuWriteDelayHc; } }
+        }
+
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
         // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
         // buffer advance in the netlist — matching real hardware — but the reload's

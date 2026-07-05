@@ -28,6 +28,7 @@ namespace AprVisual.Test
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
         private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
         internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
+        internal static int  _ppuWriteDelayHc;             // --ppu-write-delay N: $2001 write-effect delay in hc (even_odd campaign; 0=off)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
 
@@ -109,6 +110,7 @@ namespace AprVisual.Test
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
                     case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
                     case "--no-dbl2007-shim": _noDbl2007Shim = true; break;                                                        // DIAGNOSTIC: A/B the $2007 double-read merge shim
+                    case "--ppu-write-delay": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayHc); break;           // $2001 write-effect delay N hc (even_odd campaign)
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump

@@ -41,7 +41,7 @@ namespace AprVisual.Test
             string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
             string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
             string? busTracePath = null;
-            string? microPath = null; int microFrames = 3;
+            string? microPath = null; int microFrames = 3; string? probeDmaPath = null;
             string? opProbePath = null; int opProbeAddr = -1;     // --bus-trace: $4013/$4015 + RDY-stall cycle microscope (DMC #19 study)
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
@@ -84,6 +84,7 @@ namespace AprVisual.Test
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--array-footprint": _dumpArrayFootprint = true; break;                              // print hot unmanaged-array base+size at setup (IBS/SPE bucketing)
                     case "--micro":           if (i + 1 < args.Length) microPath = args[++i]; break;   // DIAGNOSTIC: run N frames, dump work RAM $0200-$07FF
+                    case "--probe-dma":       if (i + 1 < args.Length) probeDmaPath = args[++i]; break;   // DIAGNOSTIC: trace OAM-DMA addr bus + open-bus (read_buffer #67)
                     case "--micro-frames":    if (i + 1 < args.Length) int.TryParse(args[++i], out microFrames); break;   // DIAGNOSTIC: --micro frame count (default 3)
                     case "--op-probe":        if (i + 2 < args.Length) { opProbePath = args[++i]; opProbeAddr = Convert.ToInt32(args[++i], 16); } break;   // DIAGNOSTIC: hc-log datapath buses when AB hits addr
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
@@ -160,6 +161,7 @@ namespace AprVisual.Test
             if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
             if (rdyProbePath  != null) return RdyProbe(rdyProbePath, shotFrames > 3 ? shotFrames : 35);
             if (microPath     != null) return MicroDump(microPath, microFrames);
+            if (probeDmaPath  != null) return ProbeDma(probeDmaPath);
             if (opProbePath   != null) return OpProbe(opProbePath, opProbeAddr);
             if (busTracePath  != null) return BusTrace(busTracePath, shotFrames > 3 ? shotFrames : 29);
             if (probePath     != null) return Probe2002(probePath);

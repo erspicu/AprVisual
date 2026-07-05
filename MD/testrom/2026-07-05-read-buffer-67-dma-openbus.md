@@ -49,8 +49,41 @@ $2002($8A)、OAM[2] 拿到 $2003($8A→attr-mask $82)、OAM[3] 拿到 $2004($00)
   (OAM00/OAM10 兩行,b-side)。
 - `--pin 0`:sweep 佔 2-14 時 core 0 空,micro 跑這裡不撞。
 
-## 下一步
+## DMA bus trace(--probe-dma,2026-07-05)
 
-trace DMA 期間 cpu.ab / rw / ppu io_db 逐 hc,定位 open-bus 取樣相位差一的
-確切機制 → 決定 shim(測試模式,類 double_2007 的儀器級手法)。
-金絲雀:所有 sprite DMA 測試(sprite_hit/dma_ram/dma_rom)、oam_read。
+`--probe-dma <rom>` 逐 CPU cycle log ab/rw/cpu.db/ppu.io_db。d67dma 結果:
+
+- **DMA 位址完全正確**:sequential $2000,$2001,$2002,$2003,$2004,$2005,...
+  (get)交錯 $2004(put)。**排除位址 off-by-one**(先前「OAM[i]=reg[i+1]」
+  是淨效果,非位址位移)。
+- **open-bus(io_db)在 DMA 中塌陷**:讀 $2002 那格 io_db 未見 VBL($80),
+  且 ~cyc11($2004 前後)起 io_db 一路 $00 → write-only 讀($2005/$2006)拿 $00
+  而非保持值。→ 真因 = **rapid DMA 讀取下 open-bus 值的驅動/取樣相位**與直接讀
+  不同(直接讀完全正確),使寫進 OAM 的值錯位/歸零。
+- 待辦:換更乾淨的取樣點(phi2 下降沿或 settle 後)重測 io_db,確認
+  「io_db 晚一 cycle」假說 + 「$2002-during-DMA 未 merge VBL」是否同源;
+  再決定 shim(測試模式,類 double_2007 儀器級)。
+- 金絲雀:所有 sprite DMA 測試(sprite_hit/dma_ram/dma_rom)、oam_read、
+  已通過的 dma_2007_read/write(同屬 DMA×PPU-reg)。
+
+**工具沉澱**:`--probe-dma <rom>`(偵測 $4014 寫 → 逐 CPU cycle trace);
+`--micro-frames N`;物理 OAM dump(b-side)。全在引擎診斷面,預設路徑不影響。
+
+
+## 重要疑點:我方 shim 可能污染 DMA(2026-07-05 追加)
+
+phi2-falling trace(--probe-dma,**無** test-mode shim)顯示 put cycles 寫入
+OAM = $0A $0A $8A $8A $00...;但 --micro OAM dump(**有** DmcLatch/ALU/FrameIrq/
+**Dbl2007** shim)dump = $0A $8A $82 $00。**兩者不一致** → 強烈懷疑我們自己的
+某個 test-mode shim 在 DMA 期間誤觸並改動 db。
+
+- DMA 在 cyc15 讀 $2007;**Dbl2007Shim** 監看 $2007 讀取並 InstClampLow cpu.db —
+  DMA 的 $2007 讀很可能觸發它,污染 DMA 資料流。守門(ab=$2007 鏡像+R/W+RDY)
+  在 DMA 期間可能全部成立 → 誤夾。
+- 下一步(高優先):(a)--micro 加旗標可關個別 shim,逐一 A/B 找出污染者;
+  或 (b)在 Dbl2007Shim(及其他)守門加「非 OAM-DMA 期間」條件(偵測 $4014
+  DMA active / cpu 被 halt)。若確是 Dbl2007 誤觸,scope 掉即可能直接修好 #67
+  的一部分,且是我們自己引入的 regression(非真硬體時序)。
+- 另需分清:$2000 首讀回 $A9(非 open-bus $0A)、$2002-during-DMA 未 merge VBL、
+  open-bus ~cyc10 塌 $00 —— 哪些是 shim 污染、哪些是真 netlist 時序,要在
+  **關掉所有 test shim** 的乾淨 --micro 下重測 OAM dump 才能定案。

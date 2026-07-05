@@ -590,6 +590,44 @@ namespace AprVisual.Test
             finally { WireCore.Shutdown(); }
         }
 
+        // ── --probe-dma: trace the OAM-DMA address bus + PPU open bus (read_buffer #67). Runs to
+        //    the ROM's $4014 write, then logs per CPU cycle (phi2 rising): ab, R/W, cpu.db, io_db. ──
+        private static int ProbeDma(string romPath)
+        {
+            var rom = NesRom.LoadFromFile(romPath);
+            if (rom is null) { Console.Error.WriteLine($"failed to load ROM: {romPath}"); return 2; }
+            Console.WriteLine($"# {Path.GetFileName(romPath)} — tracing OAM DMA addr bus + open bus");
+            try
+            {
+                WireCore.LoadSystem(rom);
+                int[] ab = ResolveQ("cpu.ab[15:0]"), db = ResolveQ("cpu.db[7:0]");
+                int[] iodb = ResolveQ("ppu.io_db[7:0]");
+                int rw = WireCore.LookupNode("cpu.rw");
+                int phi2 = WireCore.LookupNode("cpu.phi2");
+                int H1(int n) => n != WireCore.EmptyNode && WireCore.IsNodeHigh(n) ? 1 : 0;
+                int Rd(int[] a) => WireCore.ReadBits(a);
+                bool found = false;
+                for (long i = 0; i < 12_000_000; i++)
+                { WireCore.Step(1); if (Rd(ab) == 0x4014 && H1(rw) == 0) { found = true; break; } }
+                if (!found) { Console.WriteLine("# no $4014 write seen in 12M half-cycles"); return 1; }
+                Console.WriteLine($"# $4014 write at t={WireCore.Time} — per CPU cycle (phi2 fall): ab R/W cpu.db io_db");
+                int prevPhi = H1(phi2); long cyc = 0;
+                for (long i = 0; i < 30000 && cyc < 80; i++)
+                {
+                    WireCore.Step(1);
+                    int ph = H1(phi2);
+                    if (prevPhi == 1 && ph == 0)
+                    {
+                        Console.WriteLine($"  cyc{cyc,3}  {Rd(ab):X4} {(H1(rw) != 0 ? 'R' : 'W')}  db={Rd(db):X2}  io_db={Rd(iodb):X2}");
+                        cyc++;
+                    }
+                    prevPhi = ph;
+                }
+                return 0;
+            }
+            finally { WireCore.Shutdown(); }
+        }
+
         private static int ProbeVbl(string romPath)
         {
             var rom = NesRom.LoadFromFile(romPath);

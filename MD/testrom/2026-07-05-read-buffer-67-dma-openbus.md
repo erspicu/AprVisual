@@ -87,3 +87,26 @@ OAM = $0A $0A $8A $8A $00...;但 --micro OAM dump(**有** DmcLatch/ALU/FrameIrq/
 - 另需分清:$2000 首讀回 $A9(非 open-bus $0A)、$2002-during-DMA 未 merge VBL、
   open-bus ~cyc10 塌 $00 —— 哪些是 shim 污染、哪些是真 netlist 時序,要在
   **關掉所有 test shim** 的乾淨 --micro 下重測 OAM dump 才能定案。
+
+
+## shim 污染已排除 → 真 netlist 行為(2026-07-05 定案)
+
+新增 `--no-shims`(關掉所有 test-mode shim)。d67dma OAM dump:
+- all shims ON:`0A 8A 82 00`
+- **--no-shims(全關):`0A 8A 82 00`(完全相同)**
+
+→ **我方 shim 不是污染源**;先前 trace put-cycle($0A $0A $8A $8A)與 dump 不符
+是我 trace 取樣模型錯(put 資料非我讀的那點),**物理 OAM dump 才是真值**。
+
+**#67 是真 netlist/整合層 bug**,與測試基建無關:register-space DMA 期間 PPU
+open-bus(io_db)行為錯誤 ——
+- $2000 首讀回 stale `$A9`(= 前一個非-PPU bus 活動 `LDA #$20` 的 opcode);
+  暗示 io_db 被**非 PPU 存取**污染(真機:ROM 取指不經 PPU /CS,io_db 應保持 $0A)。
+- $2002-during-DMA 未 merge VBL($0A 而非 $8A)。
+- io_db 中途塌 `$00`。
+與 double_2007/even_odd 同屬「快速存取 × 同波時序」硬類別。**深修**,需獨立
+聚焦(建議比照前例先 Gemini 諮詢 io_db-during-DMA 機制,再定 shim/修正點)。
+
+**金絲雀**:sprite_hit_tests、oam_read、dma_2007_read/write、cpu_dummy_writes_ppumem。
+**已沉澱工具**:--probe-dma / --micro-frames / --no-shims / 物理 OAM dump /
+tools/wla-dx 組譯 / temp/readbuf micro-ROM 群。

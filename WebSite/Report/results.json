@@ -610,9 +610,9 @@
   "detection": "6000",
   "frames": 300,
   "simSeconds": 4.99,
-  "wallSeconds": 2196.8,
+  "wallSeconds": 2301.9,
   "resetCount": 0,
-  "khcPerSec": 97.6
+  "khcPerSec": 93.1
  },
  {
   "suite": "cpu_exec_space",
@@ -625,9 +625,9 @@
   "detection": "6000",
   "frames": 44,
   "simSeconds": 0.73,
-  "wallSeconds": 303.8,
+  "wallSeconds": 317.2,
   "resetCount": 0,
-  "khcPerSec": 103.3
+  "khcPerSec": 99.0
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -790,9 +790,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 104.6,
+  "wallSeconds": 109.8,
   "resetCount": 0,
-  "khcPerSec": 108.8
+  "khcPerSec": 103.6
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -1600,9 +1600,9 @@
   "detection": "6000",
   "frames": 145,
   "simSeconds": 2.41,
-  "wallSeconds": 838.5,
+  "wallSeconds": 861.2,
   "resetCount": 0,
-  "khcPerSec": 123.5
+  "khcPerSec": 120.3
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1615,9 +1615,9 @@
   "detection": "6000",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 982.6,
+  "wallSeconds": 1089.8,
   "resetCount": 0,
-  "khcPerSec": 128.7
+  "khcPerSec": 116.0
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1630,9 +1630,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 894.9,
+  "wallSeconds": 953.3,
   "resetCount": 0,
-  "khcPerSec": 131.7
+  "khcPerSec": 123.6
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1645,9 +1645,9 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 204.7,
+  "wallSeconds": 206.3,
   "resetCount": 0,
-  "khcPerSec": 118.4
+  "khcPerSec": 117.5
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1660,9 +1660,9 @@
   "detection": "6000",
   "frames": 215,
   "simSeconds": 3.58,
-  "wallSeconds": 1186.9,
+  "wallSeconds": 1286.8,
   "resetCount": 0,
-  "khcPerSec": 129.4
+  "khcPerSec": 119.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1675,9 +1675,9 @@
   "detection": "6000",
   "frames": 218,
   "simSeconds": 3.63,
-  "wallSeconds": 1213.4,
+  "wallSeconds": 1248.3,
   "resetCount": 0,
-  "khcPerSec": 128.4
+  "khcPerSec": 124.8
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1690,9 +1690,9 @@
   "detection": "6000",
   "frames": 193,
   "simSeconds": 3.21,
-  "wallSeconds": 1085.9,
+  "wallSeconds": 1133.5,
   "resetCount": 0,
-  "khcPerSec": 127.0
+  "khcPerSec": 121.6
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1705,9 +1705,9 @@
   "detection": "6000",
   "frames": 217,
   "simSeconds": 3.61,
-  "wallSeconds": 1183.0,
+  "wallSeconds": 1276.0,
   "resetCount": 0,
-  "khcPerSec": 131.1
+  "khcPerSec": 121.5
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1720,24 +1720,24 @@
   "detection": "6000",
   "frames": 74,
   "simSeconds": 1.23,
-  "wallSeconds": 443.6,
+  "wallSeconds": 478.5,
   "resetCount": 0,
-  "khcPerSec": 119.1
+  "khcPerSec": 110.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
   "rom": "10-even_odd_timing.nes",
   "class": "A",
-  "status": "fail",
-  "exit_code": 3,
-  "result_text": "08 07 \nClock is skipped too late, relative to enabling BG\n\n10-even_odd_timing\n\nFailed #3",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "08 08 09 07 \n10-even_odd_timing\n\nPassed",
   "screenshot": "screenshots/ppu_vbl_nmi/rom_singles/10-even_odd_timing.webp",
   "detection": "6000",
-  "frames": 75,
-  "simSeconds": 1.25,
-  "wallSeconds": 426.4,
+  "frames": 138,
+  "simSeconds": 2.3,
+  "wallSeconds": 809.4,
   "resetCount": 0,
-  "khcPerSec": 125.6
+  "khcPerSec": 121.8
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -2020,9 +2020,9 @@
   "detection": "screen",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 1143.3,
+  "wallSeconds": 1277.8,
   "resetCount": 0,
-  "khcPerSec": 110.6
+  "khcPerSec": 99.0
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2035,9 +2035,9 @@
   "detection": "screen",
   "frames": 150,
   "simSeconds": 2.5,
-  "wallSeconds": 838.7,
+  "wallSeconds": 871.1,
   "resetCount": 0,
-  "khcPerSec": 127.8
+  "khcPerSec": 123.0
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2050,9 +2050,9 @@
   "detection": "screen",
   "frames": 95,
   "simSeconds": 1.58,
-  "wallSeconds": 563.9,
+  "wallSeconds": 609.2,
   "resetCount": 0,
-  "khcPerSec": 120.3
+  "khcPerSec": 111.4
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2065,9 +2065,9 @@
   "detection": "screen",
   "frames": 113,
   "simSeconds": 1.88,
-  "wallSeconds": 616.0,
+  "wallSeconds": 647.1,
   "resetCount": 0,
-  "khcPerSec": 131.0
+  "khcPerSec": 124.7
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2080,9 +2080,9 @@
   "detection": "screen",
   "frames": 162,
   "simSeconds": 2.7,
-  "wallSeconds": 892.3,
+  "wallSeconds": 973.1,
   "resetCount": 0,
-  "khcPerSec": 129.7
+  "khcPerSec": 118.9
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2095,9 +2095,9 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 579.7,
+  "wallSeconds": 618.5,
   "resetCount": 0,
-  "khcPerSec": 129.4
+  "khcPerSec": 121.2
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2110,9 +2110,9 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 561.7,
+  "wallSeconds": 613.7,
   "resetCount": 0,
-  "khcPerSec": 133.5
+  "khcPerSec": 122.2
  },
  {
   "suite": "read_joy3",
@@ -2125,9 +2125,9 @@
   "detection": "screen",
   "frames": 122,
   "simSeconds": 2.03,
-  "wallSeconds": 907.8,
+  "wallSeconds": 909.4,
   "resetCount": 0,
-  "khcPerSec": 96.0
+  "khcPerSec": 95.8
  },
  {
   "suite": "read_joy3",
@@ -2140,9 +2140,9 @@
   "detection": "screen",
   "frames": 59,
   "simSeconds": 0.98,
-  "wallSeconds": 436.4,
+  "wallSeconds": 462.8,
   "resetCount": 0,
-  "khcPerSec": 96.5
+  "khcPerSec": 91.0
  },
  {
   "suite": "read_joy3",
@@ -2155,9 +2155,9 @@
   "detection": "screen",
   "frames": 36,
   "simSeconds": 0.6,
-  "wallSeconds": 259.8,
+  "wallSeconds": 263.7,
   "resetCount": 0,
-  "khcPerSec": 98.8
+  "khcPerSec": 97.3
  },
  {
   "suite": "read_joy3",

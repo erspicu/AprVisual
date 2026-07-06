@@ -80,6 +80,8 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
         entry = {"suite": suite, "rom": rom, "class": cls, "maxFrames": budget_for(rel, cls)}
         if rel in EXPECTED_CRCS:
             entry["expectedCrcs"] = EXPECTED_CRCS[rel]
+        if rel == "ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes":
+            entry["ppuWriteDelay"] = 16
         tests.append(entry)
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)

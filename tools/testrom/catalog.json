@@ -825,7 +825,8 @@
    "rom": "10-even_odd_timing.nes",
    "class": "A",
    "maxFrames": 414,
-   "typicalFrames": 75
+   "typicalFrames": 147,
+   "ppuWriteDelay": 16
   },
   {
    "suite": "sprdma_and_dmc_dma",

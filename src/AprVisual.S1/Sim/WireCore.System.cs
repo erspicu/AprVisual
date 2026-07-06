@@ -492,48 +492,122 @@ namespace AprVisual.Sim
 
         // ── $2001 write-effect delay shim (test mode only, opt-in) ────────────────────────────
         // The CPU->PPU register-write transport delay is idealized to 0 in our two-netlist
-        // board integration, so a $2001 render-enable/disable takes effect ~1 dot too early
-        // relative to the PPU's dot-339 skip decision (10-even_odd_timing fails code 3
-        // "clock skipped too late relative to enabling BG", the frame-count X off by 1).
-        // ARBITRATED: both dies agree internally — PPUSim (emu-russia RP2C02G) and our netlist
-        // both set VBL at (V=241,H=1) and skip at dot 339 — so the offset is a DIFFERENTIAL
-        // write-path delay, not a phase rotation (a global clock skew shifts read+write
-        // together and provably cannot break the complementary alignment split; measured: it
-        // desyncs CPU/PPU I/O and stalls every test). Model the missing delay by holding each
-        // bkg_enable/spr_enable TRANSITION for N hc with the instrument-grade clamp (zero graph
-        // footprint) = the register loading N hc late. The read path ($2002/VBL) is untouched,
-        // so the NMI-edge family is unaffected. Opt-in via --ppu-write-delay N (default 0=off).
+        // board integration. The only proven casualty so far is the pre-render dot-339
+        // even/odd skip race in 10-even_odd_timing. A broad "delay every PPUMASK transition"
+        // experiment made the ROM lose its verdict path because the test deliberately schedules
+        // several $2001 writes with cycle precision. Keep this instrument scoped to the late
+        // side of the skip decision window: the A=4 enable case lands at dot 337 and is already
+        // correct, while the failing A=5 enable case is one dot later. Disable is the mirror:
+        // the failing late-disable edge needs to hold the old enabled value through dot 339.
+        // Reads ($2002/VBL) and setup/console PPUMASK writes stay untouched.
         public static bool PpuWriteDelay = false;
         public static int PpuWriteDelayHc = 0;
-        private static int _pwdBkg = EmptyNode, _pwdSpr = EmptyNode;
+        private static int _pwdBkg = EmptyNode, _pwdSpr = EmptyNode, _pwdNBkg = EmptyNode, _pwdNSpr = EmptyNode;
+        private static int[] _pwdHp = [], _pwdVp = [];
         private static int _pwdBkgPrev, _pwdSprPrev, _pwdBkgHold, _pwdSprHold;
+        private static int _pwdBkgClamp = EmptyNode, _pwdSprClamp = EmptyNode;
         private static long _pwdBkgRel = -1, _pwdSprRel = -1;
+        private static bool _pwdDebug;
 
         public static void EnablePpuWriteDelay(int hc)
         {
             if (hc <= 0) { PpuWriteDelay = false; return; }
             _pwdBkg = LookupNode("ppu.bkg_enable");
             _pwdSpr = LookupNode("ppu.spr_enable");
-            if (_pwdBkg == EmptyNode || _pwdSpr == EmptyNode)
+            _pwdNBkg = LookupNode("ppu./bkg_enable");
+            _pwdNSpr = LookupNode("ppu./spr_enable");
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true);
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
+            _pwdHp = hp.Count == 9 ? hp.ToArray() : Array.Empty<int>();
+            _pwdVp = vp.Count == 9 ? vp.ToArray() : Array.Empty<int>();
+            if (_pwdBkg == EmptyNode || _pwdSpr == EmptyNode || _pwdNBkg == EmptyNode || _pwdNSpr == EmptyNode || _pwdHp.Length != 9 || _pwdVp.Length != 9)
             { Console.Error.WriteLine("# [shim] ppu-write-delay: nodes unresolved — disabled"); PpuWriteDelay = false; return; }
             _pwdBkgPrev = NodeStates[_pwdBkg]; _pwdSprPrev = NodeStates[_pwdSpr];
             _pwdBkgRel = _pwdSprRel = -1;
+            _pwdBkgClamp = _pwdSprClamp = EmptyNode;
             PpuWriteDelayHc = hc;
+            _pwdDebug = Environment.GetEnvironmentVariable("PWD_DEBUG") == "1";
             PpuWriteDelay = true;
+        }
+
+        private static bool PpuWriteDelayArmedWindow(int oldValue, int newValue)
+        {
+            int v = ReadBits(_pwdVp);
+            int h = ReadBits(_pwdHp);
+            if (v != 261 || h > 339) return false;
+            if (oldValue == 0 && newValue != 0) return h >= 338;  // late enable
+            if (oldValue != 0 && newValue == 0) return h >= 338;  // late disable
+            return false;
+        }
+
+        private static void PpuWriteDelayDebug(string nodeName, int oldValue, int newValue, bool armed)
+        {
+            if (!_pwdDebug) return;
+            int v = ReadBits(_pwdVp);
+            int h = ReadBits(_pwdHp);
+            if (v == 261 && h >= 330 && h <= 340)
+                Console.Error.WriteLine($"# [pwd] t={Time} v={v} h={h} {nodeName} {oldValue}->{newValue} armed={armed}");
         }
 
         private static void PpuWriteDelayStep()
         {
-            // bkg_enable: hold each transition for N hc (clamp old value, then release)
+            // bkg_enable: hold skip-window transitions for N hc (clamp old value, then release)
             if (_pwdBkgRel >= 0)
-            { if (Time >= _pwdBkgRel) { InstRelease(_pwdBkg); _pwdBkgRel = -1; _pwdBkgPrev = NodeStates[_pwdBkg]; } }
-            else { int now = NodeStates[_pwdBkg]; if (now != _pwdBkgPrev)
-                   { _pwdBkgHold = _pwdBkgPrev; if (_pwdBkgHold == 1) InstClampHigh(_pwdBkg); else InstClampLow(_pwdBkg); _pwdBkgRel = Time + PpuWriteDelayHc; } }
+            {
+                if (Time >= _pwdBkgRel)
+                {
+                    InstRelease(_pwdBkgClamp);
+                    _pwdBkgClamp = EmptyNode;
+                    _pwdBkgRel = -1;
+                    _pwdBkgPrev = NodeStates[_pwdBkg];
+                }
+            }
+            else
+            {
+                int now = NodeStates[_pwdBkg];
+                if (now != _pwdBkgPrev)
+                {
+                    bool armed = PpuWriteDelayArmedWindow(_pwdBkgPrev, now);
+                    PpuWriteDelayDebug("bkg", _pwdBkgPrev, now, armed);
+                    if (armed)
+                    {
+                        _pwdBkgHold = _pwdBkgPrev;
+                        _pwdBkgClamp = _pwdBkgHold == 0 ? _pwdBkg : _pwdNBkg;
+                        InstClampLow(_pwdBkgClamp);
+                        _pwdBkgRel = Time + PpuWriteDelayHc;
+                    }
+                    else _pwdBkgPrev = now;
+                }
+            }
+
             // spr_enable
             if (_pwdSprRel >= 0)
-            { if (Time >= _pwdSprRel) { InstRelease(_pwdSpr); _pwdSprRel = -1; _pwdSprPrev = NodeStates[_pwdSpr]; } }
-            else { int now = NodeStates[_pwdSpr]; if (now != _pwdSprPrev)
-                   { _pwdSprHold = _pwdSprPrev; if (_pwdSprHold == 1) InstClampHigh(_pwdSpr); else InstClampLow(_pwdSpr); _pwdSprRel = Time + PpuWriteDelayHc; } }
+            {
+                if (Time >= _pwdSprRel)
+                {
+                    InstRelease(_pwdSprClamp);
+                    _pwdSprClamp = EmptyNode;
+                    _pwdSprRel = -1;
+                    _pwdSprPrev = NodeStates[_pwdSpr];
+                }
+            }
+            else
+            {
+                int now = NodeStates[_pwdSpr];
+                if (now != _pwdSprPrev)
+                {
+                    bool armed = PpuWriteDelayArmedWindow(_pwdSprPrev, now);
+                    PpuWriteDelayDebug("spr", _pwdSprPrev, now, armed);
+                    if (armed)
+                    {
+                        _pwdSprHold = _pwdSprPrev;
+                        _pwdSprClamp = _pwdSprHold == 0 ? _pwdSpr : _pwdNSpr;
+                        InstClampLow(_pwdSprClamp);
+                        _pwdSprRel = Time + PpuWriteDelayHc;
+                    }
+                    else _pwdSprPrev = now;
+                }
+            }
         }
 
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────

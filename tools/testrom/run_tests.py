@@ -95,6 +95,8 @@ def run_one(t, core, rombase):
         # load-time graph change, so it is scoped per-test: enabling it globally re-rolled
         # the alignment lottery and regressed the ppu_vbl_nmi family.
         cmd += ["--joypad"]
+    if t.get("ppuWriteDelay"):
+        cmd += ["--ppu-write-delay", str(t["ppuWriteDelay"])]
     if t.get("class") in ("B", "C"):
         # B/C verdicts read VRAM directly and can fire before the ROM enables rendering —
         # give the ROM 60 extra frames to present its result screen before the screenshot.

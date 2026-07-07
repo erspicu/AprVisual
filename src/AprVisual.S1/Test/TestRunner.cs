@@ -29,6 +29,7 @@ namespace AprVisual.Test
         private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
         internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
         internal static int  _ppuWriteDelayHc;             // --ppu-write-delay N: $2001 write-effect delay in hc (even_odd campaign; 0=off)
+        internal static bool _oamDmaPpuBusShim;             // --oam-dma-ppu-bus-shim: $4014 from PPU I/O bus OAM write-data hold
         internal static bool _noShims;                     // --no-shims: disable ALL test-mode shims (diagnostics)
         internal static bool _joypad;                      // --joypad: enable behavioral joypad + tie-rewire (per-test; perturbs graph)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
@@ -117,6 +118,7 @@ namespace AprVisual.Test
                     case "--no-shims":        _noShims = true; break;                                                                   // DIAGNOSTIC: disable all test-mode shims
                     case "--joypad":          _joypad = true; break;                                                                     // per-test: behavioral joypad + u7/u8 tie-rewire (needed for controller/exec_space)
                     case "--ppu-write-delay": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayHc); break;           // $2001 write-effect delay N hc (even_odd campaign)
+                    case "--oam-dma-ppu-bus-shim": _oamDmaPpuBusShim = true; break;                                                      // opt-in: $4014 from PPU I/O bus OAM write-data hold
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
@@ -236,6 +238,7 @@ namespace AprVisual.Test
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
+                    [--oam-dma-ppu-bus-shim]               opt-in shim for $4014 DMA sourced from PPU I/O registers
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)

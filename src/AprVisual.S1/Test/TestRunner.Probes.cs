@@ -101,6 +101,7 @@ namespace AprVisual.Test
                     WireCore.EnableLxaMagicShim();
                     WireCore.EnableFrameIrqShim();
                     if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();
+                    if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();
                 }
                 var microInput = ParseInputSpec(_inputSpec);
                 if (microInput.Count > 0 && !WireCore.PadInit()) microInput.Clear();

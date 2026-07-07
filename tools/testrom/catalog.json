@@ -755,7 +755,8 @@
    "rom": "test_ppu_read_buffer.nes",
    "class": "A",
    "maxFrames": 2400,
-   "typicalFrames": 1290
+   "typicalFrames": 1290,
+   "oamDmaPpuBusShim": true
   },
   {
    "suite": "ppu_vbl_nmi/rom_singles",

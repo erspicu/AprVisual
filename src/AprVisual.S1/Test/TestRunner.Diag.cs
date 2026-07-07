@@ -600,17 +600,36 @@ namespace AprVisual.Test
             try
             {
                 WireCore.LoadSystem(rom);
+                if (!_noShims && _oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();
                 int[] ab = ResolveQ("cpu.ab[15:0]"), db = ResolveQ("cpu.db[7:0]");
                 int[] iodb = ResolveQ("ppu.io_db[7:0]");
+                int[] sprData = ResolveQ("cpu.spr_data[7:0]");
+                int[] ppuSprD = ResolveQ("ppu.spr_d[7:0]");
+                int[] sprAddr = ResolveQ("ppu.spr_addr[7:0]");
                 int rw = WireCore.LookupNode("cpu.rw");
                 int phi2 = WireCore.LookupNode("cpu.phi2");
+                int rdy = WireCore.LookupNode("cpu.rdy");
+                int nW2004 = WireCore.LookupNode("ppu./w2004");
+                int delayedW4 = WireCore.LookupNode("ppu.delayed_write_2004_value");
+                int oamWriteDisable = WireCore.LookupNode("ppu.oam_write_disable");
+                int[,] oam = new int[4, 8];
+                for (int byteIdx = 0; byteIdx < 4; byteIdx++)
+                    for (int bit = 0; bit < 8; bit++)
+                        oam[byteIdx, bit] = WireCore.LookupNode($"ppu.oam_ram_{byteIdx:X2}_b{bit}");
                 int H1(int n) => n != WireCore.EmptyNode && WireCore.IsNodeHigh(n) ? 1 : 0;
                 int Rd(int[] a) => WireCore.ReadBits(a);
+                int RdOam(int byteIdx)
+                {
+                    int v = 0;
+                    for (int bit = 0; bit < 8; bit++)
+                        if (oam[byteIdx, bit] != WireCore.EmptyNode && WireCore.IsNodeHigh(oam[byteIdx, bit])) v |= 1 << bit;
+                    return v;
+                }
                 bool found = false;
                 for (long i = 0; i < 12_000_000; i++)
                 { WireCore.Step(1); if (Rd(ab) == 0x4014 && H1(rw) == 0) { found = true; break; } }
                 if (!found) { Console.WriteLine("# no $4014 write seen in 12M half-cycles"); return 1; }
-                Console.WriteLine($"# $4014 write at t={WireCore.Time} — per CPU cycle (phi2 fall): ab R/W cpu.db io_db");
+                Console.WriteLine($"# $4014 write at t={WireCore.Time} — per CPU cycle (phi2 fall): ab R/W rdy /w2004 dW4 /WE cpu.db spr_data ppu.spr_d spr_addr io_db oam0..3");
                 int prevPhi = H1(phi2); long cyc = 0;
                 for (long i = 0; i < 30000 && cyc < 80; i++)
                 {
@@ -618,7 +637,7 @@ namespace AprVisual.Test
                     int ph = H1(phi2);
                     if (prevPhi == 1 && ph == 0)
                     {
-                        Console.WriteLine($"  cyc{cyc,3}  {Rd(ab):X4} {(H1(rw) != 0 ? 'R' : 'W')}  db={Rd(db):X2}  io_db={Rd(iodb):X2}");
+                        Console.WriteLine($"  cyc{cyc,3}  {Rd(ab):X4} {(H1(rw) != 0 ? 'R' : 'W')}  {H1(rdy)}   {H1(nW2004)}    {H1(delayedW4)}   {H1(oamWriteDisable)}   db={Rd(db):X2}  spr={Rd(sprData):X2}  pspr={Rd(ppuSprD):X2}  saddr={Rd(sprAddr):X2}  io_db={Rd(iodb):X2}  oam={RdOam(0):X2},{RdOam(1):X2},{RdOam(2):X2},{RdOam(3):X2}");
                         cyc++;
                     }
                     prevPhi = ph;

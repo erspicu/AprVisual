@@ -97,6 +97,8 @@ def run_one(t, core, rombase):
         cmd += ["--joypad"]
     if t.get("ppuWriteDelay"):
         cmd += ["--ppu-write-delay", str(t["ppuWriteDelay"])]
+    if t.get("oamDmaPpuBusShim"):
+        cmd += ["--oam-dma-ppu-bus-shim"]
     if t.get("class") in ("B", "C"):
         # B/C verdicts read VRAM directly and can fire before the ROM enables rendering —
         # give the ROM 60 extra frames to present its result screen before the screenshot.

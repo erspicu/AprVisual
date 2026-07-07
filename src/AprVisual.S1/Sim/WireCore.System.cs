@@ -707,6 +707,178 @@ namespace AprVisual.Sim
             _d27Phi2Prev = phi2;
         }
 
+        // ── OAM-DMA from PPU I/O bus write-data hold shim (test mode only, opt-in) ───────────
+        // ppu_read_buffer's TEST_SPHIT_DMA_PPU_BUS performs $4014 <- $20, so the CPU DMA engine
+        // alternates reads from $2000-$20FF with writes to $2004. The CPU-side DMA latch already
+        // captures the correct values (verified by cpu.spr_data), but the PPU's delayed $2004->OAM
+        // write can sample a later PPU I/O bus value inside the same settle wave. Real hardware's
+        // write-data latch holds the $2004 data through /WE. This shim supplies only that hold
+        // semantic: capture cpu.spr_data on the DMA put cycle, then drive the addressed OAM cell
+        // while the PPU OAM /WE pulse is active. It is opt-in because it directly touches OAM cells.
+        public static bool OamDmaPpuBusShim = false;
+        private static int _odmaPhi2 = EmptyNode, _odmaRw = EmptyNode, _odmaRdy = EmptyNode, _odmaNW2004 = EmptyNode, _odmaNWe = EmptyNode;
+        private static int[] _odmaAb = Array.Empty<int>(), _odmaSprData = Array.Empty<int>(), _odmaSprAddr = Array.Empty<int>();
+        private static int[,] _odmaOamA = new int[256, 8], _odmaOamB = new int[256, 8];
+        private static readonly byte[] _odmaValueQ = new byte[512], _odmaAddrQ = new byte[512];
+        private static readonly int[] _odmaDriven = new int[16];
+        private static int _odmaPrevPhi2, _odmaPrevNWe, _odmaPendingPpuGet, _odmaQHead, _odmaQCount, _odmaDrivenCount;
+        private static long _odmaLastActivity;
+        private static readonly bool _odmaDebug = Environment.GetEnvironmentVariable("ODMA_DEBUG") != null;
+
+        public static void EnableOamDmaPpuBusShim()
+        {
+            _odmaPhi2 = LookupNode("cpu.phi2");
+            _odmaRw = LookupNode("cpu.rw");
+            _odmaRdy = LookupNode("cpu.rdy");
+            _odmaNW2004 = LookupNode("ppu./w2004");
+            _odmaNWe = LookupNode("ppu.oam_write_disable");
+            var ab = new List<int>(); ResolveNodes("cpu.ab[15:0]", ab, quiet: true);
+            var sd = new List<int>(); ResolveNodes("cpu.spr_data[7:0]", sd, quiet: true);
+            var sa = new List<int>(); ResolveNodes("ppu.spr_addr[7:0]", sa, quiet: true);
+            if (_odmaPhi2 == EmptyNode || _odmaRw == EmptyNode || _odmaRdy == EmptyNode || _odmaNW2004 == EmptyNode || _odmaNWe == EmptyNode
+                || ab.Count != 16 || sd.Count != 8 || sa.Count != 8)
+            { Console.Error.WriteLine("# [shim] oam-dma-ppu-bus: nodes unresolved — disabled"); OamDmaPpuBusShim = false; return; }
+
+            _odmaAb = ab.ToArray();
+            _odmaSprData = sd.ToArray();
+            _odmaSprAddr = sa.ToArray();
+
+            int liveCells = 0;
+            for (int i = 0; i < 256; i++)
+                for (int b = 0; b < 8; b++)
+                {
+                    int aNode = LookupNode($"ppu.oam_ram_{i:X2}_a{b}");
+                    int bNode = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
+                    _odmaOamA[i, b] = aNode;
+                    _odmaOamB[i, b] = bNode;
+                    if (bNode != EmptyNode && !IsPwrGnd(bNode)) liveCells++;
+                }
+            if (liveCells == 0)
+            { Console.Error.WriteLine("# [shim] oam-dma-ppu-bus: OAM cells unresolved — disabled"); OamDmaPpuBusShim = false; return; }
+
+            _odmaPrevPhi2 = NodeStates[_odmaPhi2];
+            _odmaPrevNWe = NodeStates[_odmaNWe];
+            _odmaPendingPpuGet = 0;
+            _odmaQHead = _odmaQCount = 0;
+            _odmaDrivenCount = 0;
+            _odmaLastActivity = Time;
+            OamDmaPpuBusShim = true;
+            Console.Error.WriteLine($"# [shim] oam-dma-ppu-bus armed: live OAM bits={liveCells}");
+        }
+
+        internal static void OamDmaPpuBusShimStep()
+        {
+            int phi2 = NodeStates[_odmaPhi2];
+            if (_odmaPrevPhi2 == 1 && phi2 == 0) OamDmaTrackCpuCycle();
+            _odmaPrevPhi2 = phi2;
+
+            int nWe = NodeStates[_odmaNWe];
+            if (_odmaPrevNWe == 1 && nWe == 0 && _odmaQCount != 0)
+            {
+                byte addr = OamDmaDequeueAddr();
+                byte value = OamDmaDequeueValue();
+                OamDmaDriveByte(addr, value);
+                _odmaLastActivity = Time;
+                if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} /WE fall addr={addr:X2} val={value:X2}");
+            }
+            else if (_odmaPrevNWe == 0 && nWe == 1)
+            {
+                OamDmaReleaseDrive();
+            }
+            _odmaPrevNWe = nWe;
+
+            // If a diagnostic run stops mid-pulse or a queue entry becomes stale, fail inertly.
+            if (_odmaQCount != 0 && Time - _odmaLastActivity > 4096)
+            {
+                if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} stale queue clear count={_odmaQCount}");
+                _odmaQHead = _odmaQCount = 0;
+                _odmaPendingPpuGet = 0;
+            }
+        }
+
+        private static void OamDmaTrackCpuCycle()
+        {
+            if (NodeStates[_odmaRdy] != 0)
+            {
+                _odmaPendingPpuGet = 0;
+                return;
+            }
+
+            int addr = ReadBits(_odmaAb);
+            if (NodeStates[_odmaRw] != 0)
+            {
+                _odmaPendingPpuGet = (addr & 0xE000) == 0x2000 ? 1 : 0;
+                return;
+            }
+
+            if (_odmaPendingPpuGet != 0 && (addr & 0xE007) == 0x2004 && NodeStates[_odmaNW2004] == 0)
+                OamDmaEnqueue((byte)ReadBits(_odmaSprAddr), (byte)ReadBits(_odmaSprData));
+            _odmaPendingPpuGet = 0;
+        }
+
+        private static void OamDmaEnqueue(byte addr, byte value)
+        {
+            if (_odmaQCount == _odmaValueQ.Length)
+            {
+                if (_odmaDebug) Console.Error.WriteLine("# [odma] queue overflow — clearing");
+                _odmaQHead = _odmaQCount = 0;
+            }
+            int tail = (_odmaQHead + _odmaQCount) % _odmaValueQ.Length;
+            _odmaAddrQ[tail] = addr;
+            _odmaValueQ[tail] = value;
+            _odmaQCount++;
+            _odmaLastActivity = Time;
+            if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} enqueue addr={addr:X2} val={value:X2}");
+        }
+
+        private static byte OamDmaDequeueAddr()
+        {
+            byte v = _odmaAddrQ[_odmaQHead];
+            return v;
+        }
+
+        private static byte OamDmaDequeueValue()
+        {
+            byte v = _odmaValueQ[_odmaQHead];
+            _odmaQHead = (_odmaQHead + 1) % _odmaValueQ.Length;
+            _odmaQCount--;
+            return v;
+        }
+
+        private static void OamDmaDriveByte(int index, int value)
+        {
+            OamDmaReleaseDrive();
+            bool changed = false;
+            _odmaDrivenCount = 0;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                bool one = ((value >> bit) & 1) != 0;
+                int bNode = _odmaOamB[index, bit];
+                int aNode = _odmaOamA[index, bit];
+                if (bNode != EmptyNode && !IsPwrGnd(bNode))
+                {
+                    changed |= one ? SetHighQueued(bNode) : SetLowQueued(bNode);
+                    _odmaDriven[_odmaDrivenCount++] = bNode;
+                }
+                if (aNode != EmptyNode && !IsPwrGnd(aNode))
+                {
+                    changed |= one ? SetLowQueued(aNode) : SetHighQueued(aNode);
+                    _odmaDriven[_odmaDrivenCount++] = aNode;
+                }
+            }
+            if (changed) ProcessQueue();
+        }
+
+        private static void OamDmaReleaseDrive()
+        {
+            if (_odmaDrivenCount == 0) return;
+            bool changed = false;
+            for (int i = 0; i < _odmaDrivenCount; i++)
+                changed |= SetFloatQueued(_odmaDriven[i]);
+            _odmaDrivenCount = 0;
+            if (changed) ProcessQueue();
+        }
+
 
 
         // ── Controller input injection (test mode) ──────────────────────────────────────────

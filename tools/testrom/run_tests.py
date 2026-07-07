@@ -51,7 +51,7 @@ def build_engine():
     r = subprocess.run(["dotnet", "build", os.path.join(REPO, "src", "AprVisual.S1"), "-c", "Release"],
                        capture_output=True, text=True)
     if r.returncode != 0:
-        print(r.stdout[-2000:], r.stderr[-2000:])
+        print((r.stdout or '')[-2000:], (r.stderr or '')[-2000:])
         sys.exit("BUILD FAILED")
 
 

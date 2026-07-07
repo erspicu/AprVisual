@@ -80,10 +80,8 @@ for path in sorted(glob.glob(os.path.join(CHECKED, "**", "*.nes"), recursive=Tru
         entry = {"suite": suite, "rom": rom, "class": cls, "maxFrames": budget_for(rel, cls)}
         if rel in EXPECTED_CRCS:
             entry["expectedCrcs"] = EXPECTED_CRCS[rel]
-        if rel == "ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes":
-            entry["ppuWriteDelay"] = 16
-        if rel == "ppu_read_buffer/test_ppu_read_buffer.nes":
-            entry["oamDmaPpuBusShim"] = True
+        # even_odd $2001 write-delay + read_buffer OAM-DMA-PPU-bus shims are now GLOBAL
+        # test-mode shims (enabled by default in TestRunner.Test.cs), not per-test.
         tests.append(entry)
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
@@ -93,6 +91,10 @@ with open(OUT, "w", encoding="utf-8") as fp:
     # "Passed"; their completion line is the informational tally (the conflict count is
     # timing-model-dependent by design), so they carry a custom passMarker.
     tests.extend([
+        # oam_stress: OAM $2003/$2004 stress. Not in the AprNes results set (classify() would
+        # skip it), so added explicitly. blargg $6000 (class A); alignment-sensitive (passes on
+        # only one of four PPU-CPU syncs) and long (~1800 frames on a pass).
+        {"suite": "oam_stress", "rom": "oam_stress.nes", "class": "A", "maxFrames": 2400},
         {"suite": "read_joy3", "rom": "thorough_test.nes", "class": "B", "maxFrames": 900},
         {"suite": "read_joy3", "rom": "count_errors.nes", "class": "B", "maxFrames": 600, "passMarker": "Conflicts:"},
         {"suite": "read_joy3", "rom": "count_errors_fast.nes", "class": "B", "maxFrames": 600, "passMarker": "Errors:"},

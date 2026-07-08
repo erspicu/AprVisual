@@ -284,6 +284,9 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
   the engine's semantic limits vs real silicon, the full fix table (root cause &rarr; fix), instruments and method:
   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_test-fix-knowledge-base.md" target="_blank" rel="noopener">Test-Fix Knowledge Base (EN)</a>.</span><span class="zh"><strong>知識庫</strong> —— 所有調查的總綱 living document:FAIL 三分類、引擎語意極限、修復總表(根因&rarr;修法)、工具鏈與方法論:
   <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/00_%E6%B8%AC%E8%A9%A6%E4%BF%AE%E5%BE%A9%E7%9F%A5%E8%AD%98%E5%BA%AB_%E7%B8%BD%E7%B6%B1.md" target="_blank" rel="noopener">測試修復知識庫(繁中)</a>。</span></div>
+ <div style="margin-top:.5rem">🧰 <span class="en"><strong>Reproduce it yourself</strong> &mdash; a hands-on tutorial for the whole test-ROM toolchain (one-click .bat, manual run_tests.py options, reading the results, verifying a single test); the test ROMs are bundled in the repo:
+  <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-08-testrom-toolchain-tutorial.en.md" target="_blank" rel="noopener">Test-ROM Toolchain Tutorial (EN)</a>.</span><span class="zh"><strong>自己重現</strong> —— 整套測試 ROM 工具鏈的上手教學(一鍵 .bat、手動 run_tests.py、讀結果、驗證單測),測試 ROM 已內建於 repo:
+  <a href="https://github.com/erspicu/AprVisual/blob/main/MD/testrom/2026-07-08-testrom-toolchain-tutorial.md" target="_blank" rel="noopener">測試 ROM 工具鏈完整教學(繁中)</a>。</span></div>
  <details style="margin-top:.6rem">
   <summary style="cursor:pointer;color:#5dadec"><strong><span class="en">How we test &amp; how the performance numbers are computed</span><span class="zh">測試方式與效能計算方法</span></strong></summary>
   <div style="margin-top:.5rem">

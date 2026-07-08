@@ -9,16 +9,17 @@
 
 | Date | Score | Event |
 |---|---|---|
-| **2026-07-07/08** | **145/1 (99.3%) — clean full regression closed** | even_odd + #67 both solved (behavioral shims, made **global** = the Gemini principle "runtime instrument-grade shims should be global; per-test = overfitting"); oam_stress + oam_read_vbl_wait enrolled and PASS; 146 tests in 7h58m, zero surprises, sole FAIL = cpu_dummy_writes_oam (faithful deviation). Perf: weighted mean 111.8 khc/s, aggregate 502, steady-state 660 @7 lanes (20 s stagger excluded). Runner gained LPT "longest-first" scheduling + 1.5× typicalFrames kill-cap |
 | 2026-07-02 | — | Test infrastructure built (141-ROM catalog, A/A-r/B/C detection, parallel runner, report site) |
 | 2026-07-03 | 115/26 → 125/16 | Clock-phase alignment K=1 (+7), power-up shims (+2), decay shim (+1), CNROM |
 | 2026-07-04 | 125/16 → 129/12 | DMC latch shim (one shim, +4) |
-| 2026-07-05 | 129/12 → 132/9 (predicted) | ALU latch hold shim + LXA magic shim (+3) |
 | 2026-07-04 | **133/8 (94.3%) — full regression closed** | all 141 re-run in 6.6 h, zero unexpected reds; surprise: oam_read landed on the passing pattern (+1 over prediction); throughput: 113.4 khc/s per test, steady-state 680 khc/s @ 6 lanes |
-| 2026-07-05 | **142/3 (97.9%)** | double_2007_read solved: global zero-footprint Dbl2007Shim (instrument-grade InstClampLow; Gemini consult settled the general principle, 2.6 probe effect); dma_2007_read collateral fully recovered after three misfire lessons; read_buffer #67 same-root hypothesis disproven (still FAIL with the shim); 10-even_odd reclassified as a ~1-dot integration offset (fix campaign started) |
-| 2026-07-05 | **141/4 (97.2%)** | exec_space_apu solved: board tie polarity (u7/u8 spare inputs vss → floating TTL should read high) + cold-port bit0; full $4000→$40FF walk passes; tie blast-radius regression 7/7 green |
 | 2026-07-04 | **140/5 (96.6%)** | FrameIrqShim: third member of the same-wave transient family (w4017 wave × apu_clk1 edge flips the RS pair; r4015's partial decode aggravates); both irq_flag tests pass; 26-test frame-IRQ family regression, zero collateral |
 | 2026-07-04 | **138/7 (95.2%, catalog 145)** | behavioral joypad + `--input` injection: all four read_joy3 tests enrolled and PASS (incl. test_buttons' scripted 8-button run end-to-end); **dma_4016_read remaining FAIL flipped** (the DMA double-clock corruption emerges naturally from real bus traffic — no dedicated fix) |
+| 2026-07-05 | 129/12 → 132/9 (predicted) | ALU latch hold shim + LXA magic shim (+3) |
+| 2026-07-05 | **regression fix** | found the global EnableJoypadHandler (behavioral joypad module swap + u7/u8 tie rewire) is a **load-time graph change** affecting every test → re-rolled the alignment lottery and **hung the ppu_vbl_nmi family** (05-nmi/even_odd stalled with no verdict; last passing was abb9348, after which only a 7-test tie blast-radius ran — this family wasn't re-run). Fix: switch to **per-test** (catalog needsJoypad → runner --joypad), enabled only for exec_space/read_joy3/dma_4016; the rest return to the clean graph. Also: runner gained a 1.5× typicalFrames cap (kill hung runs early) |
+| 2026-07-05 | **142/3 (97.9%)** | double_2007_read solved: global zero-footprint Dbl2007Shim (instrument-grade InstClampLow; Gemini consult settled the general principle, 2.6 probe effect); dma_2007_read collateral fully recovered after three misfire lessons; read_buffer #67 same-root hypothesis disproven (still FAIL with the shim); 10-even_odd reclassified as a ~1-dot integration offset (fix campaign started) |
+| 2026-07-05 | **141/4 (97.2%)** | exec_space_apu solved: board tie polarity (u7/u8 spare inputs vss → floating TTL should read high) + cold-port bit0; full $4000→$40FF walk passes; tie blast-radius regression 7/7 green |
+| **2026-07-07/08** | **145/1 (99.3%) — clean full regression closed** | even_odd + #67 both solved (behavioral shims, made **global** = the Gemini principle "runtime instrument-grade shims should be global; per-test = overfitting"); oam_stress + oam_read_vbl_wait enrolled and PASS; 146 tests in 7h58m, zero surprises, sole FAIL = cpu_dummy_writes_oam (faithful deviation). Perf: weighted mean 111.8 khc/s, aggregate 502, steady-state 660 @7 lanes (20 s stagger excluded). Runner gained LPT "longest-first" scheduling + 1.5× typicalFrames kill-cap |
 
 Reference machine: **NES-001 + RP2A03G + RP2C02G** (the revisions the Visual2A03/2C02 dies
 were photographed from; also AccuracyCoin's target). Repair doctrine (user's rule):
@@ -255,7 +256,8 @@ Every deep investigation followed the same siege procedure, now proven:
 ## 6. Per-topic note index (full evidence chains)
 
 > Maps to the fix table (§3.1): #6→DMC, #7/#8→ALU/LXA, #11→exec_space, #10→frame-IRQ,
-> #9→joypad, #12→dbl2007, #13→even_odd, #14→#67. Notes marked (ZH) are Traditional-Chinese only.
+> #9→joypad, #12→dbl2007, #13→even_odd, #14→#67. Every note has an English version; its
+> Traditional-Chinese master is the same-name `.md` (drop the `.en`).
 
 **Root-cause taxonomy & roadmap**
 - [2026-07-03 FAIL analysis & path to full score](2026-07-03-fail-analysis-and-path-to-full-score.en.md) — the 6 root-cause categories + roadmap
@@ -264,16 +266,17 @@ Every deep investigation followed the same siege procedure, now proven:
 **Per-case evidence chains (→ §3.1 fixes)**
 - [2026-07-04 DMC #19 ACLK pipeline analysis](2026-07-04-dmc19-aclk-pipeline-analysis.en.md) — the DMC race, complete case (APUSim arbitration) → #6
 - [2026-07-05 immediate trio ALU-latch race](2026-07-05-immediate-trio-alu-latch-race.en.md) — ALU latches + LXA magic, complete case → #7/#8
-- [2026-07-05 read-buffer #67 DMA open-bus diagnosis](2026-07-05-read-buffer-67-dma-openbus.md) (ZH) + [final fix record](../toDoNext/202607071826-test_ppu_read_buffer修復紀錄.md) (ZH) — OamDmaPpuBusShim → #14 (now PASS, frame 1274)
-- [2026-07-05 even_odd integration-offset campaign](2026-07-05-even-odd-integration-offset-campaign.md) (ZH) + [final fix record](../toDoNext/202607062345-10-even_odd_timing修復紀錄.md) (ZH) — ~1-dot cross-die write-path offset → narrow-window write-delay shim → #13 (now PASS, `08 08 09 07`)
+- [2026-07-05 read-buffer #67 DMA open-bus diagnosis](2026-07-05-read-buffer-67-dma-openbus.en.md) + [final fix record](../toDoNext/202607071826-test_ppu_read_buffer修復紀錄.en.md) — OamDmaPpuBusShim → #14 (now PASS, frame 1274)
+- [2026-07-05 even_odd integration-offset campaign](2026-07-05-even-odd-integration-offset-campaign.en.md) + [final fix record](../toDoNext/202607062345-10-even_odd_timing修復紀錄.en.md) — ~1-dot cross-die write-path offset → narrow-window write-delay shim → #13 (now PASS, `08 08 09 07`)
 
 **Faithful deviation & methodology/architecture**
-- [2026-07-05 Faithful-deviation in-depth Q&A](2026-07-05-faithful-deviation-qa.en.md) ([ZH](2026-07-05-faithful-deviation-qa.md)) — the full Q&A and triple evidence for §3.2's sole remaining FAIL (cpu_dummy_writes_oam)
-- [2026-07-05 Socket Pattern / global-DUT-fix principle](2026-07-05-socket-pattern-target-architecture.md) (ZH) — Gemini's principle: runtime instrument shims are now **globalized** per this (§3.1 global note, §2.6); only the load-time joypad stays a per-test stopgap
-- [2026-07-08 Don't Touch the DUT: probe effect & instrument-grade shims (teaching)](2026-07-08-probe-effect-instrument-grade-shims.en.md) ([ZH](2026-07-08-probe-effect-instrument-grade-shims.md)) — teaching write-up: why a zero-fire graph edit broke an unrelated test, Gemini's instrument-grade force/release principle, Socket Pattern, Graph Fingerprint (also linked from the report page)
+- [2026-07-05 Faithful-deviation in-depth Q&A](2026-07-05-faithful-deviation-qa.en.md) — the full Q&A and triple evidence for §3.2's sole remaining FAIL (cpu_dummy_writes_oam)
+- [2026-07-05 Socket Pattern / global-DUT-fix principle](2026-07-05-socket-pattern-target-architecture.en.md) — Gemini's principle: runtime instrument shims are now **globalized** per this (§3.1 global note, §2.6); only the load-time joypad stays a per-test stopgap
+- [2026-07-08 Don't Touch the DUT: probe effect & instrument-grade shims (teaching)](2026-07-08-probe-effect-instrument-grade-shims.en.md) — teaching write-up: why a zero-fire graph edit broke an unrelated test, Gemini's instrument-grade force/release principle, Socket Pattern, Graph Fingerprint (also linked from the report page)
+- [2026-07-08 Test-ROM toolchain tutorial](2026-07-08-testrom-toolchain-tutorial.en.md) — hands-on: the one-click bat, manual `run_tests.py`, reading results, verifying a single test, the bundled ROMs (also linked from the report page)
 
 **Workflow & test selection**
-- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) ([ZH](../testrom_workflow/2026-07-02-s1-testrom-workflow.md)) — the test workflow
-- [2026-07-02 supported test-ROM list](2026-07-02-aprvisual-s1-supported-testroms.md) (ZH) + [detection-method filter](2026-07-02-s1-testrom-detection-filter.md) (ZH) — how the catalog was derived (NROM, PAL excluded, $6000 / per-frame verdict)
+- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) — the test workflow
+- [2026-07-02 supported test-ROM list](2026-07-02-aprvisual-s1-supported-testroms.en.md) + [detection-method filter](2026-07-02-s1-testrom-detection-filter.en.md) — how the catalog was derived (NROM, PAL excluded, $6000 / per-frame verdict)
 
 - Public-facing version: [live report](https://erspicu.github.io/AprVisual/Report/) (repo path `WebSite/Report/index.html`) — explainer section + hardware-model table + the two sections "behavioral layer supplies the missing spec (these PASS)" and "faithful deviations (evidence dossier)"

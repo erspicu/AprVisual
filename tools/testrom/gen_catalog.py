@@ -95,6 +95,8 @@ with open(OUT, "w", encoding="utf-8") as fp:
         # skip it), so added explicitly. blargg $6000 (class A); alignment-sensitive (passes on
         # only one of four PPU-CPU syncs) and long (~1800 frames on a pass).
         {"suite": "oam_stress", "rom": "oam_stress.nes", "class": "A", "maxFrames": 2400},
+        # oam_read_vbl_wait: OAM $2004 read after waiting for VBL; screen-verdict ("Passed").
+        {"suite": "oam_read_vbl_wait", "rom": "oam_read_vbl_wait.nes", "class": "B", "maxFrames": 200},
         {"suite": "read_joy3", "rom": "thorough_test.nes", "class": "B", "maxFrames": 900},
         {"suite": "read_joy3", "rom": "count_errors.nes", "class": "B", "maxFrames": 600, "passMarker": "Conflicts:"},
         {"suite": "read_joy3", "rom": "count_errors_fast.nes", "class": "B", "maxFrames": 600, "passMarker": "Errors:"},

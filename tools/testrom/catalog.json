@@ -1041,7 +1041,15 @@
    "suite": "oam_stress",
    "rom": "oam_stress.nes",
    "class": "A",
-   "maxFrames": 2400
+   "maxFrames": 2400,
+   "typicalFrames": 1709
+  },
+  {
+   "suite": "oam_read_vbl_wait",
+   "rom": "oam_read_vbl_wait.nes",
+   "class": "B",
+   "maxFrames": 200,
+   "typicalFrames": 46
   }
  ]
 }

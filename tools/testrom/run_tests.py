@@ -171,6 +171,11 @@ def main():
     if args.limit > 0:
         tests = tests[:args.limit]
 
+    # Longest-processing-time-first (LPT) scheduling: dispatch the slowest tests first so
+    # they run concurrently with the short ones and the tail doesn't drag out the makespan.
+    # Order by expected runtime (typicalFrames, falling back to maxFrames), longest first.
+    tests.sort(key=lambda t: t.get("typicalFrames") or t.get("maxFrames", 900), reverse=True)
+
     if not tests:
         print("nothing to run")
         subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "build_report.py")], check=True)

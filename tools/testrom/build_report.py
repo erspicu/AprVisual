@@ -179,6 +179,7 @@ html = """<!DOCTYPE html>
 --to:#eab308;--to-bg:rgba(234,179,8,.15);--pend:#64748b;--pend-bg:rgba(100,116,139,.18);--accent:#3b82f6}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,'Segoe UI',system-ui,sans-serif;line-height:1.5;padding:1.5rem}
 a{color:var(--accent);text-decoration:none}
+.home-link{margin-bottom:.5rem;font-size:.85rem}.home-link a:hover{text-decoration:underline}
 .header{text-align:center;margin-bottom:1.2rem}
 .header h1{font-size:1.7rem;letter-spacing:-.02em}
 .header .sub{color:var(--dim);font-size:.85rem;margin-top:.3rem}
@@ -237,6 +238,7 @@ body.lang-en .en,body.lang-zh .zh{display:revert}
 <body class="lang-en">
 <div class="lang-sw"><button id="btn-en" class="active" onclick="setLang('en')">English</button><button id="btn-zh" onclick="setLang('zh')">中文</button></div>
 <div class="header">
+  <div class="home-link"><a href="../index.html#testing"><span class="en">&larr; Home</span><span class="zh">&larr; 回首頁</span></a></div>
   <h1>AprVisual.S1 Switch-Level Test Report</h1>
   <div class="sub"><span class="en">transistor/switch-level NES simulation (Visual2A03 + Visual2C02 netlists) &mdash; every result below is computed by
   propagating individual transistor state changes, not by a behavioral emulator.</span><span class="zh">電晶體/開關級 NES 模擬(Visual2A03 + Visual2C02 netlist)—— 以下每一筆結果都是逐一傳播電晶體狀態變化算出來的,不是行為層模擬器。</span></div>

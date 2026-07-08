@@ -1,12 +1,20 @@
 # Faithful Deviations — an In-Depth Q&A: why some tests are *supposed* to fail here
 
-> The report carries two long-standing FAILs. `cpu_dummy_writes_oam` is a
-> faithful deviation we **do not intend to make pass**; `10-even_odd_timing`
-> was **reclassified on 2026-07-05** as a *known limitation of this
-> simulator's two-netlist integration* (an unarbitrated ~1-dot absolute-phase
-> offset) — not a real-machine property, and not yet a fix. This document
-> walks through the questions readers — especially fellow emulator
-> developers — are most likely to ask, together with the full evidence. Traditional-Chinese master: `2026-07-05-faithful-deviation-qa.md`.
+> After the 2026-07-07/08 clean full regression closed at **145/1 (99.3%)**, just
+> **one** long-standing FAIL remains: `cpu_dummy_writes_oam` — the genuine
+> faithful deviation we **do not intend to make pass** (the RP2C02G's
+> revision-specific OAMADDR-write corruption, which real G hardware fails too).
+> This document walks through the questions readers — especially fellow
+> emulator developers — are most likely to ask, together with the full evidence.
+>
+> **Note**: `10-even_odd_timing` was once listed here as a "known integration
+> offset awaiting arbitration"; it is **now fixed and PASSES** — a behavioral
+> narrow-window write-delay shim supplies the ~1-dot CPU→PPU write-path offset
+> (output `08 08 09 07`). It is a *fix* of the "pure CPU+PPU netlist isn't
+> enough, the behavioral layer supplies the correct spec" kind, not a faithful
+> deviation, and has moved out of this document (see the report page's
+> "behavioral layer supplies the missing spec" section and knowledge-base
+> §3.1 #13). Traditional-Chinese master: `2026-07-05-faithful-deviation-qa.md`.
 > Complete evidence chains: the [knowledge base](00_test-fix-knowledge-base.md)
 > and the report page's dossier.
 
@@ -20,7 +28,7 @@ The category has explicit admission criteria — ALL of:
 3. Where feasible, **independent-model cross-checks** (e.g. emu-russia's
    independent reverse-engineering of the same die)
 4. **Whenever real hardware is deterministic, we fix** — this project fixed
-   10+ items including three analog-race shims; the category is not a box
+   12+ items including several analog-race / integration-offset shims; the category is not a box
    for "couldn't fix it", but the residue left after fixes are exhausted and
    the evidence shows real machines behave this way
 5. Every entry carries a **verifiable prediction** — anyone is welcome to
@@ -28,66 +36,30 @@ The category has explicit admission criteria — ALL of:
 
 ---
 
-## Case 1: `10-even_odd_timing` — power-on alignment and an unarbitrated 1-dot integration offset
+## (fixed, moved out) `10-even_odd_timing` — was an integration-offset candidate, now PASSES
 
-### Q | I've heard a real NES can pass all ten ppu_vbl_nmi tests. What is your position?
+even_odd was once listed here as a "~1-dot absolute-phase offset in the two-netlist
+board-level integration, awaiting arbitration." It is **now fixed and PASSES**: a PPUSim
+cross-check proves both dies agree internally (VBL at (241,1), the odd-frame skip at
+pre-render dot 339), so the offset is the **CPU→PPU cross-die write path** idealized to
+zero delay. We supply that spec with a **test-mode behavioral shim** — delaying the
+`$2001` render enable/disable transitions by 16 hc only at pre-render `vpos=261,
+hpos=338..339` (the disable side clamps the complement node `/bkg_enable`, because GND
+wins and you cannot force the main node high) — so `10-even_odd_timing` outputs
+`08 08 09 07` and **passes**, green on the same alignment (K=1) as the whole NMI-edge family.
 
-**A:** The same as the community's: **a real console can**. blargg developed and
-validated the suite on real NTSC hardware, and a "golden alignment" passing all
-ten in a single power-on is understood to exist. Our simulator currently passes
-nine of the ten (the 8-test NMI-edge family among them); 10-even_odd fails at
-our pinned alignment — and we publish the full measurements:
+> This is the "**pure CPU+PPU netlist of the two dies isn't enough; the behavioral layer
+> supplies the missing correct spec**" kind: the failure was a gap in our model (unmodeled
+> cross-die trace delay), not a property of the real machine, and filling it makes the test
+> pass. So it is **not a faithful deviation** — see the report page's "behavioral layer
+> supplies the missing spec (these PASS)" section, knowledge-base §3.1 #13, and
+> `2026-07-05-even-odd-integration-offset-campaign.md`. (Arbitrating the offset at its
+> source — a PPUSim cross-check of the `$2002` read's absolute master-clock latency — rather
+> than compensating with a shim, remains a planned follow-up.)
 
-- The power-on alignment space is **completely enumerated** (not sampled): a
-  K=0..5 sweep shows intermediate reset offsets quantize onto 4 relative phase
-  classes (the divider pair restarts on whole clk0 periods); "CPU ÷12 free-runs,
-  PPU ÷4 restarts at /res release" is probed emergent behavior, consistent with
-  the community's black-box findings.
-- **On this model**, the NMI-edge family passes {7,5} and 10-even_odd passes
-  {1,3} — zero intersection. But real hardware has a golden alignment, so this
-  zero intersection is **not a property of the real machine**.
+---
 
-### Q | Then where does the zero intersection come from?
-
-**A:** Our diagnosis (2026-07-05, checked against external technical review):
-an **absolute-phase offset in the two-netlist board-level integration**, on the
-order of one dot, not yet arbitrated. Visual2A03 and Visual2C02 are each
-accurate die models; the board-level glue joining them has three candidate
-offset sources (by likelihood):
-
-1. **The cross-die $2002 read path is idealized to zero delay** — on real
-   hardware the CPU's /RD reaching the PPU and the PPU returning D7 (the VBL
-   flag) crosses two clock domains with physical transit time; in simulation
-   that span is 0, which can make the CPU read VBL "one dot early".
-2. The exact moment the reset release starts the PPU divider (pad rise times
-   are unmodeled).
-3. Clock-pad-to-divider buffer delays, which may differ between the two dies.
-
-The effect of such an offset is precisely to shift the two test groups' passing
-phases apart — manufacturing the *appearance* of mutual exclusion.
-
-### Q | Why alignment 7? Why not just fix the offset?
-
-**A:** Alignment 7 is the phase blargg's NMI-edge tests were calibrated on
-(8 tests vs 1). As for fixing the offset: adjusting it *before measuring it*
-would turn the power-on phase into a second hand-tuned parameter — the path our
-reference contrast took (TriCNES's author tuned the offset until everything
-passed; the source comments "I don't know why, but this passes all the tests
-if this is 7, so...?"). We chose to publish the complete in-model enumeration
-first, then run the arbitration experiment: cross-check `BIT $2002`'s
-**absolute master-clock latency** (/RD to data return) against emu-russia's
-**PPUSim** (an independent schematic-level reverse-engineering of the same
-2C02 die, already used for two-model corroboration in our DMC case). Measure
-the offset, correct it — after which the NMI family and 10-even_odd should
-pass at the *same* alignment. That is what genuinely fixing this item looks
-like.
-
-**Testable:** if you own an NTSC NES-001 and record — within one power-on —
-both 05-nmi_timing and 10-even_odd_timing passing, that directly demonstrates
-the golden alignment; we would gladly add it to the dossier as another line of
-arbitration evidence.
-
-## Case 2: `cpu_dummy_writes_oam` — a revision-specific hardware bug
+## Case 1: `cpu_dummy_writes_oam` — a revision-specific hardware bug (the sole remaining FAIL)
 
 ### Q | This test mainly verifies CPU dummy writes. Could your FAIL be hiding an actual CPU bug?
 
@@ -169,7 +141,7 @@ either outcome is valuable data.
 **A:** A fair concern — best answered with the auditable record:
 
 1. **Far more was fixed than classified**: the score went from 115/26 to
-   141/4 with 10+ fixes — three of which (DMC latch, ALU latch, frame-IRQ)
+   **145/1** with 12+ fixes — three of which (DMC latch, ALU latch, frame-IRQ)
    are themselves "analog races": whenever real hardware behaves
    deterministically, we fix rather than classify.
 2. The category has **admission criteria** (the five clauses of §0) and

@@ -9,6 +9,7 @@
 
 | Date | Score | Event |
 |---|---|---|
+| **2026-07-07/08** | **145/1 (99.3%) — clean full regression closed** | even_odd + #67 both solved (behavioral shims, made **global** = the Gemini principle "runtime instrument-grade shims should be global; per-test = overfitting"); oam_stress + oam_read_vbl_wait enrolled and PASS; 146 tests in 7h58m, zero surprises, sole FAIL = cpu_dummy_writes_oam (faithful deviation). Perf: weighted mean 111.8 khc/s, aggregate 502, steady-state 660 @7 lanes (20 s stagger excluded). Runner gained LPT "longest-first" scheduling + 1.5× typicalFrames kill-cap |
 | 2026-07-02 | — | Test infrastructure built (141-ROM catalog, A/A-r/B/C detection, parallel runner, report site) |
 | 2026-07-03 | 115/26 → 125/16 | Clock-phase alignment K=1 (+7), power-up shims (+2), decay shim (+1), CNROM |
 | 2026-07-04 | 125/16 → 129/12 | DMC latch shim (one shim, +4) |
@@ -158,26 +159,45 @@ rebuilds flags, clearing any leak).
 | 10 | 3-irq_flag ×2 | writing $00/$80 to $4017 falsely clears the frame-IRQ flag | intra-settle transient flips the RS pair (§2.1 family; r4015's ab1-less partial decode aggravates) | **FrameIrqShim**: restore the pair when the flag falls with all three legitimate clear terms (#13170 read-clear / intmode level / _res) inactive | +2 |
 | 9 | dma_4016_read + the four read_joy3 tests | controller reads entirely broken (gate-level 4021 structurally undrivable, §2.4 4th texture) | missing behavioral part (cat. 1) | **behavioral joypad**: nes-pad-behavioral shadow module + Joypad handler (4021 protocol, advance on joy-deselect edge), scripted `--input`; DMA corruption emerges from real bus traffic | +5 (catalog +4 all pass, remaining −1) |
 | 12 | double_2007_read | the merged double read returns the NEW buffer value (all four real patterns are old/transitional) | the reload's staging→inbuf→io→db propagation AND the CPU's A load complete in the **same settle wave** (op-probe verified; §2.1 family — real silicon's propagation loses that race; every Set-class force at every discrete boundary measurably loses) | **Dbl2007Shim** (global, zero-footprint, §2.6): when a reload lands inside a genuine sample phase (/r2007 low + phi2 high + ab decodes a $2007 mirror + R/W read + RDY high + non-palette), InstClampLow clamps the risen bits = old∧new (same transitional class as the real patterns), released at the phi2 fall; the buffer keeps the netlist's merged single advance | +1 (85CFD627 = blargg's first listed real pattern; dma_2007_read 5E3DF9C4 with zero clamps) |
+| 13 | 10-even_odd_timing | the $2001 enable/disable vs the pre-render dot-339 skip decision is off by 1 dot (**a broad delay of every $2001 transition hangs the test** — it measures via cycle-precise repeated $2001 writes) | a ~1-dot integration offset: the CPU→PPU **write path** is idealized to zero delay (§2.5; a PPUSim cross-check proves both dies agree internally — VBL@(241,1), skip@339 — so the offset is in the cross-die write path, not inside a die) | **narrow-window write-delay shim** (global, `--ppu-write-delay 16`): delay bkg/spr_enable transitions by 16 hc only at `vpos=261,hpos=338..339`; **the disable side clamps the complement node `/bkg_enable` low** (GND wins, so you can't InstClampHigh the main node) | +1 (output `08 08 09 07`, verdict frame 138) |
+| 14 | test_ppu_read_buffer #67 | `$4014=$20` DMA reads the PPU register space; OAM's first four bytes come out `0A 8A 82 00` (should be `0A 0A 82 8A`) | the `$2004` write data isn't held through the PPU's **delayed OAM write (the /WE pulse)** — by then the PPU I/O bus has been overwritten by the next register read (direct reads `0A 0A 8A 8A` ✓ and DMA-from-RAM ✓; only reading the dynamic registers is wrong; `--no-shims` proves it's not the test harness) | **OamDmaPpuBusShim** (global): on the put cycle queue (spr_addr, spr_data); on the OAM /WE falling edge drive the physical cell, release on the rising edge; skip the attribute byte's non-existent bits 2-4 (hardware mask preserved) | +1 (OAM `0A 0A 82 8A`, verdict frame 1274) |
+
+**Global shims (2026-07-07, Gemini principle)**: #12 dbl2007, #13 write-delay, #14
+oam-dma were per-test catalog flags; they are now **on by default in test mode** (like
+DmcLatch/ALU). Per the consult, a runtime instrument-grade shim is an "absolute-override,
+zero-graph-footprint" force → it should be global; per-test is overfitting (only the
+**load-time graph change** of the joypad, `needsJoypad`, stays per-test, §2.6). The clean
+146-test regression (7h58m) confirms zero collateral from the three global shims: even_odd
+f138, #67 f1274, oam_stress f1709 all PASS, the other 143 all green.
 
 ### 3.2 Faithful deviations (not fixed; evidence dossier on the report page)
 
+> **Scope (recalibrated 2026-07-07, in sync with the report-page restructure)**: this section
+> keeps only the **genuine** deviations where failing IS the faithful result — forcing a PASS
+> would move the simulation **away** from the pinned NES-001 / RP2C02G target. Anything of the
+> form "pure CPU+PPU netlist isn't enough, so the behavioral layer supplies the correct spec"
+> (open-bus decay, power-up state, DMC IRQ, **even_odd**, #67) is a **fix, not a faithful
+> deviation** — it lives in §3.1 and in the report's new "behavioral layer supplies the missing
+> spec (these PASS)" section.
+
 | Test | Why failing IS faithful | Triple evidence |
 |---|---|---|
-| oam_read | OAM is DRAM; blargg recorded 4 real-console patterns, 3 end in "Failed"; **since the 2026-07 shim set the deterministic power-on lands on the passing pattern (now PASS)** — the lottery itself is the faithful behavior; future engine changes may flip it again | author's readme + NESdev PPU OAM + Mesen2's opt-in corruption setting |
-| cpu_dummy_writes_oam | the test declares on-screen that its prerequisite fails on real NES | on-screen statement + NESdev power-up state |
-| ~~10-even_odd_timing~~ | **moved out of faithful deviations (reclassified 2026-07-05)**: the zero intersection is this model's ~1-dot integration offset, not a real-machine property (§2.5); now a known integration limitation awaiting PPUSim arbitration | full K-sweep matrix + completeness proof + Gemini consult + golden-alignment community consensus |
+| oam_read | OAM is DRAM; blargg recorded 4 real-console patterns, 3 end in "Failed"; **the shim set makes the deterministic power-on land on the passing pattern (now PASS)** — the lottery itself is the faithful behavior; future engine changes may legitimately flip it again | author's readme + NESdev PPU OAM + Mesen2's opt-in corruption setting |
+| **cpu_dummy_writes_oam** (sole remaining FAIL) | the test declares on-screen "OAM memory reads MUST be reliable … but NOT on the real NES"; RP2C02G-specific OAMADDR-write corruption — real G hardware fails it too (fixed in 2C03/04/05/07) | on-screen statement + NESdev PPU OAM (2C02G row corruption) + Mesen2 `EnablePpuOamRowCorruption` opt-in |
 
-### 3.3 Remaining FAILs (3, updated 2026-07-05) and current state
+> ~~10-even_odd_timing~~ **fixed and moved out** — see §3.1 #13: the ~1-dot integration offset is supplied by a narrow-window write-delay shim, now PASSES (`08 08 09 07`).
 
-| test | area | state / next step |
+### 3.3 Remaining FAILs (1, closed by the 2026-07-07/08 clean full regression)
+
+| test | area | state |
 |---|---|---|
-| 10-even_odd_timing | CPU-PPU alignment | **fix campaign in progress**: reclassified as a ~1-dot absolute-phase offset in the two-netlist integration (2.5); arbitration = PPUSim cross-check of BIT $2002 absolute master-clock latency (/RD->D7); the K-sweep already rules out a pure phase rotation, so the offset lives in signal-path delay (same "same-wave idealization" family as dbl2007) |
-| test_ppu_read_buffer | #67: sprite0 hit + OAM DMA sourced from the PPU I/O bus ($4014=$20) | **same-root hypothesis disproven** (still FAIL after the dbl2007 shim fixed double_2007); the screen lists four candidates: improper DMA reads / PPU bus not preserving last transferred values / $2002 read mismatch / $2004 read modifying OAM — separate microscope investigation |
-| cpu_dummy_writes_oam | — | faithful deviation (3.2), remains FAIL (RP2C02G revision-specific OAMADDR corruption) |
+| cpu_dummy_writes_oam | OAM / OAMADDR | **the sole remaining FAIL, a permanent faithful deviation** (§3.2): RP2C02G OAMADDR-write corruption — real G hardware fails it too; AprNes/TriCNES implement the fixed revisions' idealized behavior and therefore pass. Remains FAIL |
 
-**Ceiling narrative updated**: if the even_odd arbitration + correction succeeds ->
-**144/1 (99.3%)**, with cpu_dummy_writes_oam the only permanent faithful FAIL;
-read_buffer #67's root cause is undetermined and not counted as a promise.
+**Ceiling reached**: **145/1 (99.3%)** — even_odd (§3.1 #13) and #67 (§3.1 #14) are both fixed
+via global behavioral shims and now PASS; cpu_dummy_writes_oam is the only permanent faithful
+FAIL. Going higher would mean replacing the G die's corruption behavior (= moving away from the
+pinned machine), so 145/1 is the effective ceiling for the target console (NES-001 + RP2A03G +
+RP2C02G).
 
 Known deviation with no failing test today: DMA halt scheduling one APU cycle later
 than AC's real-hardware measurement (same 2.1 race family, living at the

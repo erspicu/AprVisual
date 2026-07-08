@@ -1,6 +1,6 @@
 {
  "schema": "aprvisual-testrom-catalog/1",
- "romBase": "nes-test-roms-master/checked",
+ "romBase": "tools/testrom/roms",
  "tests": [
   {
    "suite": "apu_mixer",

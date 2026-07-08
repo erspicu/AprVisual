@@ -48,8 +48,11 @@ def key_of(t):
 
 def build_engine():
     print("=== dotnet build (Release) ===", flush=True)
+    # decode dotnet's output as UTF-8 with replacement — the default locale codec (cp950 on
+    # this box) chokes on box-drawing/non-ASCII bytes in the build log and crashes the reader
+    # thread with a scary (but harmless) traceback.
     r = subprocess.run(["dotnet", "build", os.path.join(REPO, "src", "AprVisual.S1"), "-c", "Release"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print((r.stdout or '')[-2000:], (r.stderr or '')[-2000:])
         sys.exit("BUILD FAILED")

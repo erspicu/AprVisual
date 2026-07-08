@@ -3,7 +3,7 @@
 > **This is a continuously-updated living document**: every fix / closure updates its section.
 > Full evidence chains live in the per-topic notes (index at the end); this file keeps the
 > distilled knowledge. Traditional-Chinese master: `00_測試修復知識庫_總綱.md`.
-> Created 2026-07-05 | Last updated 2026-07-04 (full regression closed)
+> Created 2026-07-05 | Last updated 2026-07-08 (145/1 clean full regression; shims globalized)
 
 ## 0. Status at a glance
 
@@ -97,7 +97,9 @@ cannot be suppressed with SetLow** (an in-group VCC path beats an external drive
   K=4≡K=3 — the divider pair quantizes to whole clk0 periods).
 - The NMI-edge family (8 tests) passes {7,5}; 10-even_odd passes {1,3} — **zero
   intersection under complete enumeration (on this model)**. Pinned to alignment 7 (K=1,
-  blargg's calibration phase); 10-even_odd's FAIL is the documented cost.
+  blargg's calibration phase); that intersection is **now bridged at alignment 7 by the
+  narrow-window write-delay shim, and even_odd PASSES** (§3.1 #13), with source-level
+  arbitration still a follow-up (see the reclassification below).
 - **Reclassified (2026-07-05, Gemini consult q/a_even_odd_doctrine)**: a golden
   alignment passing all ten in one power-on is understood to exist on real hardware
   (blargg developed the suite on a real console) — the zero intersection is **not a
@@ -147,7 +149,7 @@ rebuilds flags, clearing any leak).
 
 | # | Tests | Symptom | Root cause (category) | Fix | Net |
 |---|---|---|---|---|---|
-| 1 | NMI-edge family (8) | VBL/NMI timing off by 1 dot | power-on alignment lottery (§2.5) | `--reset-hold-extra 1` (alignment 7, blargg's calibration phase) | +7 (traded 1: 10-even_odd) |
+| 1 | NMI-edge family (8) | VBL/NMI timing off by 1 dot | power-on alignment lottery (§2.5) | `--reset-hold-extra 1` (alignment 7, blargg's calibration phase) | +7 (traded 1: 10-even_odd, later recovered by #13) |
 | 2 | power_up_palette | power-on palette ≠ consensus table | undefined power-up state (cat. 3) | inject 32 cells **dual-side complementary** drive→settle→release | +1 |
 | 3 | registers | P=$36 instead of real $34 | ditto; Z regenerates during held reset | inject Z=0 **after** /res release (single-side, cpu.p1) | +1 |
 | 4 | ppu_open_bus | no decay exists | floating nodes hold forever (cat. 3; real ~600 ms leak) | watch `ppu._io_db[7:0]` latch side; zero after 36 unchanged nonzero frames | +1 |
@@ -252,9 +254,25 @@ Every deep investigation followed the same siege procedure, now proven:
 
 ## 6. Per-topic note index (full evidence chains)
 
+> Maps to the fix table (§3.1): #6→DMC, #7/#8→ALU/LXA, #11→exec_space, #10→frame-IRQ,
+> #9→joypad, #12→dbl2007, #13→even_odd, #14→#67. Notes marked (ZH) are Traditional-Chinese only.
+
+**Root-cause taxonomy & roadmap**
 - [2026-07-03 FAIL analysis & path to full score](2026-07-03-fail-analysis-and-path-to-full-score.en.md) — the 6 root-cause categories + roadmap
 - [2026-07-04 reference machine profile & AccuracyCoin notes](2026-07-04-reference-machine-profile-and-accuracycoin-notes.en.md) — machine profile, AC/TriCNES doctrine
-- [2026-07-04 DMC #19 ACLK pipeline analysis](2026-07-04-dmc19-aclk-pipeline-analysis.en.md) — the DMC race, complete case (APUSim arbitration)
-- [2026-07-05 immediate trio ALU-latch race](2026-07-05-immediate-trio-alu-latch-race.en.md) — ALU latches + LXA magic, complete case
-- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) — the test workflow
-- Public-facing version: [live report](https://erspicu.github.io/AprVisual/Report/) (repo path `WebSite/Report/index.html`) — explainer section + hardware-model table + faithful-deviation dossier
+
+**Per-case evidence chains (→ §3.1 fixes)**
+- [2026-07-04 DMC #19 ACLK pipeline analysis](2026-07-04-dmc19-aclk-pipeline-analysis.en.md) — the DMC race, complete case (APUSim arbitration) → #6
+- [2026-07-05 immediate trio ALU-latch race](2026-07-05-immediate-trio-alu-latch-race.en.md) — ALU latches + LXA magic, complete case → #7/#8
+- [2026-07-05 read-buffer #67 DMA open-bus diagnosis](2026-07-05-read-buffer-67-dma-openbus.md) (ZH) + [final fix record](../toDoNext/202607071826-test_ppu_read_buffer修復紀錄.md) (ZH) — OamDmaPpuBusShim → #14 (now PASS, frame 1274)
+- [2026-07-05 even_odd integration-offset campaign](2026-07-05-even-odd-integration-offset-campaign.md) (ZH) + [final fix record](../toDoNext/202607062345-10-even_odd_timing修復紀錄.md) (ZH) — ~1-dot cross-die write-path offset → narrow-window write-delay shim → #13 (now PASS, `08 08 09 07`)
+
+**Faithful deviation & methodology/architecture**
+- [2026-07-05 Faithful-deviation in-depth Q&A](2026-07-05-faithful-deviation-qa.en.md) ([ZH](2026-07-05-faithful-deviation-qa.md)) — the full Q&A and triple evidence for §3.2's sole remaining FAIL (cpu_dummy_writes_oam)
+- [2026-07-05 Socket Pattern / global-DUT-fix principle](2026-07-05-socket-pattern-target-architecture.md) (ZH) — Gemini's principle: runtime instrument shims are now **globalized** per this (§3.1 global note, §2.6); only the load-time joypad stays a per-test stopgap
+
+**Workflow & test selection**
+- [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) ([ZH](../testrom_workflow/2026-07-02-s1-testrom-workflow.md)) — the test workflow
+- [2026-07-02 supported test-ROM list](2026-07-02-aprvisual-s1-supported-testroms.md) (ZH) + [detection-method filter](2026-07-02-s1-testrom-detection-filter.md) (ZH) — how the catalog was derived (NROM, PAL excluded, $6000 / per-frame verdict)
+
+- Public-facing version: [live report](https://erspicu.github.io/AprVisual/Report/) (repo path `WebSite/Report/index.html`) — explainer section + hardware-model table + the two sections "behavioral layer supplies the missing spec (these PASS)" and "faithful deviations (evidence dossier)"

@@ -1,6 +1,15 @@
-# even_odd 整合偏移修復戰役 —— 量測紀錄(進行中)
+# even_odd 整合偏移修復戰役 —— 量測紀錄(已結案 2026-07-06)
 
-> 目標:仲裁並修正雙 netlist 整合的 ~1-dot 絕對相位偏移,讓 NMI 家族與
+> **結案(2026-07-06)**:已修復,`10-even_odd_timing` 現 **PASS**(輸出 `08 08 09 07`)。
+> 做法是**窄窗寫延遲 shim**(全域,`--ppu-write-delay 16`,只在 pre-render
+> `vpos=261, hpos=338..339` 延遲 `$2001` 開/關背景的轉態 16 hc;disable 側夾互補
+> 節點 `/bkg_enable`)——在對齊 7 補上 ~1-dot 跨晶片寫路徑偏移,與 NMI-edge 家族
+> 同時綠 → 全量回歸 **145/1(99.3%)**。詳見知識庫 §3.1 #13 與
+> [最終修復紀錄](../toDoNext/202607062345-10-even_odd_timing修復紀錄.md)。
+> 從源頭用 PPUSim 交叉比對 `$2002` 絕對 master-clock 延遲來仲裁偏移(而非用 shim 補償)
+> 仍列後續研究。**以下為當時的調查量測紀錄(保留供追溯)。**
+>
+> 原目標:仲裁並修正雙 netlist 整合的 ~1-dot 絕對相位偏移,讓 NMI 家族與
 > 10-even_odd 在同一對齊共同通過(→ 144/1)。定性依據:Gemini 諮詢
 > `tools/knowledgebase/q/a_even_odd_doctrine_20260705.md`。
 

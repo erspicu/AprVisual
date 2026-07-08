@@ -270,6 +270,7 @@ Every deep investigation followed the same siege procedure, now proven:
 **Faithful deviation & methodology/architecture**
 - [2026-07-05 Faithful-deviation in-depth Q&A](2026-07-05-faithful-deviation-qa.en.md) ([ZH](2026-07-05-faithful-deviation-qa.md)) — the full Q&A and triple evidence for §3.2's sole remaining FAIL (cpu_dummy_writes_oam)
 - [2026-07-05 Socket Pattern / global-DUT-fix principle](2026-07-05-socket-pattern-target-architecture.md) (ZH) — Gemini's principle: runtime instrument shims are now **globalized** per this (§3.1 global note, §2.6); only the load-time joypad stays a per-test stopgap
+- [2026-07-08 Don't Touch the DUT: probe effect & instrument-grade shims (teaching)](2026-07-08-probe-effect-instrument-grade-shims.en.md) ([ZH](2026-07-08-probe-effect-instrument-grade-shims.md)) — teaching write-up: why a zero-fire graph edit broke an unrelated test, Gemini's instrument-grade force/release principle, Socket Pattern, Graph Fingerprint (also linked from the report page)
 
 **Workflow & test selection**
 - [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) ([ZH](../testrom_workflow/2026-07-02-s1-testrom-workflow.md)) — the test workflow

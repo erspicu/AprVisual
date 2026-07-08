@@ -38,7 +38,7 @@ CORES   = [2, 6, 10, 14, 4, 12, 8, 0]   # logical cores, Zen2 3700X (logical 2i 
                                   # 1,3,5,7 (2 per CCX); workers 5-6 add physical 2,6 -> 3 per CCX at 6 jobs.
                                   # Physical 0 (OS) and physical 4 stay free. Measured: 4 jobs ~114 khc/s per
                                   # process (80% of solo 142); 6 jobs trades per-process speed for aggregate.
-STAGGER = 20               # seconds between worker starts (netlist compose is the heavy phase)
+STAGGER = 10               # seconds between worker starts (netlist compose is the heavy phase)
 WALL_GUARD_PER_FRAME = 10  # subprocess kill guard: maxFrames * this + 600s
 
 

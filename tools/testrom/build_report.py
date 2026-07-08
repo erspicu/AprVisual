@@ -115,7 +115,7 @@ if perf_samples:
     khc_avg = tot_hc / tot_wall / 1000 if tot_wall > 0 else 0
     span = max(fin for st, fin, h, w in perf_samples) - min(st for st, fin, h, w in perf_samples)
     # Interval-sweep concurrency profile: the campaign aggregate (total hc / span) is
-    # dragged down by lane idle — the 20 s/worker startup stagger, inter-test gaps and
+    # dragged down by lane idle — the 10 s/worker startup stagger, inter-test gaps and
     # the tail drain as lanes finish. Sweep +1/-1 events to get the active-lane
     # timeline; peak lanes + per-busy-second rate give the STEADY-STATE throughput
     # (what the box sustains while all lanes are busy), independent of those gaps.
@@ -151,7 +151,7 @@ if perf_samples:
                         f"(latest contiguous run of {n_all} results; {tot_hc/1e9:.1f} G half-cycles in {tot_wall/3600:.1f} core-hours). "
                         f"Campaign aggregate <strong>{agg_khc:,.0f} khc/s</strong> over the {span/3600:.1f} h span; "
                         f"steady-state &asymp; <strong>{steady_khc:,.0f} khc/s</strong> at {peak} lanes "
-                        f"(per-lane sustained rate &times; peak lanes &mdash; excludes the 20 s/worker startup stagger, "
+                        f"(per-lane sustained rate &times; peak lanes &mdash; excludes the 10 s/worker startup stagger, "
                         f"inter-test gaps and tail drain; lane utilization {util*100:.0f}%, mean {mean_active:.1f} lanes active). "
                         f"Estimates from result timestamps.")
         perf_line_zh = camp_zh + (f"<strong>吞吐量:</strong>單測加權平均 <strong>{khc_avg:,.1f} khc/s</strong>"

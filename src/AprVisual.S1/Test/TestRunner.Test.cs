@@ -30,6 +30,10 @@ namespace AprVisual.Test
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
+            WireCore.ForceExtraRam = true;   // test ROMs speak the blargg $6000 protocol, which lives in cart-extraram.
+                                             // Never infer this from the ROM's path: relocating the ROMs under tools/testrom/roms
+                                             // missed LoadSystem's "nes-test-roms" path heuristic, silently dropped the $6000 RAM,
+                                             // and made every class-A test report detection=none. See MD/ISSUE/2026-07-09-*.
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";

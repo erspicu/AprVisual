@@ -10,9 +10,9 @@
   "detection": "6000",
   "frames": 721,
   "simSeconds": 12.0,
-  "wallSeconds": 4525.6,
+  "wallSeconds": 4440.1,
   "resetCount": 0,
-  "khcPerSec": 113.9
+  "khcPerSec": 116.0
  },
  {
   "suite": "apu_mixer",
@@ -25,9 +25,9 @@
   "detection": "6000",
   "frames": 1160,
   "simSeconds": 19.3,
-  "wallSeconds": 7294.3,
+  "wallSeconds": 6894.4,
   "resetCount": 0,
-  "khcPerSec": 113.7
+  "khcPerSec": 120.2
  },
  {
   "suite": "apu_mixer",
@@ -40,9 +40,9 @@
   "detection": "6000",
   "frames": 970,
   "simSeconds": 16.14,
-  "wallSeconds": 6012.7,
+  "wallSeconds": 6255.7,
   "resetCount": 0,
-  "khcPerSec": 115.3
+  "khcPerSec": 110.8
  },
  {
   "suite": "apu_mixer",
@@ -55,9 +55,9 @@
   "detection": "6000",
   "frames": 607,
   "simSeconds": 10.1,
-  "wallSeconds": 3822.9,
+  "wallSeconds": 3855.1,
   "resetCount": 0,
-  "khcPerSec": 113.5
+  "khcPerSec": 112.5
  },
  {
   "suite": "apu_reset",
@@ -70,9 +70,9 @@
   "detection": "6000+reset",
   "frames": 32,
   "simSeconds": 0.53,
-  "wallSeconds": 225.9,
+  "wallSeconds": 213.5,
   "resetCount": 1,
-  "khcPerSec": 100.7
+  "khcPerSec": 106.6
  },
  {
   "suite": "apu_reset",
@@ -85,9 +85,9 @@
   "detection": "6000+reset",
   "frames": 48,
   "simSeconds": 0.8,
-  "wallSeconds": 320.6,
+  "wallSeconds": 308.0,
   "resetCount": 1,
-  "khcPerSec": 106.6
+  "khcPerSec": 111.0
  },
  {
   "suite": "apu_reset",
@@ -100,9 +100,9 @@
   "detection": "6000+reset",
   "frames": 59,
   "simSeconds": 0.98,
-  "wallSeconds": 402.9,
+  "wallSeconds": 390.0,
   "resetCount": 2,
-  "khcPerSec": 104.2
+  "khcPerSec": 107.7
  },
  {
   "suite": "apu_reset",
@@ -130,9 +130,9 @@
   "detection": "6000+reset",
   "frames": 38,
   "simSeconds": 0.63,
-  "wallSeconds": 253.4,
+  "wallSeconds": 255.0,
   "resetCount": 1,
-  "khcPerSec": 106.7
+  "khcPerSec": 106.0
  },
  {
   "suite": "apu_reset",
@@ -145,9 +145,9 @@
   "detection": "6000+reset",
   "frames": 39,
   "simSeconds": 0.65,
-  "wallSeconds": 256.8,
+  "wallSeconds": 263.1,
   "resetCount": 1,
-  "khcPerSec": 108.1
+  "khcPerSec": 105.5
  },
  {
   "suite": "apu_test/rom_singles",
@@ -160,9 +160,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 136.5,
+  "wallSeconds": 132.0,
   "resetCount": 0,
-  "khcPerSec": 109.5
+  "khcPerSec": 113.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -175,9 +175,9 @@
   "detection": "6000",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 109.6,
+  "wallSeconds": 103.1,
   "resetCount": 0,
-  "khcPerSec": 103.8
+  "khcPerSec": 110.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -190,9 +190,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 134.8,
+  "wallSeconds": 129.7,
   "resetCount": 0,
-  "khcPerSec": 110.9
+  "khcPerSec": 115.3
  },
  {
   "suite": "apu_test/rom_singles",
@@ -205,9 +205,9 @@
   "detection": "6000",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 134.9,
+  "wallSeconds": 134.1,
   "resetCount": 0,
-  "khcPerSec": 110.8
+  "khcPerSec": 111.5
  },
  {
   "suite": "apu_test/rom_singles",
@@ -220,9 +220,9 @@
   "detection": "6000",
   "frames": 114,
   "simSeconds": 1.9,
-  "wallSeconds": 680.7,
+  "wallSeconds": 670.1,
   "resetCount": 0,
-  "khcPerSec": 119.6
+  "khcPerSec": 121.5
  },
  {
   "suite": "apu_test/rom_singles",
@@ -235,9 +235,9 @@
   "detection": "6000",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 143.2,
+  "wallSeconds": 138.6,
   "resetCount": 0,
-  "khcPerSec": 109.4
+  "khcPerSec": 113.0
  },
  {
   "suite": "apu_test/rom_singles",
@@ -250,9 +250,9 @@
   "detection": "6000",
   "frames": 27,
   "simSeconds": 0.45,
-  "wallSeconds": 175.4,
+  "wallSeconds": 173.6,
   "resetCount": 0,
-  "khcPerSec": 109.7
+  "khcPerSec": 110.8
  },
  {
   "suite": "apu_test/rom_singles",
@@ -265,9 +265,9 @@
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 179.8,
+  "wallSeconds": 182.6,
   "resetCount": 0,
-  "khcPerSec": 114.9
+  "khcPerSec": 113.2
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -280,9 +280,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 149.4,
+  "wallSeconds": 153.4,
   "resetCount": 0,
-  "khcPerSec": 124.0
+  "khcPerSec": 120.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -295,9 +295,9 @@
   "detection": "screen",
   "frames": 12,
   "simSeconds": 0.2,
-  "wallSeconds": 78.3,
+  "wallSeconds": 78.1,
   "resetCount": 0,
-  "khcPerSec": 108.8
+  "khcPerSec": 109.0
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -310,9 +310,9 @@
   "detection": "screen",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 103.5,
+  "wallSeconds": 102.9,
   "resetCount": 0,
-  "khcPerSec": 116.8
+  "khcPerSec": 117.5
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -325,9 +325,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 98.7,
+  "wallSeconds": 96.1,
   "resetCount": 0,
-  "khcPerSec": 115.3
+  "khcPerSec": 118.4
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -340,9 +340,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 139.5,
+  "wallSeconds": 137.9,
   "resetCount": 0,
-  "khcPerSec": 117.4
+  "khcPerSec": 118.8
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -355,9 +355,9 @@
   "detection": "screen",
   "frames": 24,
   "simSeconds": 0.4,
-  "wallSeconds": 144.7,
+  "wallSeconds": 137.8,
   "resetCount": 0,
-  "khcPerSec": 118.1
+  "khcPerSec": 124.0
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -370,9 +370,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 113.1,
+  "wallSeconds": 117.0,
   "resetCount": 0,
-  "khcPerSec": 119.5
+  "khcPerSec": 115.6
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -385,9 +385,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 95.4,
+  "wallSeconds": 100.5,
   "resetCount": 0,
-  "khcPerSec": 119.2
+  "khcPerSec": 113.2
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -400,9 +400,9 @@
   "detection": "screen",
   "frames": 11,
   "simSeconds": 0.18,
-  "wallSeconds": 71.2,
+  "wallSeconds": 70.1,
   "resetCount": 0,
-  "khcPerSec": 109.6
+  "khcPerSec": 111.3
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -415,9 +415,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.8,
+  "wallSeconds": 95.1,
   "resetCount": 0,
-  "khcPerSec": 117.5
+  "khcPerSec": 119.6
  },
  {
   "suite": "blargg_apu_2005.07.30",
@@ -430,9 +430,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 98.2,
+  "wallSeconds": 97.0,
   "resetCount": 0,
-  "khcPerSec": 115.8
+  "khcPerSec": 117.3
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -445,9 +445,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 120.2,
+  "wallSeconds": 115.9,
   "resetCount": 0,
-  "khcPerSec": 112.5
+  "khcPerSec": 116.7
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -460,9 +460,9 @@
   "detection": "screen",
   "frames": 20,
   "simSeconds": 0.33,
-  "wallSeconds": 121.5,
+  "wallSeconds": 122.2,
   "resetCount": 0,
-  "khcPerSec": 117.2
+  "khcPerSec": 116.5
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -475,9 +475,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 116.8,
+  "wallSeconds": 117.4,
   "resetCount": 0,
-  "khcPerSec": 115.8
+  "khcPerSec": 115.2
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -490,9 +490,9 @@
   "detection": "screen",
   "frames": 24,
   "simSeconds": 0.4,
-  "wallSeconds": 146.1,
+  "wallSeconds": 146.8,
   "resetCount": 0,
-  "khcPerSec": 117.0
+  "khcPerSec": 116.4
  },
  {
   "suite": "blargg_ppu_tests_2005.09.15b",
@@ -505,9 +505,9 @@
   "detection": "screen",
   "frames": 20,
   "simSeconds": 0.33,
-  "wallSeconds": 122.2,
+  "wallSeconds": 120.1,
   "resetCount": 0,
-  "khcPerSec": 116.5
+  "khcPerSec": 118.5
  },
  {
   "suite": "branch_timing_tests",
@@ -520,9 +520,9 @@
   "detection": "screen",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 85.5,
+  "wallSeconds": 86.2,
   "resetCount": 0,
-  "khcPerSec": 116.3
+  "khcPerSec": 115.4
  },
  {
   "suite": "branch_timing_tests",
@@ -535,9 +535,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 95.7,
+  "wallSeconds": 97.4,
   "resetCount": 0,
-  "khcPerSec": 118.9
+  "khcPerSec": 116.8
  },
  {
   "suite": "branch_timing_tests",
@@ -550,9 +550,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 96.9,
+  "wallSeconds": 93.4,
   "resetCount": 0,
-  "khcPerSec": 117.4
+  "khcPerSec": 121.8
  },
  {
   "suite": "cpu_dummy_reads",
@@ -565,9 +565,9 @@
   "detection": "screen",
   "frames": 47,
   "simSeconds": 0.78,
-  "wallSeconds": 352.6,
+  "wallSeconds": 350.5,
   "resetCount": 0,
-  "khcPerSec": 95.1
+  "khcPerSec": 95.7
  },
  {
   "suite": "cpu_dummy_writes",
@@ -580,9 +580,9 @@
   "detection": "6000",
   "frames": 335,
   "simSeconds": 5.57,
-  "wallSeconds": 2390.4,
+  "wallSeconds": 2389.1,
   "resetCount": 0,
-  "khcPerSec": 100.1
+  "khcPerSec": 100.2
  },
  {
   "suite": "cpu_dummy_writes",
@@ -595,9 +595,9 @@
   "detection": "6000",
   "frames": 220,
   "simSeconds": 3.66,
-  "wallSeconds": 1662.8,
+  "wallSeconds": 1667.2,
   "resetCount": 0,
-  "khcPerSec": 94.5
+  "khcPerSec": 94.3
  },
  {
   "suite": "cpu_exec_space",
@@ -610,9 +610,9 @@
   "detection": "6000",
   "frames": 300,
   "simSeconds": 4.99,
-  "wallSeconds": 2276.4,
+  "wallSeconds": 2265.6,
   "resetCount": 0,
-  "khcPerSec": 94.2
+  "khcPerSec": 94.6
  },
  {
   "suite": "cpu_exec_space",
@@ -625,9 +625,9 @@
   "detection": "6000",
   "frames": 44,
   "simSeconds": 0.73,
-  "wallSeconds": 314.5,
+  "wallSeconds": 314.3,
   "resetCount": 0,
-  "khcPerSec": 99.8
+  "khcPerSec": 99.9
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -640,9 +640,9 @@
   "detection": "6000",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 112.6,
+  "wallSeconds": 113.8,
   "resetCount": 0,
-  "khcPerSec": 107.4
+  "khcPerSec": 106.2
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -655,9 +655,9 @@
   "detection": "6000",
   "frames": 111,
   "simSeconds": 1.85,
-  "wallSeconds": 621.4,
+  "wallSeconds": 622.0,
   "resetCount": 0,
-  "khcPerSec": 127.6
+  "khcPerSec": 127.5
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -670,9 +670,9 @@
   "detection": "6000",
   "frames": 134,
   "simSeconds": 2.23,
-  "wallSeconds": 741.7,
+  "wallSeconds": 761.7,
   "resetCount": 0,
-  "khcPerSec": 129.0
+  "khcPerSec": 125.7
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -685,9 +685,9 @@
   "detection": "6000",
   "frames": 69,
   "simSeconds": 1.15,
-  "wallSeconds": 508.9,
+  "wallSeconds": 502.9,
   "resetCount": 0,
-  "khcPerSec": 96.8
+  "khcPerSec": 97.9
  },
  {
   "suite": "cpu_interrupts_v2/rom_singles",
@@ -700,9 +700,9 @@
   "detection": "6000",
   "frames": 385,
   "simSeconds": 6.41,
-  "wallSeconds": 2936.2,
+  "wallSeconds": 3121.2,
   "resetCount": 0,
-  "khcPerSec": 93.7
+  "khcPerSec": 88.1
  },
  {
   "suite": "cpu_reset",
@@ -715,9 +715,9 @@
   "detection": "6000+reset",
   "frames": 153,
   "simSeconds": 2.55,
-  "wallSeconds": 1152.6,
+  "wallSeconds": 1132.5,
   "resetCount": 1,
-  "khcPerSec": 94.8
+  "khcPerSec": 96.5
  },
  {
   "suite": "cpu_reset",
@@ -730,9 +730,9 @@
   "detection": "6000+reset",
   "frames": 159,
   "simSeconds": 2.65,
-  "wallSeconds": 1174.4,
+  "wallSeconds": 1179.2,
   "resetCount": 1,
-  "khcPerSec": 96.7
+  "khcPerSec": 96.3
  },
  {
   "suite": "cpu_timing_test6",
@@ -745,9 +745,9 @@
   "detection": "screen",
   "frames": 725,
   "simSeconds": 12.06,
-  "wallSeconds": 5458.0,
+  "wallSeconds": 5508.5,
   "resetCount": 0,
-  "khcPerSec": 94.9
+  "khcPerSec": 94.1
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -760,9 +760,9 @@
   "detection": "crc",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 124.8,
+  "wallSeconds": 127.0,
   "resetCount": 0,
-  "khcPerSec": 125.5
+  "khcPerSec": 123.3
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -775,9 +775,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 144.2,
+  "wallSeconds": 145.2,
   "resetCount": 0,
-  "khcPerSec": 128.5
+  "khcPerSec": 127.6
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -790,9 +790,9 @@
   "detection": "screen",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 107.0,
+  "wallSeconds": 110.8,
   "resetCount": 0,
-  "khcPerSec": 106.3
+  "khcPerSec": 102.7
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -805,9 +805,9 @@
   "detection": "crc",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 81.0,
+  "wallSeconds": 80.6,
   "resetCount": 0,
-  "khcPerSec": 122.8
+  "khcPerSec": 123.4
  },
  {
   "suite": "dmc_dma_during_read4",
@@ -820,9 +820,9 @@
   "detection": "screen",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 92.6,
+  "wallSeconds": 89.2,
   "resetCount": 0,
-  "khcPerSec": 115.1
+  "khcPerSec": 119.5
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -835,9 +835,9 @@
   "detection": "6000",
   "frames": 12,
   "simSeconds": 0.2,
-  "wallSeconds": 77.9,
+  "wallSeconds": 79.5,
   "resetCount": 0,
-  "khcPerSec": 109.3
+  "khcPerSec": 107.1
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -850,9 +850,9 @@
   "detection": "6000",
   "frames": 13,
   "simSeconds": 0.22,
-  "wallSeconds": 85.9,
+  "wallSeconds": 85.5,
   "resetCount": 0,
-  "khcPerSec": 107.5
+  "khcPerSec": 108.0
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -865,9 +865,9 @@
   "detection": "6000",
   "frames": 57,
   "simSeconds": 0.95,
-  "wallSeconds": 329.1,
+  "wallSeconds": 332.4,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 122.4
  },
  {
   "suite": "instr_misc/rom_singles",
@@ -880,9 +880,9 @@
   "detection": "6000",
   "frames": 142,
   "simSeconds": 2.36,
-  "wallSeconds": 815.0,
+  "wallSeconds": 847.2,
   "resetCount": 0,
-  "khcPerSec": 124.5
+  "khcPerSec": 119.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -895,9 +895,9 @@
   "detection": "6000",
   "frames": 98,
   "simSeconds": 1.63,
-  "wallSeconds": 560.8,
+  "wallSeconds": 566.5,
   "resetCount": 0,
-  "khcPerSec": 124.8
+  "khcPerSec": 123.5
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -910,9 +910,9 @@
   "detection": "6000",
   "frames": 89,
   "simSeconds": 1.48,
-  "wallSeconds": 522.8,
+  "wallSeconds": 531.1,
   "resetCount": 0,
-  "khcPerSec": 121.6
+  "khcPerSec": 119.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -925,9 +925,9 @@
   "detection": "6000",
   "frames": 117,
   "simSeconds": 1.95,
-  "wallSeconds": 685.3,
+  "wallSeconds": 672.6,
   "resetCount": 0,
-  "khcPerSec": 121.9
+  "khcPerSec": 124.2
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -940,9 +940,9 @@
   "detection": "6000",
   "frames": 261,
   "simSeconds": 4.34,
-  "wallSeconds": 1515.8,
+  "wallSeconds": 1492.6,
   "resetCount": 0,
-  "khcPerSec": 123.0
+  "khcPerSec": 124.9
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -955,9 +955,9 @@
   "detection": "6000",
   "frames": 111,
   "simSeconds": 1.85,
-  "wallSeconds": 637.8,
+  "wallSeconds": 641.1,
   "resetCount": 0,
-  "khcPerSec": 124.3
+  "khcPerSec": 123.7
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -970,9 +970,9 @@
   "detection": "6000",
   "frames": 366,
   "simSeconds": 6.09,
-  "wallSeconds": 2167.0,
+  "wallSeconds": 2094.6,
   "resetCount": 0,
-  "khcPerSec": 120.7
+  "khcPerSec": 124.9
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -985,9 +985,9 @@
   "detection": "6000",
   "frames": 148,
   "simSeconds": 2.46,
-  "wallSeconds": 846.9,
+  "wallSeconds": 869.8,
   "resetCount": 0,
-  "khcPerSec": 124.8
+  "khcPerSec": 121.5
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1000,9 +1000,9 @@
   "detection": "6000",
   "frames": 138,
   "simSeconds": 2.3,
-  "wallSeconds": 794.2,
+  "wallSeconds": 791.4,
   "resetCount": 0,
-  "khcPerSec": 124.1
+  "khcPerSec": 124.6
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1015,9 +1015,9 @@
   "detection": "6000",
   "frames": 42,
   "simSeconds": 0.7,
-  "wallSeconds": 250.0,
+  "wallSeconds": 253.7,
   "resetCount": 0,
-  "khcPerSec": 119.8
+  "khcPerSec": 118.1
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1030,9 +1030,9 @@
   "detection": "6000",
   "frames": 166,
   "simSeconds": 2.76,
-  "wallSeconds": 968.2,
+  "wallSeconds": 1000.9,
   "resetCount": 0,
-  "khcPerSec": 122.5
+  "khcPerSec": 118.5
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1045,9 +1045,9 @@
   "detection": "6000",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 118.2,
+  "wallSeconds": 118.4,
   "resetCount": 0,
-  "khcPerSec": 114.4
+  "khcPerSec": 114.2
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1060,9 +1060,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 96.7,
+  "wallSeconds": 99.1,
   "resetCount": 0,
-  "khcPerSec": 110.2
+  "khcPerSec": 107.6
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1075,9 +1075,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 95.8,
+  "wallSeconds": 98.8,
   "resetCount": 0,
-  "khcPerSec": 111.3
+  "khcPerSec": 107.9
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1090,9 +1090,9 @@
   "detection": "6000",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 159.6,
+  "wallSeconds": 162.0,
   "resetCount": 0,
-  "khcPerSec": 116.1
+  "khcPerSec": 114.3
  },
  {
   "suite": "instr_test-v3/rom_singles",
@@ -1105,9 +1105,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 99.3,
+  "wallSeconds": 100.6,
   "resetCount": 0,
-  "khcPerSec": 107.4
+  "khcPerSec": 106.0
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1120,9 +1120,9 @@
   "detection": "6000",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 121.8,
+  "wallSeconds": 125.3,
   "resetCount": 0,
-  "khcPerSec": 111.0
+  "khcPerSec": 107.9
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1135,9 +1135,9 @@
   "detection": "6000",
   "frames": 98,
   "simSeconds": 1.63,
-  "wallSeconds": 587.9,
+  "wallSeconds": 578.1,
   "resetCount": 0,
-  "khcPerSec": 119.0
+  "khcPerSec": 121.1
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1150,9 +1150,9 @@
   "detection": "6000",
   "frames": 88,
   "simSeconds": 1.46,
-  "wallSeconds": 515.0,
+  "wallSeconds": 517.4,
   "resetCount": 0,
-  "khcPerSec": 122.0
+  "khcPerSec": 121.4
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1165,9 +1165,9 @@
   "detection": "6000",
   "frames": 118,
   "simSeconds": 1.96,
-  "wallSeconds": 678.1,
+  "wallSeconds": 698.3,
   "resetCount": 0,
-  "khcPerSec": 124.3
+  "khcPerSec": 120.7
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1180,9 +1180,9 @@
   "detection": "6000",
   "frames": 261,
   "simSeconds": 4.34,
-  "wallSeconds": 1509.3,
+  "wallSeconds": 1560.8,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 119.5
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1195,9 +1195,9 @@
   "detection": "6000",
   "frames": 112,
   "simSeconds": 1.86,
-  "wallSeconds": 647.6,
+  "wallSeconds": 691.9,
   "resetCount": 0,
-  "khcPerSec": 123.5
+  "khcPerSec": 115.6
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1210,9 +1210,9 @@
   "detection": "6000",
   "frames": 367,
   "simSeconds": 6.11,
-  "wallSeconds": 2093.9,
+  "wallSeconds": 2179.4,
   "resetCount": 0,
-  "khcPerSec": 125.2
+  "khcPerSec": 120.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1225,9 +1225,9 @@
   "detection": "6000",
   "frames": 148,
   "simSeconds": 2.46,
-  "wallSeconds": 886.0,
+  "wallSeconds": 855.5,
   "resetCount": 0,
-  "khcPerSec": 119.3
+  "khcPerSec": 123.6
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1240,9 +1240,9 @@
   "detection": "6000",
   "frames": 138,
   "simSeconds": 2.3,
-  "wallSeconds": 808.1,
+  "wallSeconds": 805.2,
   "resetCount": 0,
-  "khcPerSec": 122.0
+  "khcPerSec": 122.4
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1255,9 +1255,9 @@
   "detection": "6000",
   "frames": 42,
   "simSeconds": 0.7,
-  "wallSeconds": 249.4,
+  "wallSeconds": 256.8,
   "resetCount": 0,
-  "khcPerSec": 120.1
+  "khcPerSec": 116.7
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1270,9 +1270,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 989.0,
+  "wallSeconds": 950.4,
   "resetCount": 0,
-  "khcPerSec": 119.2
+  "khcPerSec": 124.0
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1285,9 +1285,9 @@
   "detection": "6000",
   "frames": 18,
   "simSeconds": 0.3,
-  "wallSeconds": 113.2,
+  "wallSeconds": 112.5,
   "resetCount": 0,
-  "khcPerSec": 113.1
+  "khcPerSec": 113.8
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1300,9 +1300,9 @@
   "detection": "6000",
   "frames": 16,
   "simSeconds": 0.27,
-  "wallSeconds": 105.2,
+  "wallSeconds": 103.1,
   "resetCount": 0,
-  "khcPerSec": 108.1
+  "khcPerSec": 110.3
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1315,9 +1315,9 @@
   "detection": "6000",
   "frames": 15,
   "simSeconds": 0.25,
-  "wallSeconds": 98.3,
+  "wallSeconds": 100.5,
   "resetCount": 0,
-  "khcPerSec": 108.5
+  "khcPerSec": 106.1
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1330,9 +1330,9 @@
   "detection": "6000",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 160.0,
+  "wallSeconds": 164.2,
   "resetCount": 0,
-  "khcPerSec": 115.8
+  "khcPerSec": 112.8
  },
  {
   "suite": "instr_test-v5/rom_singles",
@@ -1345,9 +1345,9 @@
   "detection": "6000",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 93.5,
+  "wallSeconds": 97.0,
   "resetCount": 0,
-  "khcPerSec": 106.4
+  "khcPerSec": 102.5
  },
  {
   "suite": "instr_timing/rom_singles",
@@ -1360,9 +1360,9 @@
   "detection": "6000",
   "frames": 1014,
   "simSeconds": 16.87,
-  "wallSeconds": 8359.5,
+  "wallSeconds": 7836.7,
   "resetCount": 0,
-  "khcPerSec": 86.7
+  "khcPerSec": 92.5
  },
  {
   "suite": "instr_timing/rom_singles",
@@ -1375,9 +1375,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 815.0,
+  "wallSeconds": 816.3,
   "resetCount": 0,
-  "khcPerSec": 123.6
+  "khcPerSec": 123.4
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1390,9 +1390,9 @@
   "detection": "6000",
   "frames": 64,
   "simSeconds": 1.06,
-  "wallSeconds": 381.9,
+  "wallSeconds": 383.4,
   "resetCount": 0,
-  "khcPerSec": 119.6
+  "khcPerSec": 119.2
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1405,9 +1405,9 @@
   "detection": "6000",
   "frames": 58,
   "simSeconds": 0.97,
-  "wallSeconds": 345.5,
+  "wallSeconds": 341.7,
   "resetCount": 0,
-  "khcPerSec": 119.8
+  "khcPerSec": 121.1
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1420,9 +1420,9 @@
   "detection": "6000",
   "frames": 76,
   "simSeconds": 1.26,
-  "wallSeconds": 438.6,
+  "wallSeconds": 480.6,
   "resetCount": 0,
-  "khcPerSec": 123.7
+  "khcPerSec": 112.9
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1435,9 +1435,9 @@
   "detection": "6000",
   "frames": 175,
   "simSeconds": 2.91,
-  "wallSeconds": 1002.0,
+  "wallSeconds": 1016.8,
   "resetCount": 0,
-  "khcPerSec": 124.8
+  "khcPerSec": 123.0
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1450,9 +1450,9 @@
   "detection": "6000",
   "frames": 72,
   "simSeconds": 1.2,
-  "wallSeconds": 424.2,
+  "wallSeconds": 438.2,
   "resetCount": 0,
-  "khcPerSec": 121.2
+  "khcPerSec": 117.3
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1465,9 +1465,9 @@
   "detection": "6000",
   "frames": 244,
   "simSeconds": 4.06,
-  "wallSeconds": 1398.3,
+  "wallSeconds": 1444.2,
   "resetCount": 0,
-  "khcPerSec": 124.7
+  "khcPerSec": 120.7
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1480,9 +1480,9 @@
   "detection": "6000",
   "frames": 107,
   "simSeconds": 1.78,
-  "wallSeconds": 619.6,
+  "wallSeconds": 637.6,
   "resetCount": 0,
-  "khcPerSec": 123.3
+  "khcPerSec": 119.9
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1495,9 +1495,9 @@
   "detection": "6000",
   "frames": 99,
   "simSeconds": 1.65,
-  "wallSeconds": 579.9,
+  "wallSeconds": 613.9,
   "resetCount": 0,
-  "khcPerSec": 121.9
+  "khcPerSec": 115.2
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1510,9 +1510,9 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 205.1,
+  "wallSeconds": 200.6,
   "resetCount": 0,
-  "khcPerSec": 118.2
+  "khcPerSec": 120.8
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1525,9 +1525,9 @@
   "detection": "6000",
   "frames": 128,
   "simSeconds": 2.13,
-  "wallSeconds": 748.7,
+  "wallSeconds": 763.8,
   "resetCount": 0,
-  "khcPerSec": 122.1
+  "khcPerSec": 119.7
  },
  {
   "suite": "nes_instr_test/rom_singles",
@@ -1540,9 +1540,9 @@
   "detection": "6000",
   "frames": 11,
   "simSeconds": 0.18,
-  "wallSeconds": 70.6,
+  "wallSeconds": 70.9,
   "resetCount": 0,
-  "khcPerSec": 110.5
+  "khcPerSec": 110.0
  },
  {
   "suite": "oam_read",
@@ -1555,9 +1555,9 @@
   "detection": "6000",
   "frames": 29,
   "simSeconds": 0.48,
-  "wallSeconds": 206.6,
+  "wallSeconds": 205.0,
   "resetCount": 0,
-  "khcPerSec": 100.0
+  "khcPerSec": 100.8
  },
  {
   "suite": "ppu_open_bus",
@@ -1570,9 +1570,9 @@
   "detection": "6000",
   "frames": 251,
   "simSeconds": 4.18,
-  "wallSeconds": 1430.8,
+  "wallSeconds": 1425.6,
   "resetCount": 0,
-  "khcPerSec": 125.3
+  "khcPerSec": 125.8
  },
  {
   "suite": "ppu_read_buffer",
@@ -1585,9 +1585,9 @@
   "detection": "6000",
   "frames": 1274,
   "simSeconds": 21.2,
-  "wallSeconds": 9752.7,
+  "wallSeconds": 9988.8,
   "resetCount": 0,
-  "khcPerSec": 93.4
+  "khcPerSec": 91.2
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1600,9 +1600,9 @@
   "detection": "6000",
   "frames": 145,
   "simSeconds": 2.41,
-  "wallSeconds": 840.7,
+  "wallSeconds": 819.4,
   "resetCount": 0,
-  "khcPerSec": 123.2
+  "khcPerSec": 126.4
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1615,9 +1615,9 @@
   "detection": "6000",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 1010.4,
+  "wallSeconds": 1045.1,
   "resetCount": 0,
-  "khcPerSec": 125.1
+  "khcPerSec": 121.0
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1630,9 +1630,9 @@
   "detection": "6000",
   "frames": 165,
   "simSeconds": 2.75,
-  "wallSeconds": 914.0,
+  "wallSeconds": 913.0,
   "resetCount": 0,
-  "khcPerSec": 129.0
+  "khcPerSec": 129.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1645,9 +1645,9 @@
   "detection": "6000",
   "frames": 34,
   "simSeconds": 0.57,
-  "wallSeconds": 203.0,
+  "wallSeconds": 213.4,
   "resetCount": 0,
-  "khcPerSec": 119.4
+  "khcPerSec": 113.6
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1660,7 +1660,7 @@
   "detection": "6000",
   "frames": 215,
   "simSeconds": 3.58,
-  "wallSeconds": 1203.8,
+  "wallSeconds": 1204.1,
   "resetCount": 0,
   "khcPerSec": 127.6
  },
@@ -1675,9 +1675,9 @@
   "detection": "6000",
   "frames": 218,
   "simSeconds": 3.63,
-  "wallSeconds": 1183.4,
+  "wallSeconds": 1245.0,
   "resetCount": 0,
-  "khcPerSec": 131.6
+  "khcPerSec": 125.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1690,9 +1690,9 @@
   "detection": "6000",
   "frames": 193,
   "simSeconds": 3.21,
-  "wallSeconds": 1100.2,
+  "wallSeconds": 1084.7,
   "resetCount": 0,
-  "khcPerSec": 125.3
+  "khcPerSec": 127.1
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1705,9 +1705,9 @@
   "detection": "6000",
   "frames": 217,
   "simSeconds": 3.61,
-  "wallSeconds": 1212.5,
+  "wallSeconds": 1241.2,
   "resetCount": 0,
-  "khcPerSec": 127.9
+  "khcPerSec": 124.9
  },
  {
   "suite": "ppu_vbl_nmi/rom_singles",
@@ -1735,9 +1735,9 @@
   "detection": "6000",
   "frames": 138,
   "simSeconds": 2.3,
-  "wallSeconds": 780.2,
+  "wallSeconds": 771.7,
   "resetCount": 0,
-  "khcPerSec": 126.3
+  "khcPerSec": 127.7
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1750,9 +1750,9 @@
   "detection": "6000",
   "frames": 141,
   "simSeconds": 2.35,
-  "wallSeconds": 792.8,
+  "wallSeconds": 817.2,
   "resetCount": 0,
-  "khcPerSec": 127.0
+  "khcPerSec": 123.2
  },
  {
   "suite": "sprdma_and_dmc_dma",
@@ -1765,9 +1765,9 @@
   "detection": "6000",
   "frames": 140,
   "simSeconds": 2.33,
-  "wallSeconds": 776.8,
+  "wallSeconds": 797.1,
   "resetCount": 0,
-  "khcPerSec": 128.7
+  "khcPerSec": 125.5
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1780,9 +1780,9 @@
   "detection": "screen",
   "frames": 33,
   "simSeconds": 0.55,
-  "wallSeconds": 214.7,
+  "wallSeconds": 210.6,
   "resetCount": 0,
-  "khcPerSec": 109.6
+  "khcPerSec": 111.7
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1795,9 +1795,9 @@
   "detection": "screen",
   "frames": 31,
   "simSeconds": 0.52,
-  "wallSeconds": 199.5,
+  "wallSeconds": 202.3,
   "resetCount": 0,
-  "khcPerSec": 110.8
+  "khcPerSec": 109.2
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1810,9 +1810,9 @@
   "detection": "screen",
   "frames": 21,
   "simSeconds": 0.35,
-  "wallSeconds": 133.3,
+  "wallSeconds": 133.1,
   "resetCount": 0,
-  "khcPerSec": 112.1
+  "khcPerSec": 112.3
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1825,9 +1825,9 @@
   "detection": "screen",
   "frames": 19,
   "simSeconds": 0.32,
-  "wallSeconds": 122.5,
+  "wallSeconds": 118.7,
   "resetCount": 0,
-  "khcPerSec": 110.4
+  "khcPerSec": 113.9
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1840,9 +1840,9 @@
   "detection": "screen",
   "frames": 30,
   "simSeconds": 0.5,
-  "wallSeconds": 193.9,
+  "wallSeconds": 195.6,
   "resetCount": 0,
-  "khcPerSec": 110.3
+  "khcPerSec": 109.3
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1870,9 +1870,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 174.8,
+  "wallSeconds": 167.6,
   "resetCount": 0,
-  "khcPerSec": 106.0
+  "khcPerSec": 110.5
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1885,9 +1885,9 @@
   "detection": "screen",
   "frames": 22,
   "simSeconds": 0.37,
-  "wallSeconds": 140.3,
+  "wallSeconds": 138.7,
   "resetCount": 0,
-  "khcPerSec": 111.6
+  "khcPerSec": 112.9
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1900,9 +1900,9 @@
   "detection": "screen",
   "frames": 64,
   "simSeconds": 1.06,
-  "wallSeconds": 376.6,
+  "wallSeconds": 412.9,
   "resetCount": 0,
-  "khcPerSec": 121.3
+  "khcPerSec": 110.6
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1915,9 +1915,9 @@
   "detection": "screen",
   "frames": 60,
   "simSeconds": 1.0,
-  "wallSeconds": 346.8,
+  "wallSeconds": 350.1,
   "resetCount": 0,
-  "khcPerSec": 123.5
+  "khcPerSec": 122.3
  },
  {
   "suite": "sprite_hit_tests_2005.10.05",
@@ -1930,9 +1930,9 @@
   "detection": "screen",
   "frames": 52,
   "simSeconds": 0.87,
-  "wallSeconds": 305.2,
+  "wallSeconds": 338.8,
   "resetCount": 0,
-  "khcPerSec": 121.6
+  "khcPerSec": 109.5
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1945,9 +1945,9 @@
   "detection": "screen",
   "frames": 17,
   "simSeconds": 0.28,
-  "wallSeconds": 113.7,
+  "wallSeconds": 108.4,
   "resetCount": 0,
-  "khcPerSec": 106.3
+  "khcPerSec": 111.5
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1960,9 +1960,9 @@
   "detection": "screen",
   "frames": 26,
   "simSeconds": 0.43,
-  "wallSeconds": 172.2,
+  "wallSeconds": 174.2,
   "resetCount": 0,
-  "khcPerSec": 107.6
+  "khcPerSec": 106.3
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1975,9 +1975,9 @@
   "detection": "screen",
   "frames": 122,
   "simSeconds": 2.03,
-  "wallSeconds": 709.8,
+  "wallSeconds": 694.9,
   "resetCount": 0,
-  "khcPerSec": 122.8
+  "khcPerSec": 125.4
  },
  {
   "suite": "sprite_overflow_tests",
@@ -1990,9 +1990,9 @@
   "detection": "screen",
   "frames": 23,
   "simSeconds": 0.38,
-  "wallSeconds": 148.3,
+  "wallSeconds": 148.2,
   "resetCount": 0,
-  "khcPerSec": 110.4
+  "khcPerSec": 110.5
  },
  {
   "suite": "sprite_overflow_tests",
@@ -2005,9 +2005,9 @@
   "detection": "screen",
   "frames": 14,
   "simSeconds": 0.23,
-  "wallSeconds": 98.1,
+  "wallSeconds": 98.2,
   "resetCount": 0,
-  "khcPerSec": 101.4
+  "khcPerSec": 101.3
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2020,9 +2020,9 @@
   "detection": "screen",
   "frames": 177,
   "simSeconds": 2.95,
-  "wallSeconds": 1150.0,
+  "wallSeconds": 1122.0,
   "resetCount": 0,
-  "khcPerSec": 110.0
+  "khcPerSec": 112.7
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2035,9 +2035,9 @@
   "detection": "screen",
   "frames": 150,
   "simSeconds": 2.5,
-  "wallSeconds": 845.8,
+  "wallSeconds": 850.1,
   "resetCount": 0,
-  "khcPerSec": 126.7
+  "khcPerSec": 126.0
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2050,9 +2050,9 @@
   "detection": "screen",
   "frames": 95,
   "simSeconds": 1.58,
-  "wallSeconds": 556.0,
+  "wallSeconds": 551.0,
   "resetCount": 0,
-  "khcPerSec": 122.0
+  "khcPerSec": 123.1
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2065,9 +2065,9 @@
   "detection": "screen",
   "frames": 113,
   "simSeconds": 1.88,
-  "wallSeconds": 637.8,
+  "wallSeconds": 650.4,
   "resetCount": 0,
-  "khcPerSec": 126.5
+  "khcPerSec": 124.1
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2080,9 +2080,9 @@
   "detection": "screen",
   "frames": 162,
   "simSeconds": 2.7,
-  "wallSeconds": 925.1,
+  "wallSeconds": 953.5,
   "resetCount": 0,
-  "khcPerSec": 125.1
+  "khcPerSec": 121.4
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2095,9 +2095,9 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 581.9,
+  "wallSeconds": 597.6,
   "resetCount": 0,
-  "khcPerSec": 128.9
+  "khcPerSec": 125.5
  },
  {
   "suite": "vbl_nmi_timing",
@@ -2110,9 +2110,9 @@
   "detection": "screen",
   "frames": 105,
   "simSeconds": 1.75,
-  "wallSeconds": 588.0,
+  "wallSeconds": 644.1,
   "resetCount": 0,
-  "khcPerSec": 127.5
+  "khcPerSec": 116.4
  },
  {
   "suite": "read_joy3",
@@ -2125,9 +2125,9 @@
   "detection": "screen",
   "frames": 122,
   "simSeconds": 2.03,
-  "wallSeconds": 919.2,
+  "wallSeconds": 917.4,
   "resetCount": 0,
-  "khcPerSec": 94.8
+  "khcPerSec": 95.0
  },
  {
   "suite": "read_joy3",
@@ -2140,9 +2140,9 @@
   "detection": "screen",
   "frames": 59,
   "simSeconds": 0.98,
-  "wallSeconds": 433.6,
+  "wallSeconds": 437.6,
   "resetCount": 0,
-  "khcPerSec": 97.1
+  "khcPerSec": 96.2
  },
  {
   "suite": "read_joy3",
@@ -2155,9 +2155,9 @@
   "detection": "screen",
   "frames": 36,
   "simSeconds": 0.6,
-  "wallSeconds": 264.9,
+  "wallSeconds": 264.7,
   "resetCount": 0,
-  "khcPerSec": 96.9
+  "khcPerSec": 97.0
  },
  {
   "suite": "read_joy3",
@@ -2170,9 +2170,9 @@
   "detection": "screen",
   "frames": 527,
   "simSeconds": 8.77,
-  "wallSeconds": 3934.4,
+  "wallSeconds": 4017.7,
   "resetCount": 0,
-  "khcPerSec": 95.7
+  "khcPerSec": 93.7
  },
  {
   "suite": "oam_stress",
@@ -2185,8 +2185,23 @@
   "detection": "6000",
   "frames": 1709,
   "simSeconds": 28.44,
-  "wallSeconds": 9376.7,
+  "wallSeconds": 9929.8,
   "resetCount": 0,
-  "khcPerSec": 130.3
+  "khcPerSec": 123.0
+ },
+ {
+  "suite": "oam_read_vbl_wait",
+  "rom": "oam_read_vbl_wait.nes",
+  "class": "B",
+  "status": "pass",
+  "exit_code": 0,
+  "result_text": "----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n----------------\n\nPassed",
+  "screenshot": "screenshots/oam_read_vbl_wait/oam_read_vbl_wait.webp",
+  "detection": "6000",
+  "frames": 46,
+  "simSeconds": 0.77,
+  "wallSeconds": 296.7,
+  "resetCount": 0,
+  "khcPerSec": 110.6
  }
 ]

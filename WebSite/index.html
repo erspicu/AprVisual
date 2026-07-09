@@ -487,26 +487,28 @@
 
   <p class="en">Once the engine was fast enough to be a tool, we pointed it at the standard NES accuracy batteries
   (blargg's test suites and friends): every <b>NROM/CNROM NTSC</b> ROM in the <code>nes-test-roms</code> collection —
-  <b>146 tests</b> — each judged <i>once per simulated frame</i> with no human watching: the blargg <code>$6000</code>
+  <b>147 tests</b> — each judged <i>once per simulated frame</i> with no human watching: the blargg <code>$6000</code>
   protocol, ROM-requested soft resets (the engine pulses the console's reset line mid-run), terminal screen text
   read straight out of the nametable, or an on-screen CRC. Frame budgets were calibrated by an instrumented copy of
   our behavioral emulator <a href="https://github.com/erspicu/AprNes" target="_blank" rel="noopener">AprNes</a>
-  acting as a fast oracle, and the batch runs unattended on core-pinned parallel workers (longest tests first).</p>
+  acting as a fast oracle, and the batch runs unattended on core-pinned parallel workers (longest tests first) —
+  a full 147-ROM sweep completes in <b>6.2 h</b> on 7 pinned cores.</p>
   <p class="zh">引擎快到能當工具之後,我們把它對準了標準的 NES 精確度測試集(blargg 系列等):
-  <code>nes-test-roms</code> 合集中所有 <b>NROM/CNROM NTSC</b> 的 ROM —— 共 <b>146 個</b> ——
+  <code>nes-test-roms</code> 合集中所有 <b>NROM/CNROM NTSC</b> 的 ROM —— 共 <b>147 個</b> ——
   每個都以「每模擬幀判讀一次」的方式全自動判定:blargg <code>$6000</code> 協定、ROM 主動要求的軟重設
   (引擎中途拉主機 reset 線)、直接從 nametable 讀出的終端畫面文字、或畫面 CRC。
   幀數預算由改造版的行為層模擬器 <a href="https://github.com/erspicu/AprNes" target="_blank" rel="noopener">AprNes</a>
-  當快速 oracle 校準,批次在綁核的平行 worker 上無人值守跑完(最長的測試優先排程)。</p>
+  當快速 oracle 校準,批次在綁核的平行 worker 上無人值守跑完(最長的測試優先排程)——
+  完整 147 顆 ROM 的全量回歸,在 7 顆綁定核心上約 <b>6.2 小時</b>跑完。</p>
 
   <div class="stat">
-    <div class="box"><div class="n">146</div><div class="l"><span class="en">test ROMs run</span><span class="zh">測試 ROM 全數執行</span></div></div>
-    <div class="box"><div class="n">145</div><div class="l"><span class="en">PASS (99.3%)</span><span class="zh">通過(99.3%)</span></div></div>
+    <div class="box"><div class="n">147</div><div class="l"><span class="en">test ROMs run</span><span class="zh">測試 ROM 全數執行</span></div></div>
+    <div class="box"><div class="n">146</div><div class="l"><span class="en">PASS (99.3%)</span><span class="zh">通過(99.3%)</span></div></div>
     <div class="box"><div class="n">1</div><div class="l"><span class="en">FAIL — a faithful deviation</span><span class="zh">失敗 —— 一個忠實偏差</span></div></div>
     <div class="box"><div class="n">0</div><div class="l"><span class="en">timeouts (calibrated budgets)</span><span class="zh">逾時(預算全數校準)</span></div></div>
   </div>
 
-  <p class="en">It started at 115/26 and closed at <b>145/1</b>. That climb is the interesting half. Most of the FAILs were
+  <p class="en">It started at 115/26 and closed at <b>146/1</b>. That climb is the interesting half. Most of the FAILs were
   genuine gaps in our model — a same-half-cycle race a two-state engine must resolve, an unmodeled cross-die write
   delay, an OAM-DMA bus-hold detail — the physics of the two dies is real, but a few correct behaviors live
   <i>outside</i> what pure switch-level propagation of the CPU+PPU alone can express. For each, real hardware has a
@@ -517,7 +519,7 @@
   <b>RP2C02G</b> is exactly the PPU revision with the OAMADDR-write corruption bug, so a switch-level 2C02 whose OAM is
   physical DRAM cells fails it the way real G silicon does. Forcing a PASS there would move the simulation <i>away</i>
   from the machine we target, not closer.</p>
-  <p class="zh">計分從 115/26 一路走到 <b>145/1</b>,而這段爬升才是有趣的那一半。大多數 FAIL 其實是我們模型的缺口 ——
+  <p class="zh">計分從 115/26 一路走到 <b>146/1</b>,而這段爬升才是有趣的那一半。大多數 FAIL 其實是我們模型的缺口 ——
   二值引擎只能解錯邊的同半週期賽跑、未建模的跨晶片寫入延遲、OAM-DMA 匯流排持值細節 ——
   兩顆晶粒的物理是真的,但有少數<i>正確</i>行為,單靠 CPU+PPU 的開關級傳播根本表達不出來。
   這些真機都有明確答案,所以我們<b>用文件化的測試模式行為層 shim 把那份規格補上</b>,測試就通過;

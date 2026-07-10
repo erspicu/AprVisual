@@ -15,6 +15,7 @@ Usage:
     python tools/testrom/run_tests.py --rerun         # ignore existing results, run everything again
     python tools/testrom/run_tests.py --report-only   # just rebuild WebSite/Report from existing results
     python tools/testrom/run_tests.py --no-build      # skip the dotnet build step
+    python tools/testrom/run_tests.py --no-canary     # skip the pre-flight engine canary (~70 s)
 
 Notes (see MD/testrom_workflow/ for the full workflow doc):
   - primary budget is SIMULATION frames (--max-frames, from catalog); wall time ~5 s/frame.
@@ -30,6 +31,15 @@ DLL        = os.path.join(REPO, "src", "AprVisual.S1", "bin", "Release", "net11.
 SYSTEM_DEF = os.path.join(REPO, "AprVisualBenchMark", "data", "system-def")
 CATALOG    = os.path.join(SCRIPT_DIR, "catalog.json")
 OUT_DIR    = os.path.join(SCRIPT_DIR, "out")
+
+# Pre-flight canary (see canary()). CANARY_ROM is the shortest class-A ($6000) test we
+# have — it reaches its verdict at frame 11. GOLDEN_CKSUM is the project's bit-exactness
+# gate: the NodeStates checksum after 300k half-cycles of full_palette.nes with --extra-ram.
+CANARY_ROM    = os.path.join(SCRIPT_DIR, "roms", "nes_instr_test", "rom_singles", "11-special.nes")
+CANARY_FRAMES = 40
+BENCH_ROM     = os.path.join(REPO, "AprVisualBenchMark", "roms", "full_palette.nes")
+BENCH_HC      = 300000
+GOLDEN_CKSUM  = "0x794A43ABDF169ADA"
 
 CORES   = [2, 6, 10, 14, 4, 12, 8, 0]   # logical cores, Zen2 3700X (logical 2i = physical i). First 4 = physical
 # Lanes 1-7 are distinct physical cores avoiding core 0 (OS noise). The 8th lane has no
@@ -56,6 +66,64 @@ def build_engine():
     if r.returncode != 0:
         print((r.stdout or '')[-2000:], (r.stderr or '')[-2000:])
         sys.exit("BUILD FAILED")
+
+
+def canary():
+    """Pre-flight the engine before spending hours on it. Aborts the run on mismatch.
+
+    Two checks, both trivial next to a full sweep (~70 s together):
+      1. the golden checksum — the project's bit-exactness gate.
+      2. one short class-A ROM — proves the blargg $6000 verdict path works at all.
+
+    Check 2 exists because of 2026-07-09: relocating the ROMs made LoadSystem()'s
+    path heuristic miss, cart-extraram ($6000 work RAM) was never mounted, and EVERY
+    class-A test reported detection=none — for a whole 6-hour sweep before anyone
+    noticed. A verdict path that is silently dead looks exactly like a slow test.
+    See MD/testrom/00_test-fix-knowledge-base.md 3.4.
+    """
+    print("=== canary: bit-exact checksum + $6000 verdict path ===", flush=True)
+
+    if os.path.isfile(BENCH_ROM):
+        r = subprocess.run(["dotnet", DLL, "--benchmark", BENCH_ROM, "--bench-hc", str(BENCH_HC),
+                            "--extra-ram", "--system-def-dir", SYSTEM_DEF],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=900)
+        out = (r.stdout or "") + (r.stderr or "")
+        if GOLDEN_CKSUM in out:
+            print(f"  [ok]   golden checksum {GOLDEN_CKSUM} @ {BENCH_HC//1000}k hc", flush=True)
+        else:
+            got = next((w.rstrip(",") for w in out.split() if w.startswith("0x")), "(none printed)")
+            # ASCII only: this message is read on a broken build, often through a cp950 console.
+            sys.exit(f"CANARY FAILED: golden checksum is {got}, expected {GOLDEN_CKSUM}.\n"
+                     f"  This build is NOT bit-exact; its results and timings are not comparable.\n"
+                     f"  Refusing to start the batch. (Bypass with --no-canary if you know why.)")
+    else:
+        print(f"  [skip] benchmark ROM not found: {BENCH_ROM}", flush=True)
+
+    if os.path.isfile(CANARY_ROM):
+        jp = os.path.join(OUT_DIR, "_canary.json")
+        os.makedirs(OUT_DIR, exist_ok=True)
+        if os.path.isfile(jp):
+            os.remove(jp)
+        subprocess.run(["dotnet", DLL, "--test", CANARY_ROM, "--max-frames", str(CANARY_FRAMES),
+                        "--reset-hold-extra", "1", "--test-json", jp, "--system-def-dir", SYSTEM_DEF],
+                       capture_output=True, timeout=900)
+        try:
+            d = json.load(open(jp, encoding="utf-8"))
+        except Exception:
+            d = {}
+        if d.get("status") == "pass" and d.get("detection") == "6000":
+            print(f"  [ok]   $6000 verdict path (11-special: detection=6000, frame {d.get('frames')})",
+                  flush=True)
+        else:
+            sys.exit(f"CANARY FAILED: the $6000 verdict path is dead "
+                     f"(status={d.get('status')}, detection={d.get('detection')}).\n"
+                     f"  This almost always means cart-extraram ($6000 work RAM) was not mounted.\n"
+                     f"  It is NOT a frame-budget problem: raising --max-frames only runs the\n"
+                     f"  failure for longer. Every class-A test would report detection=none.\n"
+                     f"  See MD/testrom/00_test-fix-knowledge-base.md 3.4.")
+    else:
+        print(f"  [skip] canary ROM not found: {CANARY_ROM}", flush=True)
 
 
 def run_one(t, core, rombase):
@@ -142,6 +210,8 @@ def main():
     ap.add_argument("--rerun", action="store_true", help="ignore existing result JSONs")
     ap.add_argument("--report-only", action="store_true")
     ap.add_argument("--no-build", action="store_true")
+    ap.add_argument("--no-canary", action="store_true",
+                    help="skip the pre-flight canary (golden checksum + $6000 verdict path, ~70 s)")
     args = ap.parse_args()
 
     if args.report_only:
@@ -188,6 +258,8 @@ def main():
         build_engine()
     if not os.path.isfile(DLL):
         sys.exit(f"engine dll not found: {DLL}")
+    if not args.no_canary:
+        canary()   # never let a 6-hour sweep start on a dead verdict path
 
     jobs = min(args.jobs, len(CORES))
     q = queue.Queue()

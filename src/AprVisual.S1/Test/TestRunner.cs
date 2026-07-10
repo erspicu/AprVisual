@@ -23,6 +23,7 @@ namespace AprVisual.Test
         private static string? _testShotPath;             // --test-screenshot: final-frame PNG for the report page
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
+        internal static bool _acVerdict;                  // --ac-verdict: AccuracyCoin unattended completion block in CPU RAM; implies NO cart-extraram (open-bus tests)
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
@@ -110,6 +111,7 @@ namespace AprVisual.Test
                         }
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
+                    case "--ac-verdict":      _acVerdict = true; break;                                                       // test mode: AccuracyCoin completion block ($07F0 = DE B0 61); disables cart-extraram
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro

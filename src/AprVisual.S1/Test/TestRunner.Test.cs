@@ -17,6 +17,11 @@ namespace AprVisual.Test
         //         require 2 consecutive identical frames, compare against the accept set (dmc_dma visual tests)
         //    Budget: --max-frames (simulation frames, primary); --max-wait (wall seconds, safety, 0 = off).
         //    Outputs: console PASS/FAIL line (+ --test-json structured record, --test-screenshot final PNG).
+        // AccuracyCoin unattended completion block, in the NES internal CPU RAM (see the fork's README):
+        //   $07F0-$07F2 magic "DE B0 61" | $07F3 passed | $07F4 total | $07F5 skipped
+        private const int AcMagic0 = 0x7F0;
+        private const int AcDebugEc = 0x0EC;   // the ROM's Debug_EC menu-init progress byte
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -30,10 +35,14 @@ namespace AprVisual.Test
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
-            WireCore.ForceExtraRam = true;   // test ROMs speak the blargg $6000 protocol, which lives in cart-extraram.
-                                             // Never infer this from the ROM's path: relocating the ROMs under tools/testrom/roms
-                                             // missed LoadSystem's "nes-test-roms" path heuristic, silently dropped the $6000 RAM,
-                                             // and made every class-A test report detection=none. See MD/ISSUE/2026-07-09-*.
+            // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
+            // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
+            // path heuristic, silently dropped the $6000 RAM, and made every class-A test report
+            // detection=none. See MD/ISSUE/2026-07-09-*.
+            // AccuracyCoin is the one exception: it never speaks $6000, and a number of its tests MEASURE the
+            // open bus at $6000-$7FFF. Mapping RAM there would answer those reads with RAM instead of open bus
+            // and silently corrupt the tests, so --ac-verdict leaves the region unmapped.
+            WireCore.ForceExtraRam = !_acVerdict;
 
             const int ResetDelayFrames = 6, MaxAutoResets = 10;
             string status = "timeout", detection = "none", resultText = "";
@@ -57,6 +66,11 @@ namespace AprVisual.Test
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
                 }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
+
+                // --ac-verdict: the NES internal 2K CPU RAM (nes-001 instantiates it as "u1" = SRAM2K).
+                var acRam = _acVerdict ? WireCore.ResolveMemory("u1.ram") : null;
+                if (_acVerdict && acRam == null) Console.Error.WriteLine("# [ac] WARNING: u1.ram not found -- --ac-verdict is inert");
+                int acEcPrev = acRam?.Read(AcDebugEc) ?? 0;
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
                 // register") leaks to 0 in ~600 ms when not refreshed (ppu_open_bus readme: "some decay
@@ -104,6 +118,33 @@ namespace AprVisual.Test
                             int after = WireCore.ReadBits(ioDbN);
                             Console.Error.WriteLine($"# [shim] _io_db decay fired at frame {frames}: {v:X2} -> {after:X2}{(after != 0 ? "  (DID NOT STICK)" : "")}");
                             ioPrev = after; ioStable = 0;
+                        }
+                    }
+
+                    // AccuracyCoin (unattended fork). It speaks neither of the other two protocols: no $6000
+                    // handshake, and its CHR font is not ASCII-mapped so the nametable scan cannot read it.
+                    // Instead it writes a completion block to CPU RAM, disables NMI and halts with the results
+                    // table on screen. See AprAccuracyCoinUnattended/README.md.
+                    if (acRam != null)
+                    {
+                        // Debug_EC ($00EC) is the ROM's own menu-init progress counter; the unattended hook
+                        // fires at $0A and parks it at $FF. Tracing it turns "did the auto-run even start?"
+                        // into a question answerable in minutes rather than after the full multi-hour sweep.
+                        int ec = acRam.Read(AcDebugEc);
+                        if (ec != acEcPrev)
+                        {
+                            Console.Error.WriteLine($"# [ac] frame {frames}: Debug_EC ${acEcPrev:X2} -> ${ec:X2}{(ec == 0xFF ? "  (unattended auto-run entered)" : "")}");
+                            acEcPrev = ec;
+                        }
+
+                        if (acRam.Read(AcMagic0) == 0xDE && acRam.Read(AcMagic0 + 1) == 0xB0 && acRam.Read(AcMagic0 + 2) == 0x61)
+                        {
+                            int passed = acRam.Read(AcMagic0 + 3), total = acRam.Read(AcMagic0 + 4), skipped = acRam.Read(AcMagic0 + 5);
+                            resultCode = passed == total ? 0 : 1;
+                            resultText = $"AccuracyCoin: {passed}/{total} passed, {skipped} skipped";
+                            detection  = "ac";
+                            status     = resultCode == 0 ? "pass" : "fail";
+                            break;
                         }
                     }
 

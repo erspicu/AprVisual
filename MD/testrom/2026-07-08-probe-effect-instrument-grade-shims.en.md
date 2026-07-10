@@ -146,8 +146,8 @@ alignment-sensitive tests had to be re-verified." The fix is simple and effectiv
 
 ## 6. Outcome
 
-With the three runtime instrument-grade shims made global, the clean full regression is **145/1
-(99.3%)**, zero collateral. The sole remaining FAIL is a **genuine faithful deviation**
+With the three runtime instrument-grade shims made global, the clean full regression is **146/1
+(99.3%, 147 tests)**, zero collateral. The sole remaining FAIL is a **genuine faithful deviation**
 (`cpu_dummy_writes_oam` — the RP2C02G-revision-specific OAMADDR-write corruption bug, which real G
 hardware fails too) — that one is *supposed* to be red and is out of scope here (see the faithful-
 deviation Q&A).

@@ -6,7 +6,7 @@
 > pre-render `vpos=261, hpos=338..339` window it delays the `$2001` background-enable/disable
 > transition by 16 hc; the disable side clamps the complementary node `/bkg_enable`) — filling in the
 > ~1-dot cross-chip write-path offset at alignment 7, going green simultaneously with the NMI-edge
-> family → full regression **145/1 (99.3%)**. See knowledge base §3.1 #13 and the
+> family → full regression **145/1 (99.3%)** at the time (current baseline: **146/1** on 147 tests). See knowledge base §3.1 #13 and the
 > [final fix record](../toDoNext/202607062345-10-even_odd_timing修復紀錄.en.md).
 > Arbitrating the offset at its source by cross-comparing the absolute `$2002` master-clock delay via
 > PPUSim (rather than compensating with a shim) remains listed as follow-up research.

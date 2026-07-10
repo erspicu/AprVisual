@@ -18,7 +18,8 @@ A run leaves you with:
 - `WebSite/Report/index.html` — the **report card**: per-test screenshot, detection method, frame counts,
   per-test throughput, aggregate performance stats, the hardware-model note, and the faithful-deviation dossier.
 
-Current baseline: **145 / 1 (99.3%)** — the sole FAIL is a faithful deviation (see the report's dossier).
+Current baseline: **146 / 1 (99.3%, 147 tests)** — the sole FAIL is a faithful deviation (see the
+report's dossier). A full 147-ROM sweep runs unattended in about **6.2 h** on 7 pinned cores.
 
 ## 1. Prerequisites
 
@@ -166,6 +167,7 @@ when adding tests or changing detection methods; ordinary verification just uses
 - **`UnicodeDecodeError` (cp950)**: old decode noise from capturing the build output, now fixed (UTF-8 with replacement); if you patch the runner, keep `encoding="utf-8", errors="replace"`.
 - **Never stack two runners**: two runners at once fight over the 7 cores and starve each other. Run one at a time.
 - **Empty / mostly-pending report**: `out/results/` has no results — run a batch first, or use `--report-only` to rebuild from whatever exists.
+- **Lots of tests report `detection=none` / `budget exhausted, no $6000 signature`**: the engine never saw the blargg signature, which almost always means the `$6000` work RAM (`cart-extraram`) wasn't mounted — **not** that the frame budget is too tight (raising it just runs the failure for longer). Test mode mounts it automatically now (`ForceExtraRam`); only check this if you've modified the engine. Quick check: `dotnet <dll> --test tools/testrom/roms/nes_instr_test/rom_singles/11-special.nes --max-frames 40 ...` should give `detection=6000, frames=11`. (This is exactly the trap hit on 2026-07-09 — see knowledge base §3.4.)
 - **Don't lock the clock**: this project's measurement doesn't rely on clock locking; the aggregate throughput over ~8 hours is stable enough.
 
 ---

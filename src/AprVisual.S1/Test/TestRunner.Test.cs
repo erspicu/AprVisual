@@ -22,6 +22,30 @@ namespace AprVisual.Test
         private const int AcMagic0 = 0x7F0;
         private const int AcDebugEc = 0x0EC;   // the ROM's Debug_EC menu-init progress byte
 
+        // One checkpoint of a long run: the current screen, plus a status line appended to progress.jsonl.
+        // "latest.png" is an overwritten copy so a watcher always has one stable path to attach.
+        private static void WriteProgress(string dir, int frames, long hc, double wall, int ec)
+        {
+            try
+            {
+                unsafe
+                {
+                    if (WireCore.FrameBuffer != null)
+                    {
+                        string shot = Path.Combine(dir, $"f{frames:D6}.png");
+                        AprVisual.Render.PngWriter.Write(shot, WireCore.FrameBuffer, WireCore.ScreenW, WireCore.ScreenH);
+                        File.Copy(shot, Path.Combine(dir, "latest.png"), true);
+                    }
+                }
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                string line = string.Format(ci,
+                    "{{\"frame\":{0},\"simSec\":{1:F2},\"hc\":{2},\"wallSec\":{3:F1},\"secPerFrame\":{4:F2},\"debugEc\":{5},\"utc\":\"{6:s}Z\"}}",
+                    frames, frames / 60.0988, hc, wall, wall / frames, ec, DateTime.UtcNow);
+                File.AppendAllText(Path.Combine(dir, "progress.jsonl"), line + "\n");
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"# (progress checkpoint failed: {ex.Message})"); }
+        }
+
         private static int RunOneTest(string path, int maxWait, string region, bool benchmark)
         {
             string name = Path.GetFileNameWithoutExtension(path);
@@ -72,6 +96,12 @@ namespace AprVisual.Test
                 if (_acVerdict && acRam == null) Console.Error.WriteLine("# [ac] WARNING: u1.ram not found -- --ac-verdict is inert");
                 int acEcPrev = acRam?.Read(AcDebugEc) ?? 0;
 
+                if (_progressFrames > 0 && _progressDir != null)
+                {
+                    Directory.CreateDirectory(_progressDir);   // WriteProgress swallows its exceptions; don't let a missing dir look like "no progress yet"
+                    Console.Error.WriteLine($"# [progress] checkpoint every {_progressFrames} frames -> {_progressDir}");
+                }
+
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
                 // register") leaks to 0 in ~600 ms when not refreshed (ppu_open_bus readme: "some decay
                 // sooner, depending on the NES and temperature"); floating netlist nodes hold forever.
@@ -120,6 +150,12 @@ namespace AprVisual.Test
                             ioPrev = after; ioStable = 0;
                         }
                     }
+
+                    // --progress-frames: a long unattended run is otherwise a black box for hours. Checkpoint
+                    // the screen and a status line so an outside watcher can report progress and, if the run
+                    // goes wrong, show WHERE. Read-only w.r.t. the simulation; off unless asked for.
+                    if (_progressFrames > 0 && _progressDir != null && frames % _progressFrames == 0)
+                        WriteProgress(_progressDir, frames, WireCore.Time - t0, sw.Elapsed.TotalSeconds, acRam?.Read(AcDebugEc) ?? -1);
 
                     // AccuracyCoin (unattended fork). It speaks neither of the other two protocols: no $6000
                     // handshake, and its CHR font is not ASCII-mapped so the nametable scan cannot read it.

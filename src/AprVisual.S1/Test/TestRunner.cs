@@ -24,6 +24,8 @@ namespace AprVisual.Test
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
         internal static bool _acVerdict;                  // --ac-verdict: AccuracyCoin unattended completion block in CPU RAM; implies NO cart-extraram (open-bus tests)
+        internal static int _progressFrames;              // --progress-frames N: every N frames, checkpoint a screenshot + a status line (0 = off)
+        internal static string? _progressDir;             // --progress-dir DIR: where those checkpoints land
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
@@ -112,6 +114,8 @@ namespace AprVisual.Test
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
                     case "--ac-verdict":      _acVerdict = true; break;                                                       // test mode: AccuracyCoin completion block ($07F0 = DE B0 61); disables cart-extraram
+                    case "--progress-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _progressFrames); break;   // test mode: checkpoint cadence, in simulation frames
+                    case "--progress-dir":    if (i + 1 < args.Length) _progressDir = args[++i]; break;                       // test mode: checkpoint output directory
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro

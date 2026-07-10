@@ -86,10 +86,15 @@ python tools/testrom/run_tests.py --limit 4        # only the first N pending te
 python tools/testrom/run_tests.py --rerun          # ignore existing results, run everything again
 python tools/testrom/run_tests.py --report-only    # don't run tests, just rebuild the report
 python tools/testrom/run_tests.py --no-build       # skip the dotnet build
+python tools/testrom/run_tests.py --no-canary      # skip the pre-flight engine canary (~70 s)
 ```
 
 What a run does (the key engine/scheduling design):
 
+- **Pre-flight canary (~70 s)**: after the build and before dispatch, two things are checked — the
+  300k **golden checksum** (`0x794A43ABDF169ADA`, the bit-exactness gate) and one short `$6000` test
+  (`11-special`, verdict at frame 11). **Either mismatch aborts the batch**, so a six-hour sweep never
+  starts on a broken engine or a dead verdict path. `--no-canary` skips it.
 - **LPT "longest-first" scheduling**: dispatch by `typicalFrames` (falling back to `maxFrames`), longest
   to shortest, so long and short tests run concurrently and the tail doesn't drag out the makespan.
 - **Core pinning**: each worker is pinned to a **physical core** (logical cores `[2,6,10,14,4,12,8]`, avoiding

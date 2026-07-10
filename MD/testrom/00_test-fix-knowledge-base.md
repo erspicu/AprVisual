@@ -236,9 +236,12 @@ so it belongs in the record.
 > **Anything that changes the simulated configuration must be stated explicitly — a CLI flag or a
 > test-mode setting — never inferred from a directory or file name.**
 
-**Suggested guard** (not yet implemented): before a full regression, run two canaries — one short
-`$6000` test (`nes_instr_test/rom_singles/11-special.nes`, expect `detection=6000`) and the 300k
-golden checksum. Abort on either mismatch rather than spending 6–8 hours on a broken verdict path.
+**Guard (shipped, commit `5a5a831`)**: `run_tests.py` runs two canaries after the build and before
+dispatch — the 300k golden checksum (`0x794A43ABDF169ADA`) and one short `$6000` test
+(`nes_instr_test/rom_singles/11-special.nes`, expect `detection=6000`, verdict at frame 11).
+**Either mismatch aborts the batch**, rather than spending 6–8 hours on a broken verdict path. The
+pair costs ~70 s; `--no-canary` bypasses it while iterating. The abort text is deliberately
+ASCII-only — it gets read on a broken build, often through a cp950 console.
 
 Full evidence: [root-cause proof](../ISSUE/2026-07-09-apu_mixer-timeout-root-cause-proof.md),
 [fix plan](../ISSUE/2026-07-09-testrom-extraram-fix-plan.md),

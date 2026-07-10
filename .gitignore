@@ -94,3 +94,7 @@ tools/perf/out/
 AprNesRef/
 AC_ref/
 TriCNES_ref/
+
+# AccuracyCoin unattended-ROM work: holds a fork of 100thCoin/AccuracyCoin (MIT).
+# Its own git repo lives inside — repo A must not track or embed it.
+AprAccuracyCoinUnattended/

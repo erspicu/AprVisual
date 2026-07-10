@@ -1,10 +1,34 @@
-# ISSUE:apu_mixer 全數 timeout(detection=none)—— 引擎重建後行為改變
+# ISSUE(已解決):apu_mixer / class-A 全數 timeout(detection=none)
 
-> 建檔:2026-07-09 04:xx|狀態:**未解決,已停止一切測試,機器未關機**
-> 嚴重性:**高** —— 這牴觸本專案賴以立足的 **bit-exact / 決定性** 前提。
-> 交接對象:下一個 session(或睡飽的你)。**開跑全量回歸前必須先解決這件事。**
+> **狀態:已解決(2026-07-09,commit `23ddd89`)。** 本文保留為**原始交接紀錄**——
+> 其中「剩下的嫌疑」與「要做什麼」的假說排序**已被實驗推翻**,結論請以根因證明文件為準。
+
+## ✅ 結案摘要(讀這段就夠)
+
+**真正的根因不是引擎重建,也不是 .NET preview。本文原本把嫌疑排在那裡 —— 那是錯的。**
+
+`WireCore.LoadSystem()` 用 **ROM 路徑字串** heuristic(`nes-test-roms` / `nes_test`)決定要不要掛
+`cart-extraram` —— 而 blargg `$6000` 協定的 work RAM 就住在那裡。commit `d20f8bc` 把 ROM 打包到
+`tools/testrom/roms/` 之後,新路徑**兩個關鍵字都不含** → extraram 沒掛 → `$6000` 簽章區根本不存在
+→ **每一個 class-A 測試**(不只 apu_mixer 那 4 個)都回報 `detection=none / timeout`。
+
+- **修復**:test mode 在 `LoadSystem()` 之前設 `WireCore.ForceExtraRam = true`
+  (`src/AprVisual.S1/Test/TestRunner.Test.cs`),不再由資料夾名稱推導模擬組態。
+- **原假說的反證**:用同一顆「可疑」DLL 跑 golden checksum = **`0x794A43ABDF169ADA`(與基準相符)**
+  → **bit-exact 從未被破壞**,引擎自始至終是好的。
+- **驗證**:apu_mixer 四筆回到基準判定幀(**721 / 1160 / 970 / 607,一幀不差**);
+  修復後乾淨全量回歸 **146 pass / 1 fail / 0 timeout(147 測,6.21 h)**。
+- **可帶走的教訓**:**凡是影響模擬組態的條件,不要由路徑/資料夾名稱推導**,要由 CLI flag 或
+  test mode 顯式指定。(與 `MD/testrom/2026-07-08-probe-effect-instrument-grade-shims.md`
+  的「別動被測物」是同一族教訓。)
+
+**根因證明**:[`2026-07-09-apu_mixer-timeout-root-cause-proof.md`](2026-07-09-apu_mixer-timeout-root-cause-proof.md)
+**修復計畫**:[`2026-07-09-testrom-extraram-fix-plan.md`](2026-07-09-testrom-extraram-fix-plan.md)
 
 ---
+
+> 以下為 **2026-07-09 04:xx 的原始交接紀錄**,原樣保留(症狀與已排除項仍然正確;
+> 唯 §4「剩下的嫌疑」、§6「要做什麼」的假說排序已被推翻)。
 
 ## 0. 一句話
 

@@ -3,7 +3,7 @@
 > **This is a continuously-updated living document**: every fix / closure updates its section.
 > Full evidence chains live in the per-topic notes (index at the end); this file keeps the
 > distilled knowledge. Traditional-Chinese master: `00_測試修復知識庫_總綱.md`.
-> Created 2026-07-05 | Last updated 2026-07-08 (145/1 clean full regression; shims globalized)
+> Created 2026-07-05 | Last updated 2026-07-10 (**146/1 on 147 tests**; the `$6000` extraram path regression is fixed)
 
 ## 0. Status at a glance
 
@@ -20,6 +20,8 @@
 | 2026-07-05 | **142/3 (97.9%)** | double_2007_read solved: global zero-footprint Dbl2007Shim (instrument-grade InstClampLow; Gemini consult settled the general principle, 2.6 probe effect); dma_2007_read collateral fully recovered after three misfire lessons; read_buffer #67 same-root hypothesis disproven (still FAIL with the shim); 10-even_odd reclassified as a ~1-dot integration offset (fix campaign started) |
 | 2026-07-05 | **141/4 (97.2%)** | exec_space_apu solved: board tie polarity (u7/u8 spare inputs vss → floating TTL should read high) + cold-port bit0; full $4000→$40FF walk passes; tie blast-radius regression 7/7 green |
 | **2026-07-07/08** | **145/1 (99.3%) — clean full regression closed** | even_odd + #67 both solved (behavioral shims, made **global** = the Gemini principle "runtime instrument-grade shims should be global; per-test = overfitting"); oam_stress + oam_read_vbl_wait enrolled and PASS; 146 tests in 7h58m, zero surprises, sole FAIL = cpu_dummy_writes_oam (faithful deviation). Perf: weighted mean 111.8 khc/s, aggregate 502, steady-state 660 @7 lanes (20 s stagger excluded). Runner gained LPT "longest-first" scheduling + 1.5× typicalFrames kill-cap |
+| 2026-07-09 | **infrastructure regression + fix** | After bundling the ROMs into the repo (`romBase` → `tools/testrom/roms`), **every class-A test** reported `detection=none / timeout`. Root cause: `LoadSystem()` decided whether to mount `cart-extraram` (the $6000 work RAM) from a ROM **path string** heuristic, and the new path missed it. Fix: test mode now sets `ForceExtraRam=true` explicitly (commit `23ddd89`). The **golden checksum never moved** (`0x794A43ABDF169ADA`) — the engine and its bit-exactness were never harmed. See §3.4 |
+| **2026-07-09/10** | **146/1 (99.3%, 147 tests) — clean full regression** | First full sweep on the fixed engine: **146 pass / 1 fail / 0 timeouts**, 6.21 h (21:26→03:38) @7 lanes. The four apu_mixer tests are back at their baseline verdict frames (721/1160/970/607, exact). With the ROMs bundled, `oam_read_vbl_wait` resolves instead of being skipped, so 147 tests are judged instead of 146. Sole FAIL is still cpu_dummy_writes_oam (faithful deviation). Perf: 14.45 G hc, 36.1 core-hours, weighted mean **111.1 khc/s**, campaign aggregate **646.6 khc/s** |
 
 Reference machine: **NES-001 + RP2A03G + RP2C02G** (the revisions the Visual2A03/2C02 dies
 were photographed from; also AccuracyCoin's target). Repair doctrine (user's rule):
@@ -190,22 +192,57 @@ f138, #67 f1274, oam_stress f1709 all PASS, the other 143 all green.
 
 > ~~10-even_odd_timing~~ **fixed and moved out** — see §3.1 #13: the ~1-dot integration offset is supplied by a narrow-window write-delay shim, now PASSES (`08 08 09 07`).
 
-### 3.3 Remaining FAILs (1, closed by the 2026-07-07/08 clean full regression)
+### 3.3 Remaining FAILs (1, closed by the 2026-07-09/10 clean full regression)
 
 | test | area | state |
 |---|---|---|
 | cpu_dummy_writes_oam | OAM / OAMADDR | **the sole remaining FAIL, a permanent faithful deviation** (§3.2): RP2C02G OAMADDR-write corruption — real G hardware fails it too; AprNes/TriCNES implement the fixed revisions' idealized behavior and therefore pass. Remains FAIL |
 
-**Ceiling reached**: **145/1 (99.3%)** — even_odd (§3.1 #13) and #67 (§3.1 #14) are both fixed
-via global behavioral shims and now PASS; cpu_dummy_writes_oam is the only permanent faithful
+**Ceiling reached**: **146/1 (99.3%, 147 tests)** — even_odd (§3.1 #13) and #67 (§3.1 #14) are both
+fixed via global behavioral shims and now PASS; cpu_dummy_writes_oam is the only permanent faithful
 FAIL. Going higher would mean replacing the G die's corruption behavior (= moving away from the
-pinned machine), so 145/1 is the effective ceiling for the target console (NES-001 + RP2A03G +
-RP2C02G).
+pinned machine), so 146/1 is the effective ceiling for the target console (NES-001 + RP2A03G +
+RP2C02G). (147 judged instead of 146: with the ROMs bundled, `oam_read_vbl_wait` no longer skips.)
 
 Known deviation with no failing test today: DMA halt scheduling one APU cycle later
 than AC's real-hardware measurement (same 2.1 race family, living at the
 run_latch/en_latch stage) — if ever needed, generalize via "ACLK pass-gate edge
 capture" (minimal prototype first).
+
+### 3.4 Infrastructure regression: simulation config inferred from a path (2026-07-09, fixed)
+
+**Not an engine bug — a harness bug.** But it briefly made *every* class-A test fail spuriously,
+so it belongs in the record.
+
+- **Symptom**: after bundling the ROMs into the repo (`romBase` `nes-test-roms-master/checked` →
+  `tools/testrom/roms`), the four apu_mixer tests — and in fact *any* `$6000` test — reported
+  `detection=none / timeout`. Screen-verdict (class B) tests were unaffected.
+- **Root cause**: `WireCore.LoadSystem()` used a ROM **path string** heuristic (`nes-test-roms` /
+  `nes_test`) to decide whether to load `cart-extraram` — the module the blargg `$6000` protocol's
+  work RAM lives in. The new path contained neither keyword, so the RAM was absent, the signature
+  area did not exist, and the runner never saw `$6000` at all.
+- **Minimal proof** (same DLL, same ROM `11-special.nes`): bundled path without `--extra-ram` →
+  timeout; bundled path *with* `--extra-ram` → pass (f=11); old path without it → pass (f=11,
+  because the path hit the heuristic).
+- **Fix** (commit `23ddd89`): test mode sets `WireCore.ForceExtraRam = true` before `LoadSystem()`
+  (`Test/TestRunner.Test.cs`). This also fixes direct CLI use (`dotnet ... --test <any path>`), and
+  since the benchmark never enters `RunOneTest()` the golden checksum is untouched (re-verified at
+  `0x794A43ABDF169ADA`).
+- **What it was NOT**: too-tight frame budgets (`detection=none` means the signature never appeared),
+  corrupted ROMs (md5-identical), or a rebuilt DLL / .NET preview breaking bit-exactness (**the golden
+  checksum never moved**). All three were wrongly suspected at the time.
+
+**The general rule (same family as §2.6's "don't touch the DUT")**:
+> **Anything that changes the simulated configuration must be stated explicitly — a CLI flag or a
+> test-mode setting — never inferred from a directory or file name.**
+
+**Suggested guard** (not yet implemented): before a full regression, run two canaries — one short
+`$6000` test (`nes_instr_test/rom_singles/11-special.nes`, expect `detection=6000`) and the 300k
+golden checksum. Abort on either mismatch rather than spending 6–8 hours on a broken verdict path.
+
+Full evidence: [root-cause proof](../ISSUE/2026-07-09-apu_mixer-timeout-root-cause-proof.md),
+[fix plan](../ISSUE/2026-07-09-testrom-extraram-fix-plan.md),
+[original handoff note (with the disproven hypothesis)](../ISSUE/2026-07-09-apu_mixer-all-timeout-after-rebuild.md).
 
 ## 4. Instrument inventory (all reusable)
 
@@ -274,6 +311,7 @@ Every deep investigation followed the same siege procedure, now proven:
 - [2026-07-05 Socket Pattern / global-DUT-fix principle](2026-07-05-socket-pattern-target-architecture.en.md) — Gemini's principle: runtime instrument shims are now **globalized** per this (§3.1 global note, §2.6); only the load-time joypad stays a per-test stopgap
 - [2026-07-08 Don't Touch the DUT: probe effect & instrument-grade shims (teaching)](2026-07-08-probe-effect-instrument-grade-shims.en.md) — teaching write-up: why a zero-fire graph edit broke an unrelated test, Gemini's instrument-grade force/release principle, Socket Pattern, Graph Fingerprint (also linked from the report page)
 - [2026-07-08 Test-ROM toolchain tutorial](2026-07-08-testrom-toolchain-tutorial.en.md) — hands-on: the one-click bat, manual `run_tests.py`, reading results, verifying a single test, the bundled ROMs (also linked from the report page)
+- [2026-07-09 `$6000` extraram path regression: root-cause proof](../ISSUE/2026-07-09-apu_mixer-timeout-root-cause-proof.md) (ZH) + [fix plan](../ISSUE/2026-07-09-testrom-extraram-fix-plan.md) (ZH) + [original handoff note, with the disproven hypothesis](../ISSUE/2026-07-09-apu_mixer-all-timeout-after-rebuild.md) (ZH) — §3.4: never infer simulation config from a path; includes the minimal proof experiment and the canary guard proposal
 
 **Workflow & test selection**
 - [2026-07-02 S1 test-ROM workflow](../testrom_workflow/2026-07-02-s1-testrom-workflow.en.md) — the test workflow

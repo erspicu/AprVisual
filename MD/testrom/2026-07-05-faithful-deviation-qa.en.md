@@ -1,6 +1,6 @@
 # Faithful Deviations — an In-Depth Q&A: why some tests are *supposed* to fail here
 
-> After the 2026-07-07/08 clean full regression closed at **145/1 (99.3%)**, just
+> After the 2026-07-09/10 clean full regression closed at **146/1 (99.3%, 147 tests)**, just
 > **one** long-standing FAIL remains: `cpu_dummy_writes_oam` — the genuine
 > faithful deviation we **do not intend to make pass** (the RP2C02G's
 > revision-specific OAMADDR-write corruption, which real G hardware fails too).
@@ -141,7 +141,7 @@ either outcome is valuable data.
 **A:** A fair concern — best answered with the auditable record:
 
 1. **Far more was fixed than classified**: the score went from 115/26 to
-   **145/1** with 12+ fixes — three of which (DMC latch, ALU latch, frame-IRQ)
+   **146/1** with 12+ fixes — three of which (DMC latch, ALU latch, frame-IRQ)
    are themselves "analog races": whenever real hardware behaves
    deterministically, we fix rather than classify.
 2. The category has **admission criteria** (the five clauses of §0) and

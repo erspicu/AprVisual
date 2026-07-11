@@ -24,6 +24,7 @@ namespace AprVisual.Test
         private static HashSet<string>? _expectedCrcs;    // --expected-crc: C-class screen-CRC compare (comma-separated accept set)
         private static bool _screenVerdict;               // --screen-verdict: B-class per-frame nametable scan for terminal Passed/Failed/$0X markers
         internal static bool _acVerdict;                  // --ac-verdict: AccuracyCoin unattended completion block in CPU RAM; implies NO cart-extraram (open-bus tests)
+        private static bool _acDumpWork;                  // --ac-dump-work: dump AccuracyCoin scratch/results RAM $0500-$06FF at verdict
         internal static int _progressFrames;              // --progress-frames N: every N frames, checkpoint a screenshot + a status line (0 = off)
         internal static string? _progressDir;             // --progress-dir DIR: where those checkpoints land
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
@@ -31,6 +32,7 @@ namespace AprVisual.Test
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
         private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
         internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
+        internal static bool _noPpuAleReadFeedbackShim;    // --no-ppu-ale-read-feedback-shim: A/B the CHR analog-loop guard
         internal static int  _ppuWriteDelayHc = 16;        // $2001 write-effect delay in hc (even_odd; GLOBAL test-mode, --ppu-write-delay overrides, 0=off)
         internal static bool _oamDmaPpuBusShim = true;      // $4014-from-PPU-I/O-bus OAM write-data hold (GLOBAL test-mode; --no-oam-dma-ppu-bus-shim disables)
         internal static bool _noShims;                     // --no-shims: disable ALL test-mode shims (diagnostics)
@@ -114,13 +116,29 @@ namespace AprVisual.Test
                         break;
                     case "--screen-verdict":  _screenVerdict = true; break;                                                    // test mode: B-class screen-text detection
                     case "--ac-verdict":      _acVerdict = true; break;                                                       // test mode: AccuracyCoin completion block ($07F0 = DE B0 61); disables cart-extraram
+                    case "--ac-dump-work":    _acDumpWork = true; break;                                                     // diagnostic: dump AccuracyCoin work/results RAM for oracle comparison
                     case "--progress-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _progressFrames); break;   // test mode: checkpoint cadence, in simulation frames
                     case "--progress-dir":    if (i + 1 < args.Length) _progressDir = args[++i]; break;                       // test mode: checkpoint output directory
+                    case "--callback-drain-limit":                                                                        // diagnostic: fail with callback/node evidence instead of hanging
+                        if (i + 1 < args.Length && int.TryParse(args[++i], out int callbackDrainLimit))
+                            WireCore.CallbackDrainLimit = Math.Max(0, callbackDrainLimit);
+                        break;
+                    case "--ppu-memory-trace":                                                                            // diagnostic: trace CHR/VRAM callbacks while CPU PC is in an inclusive hex range
+                        if (i + 2 < args.Length)
+                        {
+                            WireCore.PpuMemoryTracePcLo = Convert.ToInt32(args[++i], 16);
+                            WireCore.PpuMemoryTracePcHi = Convert.ToInt32(args[++i], 16);
+                        }
+                        break;
+                    case "--ppu-memory-trace-x":                                                                          // diagnostic: optional CPU X filter for --ppu-memory-trace
+                        if (i + 1 < args.Length) WireCore.PpuMemoryTraceX = Convert.ToInt32(args[++i], 16);
+                        break;
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
                     case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
                     case "--no-dbl2007-shim": _noDbl2007Shim = true; break;                                                        // DIAGNOSTIC: A/B the $2007 double-read merge shim
+                    case "--no-ppu-ale-read-feedback-shim": _noPpuAleReadFeedbackShim = true; break;                              // DIAGNOSTIC: expose the raw ALE+Read binary feedback loop
                     case "--no-shims":        _noShims = true; break;                                                                   // DIAGNOSTIC: disable all test-mode shims
                     case "--joypad":          _joypad = true; break;                                                                     // per-test: behavioral joypad + u7/u8 tie-rewire (needed for controller/exec_space)
                     case "--ppu-write-delay": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayHc); break;           // $2001 write-effect delay N hc (even_odd campaign)
@@ -249,6 +267,11 @@ namespace AprVisual.Test
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
+                    [--callback-drain-limit <N>]           diagnostic: throw with callback/node evidence if one drain exceeds N dispatches
+                    [--ppu-memory-trace <lo> <hi>]         diagnostic: trace CHR/VRAM callbacks while CPU PC is in this hex range
+                    [--ppu-memory-trace-x <hex>]           diagnostic: restrict PPU memory trace to one CPU X value
+                    [--no-ppu-ale-read-feedback-shim]      diagnostic: disable the CHR ALE+Read analog-feedback guard
+                    [--ac-dump-work]                       diagnostic: dump AccuracyCoin CPU RAM $0500-$06FF at verdict
 
                   (no args)                                print this usage
                 """);

@@ -40,6 +40,22 @@ namespace AprVisual.Sim
             var nes001 = LoadModuleDef(SystemDefDir, "nes-001");
             var cartMmu0 = LoadModuleDef(SystemDefDir, "cart-mmu0");
 
+            // The stock MetalNES cart definition is hard-wired for vertical mirroring. NROM boards
+            // instead wire CIRAM A10 according to the iNES header: PPU A11 for horizontal mirroring,
+            // PPU A10 for vertical mirroring. Keep the connection count/order unchanged so choosing
+            // the ROM's wiring does not perturb node allocation.
+            string ciramSource = _rom?.HorizontalMirroring == true ? "edge.ppu_a11" : "edge.ppu_a10";
+            for (int i = 0; i < cartMmu0.Connections.Count; i++)
+            {
+                var connection = cartMmu0.Connections[i];
+                if (connection.From == "edge.ciram_a10"
+                    && (connection.To == "edge.ppu_a10" || connection.To == "edge.ppu_a11"))
+                {
+                    cartMmu0.Connections[i] = (connection.From, ciramSource);
+                    break;
+                }
+            }
+
             // Append the runtime cartridge sub-modules to cart-mmu0 (prefix "" → instantiated under "cart").
             LoadModuleDef(SystemDefDir, "cart-mmu0-prgrom");
             cartMmu0.SubModules.Add(new SubModuleRef { Prefix = "", Type = "cart-mmu0-prgrom" });

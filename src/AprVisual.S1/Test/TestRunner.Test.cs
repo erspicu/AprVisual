@@ -59,6 +59,9 @@ namespace AprVisual.Test
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
+            // Must be selected before LoadSystem: the CHR handler needs ALE and /RD in its callback
+            // trigger so it refreshes immediately after the analog-feedback window closes.
+            WireCore.PpuAleReadFeedbackShim = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
             // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
             // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
             // path heuristic, silently dropped the $6000 RAM, and made every class-A test report
@@ -79,6 +82,8 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
+                if (WireCore.PpuAleReadFeedbackShim)
+                    Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
                 if (!_noShims)
                 {
                     WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
@@ -322,6 +327,18 @@ namespace AprVisual.Test
                 Console.WriteLine($"{label} | {Path.GetFileName(path)} | {name}");
                 if (resultText.Length > 0) Console.WriteLine(resultText);
                 Console.WriteLine($"# frames={frames} simSec={frames / 60.0988:F1} wallSec={wallSecs:F0} hc={hcRun:N0} detection={detection} resets={resetCount} load={loadSecs:F0}s");
+                if (WireCore.PpuAleReadFeedbackShim)
+                    Console.WriteLine($"# [shim] PPU ALE/read feedback holds={WireCore.PpuAleReadFeedbackHoldCount:N0}");
+                WireCore.DumpPpuMemoryTrace();
+                if (_acDumpWork && acRam != null)
+                {
+                    for (int row = 0x500; row < 0x700; row += 0x10)
+                    {
+                        var dump = new StringBuilder($"AC_WORK_{row:X4}:");
+                        for (int i = 0; i < 0x10; i++) dump.Append($" {acRam.Read(row + i):X2}");
+                        Console.WriteLine(dump);
+                    }
+                }
 #if DEBUG
                 // Guard telemetry: how much settle↔callback recursion the re-entrancy guard absorbed. In the
                 // no-guard build this depth WAS the stack — ~24021 on AccuracyCoin. (DEBUG builds only.)

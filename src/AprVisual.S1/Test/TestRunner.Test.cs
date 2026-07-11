@@ -99,8 +99,35 @@ namespace AprVisual.Test
                 if (_progressFrames > 0 && _progressDir != null)
                 {
                     Directory.CreateDirectory(_progressDir);   // WriteProgress swallows its exceptions; don't let a missing dir look like "no progress yet"
-                    Console.Error.WriteLine($"# [progress] checkpoint every {_progressFrames} frames -> {_progressDir}");
+
+                    // Start the log clean. WriteProgress APPENDS, so re-running into a directory that still
+                    // holds an earlier run would splice the two: frame jumps backwards, wallSec restarts, and
+                    // the differenced throughput series reads negative time. A run's data must describe ONE run.
+                    string jsonl = Path.Combine(_progressDir, "progress.jsonl");
+                    int stalePngs = 0;
+                    try
+                    {
+                        if (File.Exists(jsonl)) File.Delete(jsonl);
+                        foreach (string old in Directory.EnumerateFiles(_progressDir, "f??????.png")) { File.Delete(old); stalePngs++; }
+                        string latest = Path.Combine(_progressDir, "latest.png");
+                        if (File.Exists(latest)) File.Delete(latest);
+                    }
+                    catch (Exception ex) { Console.Error.WriteLine($"# [progress] WARNING: could not clear stale checkpoints ({ex.Message}) -- data may be mixed"); }
+
+                    Console.Error.WriteLine($"# [progress] checkpoint every {_progressFrames} frames -> {_progressDir}"
+                                          + (stalePngs > 0 ? $"  (cleared {stalePngs} stale checkpoints from a previous run)" : ""));
                 }
+
+                // Same hazard, worse consequence: a leftover result JSON / screenshot from an earlier run is
+                // this run's ONLY completion signal (ac_watch.py polls for the JSON and mails the verdict the
+                // moment it appears). Leave one lying around and a fresh run reports a stale result instantly.
+                // Delete them up front so their existence always means "THIS run produced them".
+                try
+                {
+                    if (_testJsonPath != null && File.Exists(_testJsonPath)) File.Delete(_testJsonPath);
+                    if (_testShotPath != null && File.Exists(_testShotPath)) File.Delete(_testShotPath);
+                }
+                catch (Exception ex) { Console.Error.WriteLine($"# WARNING: could not clear a stale result file ({ex.Message})"); }
 
                 // PPU open-bus decay shim (test mode only). The real 2C02's io-bus latch (the "decay
                 // register") leaks to 0 in ~600 ms when not refreshed (ppu_open_bus readme: "some decay
@@ -295,6 +322,11 @@ namespace AprVisual.Test
                 Console.WriteLine($"{label} | {Path.GetFileName(path)} | {name}");
                 if (resultText.Length > 0) Console.WriteLine(resultText);
                 Console.WriteLine($"# frames={frames} simSec={frames / 60.0988:F1} wallSec={wallSecs:F0} hc={hcRun:N0} detection={detection} resets={resetCount} load={loadSecs:F0}s");
+#if DEBUG
+                // Guard telemetry: how much settle↔callback recursion the re-entrancy guard absorbed. In the
+                // no-guard build this depth WAS the stack — ~24021 on AccuracyCoin. (DEBUG builds only.)
+                Console.WriteLine($"# [guard] nested entries absorbed: total={WireCore.GuardBlockedTotal:N0}  max-per-drain={WireCore.GuardBlockedMax:N0} (= recursion depth avoided)");
+#endif
 
                 if (_testJsonPath != null)
                     WriteTestJson(path, status, resultCode, detection, resultText, frames, wallSecs, loadSecs, hcRun, resetCount);

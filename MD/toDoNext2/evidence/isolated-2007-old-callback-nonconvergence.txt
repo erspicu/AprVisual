@@ -1,0 +1,40 @@
+AccuracyCoin isolated $2007 Stress, pre-fix S1 callback non-convergence
+Captured: 2026-07-11 23:07 Asia/Taipei
+
+Command:
+dotnet .\src\AprVisual.S1\bin\Release\net11.0\AprVisual.S1.dll --test .\AprAccuracyCoinUnattended\AccuracyCoin_2007Stress.nes --ac-verdict --max-frames 400 --callback-drain-limit 2000 --reset-hold-extra 1 --pin 4 --progress-frames 10 --progress-dir C:\ai_project\AprVisual\temp\ac2007_isolated_proof --system-def-dir .\AprVisualBenchMark\data\system-def
+
+ROM SHA-256:
+DC48DC8FD36459A514181686CCAD9ABE8EC9421589B5A9755B6E6FC185530A1B
+
+Last completed checkpoint:
+{"frame":290,"simSec":4.83,"hc":207213392,"wallSec":1497.3,"secPerFrame":5.16,"debugEc":255,"utc":"2026-07-11T15:06:45Z"}
+
+Captured stderr (the 16-entry recent ring alternated the same two callbacks):
+Unhandled exception. System.InvalidOperationException: WireCore.InvokeCallbacks: non-converging callback drain (limit=2000, batches=1000)
+t=210137244  PC=9CE6  A=24 X=F6 Y=00 P=14 S=E4  IR=A9  AB=9CE6 DB=A9
+pending=0 processing=2 recalc-next=0
+top callbacks (capture window):
+     257x MemReadWrite target=14683 callback:u4.cs,ppu.wr,BA0,BA1,BA2,BA3,BA4,BA5,BA6,BA7,BA8,BA9,BA10,BD0,BD1,BD2,BD3,BD4,BD5,BD6,BD7 states=[u4.cs=1,ppu.wr=1,BA0=0,BA1=1,BA2=1,BA3=0,BA4=0,BA5=0,BA6=0,BA7=0,BA8=0,BA9=0,BA10=0,BD0=0,BD1=1,BD2=1,BD3=0,BD4=0,BD5=0,BD6=0,BD7=0]
+     256x MemRead target=14685 callback:BA13,BA0,BA1,BA2,BA3,BA4,BA5,BA6,BA7,BA8,BA9,BA10,BA11,BA12,BD0,BD1,BD2,BD3,BD4,BD5,BD6,BD7 states=[BA13=0,BA0=0,BA1=1,BA2=1,BA3=0,BA4=0,BA5=0,BA6=0,BA7=0,BA8=0,BA9=0,BA10=0,BA11=0,BA12=0,BD0=0,BD1=1,BD2=1,BD3=0,BD4=0,BD5=0,BD6=0,BD7=0]
+last callbacks:
+  MemRead target=14685 callback:BA13,BA0,BA1,BA2,BA3,BA4,BA5,BA6,BA7,BA8,BA9,BA10,BA11,BA12,BD0,BD1,BD2,BD3,BD4,BD5,BD6,BD7
+  MemReadWrite target=14683 callback:u4.cs,ppu.wr,BA0,BA1,BA2,BA3,BA4,BA5,BA6,BA7,BA8,BA9,BA10,BD0,BD1,BD2,BD3,BD4,BD5,BD6,BD7
+  (the pair above repeats for all 16 captured entries)
+
+Stack:
+   at AprVisual.Sim.WireCore.ThrowCallbackDrainNonConvergence(...)
+   at AprVisual.Sim.WireCore.DrainCallbacksWithLimit(Int32 limit)
+   at AprVisual.Sim.WireCore.InvokeCallbacks()
+   at AprVisual.Sim.WireCore.StepCycle()
+   at AprVisual.Sim.WireCore.RunFrame(Int64 maxHalfCycles)
+   at AprVisual.Test.TestRunner.RunOneTest(...)
+
+Address mapping from AccuracyCoin_2007Stress.fns / ROM bytes:
+  TEST_2007StressTest_Loop2 = $9CD4
+  $9CE3: AD 07 20  LDA $2007
+  $9CE6: A9 00     LDA #$00
+
+The drain therefore failed immediately after the first $2007 read in that loop,
+with X=$F6. The exception time is approximately frame 294.01; frame 290 is the
+last fully persisted checkpoint.

@@ -1,0 +1,46 @@
+AccuracyCoin $2007 dot-$F6 fast hang-probe A/B
+Captured: 2026-07-11 23:29 Asia/Taipei
+
+Probe ROM:
+  AprAccuracyCoinUnattended/AccuracyCoin_2007HangProbe.nes
+  SHA-256 A1D4E7D128A60B17AED3D57D94AA3F702254AE1136483A4D56467333D57D69D0
+
+Method:
+  The full isolated test fails with X=$F6 (246). One CPU cycle is three PPU
+  dots, so the probe adds 82 CPU cycles before the first stress read and exits
+  immediately after that access returns. Normal AccuracyCoin boot, timing
+  pre-tests, RunTest, and the $07F0 completion contract are retained.
+
+No ALE/read guard (ROM d[] trigger was already removed):
+  last checkpoint: frame 45
+  exception: non-converging callback drain (limit=2000, batches=1000)
+  t=34312188  PC=9CE6  A=00 X=00 Y=00 P=16 S=E4  IR=A9  AB=9CE6 DB=A9
+  top pair:
+    257x MemReadWrite callback:u4.cs,ppu.wr,BA0..BA10,BD0..BD7
+    256x MemRead      callback:BA13,BA0..BA12
+
+ALE/read guard enabled:
+  PASS | AccuracyCoin_2007HangProbe.nes | AccuracyCoin_2007HangProbe
+  AccuracyCoin: 1/1 passed, 0 skipped
+  frames=49 simSec=0.8 wallSec=261 hc=34,962,016 detection=ac resets=0 load=2s
+
+Final-source toggle A/B (same DLL, only CLI flag differs):
+  enabled:
+    # [shim] PPU ALE/read feedback hold at t=34312188 addr=$003C
+    PASS at frame 49, hc=34,962,016
+  --no-ppu-ale-read-feedback-shim:
+    last checkpoint frame 45
+    non-converging callback drain (limit=2000, batches=1000)
+
+The hold and the disabled-run exception occur at the same simulation time
+(`t=34312188`). This rules out the added callback watchers merely perturbing
+ordering: the guard branch itself resolves the documented analog window.
+
+AprNesRef behavior oracle:
+  AC_DONE_HEX:00000000000000000000000000000000DEB06101010000000000000000000000
+
+Interpretation:
+  The 82-cycle phase shift reproduces the same PC and callback pair in about
+  four minutes instead of roughly 25 minutes for the isolated full test or
+  6.9 hours for the 141-test run. The guarded A/B reaches completion without
+  truncating transistor settle or callback drain.

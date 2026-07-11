@@ -1,0 +1,23 @@
+AccuracyCoin isolated $2007 Stress, ROM d[] trigger removed but no ALE/read guard
+Captured: 2026-07-11 23:16 Asia/Taipei
+
+ROM SHA-256:
+DC48DC8FD36459A514181686CCAD9ABE8EC9421589B5A9755B6E6FC185530A1B
+
+Last completed checkpoint:
+{"frame":290,"simSec":4.83,"hc":207213392,"wallSec":1480.5,"secPerFrame":5.11,"debugEc":255,"utc":"2026-07-11T15:16:01Z"}
+
+Exception:
+WireCore.InvokeCallbacks: non-converging callback drain (limit=2000, batches=1000)
+t=210137244  PC=9CE6  A=24 X=F6 Y=00 P=14 S=E4  IR=A9  AB=9CE6 DB=A9
+pending=0 processing=2 recalc-next=0
+
+Top callbacks (513-dispatch capture window):
+  257x MemReadWrite callback:u4.cs,ppu.wr,BA0..BA10,BD0..BD7
+  256x MemRead      callback:BA13,BA0..BA12
+
+The CHR MemRead watcher no longer contains BD0..BD7, proving that removing the
+ROM data-bus trigger worked as intended. The exact same t/PC/X failure remains,
+and the recent ring still alternates CHR ROM and u4 VRAM. BA[] address changes
+therefore sustain the ROM -> BD -> transparent latch -> BA -> ROM loop by
+themselves. Removing d[] is correct cleanup, but it is not the complete fix.

@@ -1,0 +1,29 @@
+AccuracyCoin $2007 background-to-sprite five-sample probe
+Captured: 2026-07-12 Asia/Taipei
+
+ROM:
+  AccuracyCoin_2007SpriteProbe.nes
+  SHA-256 30BC53CE35D3CEF7E2FF7059FF07D3CA29F19A6F09CC0A7B8C83D35BDE1D86D0
+
+Stable contract:
+  CPU RAM offset $0500 / original $05FF = $18
+  CPU RAM offset $0502 / original $0601 = $02
+  CPU RAM offset $0504 / original $0603 = $00
+  Offsets $0501 and $0503 are analog/ungraded.
+
+AprNesRef/AprNes behavioral oracle:
+  AC_DONE_HEX: ... DEB061010100 ...
+  DEBUG_0500: 18 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00
+  Stable offsets 0/2/4: 18 02 00
+
+AprVisual.S1 current working tree (cycle-aware guard + iNES mirroring):
+  PASS | AccuracyCoin_2007SpriteProbe.nes
+  AccuracyCoin: 1/1 passed, 0 skipped
+  frames=53  wallSec=274  hc=37,820,959
+  PPU ALE/read feedback holds=0
+  AC_WORK_0500: 18 C0 02 02 00 00 00 00 00 00 00 00 00 00 00 00
+  Stable offsets 0/2/4: 18 02 00
+
+Interpretation:
+  Every graded byte matches the oracle. Raw analog bytes intentionally need
+  not match. This is a narrow boundary validation, not the full Stress verdict.

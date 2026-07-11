@@ -5,6 +5,13 @@
 >
 > 建立於 2026-07-11。狀態:**未修復,已定位**。
 
+> 2026-07-12 更新:本文件保留為最初定位紀錄。後續已取得 callback 現場、建立快速 ROM、
+> 實作候選修正並通過窄範圍 Probe，但目前候選尚未重跑完整 `$2007 Stress`。
+> 最新狀態與驗證限制請改讀
+> [`2026-07-12-AccuracyCoin-2007Stress-resolution-status-and-handoff.md`](2026-07-12-AccuracyCoin-2007Stress-resolution-status-and-handoff.md)，
+> 修正設計見
+> [`2026-07-12-AccuracyCoin-2007Stress-fix-design.md`](2026-07-12-AccuracyCoin-2007Stress-fix-design.md)。
+
 ---
 
 ## 0. 一句話

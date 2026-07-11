@@ -1,0 +1,25 @@
+AccuracyCoin isolated $2007 Stress with broad ALE+/RD hold
+Captured: 2026-07-12 Asia/Taipei
+
+Configuration at this historical run:
+  - read-only ROM d[] callback trigger removed
+  - every cart.chr ALE-high + physical-/RD-low overlap held prior ROM output
+  - callback drain limit 2000
+  - isolated AccuracyCoin_2007Stress.nes
+
+Result:
+  FAIL(1) | AccuracyCoin_2007Stress.nes
+  AccuracyCoin: 0/1 passed, 0 skipped
+  frames=389
+  wallSec=1977
+  hc=277,972,256
+  detection=ac
+
+Interpretation:
+  The broad hold resolves callback non-convergence and lets the ROM reach its
+  answer-key evaluation, but produces at least one wrong stable sample.
+  Therefore "the process no longer hangs" is not an acceptable fix criterion.
+
+Limitation:
+  This predates the current cycle-aware guard and iNES-header mirroring change.
+  It is rejection evidence for broad hold, not a verdict on the current candidate.

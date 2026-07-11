@@ -1,0 +1,20 @@
+AccuracyCoin $2007 two-sample feedback probe
+Captured: 2026-07-12 Asia/Taipei
+
+ROM:
+  AprAccuracyCoinUnattended/AccuracyCoin_2007FeedbackProbe.nes
+
+AprNesRef/AprNes behavioral oracle:
+  AC_DONE_HEX: ... DEB061010100 ...
+  DEBUG_0500: 3C 3C 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+AprVisual.S1 with the historical broad ALE+/RD hold:
+  PASS | AccuracyCoin_2007FeedbackProbe.nes
+  AccuracyCoin: 1/1 passed, 0 skipped
+  frames=50  wallSec=274  hc=35,676,751
+  AC_WORK_0500: 06 3C 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+Interpretation:
+  The first byte is an explicitly ungraded analog sample and may differ.
+  The following stable byte is $3C in both engines. Broad hold did not corrupt
+  the immediately adjacent stable fetch, so the full 0/1 failure was elsewhere.

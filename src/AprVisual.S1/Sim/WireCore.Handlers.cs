@@ -123,33 +123,72 @@ namespace AprVisual.Sim
             if (node != null) node.Callback = info;
         }
 
+        private static bool _invoking;   // re-entrancy guard for InvokeCallbacks (see the note below)
+#if DEBUG
+        internal static long GuardBlockedTotal;   // cumulative nested entries the guard absorbed
+        internal static int  GuardBlockedMax;     // max nested entries within a single outermost drain (~old recursion depth)
+        private  static int  _guardBlocksThisDrain;
+#endif
+
         // Called by ProcessQueue() once the dust settles (see WireCore.Recalc.cs). Common case is
-        // no pending — O(1) return. Re-entrant-safe via swap-and-drain: a callback may drive nodes
-        // → ProcessQueue → InvokeCallbacks recursively; the new pending list gets drained on the
-        // next outer-loop iteration. Enqueued flag still prevents double-queueing a single callback.
+        // no pending — O(1) return (the Count==0 check below, before any guard bookkeeping).
+        //
+        // A callback may drive nodes → WriteBits → ProcessQueue → InvokeCallbacks, i.e. this method
+        // re-enters itself. The OLD code let the nested call swap the shared _pendingCallbacks /
+        // _processingCallbacks lists WHILE the outer for-loop was still iterating _processingCallbacks —
+        // which tore the outer loop (re-ran callbacks, scrambled order) and, in intense ROMs like
+        // AccuracyCoin, amplified the settle into ~24k-deep recursion that overflowed the stack.
+        //
+        // Fix: a re-entrancy guard. Only the OUTERMOST InvokeCallbacks drains; a nested entry returns at
+        // once, leaving its work in _pendingCallbacks for the outermost while-loop to pick up (it
+        // re-checks Count every iteration, so nothing is stranded — single-threaded). ProcessQueue's
+        // node-settle still runs synchronously inside WriteBits, so bus values are exact when the next
+        // callback reads them; only a *downstream callback* is deferred one drain-iteration instead of
+        // running nested — same iterative order the classic event-queue simulators use. Bounded stack.
         internal static void InvokeCallbacks()
         {
-            while (_pendingCallbacks.Count > 0)
+            if (_pendingCallbacks.Count == 0) return;   // hot path: nothing pending — no guard cost
+            if (_invoking)                              // nested re-entry: the outermost loop will drain
             {
-                // swap pending ↔ processing (zero-alloc snapshot)
-                (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
-                for (int i = 0; i < _processingCallbacks.Count; i++)
-                {
-                    var cb = _processingCallbacks[i];
-                    cb.Enqueued = false;
-                    // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
-                    switch (cb.Kind)
-                    {
-                        case HandlerKind.MemRead:      DoMemRead(cb); break;
-                        case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
-                        case HandlerKind.Video:        DoVideo(cb); break;
-                        case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
-                        case HandlerKind.Joypad:       DoJoypad(cb); break;        // behavioral controller (test mode)
-                        default:                       cb.Callback!(); break;   // Generic (rare / test)
-                    }
-                }
-                _processingCallbacks.Clear();
+#if DEBUG
+                // Each nested entry is a bus-changing callback the OLD code would have recursed into.
+                // Their count within ONE outermost drain upper-bounds the recursion depth the no-guard
+                // build reached here (~24021 on AccuracyCoin frame 4480). DEBUG-only; not in Release.
+                GuardBlockedTotal++;
+                if (++_guardBlocksThisDrain > GuardBlockedMax) GuardBlockedMax = _guardBlocksThisDrain;
+#endif
+                return;
             }
+            _invoking = true;
+#if DEBUG
+            _guardBlocksThisDrain = 0;
+#endif
+            try
+            {
+                while (_pendingCallbacks.Count > 0)
+                {
+                    // swap pending ↔ processing (zero-alloc snapshot). Safe now: no nested call can swap
+                    // these out from under the loop below — nested InvokeCallbacks returns immediately.
+                    (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
+                    for (int i = 0; i < _processingCallbacks.Count; i++)
+                    {
+                        var cb = _processingCallbacks[i];
+                        cb.Enqueued = false;
+                        // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
+                        switch (cb.Kind)
+                        {
+                            case HandlerKind.MemRead:      DoMemRead(cb); break;
+                            case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
+                            case HandlerKind.Video:        DoVideo(cb); break;
+                            case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
+                            case HandlerKind.Joypad:       DoJoypad(cb); break;        // behavioral controller (test mode)
+                            default:                       cb.Callback!(); break;   // Generic (rare / test)
+                        }
+                    }
+                    _processingCallbacks.Clear();
+                }
+            }
+            finally { _invoking = false; }
         }
 
         // ── typed handler bodies (were per-instance closures; now static, dispatched by Kind) ──

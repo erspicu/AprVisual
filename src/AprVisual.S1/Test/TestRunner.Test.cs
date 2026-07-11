@@ -295,6 +295,11 @@ namespace AprVisual.Test
                 Console.WriteLine($"{label} | {Path.GetFileName(path)} | {name}");
                 if (resultText.Length > 0) Console.WriteLine(resultText);
                 Console.WriteLine($"# frames={frames} simSec={frames / 60.0988:F1} wallSec={wallSecs:F0} hc={hcRun:N0} detection={detection} resets={resetCount} load={loadSecs:F0}s");
+#if DEBUG
+                // Guard telemetry: how much settle↔callback recursion the re-entrancy guard absorbed. In the
+                // no-guard build this depth WAS the stack — ~24021 on AccuracyCoin. (DEBUG builds only.)
+                Console.WriteLine($"# [guard] nested entries absorbed: total={WireCore.GuardBlockedTotal:N0}  max-per-drain={WireCore.GuardBlockedMax:N0} (= recursion depth avoided)");
+#endif
 
                 if (_testJsonPath != null)
                     WriteTestJson(path, status, resultCode, detection, resultText, frames, wallSecs, loadSecs, hcRun, resetCount);

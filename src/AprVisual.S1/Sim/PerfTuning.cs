@@ -130,30 +130,6 @@ namespace AprVisual.Sim
             return $"pinned to logical core {coreIdx} of {total} ({mode}; affinity mask 0x{mask:X}) | {notes.ToString().TrimEnd()}";
         }
 
-        // Re-apply ONLY the per-thread parts of a pin (affinity + thread priority) to the calling thread.
-        // Needed because affinity set by Apply() binds the thread it ran on; when the hot loop is moved to
-        // another thread (the big-stack test worker), that thread must be re-pinned or the pin is a no-op.
-        // No printing, no process-wide priority (Apply already did that). Silent best-effort off Windows.
-        public static void RepinCurrentThread(int coreOverride)
-        {
-            try { Thread.CurrentThread.Priority = ThreadPriority.Highest; } catch { }
-            if (!OperatingSystem.IsWindows()) return;
-            int total = Environment.ProcessorCount;
-            nuint mask;
-            if (coreOverride >= 0)
-            {
-                if (coreOverride >= total) return;
-                mask = (nuint)1 << coreOverride;
-            }
-            else
-            {
-                mask = AutoBestCoreMask(out _, out _);
-                if (mask == 0) return;
-            }
-            Thread.BeginThreadAffinity();
-            SetThreadAffinityMask(GetCurrentThread(), mask);
-        }
-
         // macOS best-effort: there is NO hard per-core affinity on Apple Silicon, so --pin can't pin a
         // specific core. Instead request USER_INTERACTIVE QoS for this thread, which biases the scheduler
         // onto the performance (P) cores — the macOS-idiomatic "give me the fast cores". coreOverride is

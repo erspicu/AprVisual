@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Threading;
 using AprVisual.Rom;
 using AprVisual.Sim;
 
@@ -17,7 +16,6 @@ namespace AprVisual.Test
         private static string? _dumpStatesPath;   // DIAGNOSTIC: --dump-states output path (per-node states after bench)
         private static bool _dumpArrayFootprint;   // --array-footprint: print hot unmanaged-array base+size at bench setup (for IBS/SPE data-address bucketing)
         private static bool _pinned;               // --pin: hot thread pinned + priority raised (recorded in bench log)
-        private static int _pinCore = -1;          // --pin core (re-applied on the big-stack test worker; affinity is per-thread)
 
         // ── test-ROM validation options (--test / --test-dir; see MD/testrom_workflow/) ──
         private static int _testMaxFrames = 900;          // --max-frames: simulation-frame budget — the primary limit (switch-level ≈ 5 s wall/frame)
@@ -161,7 +159,6 @@ namespace AprVisual.Test
                 // memory-latency-bound hot loop by stopping core migration from trashing L1/L2. Opt-in only;
                 // status is printed and recorded in the bench JSON ("pinned"). See Sim/PerfTuning.cs.
                 _pinned = true;
-                _pinCore = pinCore;
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
@@ -202,42 +199,18 @@ namespace AprVisual.Test
                 foreach (string f in Directory.EnumerateFiles(testDir, "*.nes", SearchOption.AllDirectories))
                 {
                     total++;
-                    if (RunOnBigStack(() => RunOneTest(f, maxWait, region, benchmark)) != 0) fail++;
+                    if (RunOneTest(f, maxWait, region, benchmark) != 0) fail++;
                 }
                 Console.WriteLine($"\n{total - fail}/{total} passed");
                 return fail == 0 ? 0 : 1;
             }
 
-            if (testPath != null) return RunOnBigStack(() => RunOneTest(testPath, maxWait, region, benchmark));
+            if (testPath != null) return RunOneTest(testPath, maxWait, region, benchmark);
 
             PrintUsage();
             return 0;
         }
 
-
-        // The engine settles the netlist by recursion: ProcessQueue -> InvokeCallbacks -> a memory
-        // callback drives the bus -> ProcessQueue -> ... One StepCycle can nest this thousands deep
-        // when a test cascades a long chain of dependent memory operations in a single frame
-        // (AccuracyCoin does, ~24k deep; the 147-ROM sweep never exceeded a few dozen). That overflows
-        // the default 1 MB thread stack. Run the whole test on a thread with a large stack instead.
-        // This is purely where the code runs, not what it computes -- bit-exact, golden checksum
-        // untouched -- so it is safe to apply to every test-mode path. Benchmark paths never reach here.
-        private const int TestStackBytes = 512 * 1024 * 1024;   // ~20000x the observed depth of headroom vs the 1 MB default
-
-        private static int RunOnBigStack(Func<int> body)
-        {
-            int rc = 0;
-            Exception? escaped = null;
-            var t = new Thread(() =>
-            {
-                if (_pinned) Sim.PerfTuning.RepinCurrentThread(_pinCore);   // affinity is per-thread; Apply() pinned the main thread, the hot loop runs here
-                try { rc = body(); } catch (Exception ex) { escaped = ex; }
-            }, TestStackBytes);
-            t.Start();
-            t.Join();
-            if (escaped != null) throw escaped;   // preserve the original failure instead of hiding it behind the worker
-            return rc;
-        }
 
         private static void PrintUsage()
         {

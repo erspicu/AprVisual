@@ -1,0 +1,9 @@
+# no-guard run (crashed with Stack overflow)
+{"frame":4460,"simSec":74.21,"hc":3187659192,"wallSec":24760.2,"secPerFrame":5.55,"debugEc":255,"utc":"2026-07-10T18:49:58Z"}
+{"frame":4470,"simSec":74.38,"hc":3194806552,"wallSec":24811.4,"secPerFrame":5.55,"debugEc":255,"utc":"2026-07-10T18:50:50Z"}
+{"frame":4480,"simSec":74.54,"hc":3201953912,"wallSec":24862.6,"secPerFrame":5.55,"debugEc":255,"utc":"2026-07-10T18:51:41Z"}
+
+# guard run (hung, no error at all)
+{"frame":4460,"simSec":74.21,"hc":3187659192,"wallSec":24794.4,"secPerFrame":5.56,"debugEc":255,"utc":"2026-07-11T13:03:34Z"}
+{"frame":4470,"simSec":74.38,"hc":3194806552,"wallSec":24845.9,"secPerFrame":5.56,"debugEc":255,"utc":"2026-07-11T13:04:25Z"}
+{"frame":4480,"simSec":74.54,"hc":3201953912,"wallSec":24897.8,"secPerFrame":5.56,"debugEc":255,"utc":"2026-07-11T13:05:17Z"}

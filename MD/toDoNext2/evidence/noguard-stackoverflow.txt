@@ -1,0 +1,36 @@
+no-guard build: Stack overflow at AccuracyCoin frame ~4480
+==========================================================
+
+PROVENANCE / 出處說明(請先讀):
+  這段是從當時 run.err.log 的實際輸出**轉錄**的,不是原始檔。
+  原始 log 檔已被覆蓋 —— 2026-07-11 12:30 重啟長跑時,PowerShell 的 Rename-Item 失敗
+  (目錄被佔用)但 Start-Process 仍然啟動了引擎,其 RedirectStandardError 把舊的
+  run.err.log 截斷覆寫掉了。progress.jsonl 因為是 append 模式所以倖存
+  (見 last-checkpoints-both-runs.txt,可獨立佐證兩次都停在 frame 4480)。
+
+  同一個事實也記錄在 commit 0b6cebd / 528fe1f 的訊息裡("~24021 on AccuracyCoin frame 4480")。
+
+實際輸出:
+--------------------------------------------------------------------
+# [shim] _io_db decay fired at frame 1520: FF -> 00
+# [shim] _io_db decay fired at frame 3477: 1F -> 00
+Stack overflow.
+   at AprVisual.Sim.WireCore.ProcessQueue()
+Repeated 24021 times:
+--------------------------------
+   at AprVisual.Sim.WireCore.InvokeCallbacks()
+--------------------------------
+   at AprVisual.Sim.WireCore.StepCycle()
+   at AprVisual.Sim.WireCore.RunFrame(Int64)
+   at AprVisual.Test.TestRunner.RunOneTest(System.String, Int32, System.String, Boolean)
+   at AprVisual.Test.TestRunner.Run(System.String[])
+   at AprVisual.Program.Main(System.String[])
+--------------------------------------------------------------------
+
+解讀:
+  - ProcessQueue <-> InvokeCallbacks 互相遞迴,巢狀 24,021 層,撐爆 .NET 預設 1 MB 執行緒堆疊。
+  - 這是 re-entrancy guard (commit 0b6cebd) 之前的行為。
+  - guard 之後 stack overflow 消失,但同一個 frame 4480 改為【無限迴圈空轉】
+    (見 hang-callback-drain.speedscope.json —— 堆疊只剩 2 層,CPU 100% 卡在 callback drain 迴圈)。
+  - 也就是說:24,021 這個深度不是「有限但很深的 cascade」,而是【無窮震盪】被堆疊上限截斷的結果。
+    這一點是整份分析的核心:兩個症狀是同一個病。

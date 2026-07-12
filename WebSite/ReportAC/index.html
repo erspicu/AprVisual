@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AccuracyCoin on a switch-level NES — AprVisual ReportAC</title>
+<style>
+  :root{
+    --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.hero{padding:56px 24px 40px; text-align:center;
+    background:radial-gradient(1100px 520px at 50% -20%, #18202c 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(30px,6vw,52px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.hero .tag{font-size:clamp(15px,3vw,19px); color:#cfe4ff; margin:0 auto 8px; max-width:760px;}
+  header.hero .sub{color:var(--mut); max-width:700px; margin:0 auto; font-size:14px;}
+  main{max-width:920px; margin:0 auto; padding:24px 20px 80px;}
+  h2{margin:2.6rem 0 1rem; font-size:clamp(20px,4vw,27px); border-bottom:1px solid var(--bd); padding-bottom:.4rem;}
+  h3{margin:1.8rem 0 .7rem; font-size:clamp(17px,3vw,21px); color:#cfe4ff;}
+  code{background:var(--code); border:1px solid var(--bd); border-radius:4px; padding:1px 6px; font-size:.92em;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:13px; line-height:1.5;}
+  pre code{background:none; border:none; padding:0;}
+  table{border-collapse:collapse; width:100%; margin:1rem 0; font-size:14px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .box{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:16px 18px; margin:1.2rem 0;}
+  .box.warn{border-color:var(--warn);}
+  .box.good{border-color:var(--good);}
+  .stat{display:flex; gap:14px; flex-wrap:wrap; margin:1.4rem 0;}
+  .stat .cell{flex:1 1 150px; background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:14px; text-align:center;}
+  .stat .n{font-size:26px; font-weight:700; color:var(--acc);}
+  .stat .l{font-size:13px; color:var(--mut); margin-top:2px;}
+  .mut{color:var(--mut);}
+  figure{margin:1.6rem 0;}
+  figcaption{color:var(--mut); font-size:.9rem; margin-top:.6rem;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  li{margin:.3rem 0;}
+</style>
+</head>
+<body class="lang-zh">
+<nav>
+  <span class="brand">AprVisual · ReportAC</span>
+  <a class="sec" href="../index.html"><span class="en">← Home</span><span class="zh">← 回首頁</span></a>
+  <a class="sec" href="../Report/"><span class="en">147-ROM report</span><span class="zh">147 顆成績單</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" onclick="setLang('en')">EN</button>
+  <button id="btn-zh" onclick="setLang('zh')">繁中</button>
+</nav>
+
+<header class="hero">
+  <h1>AccuracyCoin × switch-level</h1>
+  <p class="tag">
+    <span class="en">Running the hardest NES accuracy suite on a transistor-level simulator — unattended.</span>
+    <span class="zh">把最嚴苛的 NES 精確度測試集,丟到電晶體級模擬器上無人值守地跑。</span>
+  </p>
+  <p class="sub">
+    <span class="en">141 tests on one NROM cartridge, written for the exact die pair (RP2A03G + RP2C02G) that AprVisual.S1 simulates transistor by transistor. This page documents the campaign: what broke, what we fixed, and how we diagnosed a machine made of 30,000 transistors.</span>
+    <span class="zh">一張 NROM 卡帶裝著 141 個測試,鎖定的正是 AprVisual.S1 逐電晶體模擬的那兩顆晶粒(RP2A03G + RP2C02G)。這一頁記錄整場戰役:壞了什麼、修了什麼、以及怎麼對一台三萬電晶體的機器做除錯。</span>
+  </p>
+</header>
+
+<main>
+
+<div class="box warn">
+  <b><span class="en">Status (2026-07-12): campaign in progress.</span><span class="zh">現況(2026-07-12):戰役進行中。</span></b>
+  <span class="en">The full 141-test unattended run has not yet completed on S1 — the suite's final test (<i>Internal Data Bus</i>) stalls the run, and the hunt is documented below. Every number on this page is real and none of it is inflated: the behavioural emulator AprNes scores 141/141; the switch-level engine is not there yet, and that gap is precisely what makes this interesting.</span>
+  <span class="zh">完整 141 測試的無人值守跑在 S1 上<b>尚未</b>跑完 —— 卡在整套的最後一顆測試(<i>Internal Data Bus</i>),追查過程記錄於下。本頁所有數字都是真實的、沒有灌水:行為層模擬器 AprNes 拿 141/141;開關級引擎還沒到,而那個差距正是有趣之處。</span>
+</div>
+
+<!-- Generated by tools/testrom/ac_chart.py --inject WebSite/ReportAC/index.html
+     Do not hand-edit between the markers: stats/curve/screenshot are computed from the run's artifacts. -->
+<!-- AC-PANEL:BEGIN -->
+<!-- AC-PANEL:END -->
+
+<h2><span class="en">1 · What AccuracyCoin is, and why a fork</span><span class="zh">1 · AccuracyCoin 是什麼,為什麼要 fork</span></h2>
+
+<p class="en"><a href="https://github.com/100thCoin/AccuracyCoin" target="_blank" rel="noopener">AccuracyCoin</a> (by Chris Siebert, MIT) packs 141 accuracy tests into a single NROM ROM: CPU dummy cycles, unofficial opcodes, DMA bus conflicts, APU frame-counter timing, PPU open bus, mid-scanline stress tests. Unlike most suites it targets one specific console revision — an NTSC front-loader with the <b>RP2A03G</b> CPU and <b>RP2C02G</b> PPU. That is, coincidentally, exactly the netlist pair our simulator runs.</p>
+<p class="zh"><a href="https://github.com/100thCoin/AccuracyCoin" target="_blank" rel="noopener">AccuracyCoin</a>(Chris Siebert 作,MIT 授權)把 141 個精確度測試塞進一張 NROM 卡帶:CPU 假週期、非官方指令、DMA 匯流排衝突、APU frame counter 時序、PPU open bus、掃描線中段的壓力測試。和多數測試集不同,它鎖定單一機種版本 —— 搭載 <b>RP2A03G</b> CPU 與 <b>RP2C02G</b> PPU 的 NTSC 前置式主機。巧的是,那正是我們模擬器跑的那兩顆 netlist。</p>
+
+<p class="en">Two things stop it from running headless: it boots into a menu that needs a controller, and results only exist on screen. Our fork — <a href="https://github.com/erspicu/AprAccuracyCoinUnattended" target="_blank" rel="noopener">AprAccuracyCoinUnattended</a> — adds a hook that auto-runs the whole suite and leaves a completion block in CPU RAM (<code>$07F0</code> = <code>DE B0 61</code>, then passed / total / skipped). <b>The test loop itself is untouched</b>; the rebuilt ROM is byte-for-byte reproducible from source.</p>
+<p class="zh">有兩件事讓它無法無人值守:開機進選單要手把操作,而且結果只存在於畫面上。我們的 fork —— <a href="https://github.com/erspicu/AprAccuracyCoinUnattended" target="_blank" rel="noopener">AprAccuracyCoinUnattended</a> —— 加了一個掛勾自動跑完整套,並在 CPU RAM 留下完成區塊(<code>$07F0</code> = <code>DE B0 61</code>,接著通過數 / 總數 / 略過數)。<b>測試迴圈本身一行沒動</b>;重組譯出的 ROM 可從原始碼逐位元重現。</p>
+
+<p class="en">Judgment is read from that RAM block, never from the picture. And one configuration detail changes what the numbers mean: we do <b>not</b> mount cartridge work RAM at <code>$6000-$7FFF</code> — several AccuracyCoin tests measure the <i>open bus</i> there, and mapping RAM would answer those reads with RAM, silently corrupting them.</p>
+<p class="zh">判定值一律讀 RAM 區塊,不看畫面。還有一個會改變數字意義的配置細節:我們<b>不</b>在 <code>$6000-$7FFF</code> 掛卡帶工作 RAM —— AccuracyCoin 有數個測試就是在量那裡的 <i>open bus</i>,掛上 RAM 會讓那些讀取讀到 RAM,測試照跑照給結果,但結果是錯的。</p>
+
+<h2><span class="en">2 · What it broke — three chapters</span><span class="zh">2 · 它打壞了什麼 —— 三章戰記</span></h2>
+
+<p class="en">A suite this aggressive is a stress test for the <i>simulator</i>, not just the game console. Running it exposed real engine defects that 147 other test ROMs never touched. Each chapter below is a bug story with a lesson.</p>
+<p class="zh">這麼兇的測試集,壓的其實是<i>模擬器</i>本身。跑它暴露出的引擎缺陷,是先前 147 顆測試 ROM 從沒踩到的。以下每一章都是一個 bug 故事,各有一課。</p>
+
+<h3><span class="en">Ch. 1 — A stack overflow at frame 4480</span><span class="zh">第一章 —— frame 4480 的 Stack Overflow</span></h3>
+<p class="en">The first full run died 92% in, with <code>InvokeCallbacks</code> repeated <b>24,021 times</b> on the stack. The settle loop and the behavioural memory callbacks called each other recursively — and the callback dispatcher's claimed re-entrancy safety turned out to be false: a nested call swapped the shared pending/processing lists <i>while the outer loop was iterating them</i>, re-running callbacks and tearing the iteration. The fix is a one-bool re-entrancy guard: only the outermost dispatcher drains; nested entries return immediately. Verified bit-exact against the golden checksum at 2M and 20M half-cycles before merging.</p>
+<p class="zh">第一次完整跑在 92% 處死掉,堆疊裡 <code>InvokeCallbacks</code> 重複了 <b>24,021 層</b>。settle 迴圈和行為層記憶體 callback 互相遞迴 —— 而 callback 派發器自稱的「可重入安全」其實是假的:巢狀呼叫會在外層迴圈迭代到一半時,把共用的 pending/processing 清單整個換掉,導致 callback 被重複執行、迭代被撕裂。修法是一個布林值的重入護欄:只有最外層派發器 drain,巢狀進入立即返回。併入前用黃金 checksum 在 2M 和 20M half-cycle 驗證逐位元不變。</p>
+<p class="mut en">Lesson: "bounded stack depth" and "terminating loop" are different guarantees. The guard delivered the first — and turned the crash into an infinite spin, which led to…</p>
+<p class="mut zh">一課:「堆疊深度有上限」和「迴圈會終止」是兩回事。護欄只保證了前者 —— 把崩潰變成無限空轉,於是有了……</p>
+
+<h3><span class="en">Ch. 2 — The $2007 Stress oscillation: a loop with no fixed point</span><span class="zh">第二章 —— $2007 Stress 震盪:一條沒有固定點的迴路</span></h3>
+<p class="en">Same frame, new symptom: 100% CPU, zero progress, no error. The test deliberately makes the PPU's <code>ALE</code> and external <code>/RD</code> active together, closing a hardware loop: <i>CHR ROM data out → PPU's multiplexed AD bus → the board's transparent latch → back into CHR ROM's low address</i>. Real silicon settles this through propagation delay and drive strength. Our ROM's content happened to contain <code>ROM[$3C]=$06</code> and <code>ROM[$06]=$3C</code> — for a two-state simulator that mapping has <b>no fixed point</b>. It cannot settle, mathematically.</p>
+<p class="zh">同一個 frame,新症狀:CPU 100%、零前進、零錯誤訊息。這顆測試刻意讓 PPU 的 <code>ALE</code> 和外部 <code>/RD</code> 同時有效,閉合出一條硬體迴路:<i>CHR ROM 資料輸出 → PPU 多工 AD 匯流排 → 板上透明鎖存器 → 繞回 CHR ROM 低位址</i>。真實矽晶靠傳播延遲和驅動強度讓它定下來。而我們這顆 ROM 的內容正好是 <code>ROM[$3C]=$06</code>、<code>ROM[$06]=$3C</code> —— 對二值模擬器來說,這個映射<b>沒有固定點</b>,數學上就是解不出來。</p>
+<p class="en">The fix family, in order of generality: a <b>non-convergence detector</b> (<code>--callback-drain-limit</code>) that turns a silent spin into an exception carrying the oscillating callbacks and node states; a genuine porting bug fixed (read-only ROM callbacks were watching the very data lines they drive — self-triggering); a genuine board-model bug fixed (CIRAM A10 was hard-wired for vertical mirroring; NROM wires it per the iNES header, and AccuracyCoin is horizontal); and finally a documented shim: when ALE+/RD overlap <i>and</i> Floyd's cycle-detection proves the ROM's low-byte mapping enters a real cycle, hold the previous output — emulating what the analog loop settles to. Most overlaps still converge digitally and are left alone.</p>
+<p class="zh">修復家族,按一般性排序:一個<b>不收斂偵測器</b>(<code>--callback-drain-limit</code>),把無聲空轉變成帶著「哪些 callback 在震盪、節點狀態如何」的 exception;修掉一個真實的移植 bug(唯讀 ROM callback 監看了自己驅動的資料線 —— 自我觸發);修掉一個真實的板級模型 bug(CIRAM A10 被寫死成垂直鏡像;NROM 實際依 iNES header 接線,而 AccuracyCoin 是水平鏡像);最後是一個文件化的 shim:當 ALE+/RD 重疊<b>且</b> Floyd 判圈演算法證明 ROM 低位元組映射真的成環時,保持前一次輸出 —— 模擬類比迴路實際定下來的值。多數重疊仍可數位收斂,一律不介入。</p>
+<p class="mut en">Verified: the isolated 341-sample answer key passes 1/1; golden checksum untouched; the production ROM rebuilds byte-identical.</p>
+<p class="mut zh">驗證:isolated 341-sample 完整答案鍵 1/1 通過;黃金 checksum 不動;production ROM 重組譯逐位元相同。</p>
+
+<h3><span class="en">Ch. 3 — Test 141, "Internal Data Bus": the open hunt</span><span class="zh">第三章 —— 第 141 顆「Internal Data Bus」:進行中的追捕</span></h3>
+<p class="en">With the oscillation fixed, the formal run sailed past the old death point — through all 341 stress samples — and stalled on the <i>very last test</i> of the suite. The screen says <code>RUNNING TEST 141 / INTERNAL DATA BUS</code>; the engine is perfectly healthy (a live CPU trace shows the simulation churning normally); the emulated 6502 itself is waiting for something. Prime suspect: the test's DMA-sync helper polls open bus at <code>$4000</code> waiting for a DMC DMA fetch to drop <code>$00</code> onto the external data bus — a wait with no timeout.</p>
+<p class="zh">震盪修好後,正式跑一路衝過舊死點 —— 341 個壓力取樣全數通過 —— 然後停在整套的<b>最後一顆</b>測試。畫面寫著 <code>RUNNING TEST 141 / INTERNAL DATA BUS</code>;引擎完全健康(活體 CPU trace 顯示模擬正常輪轉);是模擬中的 6502 程式自己在等某個條件。頭號嫌犯:這顆測試的 DMA 同步 helper 會輪詢 <code>$4000</code> 的 open bus,等一個 DMC DMA fetch 把 <code>$00</code> 放上外部資料匯流排 —— 而且這個等待沒有 timeout。</p>
+<p class="en">Thirteen focused diagnostic ROMs — each chaining a different slice of the real suite in front of test 141 — <b>all pass</b> on S1: isolated, repeated ×16, the full DMC/APU pages, the complete $2007 Stress, the PPU tail, a condensed formal tail. Whatever state breaks the sync needs more of the full run than any slice reproduces. The current formal run carries new telemetry (the emulated PC, address and data bus in every checkpoint), so the stall — if it recurs — will name its own loop.</p>
+<p class="zh">十三顆聚焦診斷 ROM —— 每顆在第 141 顆前面串上真實測試集的不同切片 —— 在 S1 上<b>全數通過</b>:isolated、連跑 16 次、完整 DMC/APU 兩頁、完整 $2007 Stress、PPU 尾段、濃縮正式尾段。能弄壞同步的狀態,需要的前置比任何切片都多。目前的正式跑帶著新 telemetry(每個 checkpoint 記錄模擬中的 PC、位址與資料匯流排),若再停滯,它會自己說出卡在哪條迴圈。</p>
+
+<h2><span class="en">3 · The diagnostic toolbox — how you debug 30,000 transistors</span><span class="zh">3 · 診斷工具箱 —— 怎麼對三萬顆電晶體除錯</span></h2>
+
+<table>
+  <tr><th><span class="en">Tool</span><span class="zh">工具</span></th><th><span class="en">What it does</span><span class="zh">做什麼</span></th></tr>
+  <tr><td><span class="en">Behavioural oracle</span><span class="zh">行為層 oracle</span></td>
+      <td><span class="en">AprNes (our behavioural emulator) runs the same ROM ~2000× faster and dumps the result table. Bisecting on "when does result byte X fill" located the culprit test in minutes instead of hours.</span>
+          <span class="zh">AprNes(我們的行為層模擬器)跑同一顆 ROM 快約 2000 倍,還能 dump 結果表。對「結果 byte 何時被填」做二分搜尋,幾分鐘就定位出禍首測試,不用等幾小時。</span></td></tr>
+  <tr><td><span class="en">Focused ROM matrix</span><span class="zh">聚焦 ROM 矩陣</span></td>
+      <td><span class="en">Compile-time-gated variants of the real ROM that jump straight to a target test, with chosen predecessors. Turns a 7-hour repro into minutes, and carves hypothesis space one slice at a time.</span>
+          <span class="zh">用組譯期開關從真實 ROM 生出的變體,直接跳到目標測試、可自選前置。把 7 小時的重現壓到分鐘級,並一片一片切掉假說空間。</span></td></tr>
+  <tr><td><span class="en">Live CPU trace</span><span class="zh">活體 CPU trace</span></td>
+      <td><span class="en"><code>dotnet-trace</code> on the running (hung) process distinguishes "the engine is spinning in one call" from "the simulation is healthy and the ROM is waiting" — two identical-looking hangs with opposite fixes.</span>
+          <span class="zh">對還活著(卡住)的行程抓 <code>dotnet-trace</code>,可分辨「引擎釘死在單一呼叫」和「模擬健康、是 ROM 在等」—— 兩種看起來一樣的當機,修法完全相反。</span></td></tr>
+  <tr><td><span class="en">Non-convergence detector</span><span class="zh">不收斂偵測器</span></td>
+      <td><span class="en"><code>--callback-drain-limit N</code>: if one drain exceeds N dispatches, throw with the oscillating callbacks and their node states. A silent infinite spin becomes a labelled crime scene.</span>
+          <span class="zh"><code>--callback-drain-limit N</code>:單次 drain 超過 N 次派發就丟出 exception,帶著震盪中的 callback 與節點狀態。無聲的無限空轉變成有標籤的犯罪現場。</span></td></tr>
+  <tr><td><span class="en">Per-test telemetry</span><span class="zh">Per-test telemetry</span></td>
+      <td><span class="en">Every progress checkpoint records the ROM's own page/item counters, the emulated CPU's PC/AB/DB, and a scan of the result table. With the assembler's symbol table, a stalled PC maps directly to a named loop in the test source.</span>
+          <span class="zh">每個進度 checkpoint 記錄 ROM 自己的 page/item 計數器、模擬 CPU 的 PC/AB/DB、以及結果表掃描。配合組譯器符號表,停滯的 PC 直接對應到測試原始碼裡的具名迴圈。</span></td></tr>
+  <tr><td><span class="en">Golden checksum gate</span><span class="zh">黃金 checksum 閘</span></td>
+      <td><span class="en">Every engine change must reproduce <code>0x794A43ABDF169ADA</code> on the 300k-half-cycle benchmark before it lands. Bit-exactness is the project's contract; every fix above passed it.</span>
+          <span class="zh">每個引擎改動落地前,必須在 300k half-cycle 基準上重現 <code>0x794A43ABDF169ADA</code>。逐位元一致是本專案的契約;上面每個修復都過了這關。</span></td></tr>
+</table>
+
+<h2><span class="en">4 · Run configuration</span><span class="zh">4 · 執行配置</span></h2>
+<ul>
+  <li class="en"><code>--ac-verdict</code>: poll the CPU-RAM completion block; <b>no cartridge work RAM</b> at $6000-$7FFF (open-bus tests stay honest).</li>
+  <li class="zh"><code>--ac-verdict</code>:輪詢 CPU RAM 完成區塊;$6000-$7FFF <b>不掛卡帶工作 RAM</b>(open bus 測試才誠實)。</li>
+  <li class="en">Global test-mode shims identical to the 147-ROM sweep; the benchmark path is bit-identical with or without them.</li>
+  <li class="zh">全域測試模式 shim 與 147 顆回歸完全相同;benchmark 路徑掛不掛 shim 都逐位元相同。</li>
+  <li class="en">Power-on CPU/PPU alignment pinned (K=1); one pinned core; no clock lock; <code>--callback-drain-limit 2000</code> armed.</li>
+  <li class="zh">開機 CPU/PPU 相位對齊固定(K=1);單一綁定核心;不鎖頻;<code>--callback-drain-limit 2000</code> 上膛。</li>
+</ul>
+
+<h2><span class="en">5 · Source &amp; further reading</span><span class="zh">5 · 原始碼與延伸閱讀</span></h2>
+<ul>
+  <li><a href="https://github.com/erspicu/AprAccuracyCoinUnattended" target="_blank" rel="noopener">AprAccuracyCoinUnattended</a> — <span class="en">the fork: unattended hook + the diagnostic ROM family</span><span class="zh">fork 本體:無人值守掛勾 + 診斷 ROM 家族</span></li>
+  <li><a href="https://github.com/100thCoin/AccuracyCoin" target="_blank" rel="noopener">AccuracyCoin</a> — <span class="en">upstream, by Chris Siebert (MIT)</span><span class="zh">上游原作,Chris Siebert(MIT)</span></li>
+  <li><a href="https://github.com/erspicu/AprVisual/tree/main/MD/toDoNext2" target="_blank" rel="noopener">MD/toDoNext2</a> · <a href="https://github.com/erspicu/AprVisual/tree/main/MD/toDoNext3" target="_blank" rel="noopener">MD/toDoNext3</a> — <span class="en">the full investigation dossiers (Traditional Chinese), with committed evidence: CPU traces, checkpoint tails, the focused-ROM matrix</span><span class="zh">完整調查卷宗(繁中),證據隨 repo 提交:CPU trace、checkpoint 尾巴、聚焦 ROM 矩陣</span></li>
+  <li><a href="../Report/">147-ROM report card</a> — <span class="en">the blargg-era campaign this one builds on (146/1, 99.3%)</span><span class="zh">本戰役的前作:blargg 時代的 147 顆成績單(146/1,99.3%)</span></li>
+</ul>
+
+<p class="mut" style="margin-top:3rem">
+  <span class="en">AccuracyCoin © Chris Siebert, MIT. This page reports honest, reproducible measurements: nothing here is a claim that the switch-level engine has passed the suite until the completion block says so.</span>
+  <span class="zh">AccuracyCoin © Chris Siebert,MIT 授權。本頁只報告誠實、可重現的量測:在完成區塊親口說出來之前,這裡不會宣稱開關級引擎已通過整套測試。</span>
+</p>
+
+</main>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

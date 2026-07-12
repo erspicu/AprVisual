@@ -1,0 +1,20 @@
+# [shim] PPU ALE/read feedback hold at t=3192012332 X=$E1 addr=$017E
+# [shim] PPU ALE/read feedback hold at t=3194156580 X=$E4 addr=$017E
+# [shim] PPU ALE/read feedback hold at t=3195586068 X=$E6 addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3196300796 X=$E7 addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3197730284 X=$E9 addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3199874532 X=$EC addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3201304020 X=$EE addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3202018748 X=$EF addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3203448236 X=$F1 addr=$0166
+# [shim] PPU ALE/read feedback hold at t=3205592484 X=$F4 addr=$0066
+# [shim] PPU ALE/read feedback hold at t=3207021972 X=$F6 addr=$003C
+# [shim] PPU ALE/read feedback hold at t=3207736700 X=$F7 addr=$003C
+# [shim] PPU ALE/read feedback hold at t=3209166188 X=$F9 addr=$003C
+# [shim] PPU ALE/read feedback hold at t=3211310436 X=$FC addr=$003C
+# [shim] PPU ALE/read feedback hold at t=3264201492 X=$46 addr=$0066
+# [shim] PPU ALE/read feedback hold at t=3264916220 X=$47 addr=$0066
+# [shim] PPU ALE/read feedback hold at t=3266345708 X=$49 addr=$0066
+# [shim] PPU ALE/read feedback hold at t=3268489956 X=$4C addr=$0066
+# [shim] _io_db decay fired at frame 4745: 80 -> 00
+# [shim] _io_db decay fired at frame 4823: 0E -> 00

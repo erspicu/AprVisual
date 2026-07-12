@@ -1,0 +1,5 @@
+{"frame":5000,"simSec":83.20,"hc":3573615360,"wallSec":27506.6,"secPerFrame":5.50,"debugEc":255,"utc":"2026-07-12T04:25:46Z"}
+{"frame":5010,"simSec":83.36,"hc":3580762680,"wallSec":27578.5,"secPerFrame":5.50,"debugEc":255,"utc":"2026-07-12T04:26:58Z"}
+{"frame":5020,"simSec":83.53,"hc":3587910000,"wallSec":27661.0,"secPerFrame":5.51,"debugEc":255,"utc":"2026-07-12T04:28:20Z"}
+{"frame":5030,"simSec":83.70,"hc":3595057320,"wallSec":27743.4,"secPerFrame":5.52,"debugEc":255,"utc":"2026-07-12T04:29:43Z"}
+{"frame":5040,"simSec":83.86,"hc":3602204640,"wallSec":27820.1,"secPerFrame":5.52,"debugEc":255,"utc":"2026-07-12T04:31:00Z"}

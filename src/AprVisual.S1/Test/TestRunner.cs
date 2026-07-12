@@ -27,6 +27,9 @@ namespace AprVisual.Test
         private static bool _acDumpWork;                  // --ac-dump-work: dump AccuracyCoin scratch/results RAM $0500-$06FF at verdict
         internal static int _progressFrames;              // --progress-frames N: every N frames, checkpoint a screenshot + a status line (0 = off)
         internal static string? _progressDir;             // --progress-dir DIR: where those checkpoints land
+        internal static int _snapFrames;                  // --snapshot-frames N: full engine-state snapshot every N frames (0 = off; see WireCore.Snapshot.cs)
+        internal static string? _snapDir;                 // --snapshot-dir DIR: where state_fNNNNNN.sav files land
+        internal static string? _resumePath;              // --resume FILE: restore a snapshot after LoadSystem and continue from its frame+1
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
@@ -119,6 +122,9 @@ namespace AprVisual.Test
                     case "--ac-dump-work":    _acDumpWork = true; break;                                                     // diagnostic: dump AccuracyCoin work/results RAM for oracle comparison
                     case "--progress-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _progressFrames); break;   // test mode: checkpoint cadence, in simulation frames
                     case "--progress-dir":    if (i + 1 < args.Length) _progressDir = args[++i]; break;                       // test mode: checkpoint output directory
+                    case "--snapshot-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _snapFrames); break;      // test mode: engine-state snapshot cadence
+                    case "--snapshot-dir":    if (i + 1 < args.Length) _snapDir = args[++i]; break;                          // test mode: snapshot output directory
+                    case "--resume":          if (i + 1 < args.Length) _resumePath = args[++i]; break;                       // test mode: restore a snapshot and continue
                     case "--callback-drain-limit":                                                                        // diagnostic: fail with callback/node evidence instead of hanging
                         if (i + 1 < args.Length && int.TryParse(args[++i], out int callbackDrainLimit))
                             WireCore.CallbackDrainLimit = Math.Max(0, callbackDrainLimit);

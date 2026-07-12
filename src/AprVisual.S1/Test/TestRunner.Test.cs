@@ -41,6 +41,28 @@ namespace AprVisual.Test
             return (filled, lastAddress, lastValue);
         }
 
+        // Runner-side loop state carried inside a snapshot (opaque to WireCore). v1: the _io_db
+        // decay tracker (semantically live — it decides WHEN the open-bus decay fires) and the
+        // Debug_EC edge tracker (log cosmetics, but keeps resumed output identical).
+        private static byte[] BuildRunnerBlob(int ioPrev, int ioStable, int acEcPrev)
+        {
+            var b = new byte[13];
+            b[0] = 1;   // blob version
+            BitConverter.TryWriteBytes(b.AsSpan(1), ioPrev);
+            BitConverter.TryWriteBytes(b.AsSpan(5), ioStable);
+            BitConverter.TryWriteBytes(b.AsSpan(9), acEcPrev);
+            return b;
+        }
+
+        private static void ParseRunnerBlob(byte[] b, ref int ioPrev, ref int ioStable, ref int acEcPrev)
+        {
+            if (b.Length < 13 || b[0] != 1)
+            { Console.Error.WriteLine("# [snap] WARNING: unknown runner blob; io_db decay tracker starts fresh"); return; }
+            ioPrev   = BitConverter.ToInt32(b, 1);
+            ioStable = BitConverter.ToInt32(b, 5);
+            acEcPrev = BitConverter.ToInt32(b, 9);
+        }
+
         // One checkpoint of a long run: the current screen, plus a status line appended to progress.jsonl.
         // "latest.png" is an overwritten copy so a watcher always has one stable path to attach.
         private static void WriteProgress(string dir, int frames, long hc, double wall, int ec, WireCore.Memory? acRam)
@@ -185,7 +207,21 @@ namespace AprVisual.Test
                 var inputEvents = ParseInputSpec(_inputSpec);
                 if (inputEvents.Count > 0 && !WireCore.PadInit()) inputEvents.Clear();
 
-                for (frames = 1; frames <= _testMaxFrames; frames++)
+                // --resume: overwrite the freshly-built system's dynamic state with a snapshot. The
+                // build above MUST have used the identical config (same ROM / shims / flags) — the
+                // snapshot header records it and LoadState refuses on any mismatch, because a config
+                // change re-rolls node ids and the restored state would be garbage on a wrong graph.
+                int startFrame = 1;
+                if (_resumePath != null)
+                {
+                    byte[] blob = WireCore.LoadState(_resumePath, out int snapFrame);
+                    ParseRunnerBlob(blob, ref ioPrev, ref ioStable, ref acEcPrev);
+                    startFrame = snapFrame + 1;
+                    t0 = WireCore.Time;   // hc/wall accounting covers only the resumed portion
+                    Console.Error.WriteLine($"# [snap] resumed at frame {snapFrame} (t={WireCore.Time:N0}) from {Path.GetFileName(_resumePath)}");
+                }
+
+                for (frames = startFrame; frames <= _testMaxFrames; frames++)
                 {
                     foreach (var (btn, pf, rf) in inputEvents)
                     {
@@ -216,6 +252,22 @@ namespace AprVisual.Test
                     if (_progressFrames > 0 && _progressDir != null && frames % _progressFrames == 0)
                         WriteProgress(_progressDir, frames, WireCore.Time - t0, sw.Elapsed.TotalSeconds,
                             acRam?.Read(AcDebugEc) ?? -1, acRam);
+
+                    // --snapshot-frames: full engine-state snapshot (see WireCore.Snapshot.cs). Taken here —
+                    // after RunFrame and the runner-level shims, at quiescence — so a --resume from this
+                    // file continues at frames+1 with bit-identical state. ~380 KB each; a full AccuracyCoin
+                    // run at every 10 frames is ~490 files / ~190 MB, and buys minute-scale access to ANY
+                    // point of a 7-hour run.
+                    if (_snapFrames > 0 && _snapDir != null && frames % _snapFrames == 0)
+                    {
+                        try
+                        {
+                            Directory.CreateDirectory(_snapDir);
+                            WireCore.SaveState(Path.Combine(_snapDir, $"state_f{frames:D6}.sav"),
+                                               frames, BuildRunnerBlob(ioPrev, ioStable, acEcPrev));
+                        }
+                        catch (Exception ex) { Console.Error.WriteLine($"# [snap] snapshot at frame {frames} FAILED: {ex.Message}"); }
+                    }
 
                     // AccuracyCoin (unattended fork). It speaks neither of the other two protocols: no $6000
                     // handshake, and its CHR font is not ASCII-mapped so the nametable scan cannot read it.

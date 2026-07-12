@@ -207,6 +207,18 @@ namespace AprVisual.Test
                 var inputEvents = ParseInputSpec(_inputSpec);
                 if (inputEvents.Count > 0 && !WireCore.PadInit()) inputEvents.Clear();
 
+                // --watch in test mode: read-only per-frame node prints. Pairs with --resume for
+                // level-triggered hunts: an unacknowledged IRQ line stays asserted, so even coarse
+                // per-frame sampling names the culprit.
+                var watchNodes = new List<(string Name, int Id)>();
+                if (_watchSpec != null)
+                    foreach (var w in _watchSpec.Split(','))
+                    {
+                        int wid = WireCore.LookupNode(w.Trim());
+                        if (wid == WireCore.EmptyNode) Console.Error.WriteLine($"# [watch] no node named '{w.Trim()}'");
+                        else watchNodes.Add((w.Trim(), wid));
+                    }
+
                 // --resume: overwrite the freshly-built system's dynamic state with a snapshot. The
                 // build above MUST have used the identical config (same ROM / shims / flags) — the
                 // snapshot header records it and LoadState refuses on any mismatch, because a config
@@ -249,6 +261,13 @@ namespace AprVisual.Test
                     // --progress-frames: a long unattended run is otherwise a black box for hours. Checkpoint
                     // the screen and a status line so an outside watcher can report progress and, if the run
                     // goes wrong, show WHERE. Read-only w.r.t. the simulation; off unless asked for.
+                    if (watchNodes.Count > 0)
+                    {
+                        var wsb = new StringBuilder($"# [watch] frame {frames}:");
+                        unsafe { foreach (var (wn, wid) in watchNodes) wsb.Append($" {wn}={WireCore.NodeStates[wid]}"); }
+                        Console.Error.WriteLine(wsb.ToString());
+                    }
+
                     if (_progressFrames > 0 && _progressDir != null && frames % _progressFrames == 0)
                         WriteProgress(_progressDir, frames, WireCore.Time - t0, sw.Elapsed.TotalSeconds,
                             acRam?.Read(AcDebugEc) ?? -1, acRam);

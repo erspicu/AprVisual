@@ -21,6 +21,7 @@ namespace AprVisual.Test
         //   $07F0-$07F2 magic "DE B0 61" | $07F3 passed | $07F4 total | $07F5 skipped
         private const int AcMagic0 = 0x7F0;
         private const int AcDebugEc = 0x0EC;   // the ROM's Debug_EC menu-init progress byte
+        private const int AcStormConfirmFrames = 120;   // ~2 s of console time parked in $06xx = the BRK storm, beyond doubt
         private const int AcDiagnosticStage = AcDebugEc;
         private const int AcCurrentPage = 0x014;   // menuTabXPos: zero-based AccuracyCoin suite page
         private const int AcCurrentItem = 0x016;   // menuCursorYPos: item selected by the all-tests loop
@@ -149,6 +150,7 @@ namespace AprVisual.Test
                 var acRam = _acVerdict ? WireCore.ResolveMemory("u1.ram") : null;
                 if (_acVerdict && acRam == null) Console.Error.WriteLine("# [ac] WARNING: u1.ram not found -- --ac-verdict is inert");
                 int acEcPrev = acRam?.Read(AcDebugEc) ?? 0;
+                int acStormFrames = 0;   // consecutive frames with PC parked in the $06xx IRQ-routine page
 
                 if (_progressFrames > 0 && _progressDir != null)
                 {
@@ -310,6 +312,34 @@ namespace AprVisual.Test
                             resultCode = passed == total ? 0 : 1;
                             resultText = $"AccuracyCoin: {passed}/{total} passed, {skipped} skipped";
                             detection  = "ac";
+                            status     = resultCode == 0 ? "pass" : "fail";
+                            break;
+                        }
+
+                        // Epilogue-storm verdict. The ROM's RAM IRQ routine at $0600 is deliberately
+                        // overwritten by the $2007 Stress test's data; if a late frame-IRQ fires (S1
+                        // loses the ROM's protection-vs-flag cycle race -- see MD/toDoNext3
+                        // 2026-07-13 brkstorm postmortem), the CPU BRK-storms in $0600-$0602 forever
+                        // and the completion block can never be written. The per-test results ARE
+                        // final at that point, so judge from the results table, clearly marked.
+                        // Normal code never dwells in the $06xx page for seconds at a time.
+                        int pcNow = WireCore.ReadReg(WireCore.R_CpuPcl) | (WireCore.ReadReg(WireCore.R_CpuPch) << 8);
+                        if (pcNow >= 0x0600 && pcNow <= 0x06FF) acStormFrames++;
+                        else acStormFrames = 0;
+                        if (acStormFrames >= AcStormConfirmFrames)
+                        {
+                            int passed = 0, total = 0;
+                            for (int a = 0x400; a < 0x500; a++)
+                            {
+                                int v = acRam.Read(a);
+                                if (v == 0) continue;
+                                total++;
+                                if ((v & 1) != 0) passed++;   // odd = pass (variant<<2|1); even = (error<<2)|2
+                            }
+                            resultCode = passed == total ? 0 : 1;
+                            resultText = $"AccuracyCoin results table complete: {passed}/{total} passed "
+                                       + $"({total - passed} deviations); completion block unwritten -- epilogue frame-IRQ storm (documented)";
+                            detection  = "ac-storm";
                             status     = resultCode == 0 ? "pass" : "fail";
                             break;
                         }

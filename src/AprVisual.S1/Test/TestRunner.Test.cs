@@ -21,10 +21,29 @@ namespace AprVisual.Test
         //   $07F0-$07F2 magic "DE B0 61" | $07F3 passed | $07F4 total | $07F5 skipped
         private const int AcMagic0 = 0x7F0;
         private const int AcDebugEc = 0x0EC;   // the ROM's Debug_EC menu-init progress byte
+        private const int AcDiagnosticStage = AcDebugEc;
+        private const int AcCurrentPage = 0x014;   // menuTabXPos: zero-based AccuracyCoin suite page
+        private const int AcCurrentItem = 0x016;   // menuCursorYPos: item selected by the all-tests loop
+        private const int AcDiagnosticIteration = 0x0ED;   // Copy_X2: caller X saved by RunTest
+
+        private static (int Filled, int LastAddress, int LastValue) ReadAcResultProgress(WireCore.Memory? acRam)
+        {
+            if (acRam == null) return (0, -1, -1);
+            int filled = 0, lastAddress = -1, lastValue = -1;
+            for (int address = 0x400; address < 0x500; address++)
+            {
+                int value = acRam.Read(address);
+                if (value == 0) continue;
+                filled++;
+                lastAddress = address;
+                lastValue = value;
+            }
+            return (filled, lastAddress, lastValue);
+        }
 
         // One checkpoint of a long run: the current screen, plus a status line appended to progress.jsonl.
         // "latest.png" is an overwritten copy so a watcher always has one stable path to attach.
-        private static void WriteProgress(string dir, int frames, long hc, double wall, int ec)
+        private static void WriteProgress(string dir, int frames, long hc, double wall, int ec, WireCore.Memory? acRam)
         {
             try
             {
@@ -37,10 +56,18 @@ namespace AprVisual.Test
                         File.Copy(shot, Path.Combine(dir, "latest.png"), true);
                     }
                 }
+                var resultProgress = ReadAcResultProgress(acRam);
+                int acStage = acRam?.Read(AcDiagnosticStage) ?? -1;
+                int cpuPc = WireCore.ReadReg(WireCore.R_CpuPcl) | (WireCore.ReadReg(WireCore.R_CpuPch) << 8);
+                int cpuAb = WireCore.ReadReg(WireCore.R_CpuAb);
+                int cpuDb = WireCore.ReadReg(WireCore.R_CpuDb);
                 var ci = System.Globalization.CultureInfo.InvariantCulture;
                 string line = string.Format(ci,
-                    "{{\"frame\":{0},\"simSec\":{1:F2},\"hc\":{2},\"wallSec\":{3:F1},\"secPerFrame\":{4:F2},\"debugEc\":{5},\"utc\":\"{6:s}Z\"}}",
-                    frames, frames / 60.0988, hc, wall, wall / frames, ec, DateTime.UtcNow);
+                    "{{\"frame\":{0},\"simSec\":{1:F2},\"hc\":{2},\"wallSec\":{3:F1},\"secPerFrame\":{4:F2},\"debugEc\":{5},\"acStage\":{6},\"acPage\":{7},\"acItem\":{8},\"acIteration\":{9},\"cpuPc\":{10},\"cpuAb\":{11},\"cpuDb\":{12},\"resultsFilled\":{13},\"lastResultAddress\":{14},\"lastResultValue\":{15},\"utc\":\"{16:s}Z\"}}",
+                    frames, frames / 60.0988, hc, wall, wall / frames, ec, acStage,
+                    acRam?.Read(AcCurrentPage) ?? -1, acRam?.Read(AcCurrentItem) ?? -1,
+                    acRam?.Read(AcDiagnosticIteration) ?? -1, cpuPc, cpuAb, cpuDb,
+                    resultProgress.Filled, resultProgress.LastAddress, resultProgress.LastValue, DateTime.UtcNow);
                 File.AppendAllText(Path.Combine(dir, "progress.jsonl"), line + "\n");
             }
             catch (Exception ex) { Console.Error.WriteLine($"# (progress checkpoint failed: {ex.Message})"); }
@@ -187,7 +214,8 @@ namespace AprVisual.Test
                     // the screen and a status line so an outside watcher can report progress and, if the run
                     // goes wrong, show WHERE. Read-only w.r.t. the simulation; off unless asked for.
                     if (_progressFrames > 0 && _progressDir != null && frames % _progressFrames == 0)
-                        WriteProgress(_progressDir, frames, WireCore.Time - t0, sw.Elapsed.TotalSeconds, acRam?.Read(AcDebugEc) ?? -1);
+                        WriteProgress(_progressDir, frames, WireCore.Time - t0, sw.Elapsed.TotalSeconds,
+                            acRam?.Read(AcDebugEc) ?? -1, acRam);
 
                     // AccuracyCoin (unattended fork). It speaks neither of the other two protocols: no $6000
                     // handshake, and its CHR font is not ASCII-mapped so the nametable scan cannot read it.
@@ -297,6 +325,18 @@ namespace AprVisual.Test
                     if (resultText.Length == 0)
                         resultText = rr.Found ? $"budget exhausted, $6000=0x{rr.Code:X2}" : "budget exhausted, no $6000 signature";
                     resultCode = 3;
+                    if (acRam != null)
+                    {
+                        var resultProgress = ReadAcResultProgress(acRam);
+                        Console.Error.WriteLine($"# [ac] timeout stage=${acRam.Read(AcDiagnosticStage):X2} " +
+                            $"page=${acRam.Read(AcCurrentPage):X2} item=${acRam.Read(AcCurrentItem):X2} " +
+                            $"iteration=${acRam.Read(AcDiagnosticIteration):X2} " +
+                            $"resultsFilled={resultProgress.Filled} lastResult=" +
+                            (resultProgress.LastAddress >= 0
+                                ? $"${resultProgress.LastAddress:X4}=${resultProgress.LastValue:X2}"
+                                : "none"));
+                        Console.Error.WriteLine("# [ac] timeout CPU " + WireCore.DumpCpuState());
+                    }
                 }
 
                 // --shot-delay: run extra frames after the verdict so the ROM can finish PRESENTING its

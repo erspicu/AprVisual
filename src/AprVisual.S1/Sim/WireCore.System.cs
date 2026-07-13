@@ -482,7 +482,7 @@ namespace AprVisual.Sim
 
         private static int _pdLastBus;
         private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
-        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy;
+        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1;
         private static int[] _pdDbgIdl, _pdDbgIdb;
         private static int _pdDbgClk1 = EmptyNode;
 
@@ -873,6 +873,13 @@ namespace AprVisual.Sim
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
+            // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
+            if (_pdDbg && Time >= 17500000 && Time <= 17530000 && _pcTrN < 800)
+            {
+                int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
+                if (pcNow != _pcTrPrev)
+                { _pcTrN++; Console.Error.WriteLine($"# [pc] t={Time} pc=${pcNow:X4} ir=${ReadReg(R_CpuIr):X2}"); _pcTrPrev = pcNow; }
+            }
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
             // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already
@@ -910,7 +917,7 @@ namespace AprVisual.Sim
             if (_obDebug)
             {
                 int pc = ReadReg(R_CpuPcl) | (ReadReg(R_CpuPch) << 8);
-                if (pc >= 0x4020 && pc <= 0x62FF)
+                if (pc >= 0x4000 && pc <= 0x62FF)
                 {
                     int ir = R_CpuIr.Length == 8 ? ReadBits(R_CpuIr) : -1;
                     int db = ReadBits(_lxaDb);

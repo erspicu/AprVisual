@@ -483,6 +483,8 @@ namespace AprVisual.Sim
         private static int _pdLastBus;
         private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
         private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy;
+        private static int[] _pdDbgIdl, _pdDbgIdb;
+        private static int _pdDbgClk1 = EmptyNode;
 
         private static void OpenBusShimStep()
         {
@@ -490,8 +492,14 @@ namespace AprVisual.Sim
             int abNow = ReadReg(R_CpuAb);
             if (abNow < 0x4020 || abNow > _pdObTop || NodeStates[_pdRw] == 0)
             {
-                if (_pdDbg && (abNow == 0x4016 || abNow == 0x4017 || (abNow >= 0x2000 && abNow <= 0x3FFF)) && NodeStates[_pdRw] != 0 && abNow != _pdDbgPrevAb && Time > 15674650 && _pdDbgJoyN < 200)
-                { _pdDbgJoyN++; Console.Error.WriteLine($"# [obshim] joy-read t={Time} ab=${abNow:X4} last=${_pdLastBus:X2} db=${ReadReg(R_CpuDb):X2}"); }
+                if (_pdDbg && (abNow == 0x4016 || abNow == 0x4017) && NodeStates[_pdRw] != 0 && _pdDbgJoyN < 120)
+                {
+                    _pdDbgJoyN++;
+                    if (_pdDbgIdl == null) { var l = new List<int>(); ResolveNodes("cpu.idl[7:0]", l, quiet: true); _pdDbgIdl = l.ToArray();
+                                             var m = new List<int>(); ResolveNodes("cpu.idb[7:0]", m, quiet: true); _pdDbgIdb = m.ToArray();
+                                             _pdDbgClk1 = LookupNode("cpu.clk1out"); }
+                    Console.Error.WriteLine($"# [obshim] joy t={Time} ab=${abNow:X4} db=${ReadReg(R_CpuDb):X2} idl=${(_pdDbgIdl.Length==8?ReadBits(_pdDbgIdl):-1):X2} idb=${(_pdDbgIdb.Length==8?ReadBits(_pdDbgIdb):-1):X2} a=${ReadReg(R_CpuA):X2} c1={(_pdDbgClk1!=EmptyNode?NodeStates[_pdDbgClk1]:9)}");
+                }
                 if (_pdDbg && (_pdDbgPrevAb == 0x4016 || _pdDbgPrevAb == 0x4017) && abNow != _pdDbgPrevAb) _pdDbgAfterJoy = 60;
                 if (_pdDbg && _pdDbgAfterJoy > 0)
                 { _pdDbgAfterJoy--; if ((_pdDbgAfterJoy % 12) == 0) Console.Error.WriteLine($"# [obshim] after-joy t={Time} ab=${abNow:X4} a=${ReadReg(R_CpuA):X2} ir=${ReadReg(R_CpuIr):X2}"); }
@@ -504,6 +512,63 @@ namespace AprVisual.Sim
                 if (AnyChannelOn(_pdDb[b])) continue;      // someone is driving -- hands off
                 byte want = (byte)((_pdLastBus >> b) & 1);
                 if (NodeStates[_pdDb[b]] != want) LaeForce(_pdDb[b], want);
+            }
+        }
+
+        // ── DL-transparency shim (OpenBus err6): the 6502's input data latch (DL/idl) is
+        // TRANSPARENT through the whole of phi2 -- it tracks the external data bus until the
+        // phi2 falling edge. In the netlist the DL is a capture-once dynamic latch: it loads in
+        // the single settle where clk1out falls, so an intra-settle transient at that instant is
+        // kept for good. Measured on AccuracyCoin OpenBus test 6: at the LDA $4017 read, u8's
+        // (74LS368) OE turn-on transient resolved the bus group to $00 mid-settle, the DL gate
+        // closed on it, and A latched $00 while the settled bus read $5D on every half-cycle --
+        // the structurally identical LDA $4016 read latched $5D correctly (instance node-id
+        // ordering lottery, same family as DMC/LAE). The shim restates transparency post-settle:
+        // during phi2 (clk1out==0) of a read half-cycle, idl is float-forced back to the settled
+        // db whenever they diverge. A no-op on every correctly-resolved cycle. Test mode only. ──
+        private static bool _dlShim;
+        private static readonly int[] _dlIdl = new int[8];
+        private static readonly int[] _dlNotIdl = new int[8];   // complement side -- a single-sided force snaps back
+        private static int _dlClk1 = EmptyNode;
+
+        public static void EnableDlShim()
+        {
+            var idl = new List<int>(); ResolveNodes("cpu.idl[7:0]", idl, quiet: true);
+            var nidl = new List<int>(); ResolveNodes("cpu.notidl[7:0]", nidl, quiet: true);
+            _dlClk1 = LookupNode("cpu.clk1out");
+            if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb[7] == 0)
+            { Console.Error.WriteLine("# [shim] DL-transparency: nodes unresolved -- disabled (enable AFTER EnableOpenBusShim)"); return; }
+            for (int b = 0; b < 8; b++) { _dlIdl[b] = idl[b]; _dlNotIdl[b] = nidl[b]; }
+            _dlShim = true;
+        }
+
+        private static int _dlHeldMask;   // notidl bits currently clamped (held through the rest of phi2)
+
+        private static void DlShimStep()
+        {
+            if (!_dlShim) return;
+            bool phi2read = NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0;
+            if (_dlHeldMask != 0 && !phi2read)
+            {
+                // phi2 ended (or the cycle stopped being a read): release. During phi1 cclk is off,
+                // so the dynamic notidl node float-holds the corrected value; the next phi2
+                // re-samples fresh -- no residue.
+                for (int b = 0; b < 8; b++)
+                    if ((_dlHeldMask >> b & 1) != 0) InstRelease(_dlNotIdl[b]);
+                _dlHeldMask = 0;
+            }
+            if (!phi2read) return;
+            for (int b = 0; b < 8; b++)
+            {
+                byte want = NodeStates[_pdDb[b]];
+                if (NodeStates[_dlIdl[b]] == want) continue;
+                // The DL is a two-phase DYNAMIC latch: idl = pullup + a notidl-gated pulldown, and
+                // notidl is re-driven from the upstream stage through cclk for the whole of phi2 --
+                // so a point-force snaps back, and clamping idl HIGH loses to the conducting
+                // pulldown (Gnd outranks Pwr). Clamp ONLY notidl (idl follows combinationally) and
+                // HOLD the clamp until phi2 ends.
+                if (want != 0) InstClampLow(_dlNotIdl[b]); else InstClampHigh(_dlNotIdl[b]);
+                _dlHeldMask |= 1 << b;
             }
         }
 
@@ -571,6 +636,7 @@ namespace AprVisual.Sim
         private static void LxaMagicShimStep()
         {
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
+            DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
             // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already

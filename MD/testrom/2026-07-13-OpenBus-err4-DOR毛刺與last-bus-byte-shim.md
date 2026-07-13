@@ -1,7 +1,7 @@
 # OpenBus(err4)戰役:DOR 毛刺逃逸與 last-bus-byte shim
 
 日期:2026-07-13 · 對象:AccuracyCoin「Open Bus」測試($408,run4 掛牌值 `$12` = FAIL err 4)
-狀態:**err4 已破(test 1-5 全過);殘餘 err6 = $4017 手把埠 latch 賽跑,另案處理**
+狀態:**全破 —— 孤立 ROM 1/1 PASS、套內 `$408=$01`(見 §7 err6 章)**
 
 ## 1. 症狀
 
@@ -53,13 +53,38 @@ PC 從 `$5602` 線性流浪到 `$6000` 觸發 IRQ 陷阱 → err 4。
 err4 → **err6**,即 test 1(非零)、2(高位回讀)、3(索引跨頁不更新)、4(執行編排)、
 5(dummy read 更新匯流排 + PPU open bus)全過。
 
-## 5. 殘餘:err6 = $4017 latch 賽跑(另案)
+## 5.(已破,見 §7)err6 = $4017 latch 賽跑
 
 test 6 前兩關其實已過($4016/$4017 讀到 `$5D`,`&$E0=$40` ✓)——
 敗在 **CPU 從 `$4017` latch 進 A 的值是 `$00`**,而 post-settle 匯流排整個讀週期都是 `$5D`
-(`$4016` 同構卻正確 latch `$5D`)。又一顆 settle 內 latch 賽跑,`--joypad` 開關皆不影響。
-特徵:全零 latch,疑似 u8 OE 開/關沿的瞬時 GND-wins 被輸入 latch 抓走。後續需
-$4017 讀取路徑的內部 latch 顯微鏡(cpu 側 idb / input data latch)。
+(`$4016` 同構卻正確 latch `$5D`)。`--joypad` 開關皆不影響。
+
+## 7. err6 戰役:DL 兩相動態 latch 與 φ2 窗鉗
+
+**取證**:`idl`(cpu.idl[7:0],輸入資料 latch)顯微鏡顯示 —— db 全程 `$5D` 正確,
+`idl` 在 `clk1out` 1→0 的那個 settle **單發載入 `$00`** 後不再追隨($4016 同相位載入 `$5D` ✓)。
+u7/u8 同構、僅實例節點 id 不同 → settle 順序彩票:u8 的 OE 開啟瞬態(GND-wins 中間解)
+被 DL 的捕捉窗抓走。真晶片的 DL 在**整段 φ2 透明**,netlist 版是單發捕捉 —— 引擎語意極限。
+
+**拓撲**(`--dump-node cpu.idl4 / cpu.notidl4`):DL 不是雙穩態!
+`idl4` = pullup + `notidl4` 閘的 vss 下拉(純組合輸出);`notidl4` 動態節點,
+整段 φ2 被上游(9247)經 `cclk` 導通的 t86 持續重灌;另有 `cp1` 相的 t3342 通路。
+
+**三連敗與正解**(force 方法論,重要):
+| 方法 | 結果 | 死因 |
+|---|---|---|
+| `LaeForce`(Set*+SetFloat)單邊/雙邊 | 不動 | Set* 位階輸給導通中的 Gnd/Pwr 路徑,force 根本沒生效 |
+| `InstClampHigh(idl)` + 點放 | 不動 | **InstClampHigh 輸給導通下拉(LUT:Gnd > Pwr)**;且上游整段 φ2 重灌,放手即彈回 |
+| **只鉗 `notidl` 一側、鉗滿整段 φ2、φ1 才 release** | ✅ | want=1 → `InstClampLow(notidl)`(Gnd 贏一切);`idl` 經 netlist 組合自然跟隨;φ1 時 `cclk` 關斷、動態節點浮持矯正值,下一週期重新取樣,零殘留 |
+
+**實作**:`EnableDlShim()` + `DlShimStep()`(`_dlHeldMask` 追蹤鉗位;φ2 讀週期比對
+`idl != db` 才鉗 → netlist 對時零作用)。這一鉗 err6/err7($4015)/err8(RTI 編排)三關全過,
+孤立 ROM **1/1 PASS**。
+
+**err6 驗證矩陣**:golden checksum 不變 ✓;LAE 孤立 1/1 ✓;
+早窗 f050→f115:`$408` $12→**$01**(套內 PASS,與 oracle 一致),$40D/$40E 為相位位移
+(通過路徑執行時長不同,晚 1-2 幀入表,f115 皆 $01)✓;
+f200→f300 窗:全表唯一差異 `$44B`(LAE 預期修正)—— 全域介入、零副作用 ✓。
 
 ## 6. 驗證矩陣
 

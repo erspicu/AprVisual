@@ -166,6 +166,7 @@ namespace AprVisual.Test
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
                     WireCore.EnableOpenBusShim();   // open bus = the bus holds the last transferred byte (see System.cs) -- benchmark path stays off
                     WireCore.EnableDlShim();        // input data latch is transparent through phi2 (see System.cs) -- must follow EnableOpenBusShim
+                    // WireCore.EnableDmc4015AbortShim();   // WIP (DMA-abort campaign): kill mechanism jams the pcm sequencer -- OFF until the request-latch cancel lands
                 }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 

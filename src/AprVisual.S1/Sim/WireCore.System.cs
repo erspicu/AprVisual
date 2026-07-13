@@ -615,6 +615,32 @@ namespace AprVisual.Sim
 
             // pcm micro-state -- EVENT-armed: a $4015 write landing while the DMC DMA is active
             // (pcm_dma_active==1) is exactly the X=8/9 mid-flight-abort case
+            if (rdy == 0 && !_rdyDumped && Time > 15860000)
+            {
+                _rdyDumped = true;
+                int rn = LookupNode("cpu.rdy");
+                ref var ni = ref NodeInfos[rn];
+                Console.Error.WriteLine($"# [rdy] test-build id={rn} inline={ni.Inline}");
+                if (ni.Inline == 0)
+                {
+                    for (int i = ni.TlistC1c2s; TransistorList[i] != 0; i += 2)
+                        Console.Error.WriteLine($"# [rdy]   pair g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]} o#{TransistorList[i+1]}({GetNodeName(TransistorList[i+1])})");
+                    for (int i = ni.TlistC1gnd; TransistorList[i] != 0; i++)
+                        Console.Error.WriteLine($"# [rdy]   GND g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
+                    for (int i = ni.TlistC1pwr; TransistorList[i] != 0; i++)
+                        Console.Error.WriteLine($"# [rdy]   PWR g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
+                }
+                else
+                {
+                    int k = 0;
+                    for (int i = 0; i < ni.C1c2Count; i++, k += 2)
+                        Console.Error.WriteLine($"# [rdy]   pair g#{ni.InlinePayload[k]}({GetNodeName(ni.InlinePayload[k])})={NodeStates[ni.InlinePayload[k]]} o#{ni.InlinePayload[k+1]}({GetNodeName(ni.InlinePayload[k+1])})");
+                    for (int i = 0; i < ni.GndCount; i++) { int g = ni.InlinePayload[k++];
+                        Console.Error.WriteLine($"# [rdy]   GND g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
+                    for (int i = 0; i < ni.PwrCount; i++) { int g = ni.InlinePayload[k++];
+                        Console.Error.WriteLine($"# [rdy]   PWR g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
+                }
+            }
             if (rw == 0 && ab == 0x4015 && rdy == 0 && _pcmArmed == 0)
             { _pcmArmed = 400; Console.Error.WriteLine($"# [pcm] t={Time} *** $4015 write during RDY-halt (mid-DMA) -- microscope armed ***"); }
             if (_pcmArmed > 0 || (Time >= 15860000 && Time <= 15861000))
@@ -622,19 +648,20 @@ namespace AprVisual.Sim
                 if (_pcmArmed > 0) _pcmArmed--;
                 if (_pcmW == null)
                 {
-                    _pcmW = new int[5]; _pcmLc = new int[12];
-                    string[] nm = { "cpu.#14059", "cpu.#11094", "cpu.#11093", "cpu.#11102", "cpu.pcm_en" };   // raw ids: pcm_dma_active, pcm_loadbuf, pcm_loadsr, pcm_shiftsr
-                    for (int i = 0; i < 5; i++) _pcmW[i] = LookupNode(nm[i]);
+                    _pcmW = new int[10]; _pcmLc = new int[12];
+                    string[] nm = { "cpu.#14059", "cpu.#11094", "cpu.#11093", "cpu.#11102", "cpu.pcm_en",
+                                    "cpu.#10337", "cpu.#10338", "cpu.#10658", "cpu.#11553", "cpu.#14089" };   // + halt family, pcm_rd_active
+                    for (int i = 0; i < 10; i++) _pcmW[i] = LookupNode(nm[i]);
                     for (int i = 0; i < 12; i++) _pcmLc[i] = LookupNode($"cpu.pcm_lc{i}");
                     Console.Error.WriteLine($"# [pcm] resolved: {string.Join(",", System.Linq.Enumerable.Select(_pcmW, x => x != EmptyNode ? "ok" : "MISS"))} lc={(System.Linq.Enumerable.All(_pcmLc, x => x != EmptyNode) ? "ok" : "MISS")}");
                 }
                 int st = 0;
-                for (int i = 0; i < 5; i++) if (_pcmW[i] != EmptyNode && NodeStates[_pcmW[i]] != 0) st |= 1 << i;
+                for (int i = 0; i < 10; i++) if (_pcmW[i] != EmptyNode && NodeStates[_pcmW[i]] != 0) st |= 1 << i;
                 int lc = 0;
                 for (int i = 0; i < 12; i++) if (_pcmLc[i] != EmptyNode && NodeStates[_pcmLc[i]] != 0) lc |= 1 << i;
                 if (st != _pcmPrevSt || lc != _pcmPrevLc)
                 {
-                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} lc={lc} rdy={rdy} ab=${ab:X4}");
+                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} h37={(st >> 5) & 1} h38={(st >> 6) & 1} h658={(st >> 7) & 1} h1553={(st >> 8) & 1} rdact={(st >> 9) & 1} rdy={rdy} ab=${ab:X4}");
                     _pcmPrevSt = st; _pcmPrevLc = lc;
                 }
             }
@@ -644,6 +671,70 @@ namespace AprVisual.Sim
         private static int _pcmPrevSt = -1, _pcmPrevLc = -1;
         private static bool _dmaPrZpDumped;
         private static int _pcmArmed;
+        private static bool _rdyDumped;
+
+        // ── DMC $4015-abort shim (Explicit/Implicit DMA Abort): on real silicon the $4015
+        // status write takes effect 3-4 CPU cycles later (5-6 at the fire boundary) through the
+        // ACLK pipeline, and the DMA re-checks its enable gate EVERY cycle -- so a disable landing
+        // inside the DMA's stall window kills the in-flight DMA (the fetch never completes; the
+        // CPU resumes ~3 cycles early). S1's netlist resolves the write immediately (pcm_en flips
+        // within a half-cycle) but a committed DMA is immune to it -- measured on AccuracyCoin
+        // ExplicitDMAAbort X=8/9: disable at +619, the DMA still fired and completed at +621.5
+        // (hardware answer key 01, S1 measured 04; the other 14 phases match). The shim restates
+        // the TriCNES-documented semantics: on the pcm_en falling edge, schedule the abort check
+        // ~3.5 cycles out; if the CPU is then DMA-stalled and the fetch has not yet happened,
+        // clamp the rdy pulldown gate (cpu.#14039) off so the CPU resumes. Test mode only. ──
+        private static bool _dmcAbortShim;
+        private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode;
+        private static long _dmcAbLastBoundary; private static int _dmcAbPrevLoadSr;
+        private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold;
+        private static bool _dmcAbFetchSeen;
+
+        public static void EnableDmc4015AbortShim()
+        {
+            _dmcAbHalt = LookupNode("cpu.#14039");    // rdy pulldown gate (halt assert)
+            _dmcAbDmaAct = LookupNode("cpu.#14059");  // pcm_dma_active (fetch strobe)
+            _dmcAbEn = LookupNode("cpu.pcm_en");
+            _dmcAbRdy = LookupNode("cpu.rdy");
+            _dmcAbLoadSr = LookupNode("cpu.#11093");  // pcm_loadsr -- byte-boundary anchor
+            if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
+            { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
+            _dmcAbortShim = true;
+        }
+
+        private static void Dmc4015AbortShimStep()
+        {
+            if (!_dmcAbortShim) return;
+            int en = NodeStates[_dmcAbEn], rdy = NodeStates[_dmcAbRdy];
+            int lsr = NodeStates[_dmcAbLoadSr];
+            if (_dmcAbPrevLoadSr == 0 && lsr != 0) _dmcAbLastBoundary = Time;   // byte boundary: SR reload cadence, write-independent
+            _dmcAbPrevLoadSr = lsr;
+            if (rdy == 0) { if (NodeStates[_dmcAbDmaAct] != 0) _dmcAbFetchSeen = true; }
+            else _dmcAbFetchSeen = false;
+            if (_dmcAbPrevEn == 1 && en == 0)
+            {
+                if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} ARM (en fell) rdy={rdy} cd was {_dmcAbCountdown}");
+                _dmcAbCountdown = 36;   // deferred effect: write+2 CPU cycles (AprNes X=9 measured; en-fall lags the write ~0.5c; 24 ticks = 1 CPU cycle)
+            }
+            _dmcAbPrevEn = en;
+            if (_dmcAbHold > 0 && --_dmcAbHold == 0) InstRelease(_dmcAbHalt);
+            if (_dmcAbCountdown > 0 && --_dmcAbCountdown == 0)
+            {
+                // The kill opportunity exists ONLY at the deferred status-off instant (TriCNES:
+                // dmcStopTransfer fires once when the delay expires; nothing restarts until a
+                // re-enable). The window is anchored to the BYTE BOUNDARY (the DMA's natural
+                // slot), NOT to S1's halt-displaced stall: silicon finishes the fetch ~5 cycles
+                // past the boundary no matter where the write pushed the stall here.
+                bool inWindow = Time - _dmcAbLastBoundary < 120;
+                if (rdy == 0 && !_dmcAbFetchSeen && inWindow)
+                {
+                    InstClampLow(_dmcAbHalt);
+                    _dmcAbHold = 96;   // hold ~4 CPU cycles, through the rest of the would-be stall
+                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} KILL (boundary {Time - _dmcAbLastBoundary}t ago)");
+                }
+                else if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} no-kill rdy={rdy} fetchSeen={_dmcAbFetchSeen} boundary={Time - _dmcAbLastBoundary}t");
+            }
+        }
 
         private static void LaeForce(int node, int bit)
         { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }
@@ -710,6 +801,7 @@ namespace AprVisual.Sim
         {
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
+            Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.

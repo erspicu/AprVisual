@@ -437,6 +437,76 @@ namespace AprVisual.Sim
 
         private static Memory? _laeRam;   // u1.ram — the stack lives here; see the retro-poke below
 
+        // ── open-bus shim (OpenBus err4): the external data bus capacitively holds the last byte
+        // ANY driver left on it, and unmapped reads return that byte. The engine's hold-previous
+        // covers this -- except that a DOR precharge glitch can escape through the CPU pad drive
+        // in the write->fetch settle boundary (measured: dor4 pulsed 1->0 inside one settle while
+        // the pad drive was open; the fetch then read $70 for $60 -- a pass-gate window race, same
+        // family as the DMC/LAE shims). DOR itself is NOT a usable source (it holds the last
+        // WRITTEN byte; open bus wants the last TRANSFERRED byte -- measured err2: replaying DOR
+        // returned $02 for $55). So the shim tracks the last driven bus byte behaviorally: mapped
+        // or write half-cycles record db; unmapped read half-cycles replay it onto any db bit with
+        // no conducting channel. Test mode only; the benchmark path never enables it. ──
+        private static bool _openBusShim;
+        private static readonly int[] _pdDb = new int[8];
+        private static int _pdRw = EmptyNode;
+        private static int _pdObTop;   // top of the unmapped window ($5FFF with cart extra-ram, else $7FFF)
+
+        public static void EnableOpenBusShim()
+        {
+            var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
+            _pdRw = LookupNode("cpu.rw");
+            if (db.Count != 8 || _pdRw == EmptyNode)
+            { Console.Error.WriteLine("# [shim] open-bus: nodes unresolved -- disabled"); return; }
+            // ResolveNodes returns ascending bit order (ReadBits: index i = bit i)
+            for (int b = 0; b < 8; b++) _pdDb[b] = db[b];
+            _pdObTop = LookupNode("cart.eram.gate") != EmptyNode ? 0x5FFF : 0x7FFF;
+            _openBusShim = true;
+        }
+
+        private static bool AnyChannelOn(int nn)
+        {
+            ref var ni = ref NodeInfos[nn];
+            if (ni.Inline != 0)
+            {
+                int k = 0;
+                for (int i = 0; i < ni.C1c2Count; i++, k += 2) if (NodeStates[ni.InlinePayload[k]] != 0) return true;
+                for (int i = 0; i < ni.GndCount + ni.PwrCount; i++) if (NodeStates[ni.InlinePayload[k++]] != 0) return true;
+                return false;
+            }
+            for (int i = ni.TlistC1c2s; TransistorList[i] != 0; i += 2) if (NodeStates[TransistorList[i]] != 0) return true;
+            for (int i = ni.TlistC1gnd; TransistorList[i] != 0; i++) if (NodeStates[TransistorList[i]] != 0) return true;
+            for (int i = ni.TlistC1pwr; TransistorList[i] != 0; i++) if (NodeStates[TransistorList[i]] != 0) return true;
+            return false;
+        }
+
+        private static int _pdLastBus;
+        private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
+        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy;
+
+        private static void OpenBusShimStep()
+        {
+            if (!_openBusShim) return;
+            int abNow = ReadReg(R_CpuAb);
+            if (abNow < 0x4020 || abNow > _pdObTop || NodeStates[_pdRw] == 0)
+            {
+                if (_pdDbg && (abNow == 0x4016 || abNow == 0x4017 || (abNow >= 0x2000 && abNow <= 0x3FFF)) && NodeStates[_pdRw] != 0 && abNow != _pdDbgPrevAb && Time > 15674650 && _pdDbgJoyN < 200)
+                { _pdDbgJoyN++; Console.Error.WriteLine($"# [obshim] joy-read t={Time} ab=${abNow:X4} last=${_pdLastBus:X2} db=${ReadReg(R_CpuDb):X2}"); }
+                if (_pdDbg && (_pdDbgPrevAb == 0x4016 || _pdDbgPrevAb == 0x4017) && abNow != _pdDbgPrevAb) _pdDbgAfterJoy = 60;
+                if (_pdDbg && _pdDbgAfterJoy > 0)
+                { _pdDbgAfterJoy--; if ((_pdDbgAfterJoy % 12) == 0) Console.Error.WriteLine($"# [obshim] after-joy t={Time} ab=${abNow:X4} a=${ReadReg(R_CpuA):X2} ir=${ReadReg(R_CpuIr):X2}"); }
+                _pdDbgPrevAb = abNow;
+                _pdLastBus = ReadReg(R_CpuDb); return;   // driven half-cycle (mapped, or a write) -- record the bus
+            }
+            if (_pdDbg && _pdDbgN < 40) { _pdDbgN++; Console.Error.WriteLine($"# [obshim] t={Time} ab=${abNow:X4} rw={NodeStates[_pdRw]} last=${_pdLastBus:X2} db=${ReadReg(R_CpuDb):X2}"); }
+            for (int b = 0; b < 8; b++)                   // open-bus read -- replay the held byte
+            {
+                if (AnyChannelOn(_pdDb[b])) continue;      // someone is driving -- hands off
+                byte want = (byte)((_pdLastBus >> b) & 1);
+                if (NodeStates[_pdDb[b]] != want) LaeForce(_pdDb[b], want);
+            }
+        }
+
         private static void LaeForce(int node, int bit)
         { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }
 
@@ -456,6 +526,8 @@ namespace AprVisual.Sim
         }
         private static int _laeWait;         // half-cycles left to meet a TSX that will read S
         private static readonly bool _laeDebug = Environment.GetEnvironmentVariable("LAE_DEBUG") == "1";
+        private static readonly bool _obDebug = Environment.GetEnvironmentVariable("OB_DEBUG") == "1";
+        private static int _obPrevPc = -1, _obPrevIr = -1, _obPrevDb = -1;
 
 
 
@@ -498,6 +570,7 @@ namespace AprVisual.Sim
 
         private static void LxaMagicShimStep()
         {
+            OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
             // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already
@@ -532,6 +605,20 @@ namespace AprVisual.Sim
             _laePrevAcs = acsNow;
             if (_laeDebug && (_laeSbsSeen || (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBB)))
                 Console.Error.WriteLine($"# [lae] t={Time} phi2={NodeStates[_lxaPhi2]} ir=${(R_CpuIr.Length==8?ReadBits(R_CpuIr):-1):X2} sbs={NodeStates[_laeSbs]} sb=${ReadBits(_laeSb):X2} db=${ReadBits(_lxaDb):X2} a=${ReadBits(_lxaA):X2} x=${ReadBits(_lxaX):X2} s=${ReadBits(_laeS):X2}");
+            if (_obDebug)
+            {
+                int pc = ReadReg(R_CpuPcl) | (ReadReg(R_CpuPch) << 8);
+                if (pc >= 0x4020 && pc <= 0x62FF)
+                {
+                    int ir = R_CpuIr.Length == 8 ? ReadBits(R_CpuIr) : -1;
+                    int db = ReadBits(_lxaDb);
+                    if (pc != _obPrevPc || ir != _obPrevIr || db != _obPrevDb)
+                    {
+                        Console.Error.WriteLine($"# [ob] t={Time} pc=${pc:X4} ir=${ir:X2} db=${db:X2} ab=${ReadReg(R_CpuAb):X4} rw={(_pdRw!=EmptyNode?NodeStates[_pdRw]:9)}");
+                        _obPrevPc = pc; _obPrevIr = ir; _obPrevDb = db;
+                    }
+                }
+            }
             int ph = NodeStates[_lxaPhi2];
             if (_lxaPrevPhi2 == 1 && ph == 0)   // phi2 falling = end of a CPU cycle
             {

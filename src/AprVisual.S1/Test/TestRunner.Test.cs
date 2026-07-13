@@ -164,6 +164,7 @@ namespace AprVisual.Test
                     WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
                     if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
+                    WireCore.EnableOpenBusShim();   // open bus = the bus holds the last transferred byte (see System.cs) -- benchmark path stays off
                 }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 

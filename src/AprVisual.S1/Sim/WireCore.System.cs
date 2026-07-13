@@ -618,6 +618,32 @@ namespace AprVisual.Sim
             if (rdy == 0 && !_rdyDumped && Time > 15860000)
             {
                 _rdyDumped = true;
+                foreach (string nname in new[] { "cpu.#14039", "cpu.#15737", "cpu.#11483" })
+                {
+                    int hn = LookupNode(nname);
+                    if (hn == EmptyNode) { Console.Error.WriteLine($"# [halt] {nname} unresolved"); continue; }
+                    ref var hi = ref NodeInfos[hn];
+                    Console.Error.WriteLine($"# [halt] {nname} id={hn} inline={hi.Inline} state={NodeStates[hn]}");
+                    if (hi.Inline != 0)
+                    {
+                        int k = 0;
+                        for (int i = 0; i < hi.C1c2Count; i++, k += 2)
+                            Console.Error.WriteLine($"# [halt]   pair g#{hi.InlinePayload[k]}({GetNodeName(hi.InlinePayload[k])})={NodeStates[hi.InlinePayload[k]]} o#{hi.InlinePayload[k+1]}({GetNodeName(hi.InlinePayload[k+1])})={NodeStates[hi.InlinePayload[k+1]]}");
+                        for (int i = 0; i < hi.GndCount; i++) { int g = hi.InlinePayload[k++];
+                            Console.Error.WriteLine($"# [halt]   GND g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
+                        for (int i = 0; i < hi.PwrCount; i++) { int g = hi.InlinePayload[k++];
+                            Console.Error.WriteLine($"# [halt]   PWR g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
+                    }
+                    else
+                    {
+                        for (int i = hi.TlistC1c2s; TransistorList[i] != 0; i += 2)
+                            Console.Error.WriteLine($"# [halt]   pair g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]} o#{TransistorList[i+1]}({GetNodeName(TransistorList[i+1])})={NodeStates[TransistorList[i+1]]}");
+                        for (int i = hi.TlistC1gnd; TransistorList[i] != 0; i++)
+                            Console.Error.WriteLine($"# [halt]   GND g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
+                        for (int i = hi.TlistC1pwr; TransistorList[i] != 0; i++)
+                            Console.Error.WriteLine($"# [halt]   PWR g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
+                    }
+                }
                 int rn = LookupNode("cpu.rdy");
                 ref var ni = ref NodeInfos[rn];
                 Console.Error.WriteLine($"# [rdy] test-build id={rn} inline={ni.Inline}");
@@ -685,9 +711,9 @@ namespace AprVisual.Sim
         // ~3.5 cycles out; if the CPU is then DMA-stalled and the fetch has not yet happened,
         // clamp the rdy pulldown gate (cpu.#14039) off so the CPU resumes. Test mode only. ──
         private static bool _dmcAbortShim;
-        private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode;
+        private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode, _dmcAbUpReq = EmptyNode, _dmcAbPhase = EmptyNode;
         private static long _dmcAbLastBoundary; private static int _dmcAbPrevLoadSr;
-        private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold;
+        private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold, _dmcAbKillIn;
         private static bool _dmcAbFetchSeen;
 
         public static void EnableDmc4015AbortShim()
@@ -697,6 +723,8 @@ namespace AprVisual.Sim
             _dmcAbEn = LookupNode("cpu.pcm_en");
             _dmcAbRdy = LookupNode("cpu.rdy");
             _dmcAbLoadSr = LookupNode("cpu.#11093");  // pcm_loadsr -- byte-boundary anchor
+            _dmcAbUpReq = LookupNode("cpu.#15737");   // upstream request latch (feeds #14039 through clock gate #11483)
+            _dmcAbPhase = LookupNode("cpu.#11466");   // ACLK phase holding the retire gate (#11483) shut
             if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
             { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
             _dmcAbortShim = true;
@@ -714,10 +742,10 @@ namespace AprVisual.Sim
             if (_dmcAbPrevEn == 1 && en == 0)
             {
                 if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} ARM (en fell) rdy={rdy} cd was {_dmcAbCountdown}");
-                _dmcAbCountdown = 36;   // deferred effect: write+2 CPU cycles (AprNes X=9 measured; en-fall lags the write ~0.5c; 24 ticks = 1 CPU cycle)
+                _dmcAbCountdown = 84;   // deferred effect calibration (see campaign note)
             }
             _dmcAbPrevEn = en;
-            if (_dmcAbHold > 0 && --_dmcAbHold == 0) InstRelease(_dmcAbHalt);
+            if (_dmcAbHold > 0 && --_dmcAbHold == 0) InstRelease(_dmcAbPhase);
             if (_dmcAbCountdown > 0 && --_dmcAbCountdown == 0)
             {
                 // The kill opportunity exists ONLY at the deferred status-off instant (TriCNES:
@@ -725,14 +753,33 @@ namespace AprVisual.Sim
                 // re-enable). The window is anchored to the BYTE BOUNDARY (the DMA's natural
                 // slot), NOT to S1's halt-displaced stall: silicon finishes the fetch ~5 cycles
                 // past the boundary no matter where the write pushed the stall here.
-                bool inWindow = Time - _dmcAbLastBoundary < 120;
-                if (rdy == 0 && !_dmcAbFetchSeen && inWindow)
+                long dist = Time - _dmcAbLastBoundary;
+                // ACLK quantization: the abort lands on the boundary+48t grid slot -- an earlier
+                // status flip waits for the slot (measured: kill at 47t saves 3 cycles = the
+                // hardware 01; kill at 23t saved 4 = 00, too many).
+                if (rdy == 0 && !_dmcAbFetchSeen && dist < 60)
                 {
-                    InstClampLow(_dmcAbHalt);
-                    _dmcAbHold = 96;   // hold ~4 CPU cycles, through the rest of the would-be stall
-                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} KILL (boundary {Time - _dmcAbLastBoundary}t ago)");
+                    _dmcAbKillIn = dist >= 48 ? 1 : (int)(48 - dist);
+                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} kill scheduled in {_dmcAbKillIn}t (boundary {dist}t ago)");
                 }
-                else if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} no-kill rdy={rdy} fetchSeen={_dmcAbFetchSeen} boundary={Time - _dmcAbLastBoundary}t");
+                else if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} no-kill rdy={rdy} fetchSeen={_dmcAbFetchSeen} boundary={dist}t");
+            }
+            if (_dmcAbKillIn > 0 && --_dmcAbKillIn == 0)
+            {
+                if (NodeStates[_dmcAbRdy] == 0)
+                {
+                    // #14039 is itself the request latch: a DYNAMIC node sampled from the upstream
+                    // request (#15737) through the clock gate #11483, float-holding in between. At
+                    // kill time the gate is closed and the upstream is already clear, so a ONE-SHOT
+                    // flip sticks by itself -- no held clamp (a held clamp jammed the sequencer, v4).
+                    // Don't fight the latch (the halt node #14039 is pulled up: a low clamp bounces
+                    // on release). The RETIRE is already pending (#14063 holds the discharge path);
+                    // only the ACLK phase #11466 keeps the retire gate #11483 shut. One-shot dropping
+                    // #11466 opens the gate and the netlist's own machinery discharges the halt --
+                    // and the phase node is actively re-driven next settle, so it self-heals.
+                    if (_dmcAbPhase != EmptyNode) { InstClampLow(_dmcAbPhase); _dmcAbHold = 72; }   // hold the retire path open ~3 cycles (the halt node is pulled up; it re-asserts the moment the gate shuts)
+                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} KILL retire-early (boundary {Time - _dmcAbLastBoundary}t ago) halt={NodeStates[_dmcAbHalt]} rdy={NodeStates[_dmcAbRdy]}");
+                }
             }
         }
 

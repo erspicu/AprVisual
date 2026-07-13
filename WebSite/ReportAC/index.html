@@ -201,6 +201,25 @@
 <p class="zh"><b>執行配置</b>,因為它決定了這個數字的意義:<b>沒有</b>掛載 <code>cart-extraram</code> —— AccuracyCoin 有數個測試在量 <code>$6000-$7FFF</code> 的 <i>open bus</i>,把 RAM 映射上去會讓那些讀取讀到 RAM,測試照跑照給結果,但結果是錯的;其餘沿用與 147 顆回歸相同的全域測試模式 shim;開機時 CPU/PPU 相位對齊固定(K=1);單一綁定核心,不鎖頻。</p>
 <!-- AC-PANEL:END -->
 
+<h2><span class="en">0 · Glossary — the words this page keeps using</span><span class="zh">0 · 術語速查 —— 本頁反覆出現的行話</span></h2>
+
+<p class="en">This project grew its own vocabulary for how a fix travels from "found it" to "it's on the scoreboard". Five terms cover most of it:</p>
+<p class="zh">這個專案為「一個修正從『找到了』走到『上計分板』」的流程長出了一套自己的詞彙。看懂這五個,整頁就通了:</p>
+
+<table>
+  <tr><th><span class="en">Term</span><span class="zh">術語</span></th><th><span class="en">What it means</span><span class="zh">意思</span></th></tr>
+  <tr><td><span class="en"><b>Banked sweep</b><br>(flagship run)</span><span class="zh"><b>掛牌跑</b><br>(正式完整跑)</span></td>
+      <td><span class="en">One uninterrupted run of all 141 tests from frame zero (~7.5 hours). Only this produces the scoreboard number — like a listed price, it's the official figure. Fixes verified in between do <b>not</b> move the number until the next banked sweep, because every fix changes the downstream trajectory: stitching old partial runs together would not be an honest total.</span><span class="zh">從第 0 幀不間斷跑完整套 141 顆測試(約 7.5 小時)。只有它產生計分板數字 —— 像掛牌價一樣,是對外的官方數字。期間驗證完成的修正<b>不會</b>先動數字,要等下次掛牌跑「入帳」:因為每個修正都會改變後續的執行軌跡,拿舊的片段跑拼裝總分並不誠實。</span></td></tr>
+  <tr><td><span class="en"><b>Isolated ROM</b></span><span class="zh"><b>孤立 ROM</b></span></td>
+      <td><span class="en">The same cartridge, rebuilt with a compile-time switch so it boots straight into <i>one</i> test — the test code itself is untouched (with every switch off, the ROM is byte-identical to production, SHA-verified). Turns the debug loop from hours per experiment into 2-3 minutes.</span><span class="zh">同一張卡帶,用組譯期開關改建成「開機直奔某一顆測試」的特製版 —— 測試程式碼本身一行不動(開關全關時,組出來的 ROM 與正式版逐位元組一致,SHA 驗證)。把除錯迴圈從「一次實驗幾小時」壓到 2-3 分鐘。</span></td></tr>
+  <tr><td><span class="en"><b>Snapshot window</b></span><span class="zh"><b>快照窗</b></span></td>
+      <td><span class="en">Every run saves a full engine snapshot every 10 frames. A window resumes from a snapshot just <i>before</i> the region of interest, runs a bounded span, and diffs the <i>entire</i> result table against the baseline. It answers two questions at once: did the fix work in the real suite, and did it break any neighbour? Minutes instead of a 7-hour rerun.</span><span class="zh">每趟跑每 10 幀存一份完整引擎快照。「窗」= 從目標區域<i>前</i>的快照 resume、跑一小段、再把<i>整張</i>結果表跟基準逐位元組比對 —— 一次回答兩件事:修正在真實套內有沒有效?有沒有打壞鄰居?幾分鐘,不用重跑七小時。</span></td></tr>
+  <tr><td><span class="en"><b>Shim</b></span><span class="zh"><b>Shim(墊片)</b></span></td>
+      <td><span class="en">A small, test-mode-only behavioural patch layered on top of the transistor netlist, used where the engine's digital settling provably cannot express an analog race the real chip resolves by physics (timing-window overlaps, charge decay). Each shim is documented with the measurement that forced it, and the benchmark path never loads any of them.</span><span class="zh">疊在電晶體 netlist 之上、僅測試模式載入的小型行為層補丁 —— 用在「引擎的數位收斂可證無法表達、真晶片靠物理解決」的類比競速上(時窗重疊、電荷衰減)。每個 shim 都附有逼出它的量測記錄;效能基準路徑一律不載入。</span></td></tr>
+  <tr><td><span class="en"><b>Oracle / golden checksum</b></span><span class="zh"><b>Oracle / 黃金 checksum</b></span></td>
+      <td><span class="en">The oracle is AprNes, a behavioural emulator that scores 141/141 — it supplies the expected result byte for every test, and can be instrumented for event-by-event comparison. The golden checksum is a hash of the engine's complete node state after a fixed benchmark run: if it changes, a "test-only" change leaked into the core engine. It is re-verified after every fix.</span><span class="zh">Oracle 指 AprNes —— 拿到 141/141 的行為層模擬器,提供每顆測試的期望結果,也能掛儀器做逐事件比對。黃金 checksum 是引擎在固定基準跑之後全部節點狀態的雜湊:它一變,代表「只影響測試」的修改其實漏進了核心引擎。每個修正之後都會重驗。</span></td></tr>
+</table>
+
 <h2><span class="en">1 · What AccuracyCoin is, and why a fork</span><span class="zh">1 · AccuracyCoin 是什麼,為什麼要 fork</span></h2>
 
 <p class="en"><a href="https://github.com/100thCoin/AccuracyCoin" target="_blank" rel="noopener">AccuracyCoin</a> (by Chris Siebert, MIT) packs 141 accuracy tests into a single NROM ROM: CPU dummy cycles, unofficial opcodes, DMA bus conflicts, APU frame-counter timing, PPU open bus, mid-scanline stress tests. Unlike most suites it targets one specific console revision — an NTSC front-loader with the <b>RP2A03G</b> CPU and <b>RP2C02G</b> PPU. That is, coincidentally, exactly the netlist pair our simulator runs.</p>

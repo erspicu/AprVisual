@@ -42,6 +42,27 @@ namespace AprVisual.Test
             return (filled, lastAddress, lastValue);
         }
 
+        // Full result-table dump at the end of every AC run, whatever the exit path. Exists because
+        // of two burns in one day: a "final" tally extrapolated from a mid-run diff (5 late failures
+        // missed), and per-test values misread from the last 10-frame snapshot (the run ended between
+        // snapshots). The table at verdict time is the only authoritative source -- so print it.
+        private static void DumpAcResultTable(WireCore.Memory acRam)
+        {
+            int passed = 0, failed = 0;
+            var sb = new StringBuilder();
+            for (int a = 0x400; a < 0x500; a++)
+            {
+                int v = acRam.Read(a);
+                if (v == 0) continue;
+                bool pass = (v & 1) != 0;
+                if (pass) passed++; else failed++;
+                if (!pass || (v != 1))   // failures and non-default pass variants are the informative ones
+                    sb.Append($"#   ${a:X3}=${v:X2} {(pass ? $"PASS variant {v >> 2}" : $"FAIL err {v >> 2}")}\n");
+            }
+            Console.Error.WriteLine($"# [ac] result table at exit: {passed} pass / {failed} fail / {passed + failed} filled");
+            if (sb.Length > 0) Console.Error.Write(sb.ToString());
+        }
+
         // Runner-side loop state carried inside a snapshot (opaque to WireCore). v1: the _io_db
         // decay tracker (semantically live — it decides WHEN the open-bus decay fires) and the
         // Debug_EC edge tracker (log cosmetics, but keeps resumed output identical).
@@ -418,6 +439,7 @@ namespace AprVisual.Test
                 sw.Stop();
                 wallSecs = sw.Elapsed.TotalSeconds;
                 hcRun = WireCore.Time - t0;
+                if (acRam != null) DumpAcResultTable(acRam);   // single exit point: covers ac, ac-storm and timeout alike
                 if (frames > _testMaxFrames) frames = _testMaxFrames;   // loop exits at budget+1
 
                 if (status == "timeout")

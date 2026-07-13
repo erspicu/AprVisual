@@ -529,7 +529,10 @@ namespace AprVisual.Test
             try { WireCore.ComposeSystem(chrIsRam: false, isTestRom: true); }
             catch (Exception ex) { Console.Error.WriteLine($"compose failed: {ex.GetType().Name}: {ex.Message}"); return 2; }
 
-            int id = WireCore.LookupNode(name);
+            // "@1234" = dump by engine node id directly — unnamed internal nodes (latch loop innards)
+            // have no name to look up, but their ids appear in other nodes' dumps.
+            int id = name.StartsWith('@') && int.TryParse(name.AsSpan(1), out int rawId)
+                   ? rawId : WireCore.LookupNode(name);
             if (id == WireCore.EmptyNode) { Console.Error.WriteLine($"no node named '{name}'"); return 1; }
             WireCore.Node? node = id >= 0 && id < WireCore.Nodes.Count ? WireCore.Nodes[id] : null;
             string Nm(int n) => $"{WireCore.GetNodeName(n)}#{n}";

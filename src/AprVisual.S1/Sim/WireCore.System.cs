@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using AprVisual.Rom;
 
 namespace AprVisual.Sim
@@ -408,6 +409,55 @@ namespace AprVisual.Sim
         private static int[] _lxaDb = Array.Empty<int>(), _lxaA = Array.Empty<int>(), _lxaX = Array.Empty<int>();
         private static int _lxaPrevPhi2, _lxaArm, _lxaImm;
         private static bool _lxaPrevSync;
+        // LAE/LAS ($BB absolute,Y) — the same analog bus-fight family, opposite symptom. The op loads
+        // A = X = SP = (mem & SP) off the SB bus; measured on the isolated reproduction (AccuracyCoin
+        // page 9 item 5, sub-test 1: mem=$5A SP=$CA): A settles to the correct merge ($4A) while X
+        // latches the PRE-merge bus ($CA — the raw SP) — X's load latch closes on an earlier settle
+        // wave than the AND collapse. Real silicon's analog transition satisfies both latches with the
+        // final value. Shim: at $BB's completion boundary, copy the demonstrably-correct A into X and
+        // SP (flags derive from the same value and are already right).
+        // S is NOT a simple dynamic latch like X: each bit is a cross-coupled pair with a NAMED
+        // complement (s_i / nots_i), clocked via cclk (s0 -> #9732 -cclk-> nots0 -> #9090 -SS-> s0,
+        // dissected with --dump-node @id). Forcing s[7:0] alone measurably reverts (Copy_SP2 stayed
+        // $CA: nots re-imposed the old value through the loop every cycle) — the force must flip
+        // BOTH halves of the pair, the same dual-side pattern the frame-IRQ shim uses.
+        private static int[] _laeS = Array.Empty<int>();
+        private static int[] _laeNotS = Array.Empty<int>();
+        private static int[] _laeSb = Array.Empty<int>();
+        private static int _laeSbs = EmptyNode;
+        private static int _laeRecent;       // half-cycles since IR last read $BB (write-back overlaps the next fetch)
+        private static bool _laeSbsSeen;
+        private static int _laePrevSbs;
+        private static int _laeVal = -1;     // the correct merge, COMPUTED as (db & pre-op S) in the load window
+        private static int _laeOldS = -1;    // S sampled when IR first reads $BB (pre-load)
+        private static int _laeDbPrevFall = -1;   // db at the PREVIOUS phi2 fall (the data-read cycle)
+        private static int[] _laeNotA = Array.Empty<int>();   // A's complement storage (~a_i), found by topology
+        private static int _laeAcs = EmptyNode;                // dpc23_SBAC: the SB->A load gate
+        private static int _laePrevAcs;
+
+        private static Memory? _laeRam;   // u1.ram — the stack lives here; see the retro-poke below
+
+        private static void LaeForce(int node, int bit)
+        { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }
+
+        // The node <node> pulls to GND through the (single) transistor it gates — i.e. the output of
+        // the inverter whose input is <node>: for a register slave bit, its complement storage node.
+        // Walks the turn-ON gate list (index tag bits masked; (c1,c2) pairs, 0-terminated).
+        private static int GatedGndPullTarget(int node)
+        {
+            int idx = NodeTlistGates[node] & GateListIndexMask;
+            for (; TransistorList[idx] != 0; idx += 2)
+            {
+                int c1 = TransistorList[idx], c2 = TransistorList[idx + 1];
+                if (c1 == Ngnd) return c2;
+                if (c2 == Ngnd) return c1;
+            }
+            return EmptyNode;
+        }
+        private static int _laeWait;         // half-cycles left to meet a TSX that will read S
+        private static readonly bool _laeDebug = Environment.GetEnvironmentVariable("LAE_DEBUG") == "1";
+
+
 
         public static void EnableLxaMagicShim()
         {
@@ -420,17 +470,68 @@ namespace AprVisual.Sim
             var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
             var a  = new List<int>(); ResolveNodes("cpu.a[7:0]",  a,  quiet: true);
             var x  = new List<int>(); ResolveNodes("cpu.x[7:0]",  x,  quiet: true);
+            var s  = new List<int>(); ResolveNodes("cpu.s[7:0]",  s,  quiet: true);
             if (_lxaPhi2 == EmptyNode || _lxaSync == EmptyNode || _lxaP1 == EmptyNode || _lxaP7 == EmptyNode
-                || db.Count != 8 || a.Count != 8 || x.Count != 8)
+                || db.Count != 8 || a.Count != 8 || x.Count != 8 || s.Count != 8)
             { Console.Error.WriteLine("# [shim] LXA magic shim: nodes unresolved — disabled"); LxaMagicShim = false; return; }
-            _lxaDb = db.ToArray(); _lxaA = a.ToArray(); _lxaX = x.ToArray();
+            _lxaDb = db.ToArray(); _lxaA = a.ToArray(); _lxaX = x.ToArray(); _laeS = s.ToArray();
+            var ns = new List<int>(); ResolveNodes("cpu.nots[7:0]", ns, quiet: true);
+            var sb = new List<int>(); ResolveNodes("cpu.sb[7:0]", sb, quiet: true);
+            _laeSbs = LookupNode("cpu.dpc6_SBS");
+            _laeAcs = LookupNode("cpu.dpc23_SBAC");
+            if (ns.Count != 8 || sb.Count != 8 || _laeSbs == EmptyNode)
+            { Console.Error.WriteLine("# [shim] LXA/LAE shim: nots[7:0]/sb[7:0]/dpc6_SBS unresolved — disabled"); LxaMagicShim = false; return; }
+            _laeNotS = ns.ToArray(); _laeSb = sb.ToArray();
+            _laeRam = ResolveMemory("u1.ram");
+            _laeNotA = new int[8];
+            for (int i = 0; i < 8; i++)
+            {
+                _laeNotA[i] = GatedGndPullTarget(a[i]);   // a_i -> (~a_i): same dual-side need as S (measured: A reverted $82->$92)
+                if (_laeNotA[i] == EmptyNode)
+                { Console.Error.WriteLine($"# [shim] LXA/LAE shim: A-bit {i} complement unresolved — disabled"); LxaMagicShim = false; return; }
+            }
             _lxaPrevPhi2 = NodeStates[_lxaPhi2];
             _lxaArm = 0;
+            _laeRecent = 0; _laeWait = 0; _laeVal = -1; _laeSbsSeen = false;
             LxaMagicShim = true;
         }
 
         private static void LxaMagicShimStep()
         {
+            // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
+            // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
+            // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already
+            // advanced to the next opcode — the 6502's T0/T1 overlap puts LAE's write-back inside the
+            // next instruction's fetch. So keep a short 'ember' after IR reads $BB; an SBS pulse
+            // within it is LAE's own load window, while a TXS anywhere else stays excluded.
+            if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBB)
+            {
+                if (_laeRecent == 0)
+                {
+                    _laeOldS = ReadBits(_laeS);   // first sighting: S still pre-op
+                    LaeReadCount = 0; LaeRecording = true;   // record every memory read of this op
+                }
+                _laeRecent = 90;   // must outlive the ~49-hc overlap PLUS the SBS high phase (~12 hc)
+            }
+            else if (_laeRecent > 0) { if (--_laeRecent == 0) LaeRecording = false; }
+            // Trigger at SBS LEVEL (the load window itself). The falling edge is too late — it lands
+            // inside the next instruction's S-consuming cycle (measured: PHA's push address got
+            // perturbed via SADL, corrupting the harness capture). Inside the window the gate is
+            // open, so the force must make bus and register AGREE rather than fight (see below).
+            if (NodeStates[_laeSbs] == 1 && _laeRecent > 0) _laeSbsSeen = true;
+            _laePrevSbs = NodeStates[_laeSbs];
+            // A's load gate (SBAC) stays open past the capture fall and re-imposes the transitional
+            // bus on top of any force (measured: forced $82 reverted to $92 by PHA's sample). The
+            // moment SBAC closes, A is isolated — re-apply the computed value there, ahead of PHA's
+            // read a cycle later.
+            int acsNow = _laeAcs == EmptyNode ? 0 : NodeStates[_laeAcs];
+            // (SBAC-close re-forcing removed: the stub's own PLA/AND legitimately reload A through
+            // SBAC, and clobbering those measurably broke the flags capture. Kept for tracing only.)
+            if (_laeDebug && _laeWait > 1400)
+                Console.Error.WriteLine($"# [lae] post t={Time} phi2={NodeStates[_lxaPhi2]} acs={acsNow} a=${ReadBits(_lxaA):X2} ir=${(R_CpuIr.Length==8?ReadBits(R_CpuIr):-1):X2}");
+            _laePrevAcs = acsNow;
+            if (_laeDebug && (_laeSbsSeen || (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBB)))
+                Console.Error.WriteLine($"# [lae] t={Time} phi2={NodeStates[_lxaPhi2]} ir=${(R_CpuIr.Length==8?ReadBits(R_CpuIr):-1):X2} sbs={NodeStates[_laeSbs]} sb=${ReadBits(_laeSb):X2} db=${ReadBits(_lxaDb):X2} a=${ReadBits(_lxaA):X2} x=${ReadBits(_lxaX):X2} s=${ReadBits(_laeS):X2}");
             int ph = NodeStates[_lxaPhi2];
             if (_lxaPrevPhi2 == 1 && ph == 0)   // phi2 falling = end of a CPU cycle
             {
@@ -460,8 +561,97 @@ namespace AprVisual.Sim
                     Drive(_lxaP1, z); Drive(_lxaZLoop, z);
                     _lxaArm = 3;
                 }
+                // LAE ($BB): X (via SBX) and S (via SBS) latch an earlier settle wave than the SB
+                // merge collapse, so both capture the pre-merge bus. The correct merge (mem & SP) is
+                // NOT recoverable from SB at any quiescent boundary (measured: SB reads a transitional
+                // $C9 at the load fall while A already holds the correct $4A — A's latch caught the
+                // mid-settle wave that real silicon delivers to all three). A is therefore the only
+                // reliable carrier: at the fall of LAE's own S-load window, impose A on X and on the
+                // cross-coupled S pair. SSB (S's bus-drive) is off during a load, so no ripple.
+                if (_laeSbsSeen)
+                {
+                    // Load window. The merge is COMPUTED, not scavenged: db still carries the operand
+                    // byte here (measured) and S was sampled pre-op, so v = db & oldS is the value the
+                    // analog transition delivers on hardware. (Scavenging A worked for sub-test 1 but
+                    // sub-test 2 measurably races even A — $92 captured where $82 is correct.) A and X
+                    // are simple latches: fix both right here (proven ripple-free). Flags derive from
+                    // the value; drive them via the LXA machinery below. Do NOT touch S yet: any S
+                    // change inside [LAE write-back .. PHA samples S] tears the following stack ops
+                    // (measured twice: mixed push/pull bases, Copy_SP2 off by one, A restored from a
+                    // stale stack byte). S's correction waits for the instruction that actually READS
+                    // it — the first TSX after the op — where the stack quartet in between ran
+                    // self-consistently on the old base (net zero) exactly as it would on hardware.
+                    // Ground truth from the behavioral-memory read log: the operand bytes are the
+                    // consecutive-address pair early in the ember, the effective target is
+                    // (operand16 + Y), and the data byte is the newest logged read at that target
+                    // (newest-first skips the page-cross dummy read). No bus-timing guesswork.
+                    LaeRecording = false;
+                    int mem = -1;
+                    {
+                        int opLo = -1, opHi = -1;
+                        for (int k = 0; k + 1 < LaeReadCount; k++)
+                            if (LaeReadAddr[k + 1] == LaeReadAddr[k] + 1) { opLo = LaeReadVal[k]; opHi = LaeReadVal[k + 1]; break; }
+                        if (opLo >= 0)
+                        {
+                            int y = R_CpuY.Length == 8 ? ReadReg(R_CpuY) : 0;
+                            int target = (((opHi << 8) | opLo) + y) & 0x7FF;   // module-local (u1.ram mask; AC targets internal RAM)
+                            for (int k = LaeReadCount - 1; k >= 0; k--)
+                                if ((LaeReadAddr[k] & 0x7FF) == target) { mem = LaeReadVal[k]; break; }
+                        }
+                        if (_laeDebug)
+                        {
+                            var ring = new StringBuilder("# [lae] reads:");
+                            for (int k = 0; k < LaeReadCount; k++) ring.Append($" ${LaeReadAddr[k]:X3}=${LaeReadVal[k]:X2}");
+                            Console.Error.WriteLine(ring.ToString() + $"  -> mem={(mem >= 0 ? $"${mem:X2}" : "?")}");
+                        }
+                    }
+                    _laeVal = (mem >= 0 ? mem : ReadBits(_lxaA)) & _laeOldS;
+                    for (int i = 0; i < 8; i++)
+                    {
+                        int b = (_laeVal >> i) & 1;
+                        Force(_lxaA[i], b);
+                        Force(_laeNotA[i], b ^ 1);   // dual-side: A reverts a single-sided force (measured $82 -> $92 by TSX time)
+                        Force(_lxaX[i], b);
+                    }
+                    {
+                        int n = (_laeVal >> 7) & 1, z = _laeVal == 0 ? 1 : 0;
+                        void DriveF(int node, int bit) { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); }
+                        DriveF(_lxaP7, n); DriveF(_lxaNotN, n ^ 1);
+                        DriveF(_lxaP1, z); DriveF(_lxaZLoop, z);
+                        _lxaArm = 3;   // reuse LXA's sustained flag drive + its release countdown
+                    }
+                    // Timeline truth (from the read ring: the PHA and PHP opcode fetches PRECEDE this
+                    // capture): by now PHA has already pushed A — with the smeared pre-fix value — and
+                    // decremented S (the very SBS pulse this fires on is PHA's S-1 write-back; the
+                    // s=$C9 seen here is $CA-1). The push is a done deed in behavioral RAM, so correct
+                    // it retroactively: the slot is $0100 | pre-op S.
+                    _laeRam?.Write(0x100 | _laeOldS, (byte)_laeVal);
+                    _laeSbsSeen = false;
+                    _laeRecent = 0;       // one shot per window
+                    _laeWait = 1600;      // ~66 CPU cycles to meet the TSX; drop silently if none comes
+                    if (_laeDebug) Console.Error.WriteLine($"# [lae] capture v=${_laeVal:X2} (db=${ReadBits(_lxaDb):X2} oldS=${_laeOldS:X2} a=${ReadBits(_lxaA):X2} ab=${(R_CpuAb.Length>0?ReadReg(R_CpuAb):-1):X4}) t={Time}");
+                }
+                if (_laeWait > 0)
+                {
+                    _laeWait--;
+
+                    if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBA)   // TSX just fetched: fix S before its execute reads it
+                    {
+                        for (int i = 0; i < 8; i++)
+                        {
+                            int b = (_laeVal >> i) & 1;
+                            Force(_laeS[i], b);
+                            Force(_laeNotS[i], b ^ 1);
+                        }
+                        _laeWait = 0;
+                        if (_laeDebug) Console.Error.WriteLine($"# [lae] S=${_laeVal:X2} at TSX (t={Time}); a now=${ReadBits(_lxaA):X2} x now=${ReadBits(_lxaX):X2}");
+                    }
+                }
+
                 if (fetchNow && dbv == 0xAB) _lxaArm = 1;
                 else if (_lxaArm == 1) { _lxaImm = dbv; _lxaArm = 2; }
+
+                _laeDbPrevFall = dbv;   // becomes "previous fall's db" for the next fall
             }
             _lxaPrevPhi2 = ph;
             if (FrameIrqShim) FrameIrqShimStep();

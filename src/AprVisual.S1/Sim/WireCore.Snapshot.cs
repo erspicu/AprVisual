@@ -43,7 +43,11 @@ namespace AprVisual.Sim
     // snapshot(original run @ F) byte for byte — files carry no timestamps.
     internal static unsafe partial class WireCore
     {
-        private const uint SnapVersion = 1;
+        // v2 (2026-07-13): appends the LAE ($BB) shim's live state to the SHIM section. The TSX-wait
+        // window spans ~2 frames, so a frame-boundary snapshot CAN land inside it — without these
+        // fields a resumed run would miss the deferred S fix and diverge. v1 files (the run-4 lineage)
+        // load fine with all-zero defaults: they were taken by a pre-LAE-shim engine.
+        private const uint SnapVersion = 2;
         private static readonly byte[] SnapMagic = Encoding.ASCII.GetBytes("APRSNAP1");
 
         // ── public API ──────────────────────────────────────────────────────────────────────
@@ -146,6 +150,11 @@ namespace AprVisual.Sim
                         sw.Write(PpuAleReadFeedbackHoldCount);                             // ALE/read feedback (log gating)
                         sw.Write(_ppuAleReadFeedbackLastLogTime);
                         sw.Write(_joyArmed);                                               // behavioral joypad
+                        sw.Write(_laeRecent); sw.Write(_laeSbsSeen);                       // v2: LAE $BB shim live state
+                        sw.Write(_laeVal); sw.Write(_laeOldS); sw.Write(_laeWait);
+                        sw.Write(_laePrevSbs); sw.Write(_laePrevAcs); sw.Write(_laeDbPrevFall);
+                        sw.Write(LaeRecording); sw.Write(LaeReadCount);
+                        for (int i = 0; i < 16; i++) { sw.Write(LaeReadAddr[i]); sw.Write(LaeReadVal[i]); }
                         EndSection(w, "SHIM", sec);
                     }
 
@@ -185,7 +194,7 @@ namespace AprVisual.Sim
             using var r = new BinaryReader(new MemoryStream(file, 0, file.Length - 4), Encoding.UTF8);
             if (!r.ReadBytes(8).AsSpan().SequenceEqual(SnapMagic)) throw new InvalidDataException("LoadState: bad magic");
             uint ver = r.ReadUInt32();
-            if (ver != SnapVersion) throw new InvalidDataException($"LoadState: version {ver}, expected {SnapVersion}");
+            if (ver != 1 && ver != SnapVersion) throw new InvalidDataException($"LoadState: version {ver}, expected 1..{SnapVersion}");
 
             frame = r.ReadInt32();
             long time = r.ReadInt64();
@@ -261,6 +270,20 @@ namespace AprVisual.Sim
             PpuAleReadFeedbackHoldCount = r.ReadInt64();
             _ppuAleReadFeedbackLastLogTime = r.ReadInt64();
             _joyArmed = r.ReadBoolean();
+            if (ver >= 2)
+            {
+                _laeRecent = r.ReadInt32(); _laeSbsSeen = r.ReadBoolean();
+                _laeVal = r.ReadInt32(); _laeOldS = r.ReadInt32(); _laeWait = r.ReadInt32();
+                _laePrevSbs = r.ReadInt32(); _laePrevAcs = r.ReadInt32(); _laeDbPrevFall = r.ReadInt32();
+                LaeRecording = r.ReadBoolean(); LaeReadCount = r.ReadInt32();
+                for (int i = 0; i < 16; i++) { LaeReadAddr[i] = r.ReadInt32(); LaeReadVal[i] = r.ReadInt32(); }
+            }
+            else
+            {   // v1: pre-LAE-shim engine — quiescent defaults are faithful
+                _laeRecent = 0; _laeSbsSeen = false; _laeVal = -1; _laeOldS = -1; _laeWait = 0;
+                _laePrevSbs = 0; _laePrevAcs = 0; _laeDbPrevFall = -1;
+                LaeRecording = false; LaeReadCount = 0;
+            }
 
             // ── RUNR ──
             int runrLen = ReadTag(r, "RUNR", -1);

@@ -144,6 +144,19 @@ namespace AprVisual.Sim
             if (node != null) node.Callback = info;
         }
 
+        // LAE shim's read recorder: while a $BB ember is active (see WireCore.System.cs), every
+        // behavioral memory READ is logged here so the shim can recover the operand bytes and the
+        // data byte from ground truth instead of guessing bus timing. Off outside the ember; the
+        // hot-path cost when idle is one predictable branch per memory read callback.
+        internal static bool LaeRecording;
+        internal static readonly int[] LaeReadAddr = new int[16];
+        internal static readonly int[] LaeReadVal = new int[16];
+        internal static int LaeReadCount;
+        internal static void LaeRecordRead(int addr, int val)
+        {
+            if (LaeReadCount < 16) { LaeReadAddr[LaeReadCount] = addr; LaeReadVal[LaeReadCount] = val; LaeReadCount++; }
+        }
+
         private static bool _invoking;   // re-entrancy guard for InvokeCallbacks (see the note below)
 #if DEBUG
         internal static long GuardBlockedTotal;   // cumulative nested entries the guard absorbed
@@ -328,6 +341,11 @@ namespace AprVisual.Sim
             }
             if (cb.BankPtr != null) address |= *cb.BankPtr;
             WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+            // CPU-bus reads only: with rendering on, CHR fetches hit this path every PPU cycle and
+            // flood the 16-entry ring before the operands can land (measured: isolated ROM with
+            // rendering off passed while the in-suite run mis-derived the operand pair).
+            if (LaeRecording && cb.DebugName != "cart.chr." && cb.DebugName != "u4.")
+                LaeRecordRead(address & cb.Mask, cb.MemData[address & cb.Mask]);
         }
 
         // During ALE, the external octal latch feeds ROM D[7:0] back into A[7:0]. For a fixed
@@ -368,7 +386,12 @@ namespace AprVisual.Sim
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
-            else                        WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+            else
+            {
+                WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
+                if (LaeRecording && cb.DebugName != "cart.chr." && cb.DebugName != "u4.")
+                    LaeRecordRead(address & cb.Mask, cb.MemData[address & cb.Mask]);
+            }
         }
 
         private static void TracePpuMemoryCallback(CallbackInfo cb)

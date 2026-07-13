@@ -547,7 +547,14 @@ namespace AprVisual.Sim
         private static void DlShimStep()
         {
             if (!_dlShim) return;
-            bool phi2read = NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0;
+            // Scope: $4016/$4017 ONLY -- the measured race site (u7/u8 OE turn-on transient vs the
+            // DL capture). A global version regressed the whole $4015 family (APULengthCounter,
+            // FrameCounterIRQ, ...): $4015 reads are INTERNAL to the 2A03 and never touch the
+            // external bus, so forcing idl := external db there overwrites the real value with
+            // open-bus junk (exactly what AC OpenBus test 7 documents). Minimal blast radius wins.
+            int abDl = ReadReg(R_CpuAb);
+            bool phi2read = (abDl == 0x4016 || abDl == 0x4017)
+                         && NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0;
             if (_dlHeldMask != 0 && !phi2read)
             {
                 // phi2 ended (or the cycle stopped being a read): release. During phi1 cclk is off,

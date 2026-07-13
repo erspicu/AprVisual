@@ -600,9 +600,26 @@ namespace AprVisual.Sim
 
             _dmaPrPrevAb = ab;
 
-            // pcm micro-state (one abort-iteration window)
-            if (Time >= 15860000 && Time <= 15905000)
+            // result-write hook: dump ZP $50-$5F at the instant the test banks its verdict
+            if (rw == 0 && (ab == 0x0479 || ab == 0x0478) && !_dmaPrZpDumped)
             {
+                _dmaPrZpDumped = true;
+                var ram = ResolveMemory("u1.ram");
+                if (ram != null)
+                {
+                    var sb = new System.Text.StringBuilder($"# [dma] t={Time} RESULT-WRITE ${ab:X4} zp $50-$5F:");
+                    for (int i = 0x50; i < 0x60; i++) sb.Append($" {ram.Read(i):X2}");
+                    Console.Error.WriteLine(sb.ToString());
+                }
+            }
+
+            // pcm micro-state -- EVENT-armed: a $4015 write landing while the DMC DMA is active
+            // (pcm_dma_active==1) is exactly the X=8/9 mid-flight-abort case
+            if (rw == 0 && ab == 0x4015 && rdy == 0 && _pcmArmed == 0)
+            { _pcmArmed = 400; Console.Error.WriteLine($"# [pcm] t={Time} *** $4015 write during RDY-halt (mid-DMA) -- microscope armed ***"); }
+            if (_pcmArmed > 0 || (Time >= 15860000 && Time <= 15861000))
+            {
+                if (_pcmArmed > 0) _pcmArmed--;
                 if (_pcmW == null)
                 {
                     _pcmW = new int[5]; _pcmLc = new int[12];
@@ -617,7 +634,7 @@ namespace AprVisual.Sim
                 for (int i = 0; i < 12; i++) if (_pcmLc[i] != EmptyNode && NodeStates[_pcmLc[i]] != 0) lc |= 1 << i;
                 if (st != _pcmPrevSt || lc != _pcmPrevLc)
                 {
-                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} lc={lc}");
+                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} lc={lc} rdy={rdy} ab=${ab:X4}");
                     _pcmPrevSt = st; _pcmPrevLc = lc;
                 }
             }
@@ -625,6 +642,8 @@ namespace AprVisual.Sim
         private static int _dmaPrLastDb = -1;
         private static int[] _pcmW, _pcmLc;
         private static int _pcmPrevSt = -1, _pcmPrevLc = -1;
+        private static bool _dmaPrZpDumped;
+        private static int _pcmArmed;
 
         private static void LaeForce(int node, int bit)
         { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }

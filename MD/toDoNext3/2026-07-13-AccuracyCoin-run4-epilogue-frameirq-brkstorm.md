@@ -43,6 +43,26 @@ DMA 偷週期數),導致收尾保護輸給旗標。
 
 ## 4. Run 4 最終計分(f4790 快照,對 oracle temp/ac/t200.txt)
 
+> ⚠️ **更正(2026-07-13 稍後)**:本節原始版本寫「132/141、9 個偏差」——**錯了,正確是
+> 127/141、14 個偏差**。錯因:frame 2,710 的期中 oracle 對照之後,後半段(OAM/PPU Misc/
+> CPU 尾段)新增的 5 顆失敗(`Address2004_Behavior` err10、`OAM_Corruption` err2、
+> `BGSerialIn` err2、`StaleSpriteShiftRegs` err2、`ImpliedDummyRead` err1)沒有重新全表
+> 對照就外推了。風暴感知判定(ac-storm)給出的 127/141 才是全表實數 —— 誠實機制自己
+> 抓到了人的錯。教訓:**期中對照不可外推為最終;判定時全表傾印(Task #8)是根治。**
+> 下方原文保留;以本更正與 §4.1 全表為準。
+
+### 4.1 全表實數(127 pass / 14 fail)
+
+14 顆 FAIL(偶數 byte,`(err<<2)|2`):
+- DMC/$4016 家族(6):APURegActivation、ControllerStrobing、DMABusConflict、
+  Implicit/ExplicitDMAAbort、ControllerClocking(全 err2)
+- OAM 家族(2):Address2004_Behavior(err10,oracle=$41)、OAM_Corruption(err2)
+- PPU Misc(3):BGSerialIn(err2)、StaleSpriteShiftRegs(err2)、ALERead(err2)
+  —— 注意 StaleSpriteShiftRegs 在聚焦 ROM 曾 PASS,與 ALERead 同為狀態相依
+- CPU(3):OpenBus(err4)、ImpliedDummyRead(err1)、LAE_BB(err3)
+
+另 3 顆 pass-變體差異(非失敗):SHA_93/9F、SHS_9B($05 vs oracle $09)。
+
 - **132/141 與 oracle 一致**(含 `2007_Stress=$01`、`InternalDataBus=$01`、LXA、DMC 通道、
   DMCDMAPlusOAMDMA、PPUOpenBus 等)
 - SHA_93/9F、SHS_9B:`$05` vs `$09` —— **皆為 PASS**(不同可接受變體;編碼 = 奇數即過)

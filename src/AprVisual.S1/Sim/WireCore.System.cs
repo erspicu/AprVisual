@@ -543,6 +543,7 @@ namespace AprVisual.Sim
         }
 
         private static int _dlHeldMask;   // notidl bits currently clamped (held through the rest of phi2)
+        private static int _dlDbgN;
 
         private static void DlShimStep()
         {
@@ -555,6 +556,7 @@ namespace AprVisual.Sim
             int abDl = ReadReg(R_CpuAb);
             bool phi2read = (abDl == 0x4016 || abDl == 0x4017)
                          && NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0;
+
             if (_dlHeldMask != 0 && !phi2read)
             {
                 // phi2 ended (or the cycle stopped being a read): release. During phi1 cclk is off,
@@ -565,6 +567,27 @@ namespace AprVisual.Sim
                 _dlHeldMask = 0;
             }
             if (!phi2read) return;
+            // ENGAGE only on the capture-glitch SIGNATURE: the latch differs from the settled bus
+            // in TWO OR MORE bits (measured bad captures: idl=$00 vs db=$5D -- 5 bits; idl=$20 vs
+            // db=$FD -- 6 bits; an all-zero-only signature missed the second). A single-bit
+            // difference is what a legitimate controller-shift boundary looks like with the
+            // behavioural pad attached -- forcing those tears the controller stream, and combined
+            // with the open-bus replay it wedged ImpliedDummyRead in a $48xx orbit (measured:
+            // each shim alone fine, both = hang). The signature gates NEW engagements only; once
+            // holding, hold through phi2 -- an early release lets the upstream re-drive notidl
+            // and the latch falls back (measured as a FIRE/VETO oscillation).
+            if (_pdDbg && _dlDbgN < 200) { _dlDbgN++; Console.Error.WriteLine($"# [dl] t={Time} ab=${abDl:X4} idl=${ReadBits(_dlIdl):X2} db=${ReadReg(R_CpuDb):X2} mask={_dlHeldMask:X2}"); }
+            if (_dlHeldMask == 0 && System.Numerics.BitOperations.PopCount((uint)(ReadBits(_dlIdl) ^ ReadReg(R_CpuDb))) < 2) return;
+            // Never engage while the CPU is DMA-halted: during a stall the "read" on the address
+            // bus is the halted CPU's held cycle, and what the DL catches there is legitimate
+            // analog behaviour under test (ImpliedDummyRead measures exactly these) -- restating
+            // the settled bus over it derails the choreography (measured: the only engagement in
+            // the joyON hang was a $4017 read at rdy=0, idl=$20 vs db=$E0).
+            if (_dlHeldMask == 0)
+            {
+                int rdyDl = LookupNode("cpu.rdy");
+                if (rdyDl != EmptyNode && NodeStates[rdyDl] == 0) return;
+            }
             for (int b = 0; b < 8; b++)
             {
                 byte want = NodeStates[_pdDb[b]];

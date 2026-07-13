@@ -579,6 +579,53 @@ namespace AprVisual.Sim
             }
         }
 
+        // ── TEMP diag (ExplicitDMAAbort): rdy transitions + reg writes + $4000 reads ──
+        private static int _dmaPrRdy = -2, _dmaPrN;
+        private static int _dmaPrPrevAb = -1, _dmaPrRdyFall;
+        private static void DmaProbeStep()
+        {
+            if (Time < 13500000 || _dmaPrN >= 900) return;
+            int rdy = LookupNode("cpu.rdy") is int r && r != EmptyNode ? NodeStates[r] : 9;
+            int ab = ReadReg(R_CpuAb), rw = NodeStates[_pdRw];
+            if (rdy != _dmaPrRdy)
+            {
+                if (rdy == 0) _dmaPrRdyFall = (int)Time;
+                else if (_dmaPrRdy == 0)
+                { _dmaPrN++; Console.Error.WriteLine($"# [dma] t={_dmaPrRdyFall} DMA-stall dur={Time - _dmaPrRdyFall}t ab=${ab:X4}"); }
+                _dmaPrRdy = rdy;
+            }
+            bool newAb = ab != _dmaPrPrevAb;
+            if (rw == 0 && (ab == 0x4010 || ab == 0x4015) && newAb)
+            { _dmaPrN++; Console.Error.WriteLine($"# [dma] t={Time} WRITE ${ab:X4}"); }
+
+            _dmaPrPrevAb = ab;
+
+            // pcm micro-state (one abort-iteration window)
+            if (Time >= 15860000 && Time <= 15905000)
+            {
+                if (_pcmW == null)
+                {
+                    _pcmW = new int[5]; _pcmLc = new int[12];
+                    string[] nm = { "cpu.#14059", "cpu.#11094", "cpu.#11093", "cpu.#11102", "cpu.pcm_en" };   // raw ids: pcm_dma_active, pcm_loadbuf, pcm_loadsr, pcm_shiftsr
+                    for (int i = 0; i < 5; i++) _pcmW[i] = LookupNode(nm[i]);
+                    for (int i = 0; i < 12; i++) _pcmLc[i] = LookupNode($"cpu.pcm_lc{i}");
+                    Console.Error.WriteLine($"# [pcm] resolved: {string.Join(",", System.Linq.Enumerable.Select(_pcmW, x => x != EmptyNode ? "ok" : "MISS"))} lc={(System.Linq.Enumerable.All(_pcmLc, x => x != EmptyNode) ? "ok" : "MISS")}");
+                }
+                int st = 0;
+                for (int i = 0; i < 5; i++) if (_pcmW[i] != EmptyNode && NodeStates[_pcmW[i]] != 0) st |= 1 << i;
+                int lc = 0;
+                for (int i = 0; i < 12; i++) if (_pcmLc[i] != EmptyNode && NodeStates[_pcmLc[i]] != 0) lc |= 1 << i;
+                if (st != _pcmPrevSt || lc != _pcmPrevLc)
+                {
+                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} lc={lc}");
+                    _pcmPrevSt = st; _pcmPrevLc = lc;
+                }
+            }
+        }
+        private static int _dmaPrLastDb = -1;
+        private static int[] _pcmW, _pcmLc;
+        private static int _pcmPrevSt = -1, _pcmPrevLc = -1;
+
         private static void LaeForce(int node, int bit)
         { if (node == EmptyNode) return; if (bit == 1) SetHigh(node); else SetLow(node); SetFloat(node); }
 
@@ -644,6 +691,7 @@ namespace AprVisual.Sim
         {
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
+            if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
             // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already

@@ -609,6 +609,16 @@ namespace AprVisual.Sim
         private static int _dmaPrPrevAb = -1, _dmaPrRdyFall;
         private static void DmaProbeStep()
         {
+            // RESULT-WRITE hook (unstarved -- own check before the _dmaPrN cap)
+            if (!_dmaPrZpDumped && Time > 40000000)
+            {
+                int abR = ReadReg(R_CpuAb);
+                if (NodeStates[_pdRw] == 0 && (abR == 0x046D || abR == 0x0478 || abR == 0x0479))
+                {
+                    _dmaPrZpDumped = true;
+                    Console.Error.WriteLine($"# [res] t={Time} RESULT byte write ${abR:X4} pc=${(ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl):X4}");
+                }
+            }
             // finale probe v3: sample the LAST half-cycle of each bus transaction (the first-half
             // db is just the operand byte still on the bus -- three probes stepped on that rake)
             if (Time > 41000000 && Time < 41900000 && _finN < 120)
@@ -624,7 +634,7 @@ namespace AprVisual.Sim
                 if (tracked) { _finPrevW = abF; _finPrevDb = ReadReg(R_CpuDb); _finPrevRw = NodeStates[_pdRw]; }
             }
             // ZP $A5 write monitor v3 -- report the RAM's post-write truth, not the first-half bus
-            if (Time > 30000000 && _a5N < 60)
+            if (Time > 28000000 && _a5N < 60)
             {
                 int abA5 = ReadReg(R_CpuAb);
                 bool wrA5 = NodeStates[_pdRw] == 0 && abA5 == 0x00A5;
@@ -634,7 +644,7 @@ namespace AprVisual.Sim
                 {
                     _a5InWrite = false; _a5N++;
                     var ramA5 = ResolveMemory("u1.ram");
-                    Console.Error.WriteLine($"# [a5] t={Time} $A5 := ${(ramA5 != null ? ramA5.Read(0xA5) : -1):X2} (pc=${_a5Pc:X4})");
+                    Console.Error.WriteLine($"# [a5] t={Time} $A5 := ${(ramA5 != null ? ramA5.Read(0xA5) : -1):X2} (pc=${_a5Pc:X4}) S=${ReadReg(R_CpuS):X2}");
                 }
             }
             if (Time < 13500000 || _dmaPrN >= 900) return;
@@ -904,11 +914,12 @@ namespace AprVisual.Sim
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
-            if (_pdDbg && Time >= 17500000 && Time <= 17530000 && _pcTrN < 800)
+            if (_pdDbg && Time >= 41858000 && Time <= 41885000 && _pcTrN < 900)
             {
                 int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
                 if (pcNow != _pcTrPrev)
-                { _pcTrN++; Console.Error.WriteLine($"# [pc] t={Time} pc=${pcNow:X4} ir=${ReadReg(R_CpuIr):X2}"); _pcTrPrev = pcNow; }
+                { _pcTrN++; Console.Error.WriteLine($"# [pc] t={Time} pc=${pcNow:X4} ir=${ReadReg(R_CpuIr):X2}"); }
+                _pcTrPrev = pcNow;
             }
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.

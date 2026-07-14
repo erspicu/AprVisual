@@ -484,6 +484,16 @@ namespace AprVisual.Sim
         private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
         private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1, _a5N, _a5Pc;
         private static bool _a5InWrite;
+        private static int _stN, _stPrevAb = -1;
+        private static readonly byte[] _dmaRdBuf = new byte[256];
+        private static readonly bool[] _dmaRdSeen = new bool[256];
+        private static int _dmaRdCount, _dmaRdPrev = -1, _dmaRdPrevDb, _dmaRdGap;
+        private static bool _dmaRdDumped;
+        private static int[] _micIdb, _micSpr;          // microscope: internal bus + OAM-DMA data latch
+        private static int _micR4015 = EmptyNode, _micR4016 = EmptyNode, _micR4017 = EmptyNode;
+        private static int _micDbe = EmptyNode, _micJoy1 = EmptyNode, _micJoy2 = EmptyNode;
+        private static int _micPrevDbE, _micPrevIdb, _micPrevSpr, _micPrevDec, _micN;
+        private static string _micPrevTup = "";
         private static int _finN, _finPrevW = -1, _finPrevDb, _finPrevRw;
         private static int[] _pdDbgIdl, _pdDbgIdb;
         private static int _pdDbgClk1 = EmptyNode;
@@ -619,23 +629,30 @@ namespace AprVisual.Sim
         private static void DmaProbeStep()
         {
             // RESULT-WRITE hook (unstarved -- own check before the _dmaPrN cap)
-            if (!_dmaPrZpDumped && Time > 40000000)
+            if (!_dmaPrZpDumped)
             {
                 int abR = ReadReg(R_CpuAb);
-                if (NodeStates[_pdRw] == 0 && (abR == 0x046D || abR == 0x0478 || abR == 0x0479))
+                if (NodeStates[_pdRw] == 0 && (abR == 0x045C || abR == 0x055C) && Time > 19320000)
                 {
                     _dmaPrZpDumped = true;
-                    Console.Error.WriteLine($"# [res] t={Time} RESULT byte write ${abR:X4} pc=${(ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl):X4}");
+                    var ramR = ResolveMemory("u1.ram");
+                    var sbR = new System.Text.StringBuilder($"# [res] t={Time} RESULT write ${abR:X4}; ZP$50={ramR.Read(0x50):X2} ZP$10={ramR.Read(0x10):X2} ZP$11={ramR.Read(0x11):X2}; $500-$5FF:\n");
+                    for (int rr = 0; rr < 16; rr++)
+                    {
+                        sbR.Append($"#   {rr << 4:X2} |");
+                        for (int cc = 0; cc < 16; cc++) sbR.Append($" {ramR.Read(0x500 + (rr << 4) + cc):X2}");
+                        sbR.Append('\n');
+                    }
+                    Console.Error.Write(sbR.ToString());
                 }
             }
             // finale probe v3: sample the LAST half-cycle of each bus transaction (the first-half
             // db is just the operand byte still on the bus -- three probes stepped on that rake)
-            // v4 target: opcode fetches in register space during the PULL stunts
-            if (Time > 37700000 && Time < 39300000 && _finN < 120)
+            // v5 target: the $3FFE stunt's assembly reads (APURegActivation Test 7)
+            if (Time > 19300000 && Time < 19400000 && _finN < 120)
             {
                 int abF = ReadReg(R_CpuAb);
-                int pcF = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
-                bool tracked = abF >= 0x4000 && abF <= 0x401F && abF == pcF && NodeStates[_pdRw] != 0;
+                bool tracked = abF == 0x3FFE || abF == 0x3FFF || abF == 0x4000 || abF == 0x4001 || abF == 0x4014 || abF == 0x4015 || abF == 0x4016 || abF == 0x4017;
                 if (_finPrevW != -1 && abF != _finPrevW)
                 {
                     _finN++;
@@ -643,6 +660,77 @@ namespace AprVisual.Sim
                     _finPrevW = -1;
                 }
                 if (tracked) { _finPrevW = abF; _finPrevDb = ReadReg(R_CpuDb); _finPrevRw = NodeStates[_pdRw]; }
+            }
+            // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget
+            if (_stN < 40)
+            {
+                int abS = ReadReg(R_CpuAb);
+                if (abS != _stPrevAb)
+                {
+                    if (abS == 0x4014 && NodeStates[_pdRw] == 0)
+                    { _stN++; Console.Error.WriteLine($"# [st] t={Time} WRITE $4014 (OAM DMA trigger)"); }
+                    else if (abS == 0x3FFE)
+                    { _stN++; Console.Error.WriteLine($"# [st] t={Time} touch $3FFE rw={NodeStates[_pdRw]}"); }
+                    _stPrevAb = abS;
+                }
+            }
+            // OAM-DMA read matrix: final-db of every $50xx read in the stunt window
+            if (Time > 19300000 && Time < 19400000 && !_dmaRdDumped)
+            {
+                if (_micIdb == null)
+                {
+                    var li = new List<int>(); ResolveNodes("cpu.idb[7:0]", li, quiet: true); _micIdb = li.ToArray();
+                    var ls = new List<int>(); ResolveNodes("cpu.spr_data[7:0]", ls, quiet: true); _micSpr = ls.ToArray();
+                    _micR4015 = LookupNode("cpu.r4015"); _micR4016 = LookupNode("cpu.r4016"); _micR4017 = LookupNode("cpu.r4017");
+                    _micDbe = LookupNode("cpu.dbe"); _micJoy1 = LookupNode("cpu.joy1"); _micJoy2 = LookupNode("cpu.joy2");
+                    Console.Error.WriteLine($"# [mic] resolve idb={_micIdb.Length} spr={_micSpr.Length} r15={(_micR4015 != EmptyNode ? 1 : 0)} r16={(_micR4016 != EmptyNode ? 1 : 0)} r17={(_micR4017 != EmptyNode ? 1 : 0)} dbe={(_micDbe != EmptyNode ? 1 : 0)}");
+                }
+                // event logger: every-step tuple across reads $5013-$501A; print on change
+                if (Time >= 19313640 && Time <= 19314120 && _micIdb.Length == 8 && _micSpr.Length == 8)
+                {
+                    int abE = ReadReg(R_CpuAb);
+                    string tup = $"ab=${abE:X4} rw={NodeStates[_pdRw]} ext=${ReadReg(R_CpuDb):X2} idb=${ReadBits(_micIdb):X2} spr=${ReadBits(_micSpr):X2}"
+                               + $" r15={(_micR4015 != EmptyNode ? NodeStates[_micR4015] : 9)}{(_micR4016 != EmptyNode ? NodeStates[_micR4016] : 9)}{(_micR4017 != EmptyNode ? NodeStates[_micR4017] : 9)}"
+                               + $" dbe={(_micDbe != EmptyNode ? NodeStates[_micDbe] : 9)} joy={(_micJoy1 != EmptyNode ? NodeStates[_micJoy1] : 9)}{(_micJoy2 != EmptyNode ? NodeStates[_micJoy2] : 9)}";
+                    if (tup != _micPrevTup) { _micPrevTup = tup; Console.Error.WriteLine($"# [ev] t={Time} {tup}"); }
+                }
+                int abD = ReadReg(R_CpuAb);
+                if (_dmaRdPrev != -1 && abD != _dmaRdPrev)
+                {
+                    _dmaRdBuf[_dmaRdPrev & 0xFF] = (byte)_dmaRdPrevDb;
+                    if (!_dmaRdSeen[_dmaRdPrev & 0xFF]) { _dmaRdSeen[_dmaRdPrev & 0xFF] = true; _dmaRdCount++; }
+                    if (_micN < 300)
+                    {
+                        _micN++;
+                        Console.Error.WriteLine($"# [mic] t={Time} rd ${_dmaRdPrev:X4} ext=${_dmaRdPrevDb:X2} idb=${_micPrevIdb:X2} spr=${_micPrevSpr:X2} /r{{15,16,17}}={_micPrevDec:D3}");
+                    }
+                    _dmaRdPrev = -1;
+                }
+                if ((abD >> 8) == 0x50 && NodeStates[_pdRw] != 0)
+                {
+                    _dmaRdPrev = abD; _dmaRdPrevDb = ReadReg(R_CpuDb); _dmaRdGap = 0;
+                    _micPrevIdb = _micIdb.Length == 8 ? ReadBits(_micIdb) : -1;
+                    _micPrevSpr = _micSpr.Length == 8 ? ReadBits(_micSpr) : -1;
+                    _micPrevDec = (_micR4015 != EmptyNode ? NodeStates[_micR4015] * 100 : 900)
+                                + (_micR4016 != EmptyNode ? NodeStates[_micR4016] * 10 : 90)
+                                + (_micR4017 != EmptyNode ? NodeStates[_micR4017] : 9);
+                }
+                else if (_dmaRdCount >= 64 && ++_dmaRdGap > 2000)
+                {
+                    _dmaRdDumped = true;
+                    var sbD = new System.Text.StringBuilder($"# [rd] t={Time} OAM-DMA $50xx read matrix ({_dmaRdCount} reads):\n");
+                    for (int rr = 0; rr < 16; rr++)
+                    {
+                        sbD.Append($"#   {rr << 4:X2} |");
+                        for (int cc = 0; cc < 16; cc++)
+                        {
+                            int ix = (rr << 4) + cc;
+                            sbD.Append(_dmaRdSeen[ix] ? $" {_dmaRdBuf[ix]:X2}" : " --");
+                        }
+                        sbD.Append('\n');
+                    }
+                    Console.Error.Write(sbD.ToString());
+                }
             }
             // ZP $A5 write monitor v3 -- report the RAM's post-write truth, not the first-half bus
             if (Time > 28000000 && _a5N < 60)
@@ -790,6 +878,42 @@ namespace AprVisual.Sim
         private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold, _dmcAbKillIn;
         private static bool _dmcAbFetchSeen;
 
+        // ── R4015-decode missing-transistor overlay (APURegActivation err6): the upstream
+        // Visual2A03 transdefs is missing one PLA pulldown -- the R4015 *read*-decode product
+        // term (cpu.#10975) has inputs {apureg_rd, a0=1, a2=1, a3=0, a4=1} but NO a1 term, so
+        // /r4015 fires on BOTH $x15 and $x17 reads. Silicon has the a1=0 input: BreakNES APUSim
+        // regs.cpp pla[4] = NOR6(nREGRD, nA0, A1, nA2, A3, nA4), and hardware corroborates
+        // (reading $4017 does not clear the frame-interrupt flag; AccuracyCoin's answer key has
+        // $x17 = pure joy2/open-bus). Measured here: during the page-$50 OAM DMA with the core
+        // parked at $4001, the $5017 read fired r4015+r4017 together, the APU status byte ($04)
+        // beat the external bus on the internal db, and OAM latched $04 from $x17 on (err6).
+        // The overlay models the missing pulldown exactly: while the latched address line
+        // cpu._ab1 is high, clamp the product term low (deselect); release when a1 drops.
+        // Full 29-line PLA audit vs BreakNES: this is the ONLY missing device. A netlist data
+        // patch (adding the transistor) is the root fix but re-rolls the id-order lottery and
+        // re-baselines the golden checksum -- deferred until after the flagship bank; this
+        // flag-overlay shim has zero graph impact. Test mode only. ──
+        private static bool _r4015A1Shim;
+        private static int _r4015Ab1 = EmptyNode, _r4015Term = EmptyNode;
+        private static int _r4015Clamped;
+
+        public static void EnableR4015A1Shim()
+        {
+            _r4015Ab1 = LookupNode("cpu._ab1");     // APU latched address bit 1 (true line)
+            _r4015Term = LookupNode("cpu.#10975");  // R4015 read-decode product term
+            if (_r4015Ab1 == EmptyNode || _r4015Term == EmptyNode)
+            { Console.Error.WriteLine("# [shim] r4015-a1: nodes unresolved -- disabled"); return; }
+            _r4015A1Shim = true;
+        }
+
+        private static void R4015A1ShimStep()
+        {
+            if (!_r4015A1Shim) return;
+            int a1 = NodeStates[_r4015Ab1];
+            if (a1 != 0 && _r4015Clamped == 0) { InstClampLow(_r4015Term); _r4015Clamped = 1; }
+            else if (a1 == 0 && _r4015Clamped != 0) { InstRelease(_r4015Term); _r4015Clamped = 0; }
+        }
+
         public static void EnableDmc4015AbortShim()
         {
             _dmcAbHalt = LookupNode("cpu.#14039");    // rdy pulldown gate (halt assert)
@@ -923,12 +1047,15 @@ namespace AprVisual.Sim
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
+            R4015A1ShimStep();   // missing-transistor overlay on the R4015 read-decode PLA term (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
-            if (_pdDbg && Time >= 41858000 && Time <= 41885000 && _pcTrN < 900)
+            if (_pdDbg && Time >= 13750000 && Time <= 15090000 && _pcTrN < 900)
             {
                 int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
-                if (pcNow != _pcTrPrev)
+                int pgN = pcNow >> 8, pgP = _pcTrPrev >> 8;
+                bool fbff = (pgN == 0xFB || pgN == 0xFF) && (pgP == 0xFB || pgP == 0xFF);
+                if (pcNow != _pcTrPrev && pgN != pgP && !fbff)
                 { _pcTrN++; Console.Error.WriteLine($"# [pc] t={Time} pc=${pcNow:X4} ir=${ReadReg(R_CpuIr):X2}"); }
                 _pcTrPrev = pcNow;
             }

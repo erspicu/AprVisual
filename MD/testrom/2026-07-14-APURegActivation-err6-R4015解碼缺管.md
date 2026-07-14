@@ -77,6 +77,34 @@ $15=`10101` 與 $17=`10111` 只差 a1 → r4015 解碼忽略了 a1。
 (缺 gate=`_ab1` 的下拉)→ **缺陷在上游 Visual2A03 資料集本身**(die-shot 描摹漏管),
 所有下游專案(含 metalnes)都繼承。
 
+### 6b. 譜系三方比對(使用者質疑「MetalNES 有整修過」→ 命中)
+
+| 檔 | 行數 | 關係 |
+|---|---|---|
+| 我們 vendored(AprVisualBenchMark/data) | 10947 | **逐位元 == MetalNES 版** |
+| MetalNES(ref/metalnes-main/data) | 10947 | = 原始檔 **+1 顆管** + 2 筆中性 c1/c2 對調 |
+| 原始作者檔(ref/drive-download-*) | 10946 | Visual2A03 raw |
+
+MetalNES 作者**靜默**加了 `t14634b`(gate=#11444, 拉 **#11466** 到 vss)——
+#11466 正是 DMC-abort shim 鉗的 ACLK 相位節點!= 這份資料集「有洞、作者自己補」
+的既有先例(E 類第 0 號,前人已補;我們的 r4015 = 第 1 號,前人未發現)。
+c1/c2 對調(t12397/t12398)語意中性(NMOS 端點可互換)。
+**r4015 的 a1 缺管在原始檔與 MetalNES 版都不存在** —— MetalNES 沒發現這顆。
+
+### 6c. die 座標鐵證(三假說裁決)
+
+- **H3 我們搬運掉的** ✗:vendored == MetalNES 逐位元相同。
+- **H2 早期 NES 真矽 bug** ✗:(a) 行為不可能 —— 若真矽如此,每次讀 $4017 都誤清
+  frame-IRQ + status 汙染手把讀,所有遊戲的手把 2 與 frame-IRQ 引擎全壞,必為史上
+  最著名 quirk;實際硬體文件明載只有讀 $4015 清旗,AC 答案卷(實機)$x17=乾淨 $40;
+  (b) 已知 2A03 版本差異(2A03/E/G/H)無一涉及暫存器解碼;(c) BreakNES 從 die
+  影像獨立推導出 A1 輸入 → 影像上看得到。
+- **H1 圖像→定義轉錄闕漏** ✓:transdefs bbox 座標顯示 PLA 的 `_ab1` 直行位於
+  x=6856-6862,站著 **14 顆兄弟管**(所有 a1=0 解碼項的輸入),y 序列
+  `...7180, 7228, →【7338 空格】←, 7442, 7470...`;r4015 乘積列恰在 y=7338-7348
+  —— **網格交點空置**,且該區無錯接到他節點的管(排除斷線錯接變體)。
+  向量化漏掉一個網格交點,其餘 29 線完好。
+
 **全面審計**:29 條 r/w 解碼線逐條對 BreakNES PLA 表 —— 讀側 6 條、寫側 22 條
 全部完整,**唯一缺陷就是 r4015 的 a1**(w401a 為 DBG 除錯暫存器,結構不同,不計)。
 
@@ -128,4 +156,16 @@ $15=`10101` 與 $17=`10111` 只差 a1 → r4015 解碼忽略了 a1。
 
 ## 11. 哨兵結果(補記)
 
-(待砲台完成後填入)
+六顆孤立 ROM、全 shim 開(含新 R4015A1Shim)、run4 配置(--joypad):**全綠**。
+
+| ROM | 結果 |
+|---|---|
+| AccuracyCoin_OpenBus | 1/1 PASS |
+| AccuracyCoin_UnOpLAE | 1/1 PASS |
+| AccuracyCoin_InternalDataBusExplicitAbort | PASS(表 2/2)|
+| AccuracyCoin_InternalDataBusImplicitAbort | PASS(表 2/2)|
+| AccuracyCoin_ImpliedDummyRead | PASS(表 2/2)|
+| AccuracyCoin_APURegActivation | PASS(表 2/2,$45C=$09 = 神諭同值)|
+
+金 checksum `0x794A43ABDF169ADA`(full_palette 300k --extra-ram)不變。
+R4015A1Shim 零附帶損傷,修復定案。下一步:掛牌 joyON 旗艦跑。

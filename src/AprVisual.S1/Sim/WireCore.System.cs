@@ -878,41 +878,11 @@ namespace AprVisual.Sim
         private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold, _dmcAbKillIn;
         private static bool _dmcAbFetchSeen;
 
-        // ── R4015-decode missing-transistor overlay (APURegActivation err6): the upstream
-        // Visual2A03 transdefs is missing one PLA pulldown -- the R4015 *read*-decode product
-        // term (cpu.#10975) has inputs {apureg_rd, a0=1, a2=1, a3=0, a4=1} but NO a1 term, so
-        // /r4015 fires on BOTH $x15 and $x17 reads. Silicon has the a1=0 input: BreakNES APUSim
-        // regs.cpp pla[4] = NOR6(nREGRD, nA0, A1, nA2, A3, nA4), and hardware corroborates
-        // (reading $4017 does not clear the frame-interrupt flag; AccuracyCoin's answer key has
-        // $x17 = pure joy2/open-bus). Measured here: during the page-$50 OAM DMA with the core
-        // parked at $4001, the $5017 read fired r4015+r4017 together, the APU status byte ($04)
-        // beat the external bus on the internal db, and OAM latched $04 from $x17 on (err6).
-        // The overlay models the missing pulldown exactly: while the latched address line
-        // cpu._ab1 is high, clamp the product term low (deselect); release when a1 drops.
-        // Full 29-line PLA audit vs BreakNES: this is the ONLY missing device. A netlist data
-        // patch (adding the transistor) is the root fix but re-rolls the id-order lottery and
-        // re-baselines the golden checksum -- deferred until after the flagship bank; this
-        // flag-overlay shim has zero graph impact. Test mode only. ──
-        private static bool _r4015A1Shim;
-        private static int _r4015Ab1 = EmptyNode, _r4015Term = EmptyNode;
-        private static int _r4015Clamped;
-
-        public static void EnableR4015A1Shim()
-        {
-            _r4015Ab1 = LookupNode("cpu._ab1");     // APU latched address bit 1 (true line)
-            _r4015Term = LookupNode("cpu.#10975");  // R4015 read-decode product term
-            if (_r4015Ab1 == EmptyNode || _r4015Term == EmptyNode)
-            { Console.Error.WriteLine("# [shim] r4015-a1: nodes unresolved -- disabled"); return; }
-            _r4015A1Shim = true;
-        }
-
-        private static void R4015A1ShimStep()
-        {
-            if (!_r4015A1Shim) return;
-            int a1 = NodeStates[_r4015Ab1];
-            if (a1 != 0 && _r4015Clamped == 0) { InstClampLow(_r4015Term); _r4015Clamped = 1; }
-            else if (a1 == 0 && _r4015Clamped != 0) { InstRelease(_r4015Term); _r4015Clamped = 0; }
-        }
+        // R4015 read-decode missing a1 term (APURegActivation err6): fixed in DATA -- transdefs
+        // patch t13032b restores the extraction-dropped device (geometry present in segdefs;
+        // BreakNES pla[4] corroborates). See data/system-def/2a03/PATCHES.md and
+        // MD/testrom/2026-07-14-APURegActivation-err6. Category-E (netlist data) defects are
+        // netlist patches with provenance comments, not shims (user decision 2026-07-14).
 
         public static void EnableDmc4015AbortShim()
         {
@@ -1047,7 +1017,6 @@ namespace AprVisual.Sim
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
-            R4015A1ShimStep();   // missing-transistor overlay on the R4015 read-decode PLA term (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
             if (_pdDbg && Time >= 13750000 && Time <= 15090000 && _pcTrN < 900)

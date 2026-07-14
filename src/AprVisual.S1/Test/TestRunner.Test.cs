@@ -167,7 +167,8 @@ namespace AprVisual.Test
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
-                    if (Environment.GetEnvironmentVariable("NO_R4015_SHIM") == null) WireCore.EnableR4015A1Shim();   // missing a1 input on the R4015 read-decode PLA term (upstream netlist defect; see System.cs)
+                    // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
+                    // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
                 }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 

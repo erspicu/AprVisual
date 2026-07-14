@@ -482,7 +482,9 @@ namespace AprVisual.Sim
 
         private static int _pdLastBus;
         private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
-        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1;
+        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1, _a5N, _a5Pc;
+        private static bool _a5InWrite;
+        private static int _finN, _finPrevW = -1, _finPrevDb, _finPrevRw;
         private static int[] _pdDbgIdl, _pdDbgIdb;
         private static int _pdDbgClk1 = EmptyNode;
 
@@ -607,6 +609,34 @@ namespace AprVisual.Sim
         private static int _dmaPrPrevAb = -1, _dmaPrRdyFall;
         private static void DmaProbeStep()
         {
+            // finale probe v3: sample the LAST half-cycle of each bus transaction (the first-half
+            // db is just the operand byte still on the bus -- three probes stepped on that rake)
+            if (Time > 41000000 && Time < 41900000 && _finN < 120)
+            {
+                int abF = ReadReg(R_CpuAb);
+                bool tracked = abF == 0x3FFF || abF == 0x2007 || abF == 0x2006 || abF == 0x2002;
+                if (_finPrevW != -1 && abF != _finPrevW)
+                {
+                    _finN++;
+                    Console.Error.WriteLine($"# [fin] t={Time} {(_finPrevRw != 0 ? "read " : "WRITE")} ${_finPrevW:X4} final-db=${_finPrevDb:X2} a=${ReadReg(R_CpuA):X2}");
+                    _finPrevW = -1;
+                }
+                if (tracked) { _finPrevW = abF; _finPrevDb = ReadReg(R_CpuDb); _finPrevRw = NodeStates[_pdRw]; }
+            }
+            // ZP $A5 write monitor v3 -- report the RAM's post-write truth, not the first-half bus
+            if (Time > 30000000 && _a5N < 60)
+            {
+                int abA5 = ReadReg(R_CpuAb);
+                bool wrA5 = NodeStates[_pdRw] == 0 && abA5 == 0x00A5;
+                if (wrA5 && !_a5InWrite)
+                { _a5InWrite = true; _a5Pc = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl); }
+                else if (!wrA5 && _a5InWrite)
+                {
+                    _a5InWrite = false; _a5N++;
+                    var ramA5 = ResolveMemory("u1.ram");
+                    Console.Error.WriteLine($"# [a5] t={Time} $A5 := ${(ramA5 != null ? ramA5.Read(0xA5) : -1):X2} (pc=${_a5Pc:X4})");
+                }
+            }
             if (Time < 13500000 || _dmaPrN >= 900) return;
             int rdy = LookupNode("cpu.rdy") is int r && r != EmptyNode ? NodeStates[r] : 9;
             int ab = ReadReg(R_CpuAb), rw = NodeStates[_pdRw];

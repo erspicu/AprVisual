@@ -48,7 +48,24 @@ sprite 管線照走,X=$FE 的 sprite 0 照樣在行尾畫出 → sprite-zero hit
   漏列 → 「零驅動者」假象兩次;解剖腳本的字元類要含 `+.-`
 - [sq] 的「整幀死亡」差點誤導 —— 先查預算再下結論(count=9,沒爆)
 
-## 下一步
+## 第二波取證([sv]→[sz])
 
-[sv] 結果三岔:源頁錯 → SetUpSpriteZero 的 RAM 寫入沒落地(更上游);源頁對、$2004 字節錯
-→ DMA 搬運路徑;字節全對 → OAM 儲存/eval 讀出(2C02 內部,難度升級)。
+- **[sv]**:DMA 無辜 —— 源頁 `05 C5 03 FE FF...` ✓、$2004 逐字節照搬 ✓
+- **[sw]**:OAM 讀出對照 —— control 幀 v=5 h66-73 完美讀出 `05 C5 03 FE` + copy 脈衝;
+  **stunt 幀同座標全 $FF**(零錯位可能:高位 Y 全出局才會零 copy → 全 FF)
+- **[sx]**:寫撥桿對照 —— 兩次 DMA 的 bit-7 SET/CLR 序列**完全一致**且正確對應資料
+  (CLR,SET,CLR,SET = 05,C5,03,FE 的 bit7)→ 寫入機制無辜
+- **時窗鎖定**:毀損發生在 DMA 結束(35.0210M)→ v=5 eval(35.0364M)之間 =
+  re-enable 窗(v=261 h274 起的 pre-render 尾段 + v=0-4)
+- **[sy]**(sx 擴窗):v=0 dots 2-64 出現標準 clear 節奏的 FF 寫(每 2 dots 一發)——
+  clear 段本來就合法寫 FF(進 secondary),需分辨列/欄目標
+- **[sz]**:列選擇兩幀相同(0→31 依序)→ **OAM 陣列布局 = 32 列 × (8 主欄 + 1 副欄)**
+  (spr_col0-8 九條欄線!),主/副仲裁在欄不在列 → 欄線版跑動中
+
+## 現行假說(第四代)
+
+mid-261 re-enable 留下的殘相位讓 **clear 段的欄選擇錯指主欄**(control 應打欄 8/副欄,
+stunt 打欄 0-7/主欄)→ FF 灌爆主 OAM → sprite 0 消失 → 零 copy → 無 hit → err2。
+PPUSim 標尺:真矽 clear 只進 secondary(OB 強制 FF + 副欄寫),主欄不開。
+若 S1 的欄仲裁路徑連通與矽不符 → 進 die 證據判準;若連通同矽但 settle 語意選錯
+→ A/D 類,通則機制修。

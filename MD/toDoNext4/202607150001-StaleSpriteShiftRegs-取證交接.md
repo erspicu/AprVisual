@@ -89,8 +89,10 @@ OB_DEBUG=1 timeout 2400 dotnet "$DLL" --test AprAccuracyCoinUnattended/AccuracyC
 1. **control 打欄 8、stunt 打欄 0-7** → 假說四定罪 → 解剖欄仲裁控制鏈
    (從 spr_col 驅動器往上:找 OAP 對應節點;PPUSim obj_eval.cpp 的 blnk_latch/OAP 當標尺)
    → 判「連通與矽不符?」:是 → die 幾何三重關(segdefs 頂點 + PPUSim + 硬體行為)
-   後補網表;否 → A 類(blnk_latch 在 mid-261 enable 吃暫態 = capture-once 家族)
-   → 通則機制或機制級 shim(照政策:shim 全域生效、不認測試)
+   後補網表(E 類既定例外);否 → A 類(blnk_latch 在 mid-261 enable 吃暫態 =
+   capture-once 家族)→ **機制級 shim**(2026-07-15 使用者定案:修測試階段一律 shim、
+   全域生效、不認測試名;通則機制推遲到全部修完後的 Accuracy Epoch —— 記憶
+   shim-first-generalize-later)
 2. **兩幀欄相同(都欄 8)** → 副欄無辜 → 擴窗掃 v=261 h274-340(fetch 段)+
    v=0-4 全段的欄活動,找「主欄何時被誰開」(主欄開 + OB=FF 的瞬間 = 犯罪現場)
 3. **修好後標準驗證**:孤立 ROM $48F=$01(=神諭)→ 金 checksum(**配方必帶

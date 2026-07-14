@@ -274,3 +274,19 @@ v=15 h=002  cnt=$2F  ... 逐 dot 下數 → sprite 畫在 x=48
 `EnablePpuWriteDelay(_ppuWriteDelayHc)` —— 目前是**窄窗**版(vpos261/hpos338-339,
 為 even_odd 校準,預設 16 hc)。通則化成「全域 $2001 生效延遲」是候選修法,
 但需完整回歸。
+
+
+---
+
+# 【連動大獎 2026-07-15:一顆 OAM shim 收三顆】
+
+OamBlankEdgeShim(機制級、全域)除了推進 StaleSpriteShiftRegs(err2→err3),
+**免費修好另外兩顆同根測試**(走 B 路線打 Address2004 時發現):
+- **Address2004** `$45B`:err10 → **PASS $41**(= 神諭);因果釘死(NO_OAMEDGE_SHIM → 回 err10)
+- **OAM Corruption** `$47B`:err2 → **PASS $01**(= 神諭);本來標「忠實偏差候選」,神諭能過 → 是真 bug
+
+孤立 ROM 已建並入 AprAccuracyCoinUnattended repo。**預計掛牌 136 → 138/141**
+(需下次完整掃描正式入帳)。剩餘偏差:StaleSpriteShiftRegs Test 3、BGSerialIn
+(皆對齊/寫入延遲債,見 202607150002 規劃)、ALERead(大魔王)。
+
+ReportAC 第十章尾聲已補記並發佈。記分板依規則仍掛 136,138 待掛牌。

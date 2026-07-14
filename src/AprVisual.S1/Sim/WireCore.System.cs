@@ -485,6 +485,32 @@ namespace AprVisual.Sim
         private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1, _a5N, _a5Pc;
         private static bool _a5InWrite;
         private static int _stN, _stPrevAb = -1;
+        private static int[] _spVp, _spHp;
+        private static int _spBkgEn = EmptyNode, _spSprEn = EmptyNode, _spBkgOut = EmptyNode, _spSprOut = EmptyNode, _spHit = EmptyNode, _spRend = EmptyNode;
+        private static int _spN, _spWrDb, _spPrevTup = -1;
+        private static bool _spInWr;
+        private static int _sqOwd = EmptyNode, _sqCopy = EmptyNode, _sqEval = EmptyNode, _sqOvf = EmptyNode;
+        private static int _sqN, _sqPrev = -1;
+        private static int _srEnd = EmptyNode, _srOvf = EmptyNode, _srPovf = EmptyNode;
+        private static int[] _srAddr, _srPtr;
+        private static int _srN, _srPrevH = -1;
+        private static int _ssR2 = EmptyNode, _ssNr = EmptyNode, _ssNr2 = EmptyNode, _ssVis = EmptyNode;
+        private static int _ssLt64 = EmptyNode, _ssEq65 = EmptyNode, _ssEq63 = EmptyNode;
+        private static int _ssN, _ssPrevH = -1;
+        private static int _suNr = EmptyNode, _suGate = EmptyNode, _suIn = EmptyNode, _suOr = EmptyNode, _suRd = EmptyNode;
+        private static int _suN, _suPrev = -1;
+        private static int _svN, _svDb; private static bool _svIn, _svDumped;
+        private static int[] _swD; private static int _swN, _swPrevH = -1;
+        private static int _sxSet = EmptyNode, _sxClr = EmptyNode, _sxOwd2 = EmptyNode;
+        private static int _sxN, _sxPrev = -1;
+        private static int[] _szRows, _szCols; private static int _szN, _szPrev = -1;
+        private static int[] _scCells;
+        private static int[,] _oaCells; private static int _oaShot, _oaFired;
+        private static int _obN, _obPrevH = -1, _obPrev = -1;
+        private static int[] _t3P; private static int _t3Act = EmptyNode, _t3Hit = EmptyNode;
+        private static int _t3N, _t3Prev = -1, _t3PrevV = -1; private static bool _t3InWr;
+        private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
+                           _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
         private static readonly byte[] _dmaRdBuf = new byte[256];
         private static readonly bool[] _dmaRdSeen = new bool[256];
         private static int _dmaRdCount, _dmaRdPrev = -1, _dmaRdPrevDb, _dmaRdGap;
@@ -660,6 +686,332 @@ namespace AprVisual.Sim
                     _finPrevW = -1;
                 }
                 if (tracked) { _finPrevW = abF; _finPrevDb = ReadReg(R_CpuDb); _finPrevRw = NodeStates[_pdRw]; }
+            }
+            // [sp] StaleSpriteShiftRegs forensics: every $2001 write (with PPU coords at the write's
+            // last half-cycle) + every edge of the enable/_out/rendering/spr0_hit tuple, whole run
+            if (_spN < 240)
+            {
+                if (_spVp == null)
+                {
+                    var vv = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vv, quiet: true); _spVp = vv.ToArray();
+                    var hh = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hh, quiet: true); _spHp = hh.ToArray();
+                    _spBkgEn = LookupNode("ppu.bkg_enable"); _spSprEn = LookupNode("ppu.spr_enable");
+                    _spBkgOut = LookupNode("ppu.bkg_enable_out"); _spSprOut = LookupNode("ppu.spr_enable_out");
+                    _spHit = LookupNode("ppu.spr0_hit"); _spRend = LookupNode("ppu.rendering_1");
+                    Console.Error.WriteLine($"# [sp] resolve vp={_spVp.Length} hp={_spHp.Length} en={(_spBkgEn != EmptyNode ? 1 : 0)}{(_spSprEn != EmptyNode ? 1 : 0)} out={(_spBkgOut != EmptyNode ? 1 : 0)}{(_spSprOut != EmptyNode ? 1 : 0)} hit={(_spHit != EmptyNode ? 1 : 0)} rend={(_spRend != EmptyNode ? 1 : 0)}");
+                }
+                if (_spVp.Length == 9 && _spHp.Length == 9)
+                {
+                    int abW = ReadReg(R_CpuAb);
+                    bool wr01 = abW == 0x2001 && NodeStates[_pdRw] == 0;
+                    if (wr01) _spWrDb = ReadReg(R_CpuDb);
+                    if (wr01 && !_spInWr) _spInWr = true;
+                    else if (!wr01 && _spInWr)
+                    {
+                        _spInWr = false; _spN++;
+                        Console.Error.WriteLine($"# [sp] t={Time} W2001=${_spWrDb:X2} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                    }
+                    int tup = (NodeStates[_spBkgEn] << 5) | (NodeStates[_spSprEn] << 4) | (NodeStates[_spBkgOut] << 3)
+                            | (NodeStates[_spSprOut] << 2) | (NodeStates[_spRend] << 1) | NodeStates[_spHit];
+                    if (tup != _spPrevTup)
+                    {
+                        _spN++;
+                        Console.Error.WriteLine($"# [sp] t={Time} tup bkg={tup >> 5 & 1} spr={tup >> 4 & 1} bkgOut={tup >> 3 & 1} sprOut={tup >> 2 & 1} rend={tup >> 1 & 1} hit={tup & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                        _spPrevTup = tup;
+                    }
+                }
+            }
+            // [sq] sprite-eval pipeline edges in the control frame (no blank) vs the stunt frame
+            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
+            {
+                if (_sqN < 400)
+                {
+                    if (_sqOwd == EmptyNode)
+                    {
+                        _sqOwd = LookupNode("ppu.oam_write_disable");
+                        _sqCopy = LookupNode("ppu.copy_sprite_to_sec_oam");
+                        _sqEval = LookupNode("ppu.spr_eval_copy_sprite");
+                        _sqOvf = LookupNode("ppu.sec_oam_overflow");
+                        Console.Error.WriteLine($"# [sq] resolve owd={(_sqOwd != EmptyNode ? 1 : 0)} copy={(_sqCopy != EmptyNode ? 1 : 0)} eval={(_sqEval != EmptyNode ? 1 : 0)} ovf={(_sqOvf != EmptyNode ? 1 : 0)}");
+                    }
+                    int tq = (NodeStates[_sqCopy] << 2) | (NodeStates[_sqEval] << 1) | NodeStates[_sqOvf];
+                    int rose = _sqPrev < 0 ? 0 : (tq & ~_sqPrev);
+                    if (rose != 0)
+                    {
+                        _sqN++;
+                        Console.Error.WriteLine($"# [sq] t={Time} rise{(((rose >> 2) & 1) != 0 ? " copy" : "")}{(((rose >> 1) & 1) != 0 ? " eval" : "")}{((rose & 1) != 0 ? " ovf" : "")} owd={NodeStates[_sqOwd]} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                    }
+                    _sqPrev = tq;
+                }
+            }
+            // [sr] eval-machine state sampled at h=66 and h=340 of early scanlines, both frames
+            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
+            {
+                if (_srN < 80 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_srEnd == EmptyNode)
+                    {
+                        _srEnd = LookupNode("ppu.end_of_oam_or_sec_oam_overflow");
+                        _srOvf = LookupNode("ppu.sec_oam_overflow");
+                        _srPovf = LookupNode("ppu.spr_ptr_overflow");
+                        var sa = new List<int>(); ResolveNodes("ppu.spr_addr[7:0]", sa, quiet: true); _srAddr = sa.ToArray();
+                        var sp2 = new List<int>(); ResolveNodes("ppu.spr_ptr[4:0]", sp2, quiet: true); _srPtr = sp2.ToArray();
+                        Console.Error.WriteLine($"# [sr] resolve end={(_srEnd != EmptyNode ? 1 : 0)} ovf={(_srOvf != EmptyNode ? 1 : 0)} povf={(_srPovf != EmptyNode ? 1 : 0)} addr={_srAddr.Length} ptr={_srPtr.Length}");
+                    }
+                    int hNow = ReadBits(_spHp), vNow = ReadBits(_spVp);
+                    if ((hNow == 66 || hNow == 340) && hNow != _srPrevH && vNow <= 12)
+                    {
+                        _srN++;
+                        Console.Error.WriteLine($"# [sr] t={Time} v={vNow} h={hNow} end={NodeStates[_srEnd]} ovf={NodeStates[_srOvf]} povf={NodeStates[_srPovf]} sprAddr=${(_srAddr.Length == 8 ? ReadBits(_srAddr) : -1):X2} sprPtr={(_srPtr.Length == 5 ? ReadBits(_srPtr) : -1)}");
+                    }
+                    _srPrevH = hNow;
+                }
+            }
+            // [ss] rendering-node family + eval arming decodes, sampled at fixed coords both frames
+            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
+            {
+                if (_ssN < 60 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_ssR2 == EmptyNode)
+                    {
+                        _ssR2 = LookupNode("ppu.rendering_2"); _ssNr = LookupNode("ppu.not_rendering");
+                        _ssNr2 = LookupNode("ppu.not_rendering_2"); _ssVis = LookupNode("ppu.in_visible_frame_and_rendering");
+                        _ssLt64 = LookupNode("ppu.hpos_lt_64_and_rendering"); _ssEq65 = LookupNode("ppu.hpos_eq_65_and_rendering");
+                        _ssEq63 = LookupNode("ppu.hpos_eq_63_and_rendering");
+                        Console.Error.WriteLine($"# [ss] resolve r2={(_ssR2 != EmptyNode ? 1 : 0)} nr={(_ssNr != EmptyNode ? 1 : 0)} nr2={(_ssNr2 != EmptyNode ? 1 : 0)} vis={(_ssVis != EmptyNode ? 1 : 0)} lt64={(_ssLt64 != EmptyNode ? 1 : 0)} eq65={(_ssEq65 != EmptyNode ? 1 : 0)} eq63={(_ssEq63 != EmptyNode ? 1 : 0)}");
+                    }
+                    int hS = ReadBits(_spHp), vS = ReadBits(_spVp);
+                    if ((hS == 30 || hS == 64 || hS == 66) && hS != _ssPrevH && vS <= 6)
+                    {
+                        _ssN++;
+                        Console.Error.WriteLine($"# [ss] t={Time} v={vS} h={hS} r1={NodeStates[_spRend]} r2={NodeStates[_ssR2]} nr={NodeStates[_ssNr]} nr2={NodeStates[_ssNr2]} vis={NodeStates[_ssVis]} lt64={NodeStates[_ssLt64]} eq65={NodeStates[_ssEq65]} eq63={NodeStates[_ssEq63]}");
+                    }
+                    _ssPrevH = hS;
+                }
+            }
+            // [su] not_rendering latch autopsy around both enables (v242-band vs v261-late)
+            if ((Time >= 32820000 && Time <= 32880000) || (Time >= 35012000 && Time <= 35036000))
+            {
+                if (_suN < 260 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_suNr == EmptyNode)
+                    {
+                        _suNr = LookupNode("ppu.not_rendering");
+                        _suGate = LookupNode("ppu.#5829");
+                        _suIn = LookupNode("ppu.#10676");
+                        _suOr = LookupNode("ppu.#5727");
+                        _suRd = LookupNode("ppu.rendering_disabled");
+                        Console.Error.WriteLine($"# [su] resolve nr={(_suNr != EmptyNode ? 1 : 0)} gate={(_suGate != EmptyNode ? 1 : 0)} in={(_suIn != EmptyNode ? 1 : 0)} or={(_suOr != EmptyNode ? 1 : 0)} rd={(_suRd != EmptyNode ? 1 : 0)}");
+                    }
+                    int tu = (NodeStates[_suNr] << 4) | (NodeStates[_suGate] << 3) | (NodeStates[_suIn] << 2) | (NodeStates[_suOr] << 1) | NodeStates[_suRd];
+                    if (tu != _suPrev)
+                    {
+                        _suN++;
+                        Console.Error.WriteLine($"# [su] t={Time} nr={tu >> 4 & 1} gate={tu >> 3 & 1} in={tu >> 2 & 1} or={tu >> 1 & 1} rdis={tu & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                        _suPrev = tu;
+                    }
+                }
+            }
+            // [sv] what the test-2 OAM DMA actually delivers: source page dump + $2004 write bytes
+            if (Time >= 35008000 && Time <= 35015000 && _svN < 30)
+            {
+                int abV = ReadReg(R_CpuAb);
+                if (!_svDumped && abV == 0x4014 && NodeStates[_pdRw] == 0)
+                {
+                    _svDumped = true;
+                    var ramV = ResolveMemory("u1.ram");
+                    var sbV = new System.Text.StringBuilder($"# [sv] t={Time} $4014 fired; src $200-$20F:");
+                    for (int i = 0; i < 16; i++) sbV.Append($" {ramV.Read(0x200 + i):X2}");
+                    Console.Error.WriteLine(sbV.ToString());
+                }
+                bool wr04 = abV == 0x2004 && NodeStates[_pdRw] == 0;
+                if (wr04) _svDb = ReadReg(R_CpuDb);
+                if (wr04 && !_svIn) _svIn = true;
+                else if (!wr04 && _svIn)
+                {
+                    _svIn = false; _svN++;
+                    Console.Error.WriteLine($"# [sv] t={Time} W2004[{_svN - 1}]=${_svDb:X2}");
+                }
+            }
+            // [sw] the OAM readout bus as the evaluator sees it, v=5 h=60..80, both frames
+            if ((Time >= 32892000 && Time <= 32893000) || (Time >= 35036200 && Time <= 35037300))
+            {
+                if (_swN < 120 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_swD == null)
+                    {
+                        var dd = new List<int>(); ResolveNodes("ppu.spr_d[7:0]", dd, quiet: true); _swD = dd.ToArray();
+                        Console.Error.WriteLine($"# [sw] resolve spr_d={_swD.Length}");
+                    }
+                    int hW = ReadBits(_spHp), vW = ReadBits(_spVp);
+                    if (vW == 5 && hW >= 60 && hW <= 80 && hW != _swPrevH && _swD.Length == 8)
+                    {
+                        _swN++;
+                        var rAct = new System.Text.StringBuilder();
+                        if (_szRows != null && _szRows.Length == 32) for (int i = 0; i < 32; i++) if (NodeStates[_szRows[i]] != 0) rAct.Append($"{i},");
+                        Console.Error.WriteLine($"# [sw] t={Time} v={vW} h={hW} spr_d=${ReadBits(_swD):X2} copy={NodeStates[_sqCopy]} eval={NodeStates[_sqEval]} rows=[{rAct}]");
+                    }
+                    _swPrevH = hW;
+                }
+            }
+            // [sx] OAM write strobes during the healthy (vblank) DMA vs the stunt (mid-frame blank) DMA
+            if ((Time >= 18532500 && Time <= 18533400) || (Time >= 35008600 && Time <= 35009500) || (Time >= 35021600 && Time <= 35036400))
+            {
+                if (_sxN < 400 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_sxSet == EmptyNode)
+                    {
+                        _sxSet = LookupNode("ppu.set_spr_d7_in_oam");
+                        _sxClr = LookupNode("ppu.clear_spr_d7_in_oam");
+                        _sxOwd2 = LookupNode("ppu.oam_write_disable");
+                        Console.Error.WriteLine($"# [sx] resolve set={(_sxSet != EmptyNode ? 1 : 0)} clr={(_sxClr != EmptyNode ? 1 : 0)} owd={(_sxOwd2 != EmptyNode ? 1 : 0)}");
+                    }
+                    int tx = (NodeStates[_sxSet] << 1) | NodeStates[_sxClr];
+                    int rosex = _sxPrev < 0 ? 0 : (tx & ~_sxPrev);
+                    if (rosex != 0)
+                    {
+                        _sxN++;
+                        Console.Error.WriteLine($"# [sx] t={Time} rise{(((rosex >> 1) & 1) != 0 ? " SET" : "")}{((rosex & 1) != 0 ? " CLR" : "")} owd={NodeStates[_sxOwd2]} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                    }
+                    _sxPrev = tx;
+                }
+            }
+            // [sz] which OAM row is open at each clear-phase write strobe (control vs stunt v=0)
+            if ((Time >= 18532500 && Time <= 18533400) || (Time >= 35008600 && Time <= 35036400))
+            {
+                if (_szN < 320 && _spVp != null && _spVp.Length == 9)
+                {
+                    if (_szRows == null)
+                    {
+                        var rr = new List<int>(); ResolveNodes("ppu.spr_row[31:0]", rr, quiet: true); _szRows = rr.ToArray();
+                        var cc2 = new List<int>(); ResolveNodes("ppu.spr_col[8:0]", cc2, quiet: true); _szCols = cc2.ToArray();
+                        Console.Error.WriteLine($"# [sz] resolve rows={_szRows.Length} cols={_szCols.Length}");
+                    }
+                    int txz = (NodeStates[_sxSet] << 1) | NodeStates[_sxClr];
+                    int rosez = _szPrev < 0 ? 0 : (txz & ~_szPrev);
+                    bool mainCol = false;
+                    if (_szCols != null && _szCols.Length == 9)
+                        for (int i = 0; i < 8; i++) if (NodeStates[_szCols[i]] != 0) { mainCol = true; break; }
+                    if (rosez != 0 && mainCol && _szRows.Length == 32)
+                    {
+                        _szN++;
+                        var act = new System.Text.StringBuilder();
+                        for (int i = 0; i < 32; i++) if (NodeStates[_szRows[i]] != 0) act.Append($"{i},");
+                        var colAct = new System.Text.StringBuilder();
+                        if (_szCols.Length == 9) for (int i = 0; i < 9; i++) if (NodeStates[_szCols[i]] != 0) colAct.Append($"{i},");
+                        Console.Error.WriteLine($"# [sz] t={Time} strobe rows=[{act}] cols=[{colAct}] at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                    }
+                    _szPrev = txz;
+                }
+            }
+            // [sc] row-0 cell candidates sampled at three instants: pre-DMA / post-DMA / v=5 eval
+            if (Time == 35008600 || Time == 35021200 || Time == 35036320)
+            {
+                if (_scCells == null)
+                {
+                    _scCells = new int[12];
+                    int[] ids = { 3028, 3066, 3120, 3156, 3202, 3240, 3285, 3318, 3363, 3409, 3463, 3495 };
+                    for (int i = 0; i < 12; i++) _scCells[i] = LookupNode($"ppu.#{ids[i]}");
+                }
+                var sbC = new System.Text.StringBuilder($"# [sc] t={Time} cells:");
+                for (int i = 0; i < 12; i++) sbC.Append(_scCells[i] != EmptyNode ? $" {NodeStates[_scCells[i]]}" : " ?");
+                Console.Error.WriteLine(sbC.ToString());
+            }
+            // [oa] REAL OAM dump (ppu.oam_ram_XX_bN) at one-shot instants, stunt + control frames
+            if (_oaCells == null && Time > 1000000)
+            {
+                _oaCells = new int[16, 8];
+                for (int i = 0; i < 16; i++)
+                    for (int b = 0; b < 8; b++)
+                        _oaCells[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
+                Console.Error.WriteLine($"# [oa] resolved cell[0][0]={(_oaCells[0, 0] != EmptyNode ? 1 : 0)}");
+            }
+            if (_oaCells != null && _oaShot < 8)
+            {
+                long[] marks = { 32877900, 32892100, 35008500, 35020900, 35022100, 35029000, 35036300 };
+                string[] tags = { "CTRL v0", "CTRL v5-pre-eval", "STUNT pre-DMA", "STUNT post-DMA", "STUNT post-enable v0", "STUNT v2", "STUNT v5-pre-eval" };
+                for (int m = 0; m < marks.Length; m++)
+                {
+                    if (((_oaFired >> m) & 1) != 0) continue;
+                    if (Time < marks[m]) continue;
+                    _oaFired |= 1 << m; _oaShot++;
+                    var sbO = new System.Text.StringBuilder($"# [oa] t={Time} [{tags[m]}] OAM$00-$0F:");
+                    for (int i = 0; i < 16; i++)
+                    {
+                        int v = 0;
+                        for (int b = 0; b < 8; b++)
+                            if (_oaCells[i, b] != EmptyNode && NodeStates[_oaCells[i, b]] != 0) v |= 1 << b;
+                        sbO.Append($" {v:X2}");
+                    }
+                    Console.Error.WriteLine(sbO.ToString());
+                }
+            }
+            // [ob] catch the OAM row-0 corruption in the act: per-dot OAM[0..3] + write path, v=3..v=5
+            if (Time >= 35031000 && Time <= 35036400 && _oaCells != null && _spVp != null && _spVp.Length == 9 && _obN < 120)
+            {
+                int vB = ReadBits(_spVp), hB = ReadBits(_spHp);
+                bool sample = (vB == 5) || (hB == 0 && (vB == 3 || vB == 4));
+                if (sample && hB != _obPrevH)
+                {
+                    int b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+                    for (int b = 0; b < 8; b++)
+                    {
+                        if (_oaCells[0, b] != EmptyNode && NodeStates[_oaCells[0, b]] != 0) b0 |= 1 << b;
+                        if (_oaCells[1, b] != EmptyNode && NodeStates[_oaCells[1, b]] != 0) b1 |= 1 << b;
+                        if (_oaCells[2, b] != EmptyNode && NodeStates[_oaCells[2, b]] != 0) b2 |= 1 << b;
+                        if (_oaCells[3, b] != EmptyNode && NodeStates[_oaCells[3, b]] != 0) b3 |= 1 << b;
+                    }
+                    int packed = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+                    if (packed != _obPrev || (vB == 5 && hB <= 70))
+                    {
+                        _obN++;
+                        Console.Error.WriteLine($"# [ob] t={Time} v={vB} h={hB} OAM0-3={b0:X2} {b1:X2} {b2:X2} {b3:X2} owd={NodeStates[_sxOwd2]} sprAddr=${(_srAddr != null && _srAddr.Length == 8 ? ReadBits(_srAddr) : -1):X2} sprD=${(_swD != null && _swD.Length == 8 ? ReadBits(_swD) : -1):X2} rend={NodeStates[_spRend]}{(packed != _obPrev ? "  <== CHANGED" : "")}");
+                        _obPrev = packed;
+                    }
+                    _obPrevH = hB;
+                }
+            }
+            // [oc] the corruption instant at half-cycle resolution: cell vs bitline vs precharge
+            if (Time >= 35035950 && Time <= 35036000)
+            {
+                if (_ocRow == EmptyNode)
+                {
+                    _ocRow = LookupNode("ppu.spr_row0"); _ocCol = LookupNode("ppu.spr_col0");
+                    _ocPclk = LookupNode("ppu.pclk0");
+                    _ocBitA = LookupNode("ppu.#1537"); _ocBitB = LookupNode("ppu.#1546");
+                    _ocColA = LookupNode("ppu.#1502"); _ocColB = LookupNode("ppu.#1505");
+                    _ocA0 = LookupNode("ppu.oam_ram_00_a0"); _ocB0 = LookupNode("ppu.oam_ram_00_b0");
+                    _ocA1 = LookupNode("ppu.oam_ram_00_a1"); _ocB1 = LookupNode("ppu.oam_ram_00_b1");
+                    Console.Error.WriteLine($"# [oc] resolve row={(_ocRow != EmptyNode ? 1 : 0)} col={(_ocCol != EmptyNode ? 1 : 0)} pclk={(_ocPclk != EmptyNode ? 1 : 0)} bitA={(_ocBitA != EmptyNode ? 1 : 0)} colA={(_ocColA != EmptyNode ? 1 : 0)} a0={(_ocA0 != EmptyNode ? 1 : 0)}");
+                }
+                Console.Error.WriteLine($"# [oc] t={Time} rend={NodeStates[_spRend]} pclk0={NodeStates[_ocPclk]} row0={NodeStates[_ocRow]} col0={NodeStates[_ocCol]}"
+                    + $" | bitA={NodeStates[_ocBitA]} bitB={NodeStates[_ocBitB]} colA={NodeStates[_ocColA]} colB={NodeStates[_ocColB]}"
+                    + $" | cell0: a0={NodeStates[_ocA0]} b0={NodeStates[_ocB0]}  cell1: a1={NodeStates[_ocA1]} b1={NodeStates[_ocB1]}");
+            }
+            // [t3] Test 3: does the sprite-0 X counter freeze through a 10-line forced blank?
+            if (Time > 35040000 && _t3N < 260 && _spVp != null && _spVp.Length == 9)
+            {
+                if (_t3P == null)
+                {
+                    var pp = new List<int>(); ResolveNodes("ppu.spr0_p[7:0]", pp, quiet: true); _t3P = pp.ToArray();
+                    _t3Act = LookupNode("ppu.spr0_active"); _t3Hit = LookupNode("ppu.spr0_hit");
+                    Console.Error.WriteLine($"# [t3] resolve p={_t3P.Length} act={(_t3Act != EmptyNode ? 1 : 0)} hit={(_t3Hit != EmptyNode ? 1 : 0)}");
+                }
+                if (_t3P.Length == 8)
+                {
+                    int vT = ReadBits(_spVp), hT = ReadBits(_spHp);
+                    int cnt = ReadBits(_t3P), act = NodeStates[_t3Act], hit = NodeStates[_t3Hit], rd = NodeStates[_spRend];
+                    int abT = ReadReg(R_CpuAb);
+                    if (abT == 0x2001 && NodeStates[_pdRw] == 0 && !_t3InWr)
+                    { _t3InWr = true; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} W2001=${ReadReg(R_CpuDb):X2} at v={vT} h={hT}  cnt=${cnt:X2} act={act} rend={rd}"); }
+                    else if (abT != 0x2001) _t3InWr = false;
+                    int sig = (cnt << 4) | (act << 3) | (hit << 2) | rd;
+                    if (hT == 0 && vT != _t3PrevV)
+                    { _t3N++; Console.Error.WriteLine($"# [t3] t={Time} v={vT} h=0   cnt=${cnt:X2} act={act} hit={hit} rend={rd}"); _t3PrevV = vT; }
+                    else if ((act != (_t3Prev >> 3 & 1) || hit != (_t3Prev >> 2 & 1)) && _t3Prev >= 0)
+                    { _t3N++; Console.Error.WriteLine($"# [t3] t={Time} v={vT} h={hT} EDGE act={act} hit={hit} cnt=${cnt:X2} rend={rd}"); }
+                    _t3Prev = sig;
+                }
             }
             // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget
             if (_stN < 40)
@@ -884,6 +1236,100 @@ namespace AprVisual.Sim
         // MD/testrom/2026-07-14-APURegActivation-err6. Category-E (netlist data) defects are
         // netlist patches with provenance comments, not shims (user decision 2026-07-14).
 
+        // ── OAM blank-edge write-back shim (StaleSpriteShiftRegs err2; PPU OAM is dynamic) ──
+        // The 2C02's primary OAM cells are cross-coupled pairs with NO pull-ups: a stored 1 is
+        // charge on a floating node, kept alive by the bit-line precharge and the read buffer's
+        // write-back (a DRAM-style sense-and-restore). When rendering is disabled mid-scanline,
+        // the netlist switches the buffer's source from the cell array to the external bus INSIDE
+        // the same settle in which the row and column selects are still open -- so the bus content
+        // (during dots 1-64 that is the secondary-OAM clear's $FF) is restored straight into the
+        // addressed row. Measured on AccuracyCoin StaleSpriteShiftRegs test 2: at the exact
+        // half-cycle where rendering_1 falls, spr_row0 and spr_col0 both open with the bit-line
+        // pair already carrying the $FF pattern, and sprite 0 ($05 $C5 $03 $FE) becomes $FF.
+        // Silicon has propagation delay: the row closes before the switched buffer content reaches
+        // the bit lines, so a rendering-disable never writes OAM. AccuracyCoin's own OAM Corruption
+        // spec states the hardware rule outright -- the only OAM corruption is a copy of row 0 INTO
+        // row `seed` at the re-ENABLE edge, so "OAM Corruption cannot affect the outcome of a
+        // (non-arbitrary) sprite zero hit": row 0 is the source and is never destroyed.
+        // The shim restates that one semantic: it mirrors the addressed OAM row while rendering and,
+        // on the rendering-disable edge, restores whatever that settle wrote into it. Test mode only.
+        private static bool _oamEdgeShim;
+        private static int _oeRend = EmptyNode;
+        private static int[] _oeSprAddr = Array.Empty<int>();
+        private static readonly int[,] _oeCellA = new int[256, 8], _oeCellB = new int[256, 8];
+        private static readonly byte[] _oeMirror = new byte[8];
+        private static readonly int[] _oeDriven = new int[128];
+        private static int _oeMirrorRow = -1, _oePrevRend, _oeDrivenCount, _oeHold, _oeFires;
+        private static readonly bool _oeDebug = Environment.GetEnvironmentVariable("OE_DEBUG") != null;
+
+        public static void EnableOamBlankEdgeShim()
+        {
+            _oeRend = LookupNode("ppu.rendering_1");
+            var sa = new List<int>(); ResolveNodes("ppu.spr_addr[7:0]", sa, quiet: true);
+            int live = 0;
+            for (int i = 0; i < 256; i++)
+                for (int b = 0; b < 8; b++)
+                {
+                    _oeCellA[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_a{b}");
+                    _oeCellB[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
+                    if (_oeCellB[i, b] != EmptyNode && !IsPwrGnd(_oeCellB[i, b])) live++;
+                }
+            if (_oeRend == EmptyNode || sa.Count != 8 || live == 0)
+            { Console.Error.WriteLine("# [shim] oam-blank-edge: nodes unresolved -- disabled"); return; }
+            _oeSprAddr = sa.ToArray();
+            _oePrevRend = NodeStates[_oeRend];
+            _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0; _oeFires = 0;
+            _oamEdgeShim = true;
+        }
+
+        private static void OamBlankEdgeShimStep()
+        {
+            if (!_oamEdgeShim) return;
+            if (_oeHold > 0 && --_oeHold == 0)
+            {
+                bool rel = false;
+                for (int i = 0; i < _oeDrivenCount; i++) rel |= SetFloatQueued(_oeDriven[i]);
+                _oeDrivenCount = 0;
+                if (rel) ProcessQueue();
+            }
+            int rend = NodeStates[_oeRend];
+            int row = (ReadBits(_oeSprAddr) >> 3) & 0x1F;
+            if (rend != 0 && _oeHold == 0)
+            {
+                for (int c = 0; c < 8; c++)
+                {
+                    int idx = (row << 3) | c, v = 0;
+                    for (int b = 0; b < 8; b++)
+                        if (_oeCellB[idx, b] != EmptyNode && NodeStates[_oeCellB[idx, b]] != 0) v |= 1 << b;
+                    _oeMirror[c] = (byte)v;
+                }
+                _oeMirrorRow = row;
+            }
+            else if (_oePrevRend == 1 && rend == 0 && _oeMirrorRow >= 0 && _oeHold == 0)
+            {
+                bool changed = false;
+                _oeDrivenCount = 0;
+                for (int c = 0; c < 8; c++)
+                {
+                    int idx = (_oeMirrorRow << 3) | c;
+                    for (int b = 0; b < 8; b++)
+                    {
+                        bool one = ((_oeMirror[c] >> b) & 1) != 0;
+                        int bn = _oeCellB[idx, b], an = _oeCellA[idx, b];
+                        if (bn != EmptyNode && !IsPwrGnd(bn))
+                        { changed |= one ? SetHighQueued(bn) : SetLowQueued(bn); _oeDriven[_oeDrivenCount++] = bn; }
+                        if (an != EmptyNode && !IsPwrGnd(an))
+                        { changed |= one ? SetLowQueued(an) : SetHighQueued(an); _oeDriven[_oeDrivenCount++] = an; }
+                    }
+                }
+                if (changed) ProcessQueue();
+                _oeHold = 2;   // hold the restore across the edge settle, then release
+                _oeFires++;
+                if (_oeDebug) Console.Error.WriteLine($"# [oe] t={Time} rendering-disable edge: restored OAM row {_oeMirrorRow} = {_oeMirror[0]:X2} {_oeMirror[1]:X2} {_oeMirror[2]:X2} {_oeMirror[3]:X2} ...");
+            }
+            _oePrevRend = rend;
+        }
+
         public static void EnableDmc4015AbortShim()
         {
             _dmcAbHalt = LookupNode("cpu.#14039");    // rdy pulldown gate (halt assert)
@@ -1017,6 +1463,7 @@ namespace AprVisual.Sim
             OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
             DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
+            OamBlankEdgeShimStep();   // rendering-disable edge must not write OAM (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
             if (_pdDbg && Time >= 13750000 && Time <= 15090000 && _pcTrN < 900)

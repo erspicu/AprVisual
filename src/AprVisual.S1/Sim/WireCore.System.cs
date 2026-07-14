@@ -624,7 +624,7 @@ namespace AprVisual.Sim
             _dmaPrPrevAb = ab;
 
             // result-write hook: dump ZP $50-$5F at the instant the test banks its verdict
-            if (rw == 0 && (ab == 0x0479 || ab == 0x0478) && !_dmaPrZpDumped)
+            if (rw == 0 && (ab == 0x0479 || ab == 0x0478 || ab == 0x046D) && !_dmaPrZpDumped)
             {
                 _dmaPrZpDumped = true;
                 var ram = ResolveMemory("u1.ram");

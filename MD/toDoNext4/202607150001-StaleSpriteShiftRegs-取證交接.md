@@ -120,6 +120,31 @@ OB_DEBUG=1 timeout 2400 dotnet "$DLL" --test AprAccuracyCoinUnattended/AccuracyC
   cell commit);cells 三時點不變 → 這 12 顆不是目標字節的 cell(換 col 映射再選)。
 - 修法提醒:2026-07-15 定案 —— 查明後一律機制級 shim(通則推遲到全修完)。
 
+## 3.8 cell 直測結果(本 session 最終數據,log=temp/ac/stale/s1_sc1.log)
+
+```
+pre-DMA  (t=35008600): 0 1 0 1 0 1 0 1 1 0 1 0
+post-DMA (t=35021200): 0 1 0 1 0 1 0 1 1 0 1 0   ← 與 pre-DMA 完全相同!
+v=5 eval (t=35036320): 0 1 0 1 0 1 0 1 0 1 0 1   ← 末 4 顆翻轉(成對:10→01, 10→01)
+```
+
+**初步判讀(需下一步驗證後才可定論):**
+1. **stunt DMA 對這 12 顆 cell 零改變** → 傾向「存入失敗」分支(寫入根本沒進 cells)
+   —— 但前提是這些 cell 屬於 DMA 目標字節,**候選的 (欄,位) 映射未定**;
+2. 0101 交錯 + 成對翻轉 → cell 疑似互補對儲存(cell/notcell),末 4 顆 = 2 個實際位;
+3. 末 4 顆在 re-enable 窗翻轉 → 這 2 位可能是 row0 的**col-8(副欄)cell**,被 v=0-4
+   的 clear 合法寫 FF —— 若成立,則「主 cell 不動 + 副 cell 有動」= 存入失敗說的旁證。
+
+**下一步(下個 session 第一動作):**
+1. 把 12 顆候選映射到 (欄,位):解剖每顆的成對節點(#243/#274/#281... 欄位線側)
+   → 這些欄位線接到哪個 col-mux / col 索引;確認哪些屬 col0-3(sprite0 的 Y/tile/attr/X)
+   哪些屬 col8;
+2. 映射確認「主 cell 在 DMA 中不動」後 → 解剖 $2004 寫路徑的 cell commit
+   (欄位線 → row0 pass 管 → cell 的群組解算),在寫入瞬間粒度(t=35008763 附近
+   逐半週期)對照健康 DMA(t=18532724 附近)—— 找出兩者在 cell commit 上的差異
+   (嫌疑:寫脈衝與 row 脈衝的相位對不上 = 又一場 settle 內時序賽跑,A 類);
+3. 修法照定案:機制級 shim。
+
 ## 4. 決策樹(欄線數據到手後)
 
 1. **control 打欄 8、stunt 打欄 0-7** → 假說四定罪 → 解剖欄仲裁控制鏈

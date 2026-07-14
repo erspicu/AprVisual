@@ -230,3 +230,47 @@ BG 吐出第 5 行的舊圖塊(左上角方塊不透明)→ 重疊 → hit。
 4. 檢查 **OAM_Corruption($47B)** 是否連動(同街區;真機規格已在手,
    若 S1 缺「row0→row_seed 複製」語意需另補);
 5. 下一顆推薦:**Address2004 err10**(錨點最好)。
+
+
+---
+
+# 【Test 3 根因定案:$2001 生效早了 3 個 dot(對齊債)】
+
+## 逐 dot 鐵證(`temp/ac/stale/s1_t3e.log`)
+
+```
+RE-ENABLED at v=14 h=337   cnt=$30 act=1      ← S1 的渲染在 dot 337 恢復
+v=15 h=000  cnt=$30 act=1  use0=0 opq=0
+v=15 h=001  cnt=$30 act=0                     ← 計數器被重設回 counting!
+v=15 h=002  cnt=$2F  ... 逐 dot 下數 → sprite 畫在 x=48
+```
+
+## 真機規則(AC 測試 Test 5 註解自帶)
+
+- sprite 的 shifter counter 有兩種模式:**counting**(下數)與 **halted**(繪製中);
+- **「渲染中的 dot 339」才會把 counter 設回 counting**;若 dot 339 時渲染是關的,
+  counter 維持先前狀態(通常是 halted);
+- Test 3 的設計:渲染在 **dot 340** 才恢復 → dot 339 仍關閉 → counter 維持 halted
+  → 第 15 行 sprite **立刻從 x=0 畫出**,壓在**陳舊 BG shifter** 吐出的左上方塊(不透明)
+  → sprite-zero hit ✓。
+
+## S1 的偏差
+
+`$2001` 寫入生效**早了約 3 個 dot**(337 vs 340)→ dot 339 變成「渲染中」→ counter
+被重設 → sprite 跑到 x=48(BG 空白)→ 無 hit → err3。
+
+**歸類**:不是新 bug,是撞上**已知系統性債務** —— CPU/PPU 跨晶片 ~1-dot 絕對相位偏移
+(KB §2.5,NMI-edge/even_odd 零交集的同一個根)+ `$2001` 寫入延遲(真機 2-5 PPU cycle,
+依 clock alignment 而異;BGSerialIn 的註解也明說這點)。
+
+## 為何不在此冒進修
+
+動這個全域時序參數會牽動**對齊敏感家族**(8 顆 NMI-edge + even_odd + 本顆 + BGSerialIn)。
+六顆哨兵擔保不了,**必須整套旗艦跑驗證**(8h)。建議與 BGSerialIn(同樣吃 $2001 延遲)
+一起當「**對齊/寫入延遲校準**」專案處理,或等 Accuracy Epoch 的延遲原語(L1-f)落地。
+
+## 現有 PpuWriteDelay shim
+
+`EnablePpuWriteDelay(_ppuWriteDelayHc)` —— 目前是**窄窗**版(vpos261/hpos338-339,
+為 even_odd 校準,預設 16 hc)。通則化成「全域 $2001 生效延遲」是候選修法,
+但需完整回歸。

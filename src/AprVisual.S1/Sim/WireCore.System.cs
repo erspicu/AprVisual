@@ -508,7 +508,10 @@ namespace AprVisual.Sim
         private static int[,] _oaCells; private static int _oaShot, _oaFired;
         private static int _obN, _obPrevH = -1, _obPrev = -1;
         private static int[] _t3P; private static int _t3Act = EmptyNode, _t3Hit = EmptyNode;
-        private static int _t3N, _t3Prev = -1, _t3PrevV = -1; private static bool _t3InWr;
+        private static int _t3N, _t3Prev = -1, _t3PrevV = -1, _t3Arm, _t3PrevHit, _t3WrDb, _t3PrevRend;
+        private static int _t3C0 = EmptyNode, _t3C1 = EmptyNode, _t3Op = EmptyNode, _t3Use = EmptyNode,
+                           _t3Bkg = EmptyNode, _t3Set = EmptyNode, _t3Spat = EmptyNode;
+        private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
         private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
                            _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
         private static readonly byte[] _dmaRdBuf = new byte[256];
@@ -988,29 +991,37 @@ namespace AprVisual.Sim
                     + $" | bitA={NodeStates[_ocBitA]} bitB={NodeStates[_ocBitB]} colA={NodeStates[_ocColA]} colB={NodeStates[_ocColB]}"
                     + $" | cell0: a0={NodeStates[_ocA0]} b0={NodeStates[_ocB0]}  cell1: a1={NodeStates[_ocA1]} b1={NodeStates[_ocB1]}");
             }
-            // [t3] Test 3: does the sprite-0 X counter freeze through a 10-line forced blank?
-            if (Time > 35040000 && _t3N < 260 && _spVp != null && _spVp.Length == 9)
+            // [t3] Test 3: arm on the mid-frame disable, then trace the FIRST rendered line
+            // after the re-enable dot by dot: sprite pixel vs BG pixel vs the hit trigger.
+            if (Time > 35500000 && _t3N < 150 && _spVp != null && _spVp.Length == 9)
             {
                 if (_t3P == null)
                 {
                     var pp = new List<int>(); ResolveNodes("ppu.spr0_p[7:0]", pp, quiet: true); _t3P = pp.ToArray();
                     _t3Act = LookupNode("ppu.spr0_active"); _t3Hit = LookupNode("ppu.spr0_hit");
-                    Console.Error.WriteLine($"# [t3] resolve p={_t3P.Length} act={(_t3Act != EmptyNode ? 1 : 0)} hit={(_t3Hit != EmptyNode ? 1 : 0)}");
+                    _t3Op = LookupNode("ppu.spr_slot_0_opaque"); _t3Use = LookupNode("ppu.use_sprite_0");
+                    _t3Bkg = LookupNode("ppu.bkg_pat"); _t3Set = LookupNode("ppu.set_spr0_hit");
+                    _t3Spat = LookupNode("ppu.spr_pat");
+                    Console.Error.WriteLine($"# [t3] resolve use={(_t3Use != EmptyNode ? 1 : 0)} bkgpat={(_t3Bkg != EmptyNode ? 1 : 0)} sprpat={(_t3Spat != EmptyNode ? 1 : 0)} set={(_t3Set != EmptyNode ? 1 : 0)}");
                 }
                 if (_t3P.Length == 8)
                 {
                     int vT = ReadBits(_spVp), hT = ReadBits(_spHp);
-                    int cnt = ReadBits(_t3P), act = NodeStates[_t3Act], hit = NodeStates[_t3Hit], rd = NodeStates[_spRend];
-                    int abT = ReadReg(R_CpuAb);
-                    if (abT == 0x2001 && NodeStates[_pdRw] == 0 && !_t3InWr)
-                    { _t3InWr = true; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} W2001=${ReadReg(R_CpuDb):X2} at v={vT} h={hT}  cnt=${cnt:X2} act={act} rend={rd}"); }
-                    else if (abT != 0x2001) _t3InWr = false;
-                    int sig = (cnt << 4) | (act << 3) | (hit << 2) | rd;
-                    if (hT == 0 && vT != _t3PrevV)
-                    { _t3N++; Console.Error.WriteLine($"# [t3] t={Time} v={vT} h=0   cnt=${cnt:X2} act={act} hit={hit} rend={rd}"); _t3PrevV = vT; }
-                    else if ((act != (_t3Prev >> 3 & 1) || hit != (_t3Prev >> 2 & 1)) && _t3Prev >= 0)
-                    { _t3N++; Console.Error.WriteLine($"# [t3] t={Time} v={vT} h={hT} EDGE act={act} hit={hit} cnt=${cnt:X2} rend={rd}"); }
-                    _t3Prev = sig;
+                    int rd = NodeStates[_spRend];
+                    if (_t3Arm == 0 && _t3PrevRend == 1 && rd == 0 && vT >= 1 && vT <= 200)
+                    { _t3Arm = vT; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} ARMED at v={vT} h={hT}"); }
+                    // the first rendered line after the re-enable: log dots 0..60 of the line where rendering returns
+                    if (_t3Arm != 0 && rd == 1 && _t3PrevRend == 0 && _t3Ret == 0 && vT <= 200)
+                    { _t3Ret = vT; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} RE-ENABLED at v={vT} h={hT}  cnt=${ReadBits(_t3P):X2} act={NodeStates[_t3Act]}"); }
+                    _t3PrevRend = rd;
+                    if (_t3Ret != 0 && vT == _t3Ret + 1 && hT <= 60 && hT != _t3PrevH2)
+                    {
+                        _t3N++; _t3PrevH2 = hT;
+                        Console.Error.WriteLine($"# [t3] t={Time} v={vT} h={hT:D3} cnt=${ReadBits(_t3P):X2} act={NodeStates[_t3Act]}"
+                            + $" use0={(_t3Use != EmptyNode ? NodeStates[_t3Use] : 9)} opq={(_t3Op != EmptyNode ? NodeStates[_t3Op] : 9)}"
+                            + $" sprPat={(_t3Spat != EmptyNode ? NodeStates[_t3Spat] : 9)} bkgPat={(_t3Bkg != EmptyNode ? NodeStates[_t3Bkg] : 9)}"
+                            + $" setHit={(_t3Set != EmptyNode ? NodeStates[_t3Set] : 9)} hit={NodeStates[_t3Hit]}");
+                    }
                 }
             }
             // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget

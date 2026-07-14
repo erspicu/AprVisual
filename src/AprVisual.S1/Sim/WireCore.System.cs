@@ -492,7 +492,16 @@ namespace AprVisual.Sim
         {
             if (!_openBusShim) return;
             int abNow = ReadReg(R_CpuAb);
-            if (abNow < 0x4020 || abNow > _pdObTop || NodeStates[_pdRw] == 0)
+            // Opcode FETCHES from APU register space ($4000-$401F) are open-bus too: reading
+            // $4015 does not update the data bus (the status byte travels the internal bus), so
+            // a PC parked there fetches whatever the wire remembers. AccuracyCoin's
+            // ImpliedDummyRead stunts execute exactly this, and the DOR bit-4 precharge glitch
+            // (the OpenBus err4 culprit) corrupted those fetches ($28->$38, $68->$78 measured:
+            // PLP/PLA became SEC/SEI, leaking one stack byte per stunt). Data reads there keep
+            // their native paths; only fetch cycles join the replay window.
+            bool apuFetch = abNow >= 0x4000 && abNow <= 0x401F && NodeStates[_pdRw] != 0
+                         && abNow == ((ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl));
+            if ((abNow < 0x4020 && !apuFetch) || abNow > _pdObTop || NodeStates[_pdRw] == 0)
             {
                 if (_pdDbg && (abNow == 0x4016 || abNow == 0x4017) && NodeStates[_pdRw] != 0 && _pdDbgJoyN < 120)
                 {
@@ -621,10 +630,12 @@ namespace AprVisual.Sim
             }
             // finale probe v3: sample the LAST half-cycle of each bus transaction (the first-half
             // db is just the operand byte still on the bus -- three probes stepped on that rake)
-            if (Time > 41000000 && Time < 41900000 && _finN < 120)
+            // v4 target: opcode fetches in register space during the PULL stunts
+            if (Time > 37700000 && Time < 39300000 && _finN < 120)
             {
                 int abF = ReadReg(R_CpuAb);
-                bool tracked = abF == 0x3FFF || abF == 0x2007 || abF == 0x2006 || abF == 0x2002;
+                int pcF = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
+                bool tracked = abF >= 0x4000 && abF <= 0x401F && abF == pcF && NodeStates[_pdRw] != 0;
                 if (_finPrevW != -1 && abF != _finPrevW)
                 {
                     _finN++;

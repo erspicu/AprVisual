@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When the netlist isn't the whole truth — the semantic ceiling (AprVisual)</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.8;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 18px; max-width:860px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:860px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.6em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.5em 0 .9em; padding-left:24px;} li{margin:.35em 0;}
+  code{background:var(--code); padding:1px 6px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow:auto; font-size:13px; line-height:1.5; font-family:Consolas,monospace; color:#cfe4ff;}
+  b.term{color:var(--acc2);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 18px 14px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:860px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">When the netlist isn't the whole truth</span><span class="zh">當網表不是全部的真相</span></h1>
+  <p class="sub"><span class="en">What a brutal 141-test hardware suite taught us about the semantic ceiling of switch-level simulation — and what MOSSIM II would and wouldn't have fixed.</span><span class="zh">一套 141 顆的兇殘硬體測試,教會我們開關級模擬的語意天花板在哪 —— 以及 MOSSIM II 能救哪些、救不了哪些。</span></p>
+</header>
+
+<main>
+
+<section>
+<h2><span class="en">1 · The belief we started with</span><span class="zh">1 · 我們一開始的信念</span></h2>
+<p class="en">A switch-level netlist looks like the ultimate ground truth: every transistor traced from die photographs, every wire's connectivity captured. Run the transistors, and surely you get the chip — not an approximation of it, the thing itself. That belief is what makes projects like Visual6502 feel magical, and it carried this project through building a bit-exact engine that executes the whole NES (2A03 + 2C02, ~30,000 transistors) at ~140K half-cycles/s on one core.</p>
+<p class="zh">開關級網表看起來像終極的真相:每顆電晶體都從 die 照片描下來,每條線的連通性都被捕捉。把電晶體跑起來,得到的當然就是晶片本身 —— 不是近似,是本尊。這個信念正是 Visual6502 這類專案令人著迷的原因,也支撐著本專案做出一顆 bit-exact 引擎,在單核上以約 140K 半週期/秒跑完整台 NES(2A03 + 2C02,約三萬顆電晶體)。</p>
+<p class="en">The engine's semantics are the Visual6502 family's: propagate every change through the connected group of conducting transistors until the network is quiescent, and resolve each group with a fixed priority — a path to GND wins outright, then VDD, then external drives, then pull-ups, and a group with none of those keeps its previous state (charge storage). One flags-OR and one 256-entry table lookup per group: brutally fast, and faithful — <i>to the algorithm's own model of the chip</i>.</p>
+<p class="zh">引擎的語意承襲 Visual6502 家族:每個變化沿導通電晶體構成的連通群傳播,直到網路靜止;每個群用固定優先級決議 —— 通往 GND 的路徑無條件全勝,其次 VDD、再次外部驅動、再次 pull-up,全都沒有的群保持前態(電荷儲存)。每群一次 flags-OR、一次 256 格查表:暴力地快,而且忠實 —— <i>忠實於演算法自己心中的那顆晶片</i>。</p>
+</section>
+
+<section>
+<h2><span class="en">2 · The adversary: an unattended, hardware-true test suite</span><span class="zh">2 · 對手:無人值守的硬體真值測試套件</span></h2>
+<p class="en">AccuracyCoin is a 141-test NES accuracy suite whose expected values are verified on real consoles. We built an unattended fork that runs all 141 back-to-back with no human input. It is qualitatively crueler than the classic test ROMs: it executes code <i>from the floating data bus</i>, assembles instructions out of PPU bus remanence and mid-fetch DMC DMA overwrites, cancels DMAs in flight, and reads registers at the exact cycle where analog corner cases live. Older suites never pushed the model there; AccuracyCoin does so deliberately, test after test.</p>
+<p class="zh">AccuracyCoin 是一套 141 顆的 NES 精確度測試,期望值全在真機上驗證過。我們做了一個無人值守分支,一口氣連跑 141 顆、全程不需人手。它比經典測試 ROM 兇殘一個量級:它直接<i>從浮接的資料匯流排</i>執行程式碼、用 PPU 匯流排殘值加上取指中途的 DMC DMA 覆寫來拼裝指令、把進行中的 DMA 攔腰斬斷、在類比邊界行為出沒的那個精確週期去讀暫存器。舊測試從不把模型逼到這裡;AccuracyCoin 一顆接一顆,故意逼。</p>
+<p class="en">The scoreboard after nine forensic campaigns: the engine executes all 141; the deviations traced to five root-cause categories. The distribution is the finding: exactly <b>one</b> genuine engine bug in the whole campaign, exactly <b>one</b> missing transistor in the data — and nearly everything else lives in what the model, by construction, cannot see.</p>
+<p class="zh">九場取證戰役後的記分板:引擎能執行全部 141 顆;偏差追到五類根因。這個分佈本身就是研究發現:整場戰役恰好 <b>一個</b>引擎真 bug、恰好<b>一顆</b>資料裡缺失的電晶體 —— 其餘幾乎全部住在模型天生看不見的地方。</p>
+</section>
+
+<section>
+<h2><span class="en">3 · Category A: the four blind spots of a binary, quiescent model</span><span class="zh">3 · A 類:二值靜止模型的四個盲區</span></h2>
+<p class="en">The core algorithm quantizes two physical dimensions away — voltage becomes {0, 1}, time becomes "settled or not". Four distinct silicon behaviours live precisely in what got quantized out, and each was caught red-handed by a specific test:</p>
+<p class="zh">核心演算法把兩個物理維度量化掉了 —— 電壓變成 {0, 1},時間變成「靜止了沒」。有四種矽晶行為恰好住在被量化掉的地方,而且每一種都被特定測試當場抓獲:</p>
+<table>
+  <tr><th><span class="en">Blind spot</span><span class="zh">盲區</span></th><th><span class="en">The physics</span><span class="zh">物理</span></th><th><span class="en">Caught by</span><span class="zh">被誰抓到</span></th></tr>
+  <tr><td><b class="term">A1</b> <span class="en">Ratioed drive fights</span><span class="zh">比例式驅動打架</span></td>
+      <td><span class="en">Two drivers pull one wire; silicon resolves by resistance ratio. The model has no strength inside a priority class — GND simply wins.</span><span class="zh">兩個驅動源拉同一條線;矽用電阻比決勝。模型在優先級類別內沒有強度概念 —— GND 直接全勝。</span></td>
+      <td><span class="en">Unofficial opcodes LAE/LXA (the accumulator vs a latch driver on a merged bus).</span><span class="zh">非官方指令 LAE/LXA(累加器 vs 閂鎖驅動器在合併匯流排上)。</span></td></tr>
+  <tr><td><b class="term">A2</b> <span class="en">Window-overlap durations</span><span class="zh">時窗重疊長短</span></td>
+      <td><span class="en">A nanosecond precharge glitch drowns inside a hundred-nanosecond drive window on silicon. A settle model sees two events with no widths — and can commit the glitch, especially onto a floating wire where charge injection is permanent.</span><span class="zh">奈秒級的預充電毛刺在真矽上淹沒於百奈秒的驅動窗內。settle 模型只看見兩個沒有寬度的事件 —— 而且可能讓毛刺落帳,尤其打在浮接線上時,電荷注入是永久的。</span></td>
+      <td><span class="en">OpenBus err4: a data-output-register bit-4 precharge glitch corrupted opcodes fetched from the open bus ($28→$38 — PLP became SEC).</span><span class="zh">OpenBus err4:資料輸出暫存器 bit-4 的預充電毛刺污染了從開放匯流排取到的 opcode($28→$38 —— PLP 變 SEC)。</span></td></tr>
+  <tr><td><b class="term">A3</b> <span class="en">Transparent-latch tracking</span><span class="zh">透明閂鎖的持續追隨</span></td>
+      <td><span class="en">A real input latch follows the bus through the whole φ2 phase. The netlist's dynamic latch captures once per settle — whatever transient it grabs, it keeps.</span><span class="zh">真正的輸入閂鎖在整段 φ2 追隨匯流排。網表的動態閂鎖每次 settle 只捕捉一次 —— 抓到什麼暫態就留下什麼。</span></td>
+      <td><span class="en">OpenBus err6: at a $4017 read, a bus-buffer turn-on transient resolved the group to $00 mid-settle and the latch kept it — while the structurally identical $4016 read latched correctly.</span><span class="zh">OpenBus err6:讀 $4017 時,匯流排緩衝器的導通暫態在 settle 中途把群解成 $00,閂鎖就留下了它 —— 而結構完全相同的 $4016 讀取閂得正確。</span></td></tr>
+  <tr><td><b class="term">A4</b> <span class="en">Pipeline / propagation latency</span><span class="zh">管線/傳播延遲</span></td>
+      <td><span class="en">On silicon a $4015 write reaches the DMC DMA's gate cycles later, and the DMA re-checks that gate every cycle. In a quiescent settle the write lands instantly; a committed DMA is immune.</span><span class="zh">真矽上 $4015 寫入要晚幾個週期才傳到 DMC DMA 的閘,而 DMA 每個週期都重查那道閘。靜止 settle 讓寫入瞬間落地;已提交的 DMA 對它免疫。</span></td>
+      <td><span class="en">Explicit/Implicit DMA Abort: a mid-flight disable must kill the fetch on hardware; in the model it couldn't — until a calibrated deferral reproduced all sixteen hardware phases.</span><span class="zh">Explicit/Implicit DMA Abort:硬體上進行中的停用必須攔斷取樣;模型裡攔不到 —— 直到用校準過的延遲重現了與硬體答案鍵完全一致的十六個相位。</span></td></tr>
+</table>
+<p class="en">Two more categories orbit these. <b class="term">D — the id-order lottery</b> — is an amplifier: floating tie-breaks and settle order depend on node numbering, so the same race resolves differently at two identical sites (that's <i>why</i> $4016 survived and $4017 didn't). <b class="term">B — modelling level</b> — is the CD4021 controller chip story: a CMOS part transliterated into NMOS vocabulary dies under GND-wins by construction, so peripherals get behavioural models instead. And <b class="term">C</b> — genuine engine bugs — numbered exactly one, in the callback machinery, fixed outright.</p>
+<p class="zh">另外兩類環繞在旁。<b class="term">D —— id 順序彩票</b> —— 是放大器:浮接平手判定與 settle 順序依賴節點編號,同一場競速在兩個一模一樣的站點解出不同結果(這正是 $4016 活下來、$4017 沒有的<i>原因</i>)。<b class="term">B —— 建模層級</b> —— 是 CD4021 手把晶片的故事:一顆被翻譯成 NMOS 語彙的 CMOS 零件,在 GND-wins 之下結構性必死,所以周邊改用行為層模型。至於 <b class="term">C</b> —— 引擎真 bug —— 恰好一個,在 callback 機構裡,直接修掉。</p>
+</section>
+
+<section>
+<h2><span class="en">4 · Category E: the netlist itself was never the whole truth</span><span class="zh">4 · E 類:網表本身從來不是全部的真相</span></h2>
+<p class="en">The most surprising verdict came last. One test (APU Register Activation) failed because the engine's <code>/r4015</code> read-decode fired on <code>$xx17</code> reads as well as <code>$xx15</code> — the APU status register leaked onto the internal bus during every controller-2 read. The decode's product term in the netlist has five inputs and <b>no a1 term at all</b>. An independent silicon re-derivation (BreakNES) has six inputs, including a1. The die coordinates settled it: in the decode PLA, the a1 input column carries fourteen sibling transistors with exactly one vacant grid slot — at that row. And at the vertex level, the <i>polygon data (segdefs) draws the missing transistor completely</i> — source finger, poly gate, ground drain — vertex-identical to its extracted neighbour. Only the polygon-to-transistor extraction step never emitted the device.</p>
+<p class="zh">最出乎意料的判決留在最後。有一顆測試(APU Register Activation)失敗,是因為引擎的 <code>/r4015</code> 讀解碼除了 <code>$xx15</code>、連 <code>$xx17</code> 讀取也開火 —— 每次讀手把 2,APU 狀態暫存器都洩漏到內部匯流排上。這條解碼在網表裡的乘積項只有五個輸入,<b>完全沒有 a1 條件</b>。獨立的矽逆向(BreakNES)有六個輸入,含 a1。die 座標一錘定音:解碼 PLA 的 a1 輸入直行上站著十四顆兄弟電晶體,恰好空著一個網格交點 —— 就在那一列。而頂點級比對顯示,<i>多邊形資料(segdefs)把這顆缺失的電晶體畫得一清二楚</i> —— 源極指、poly 閘、接地汲極 —— 與隔壁被正確萃取的鄰居逐頂點同構。只是「多邊形→電晶體」的萃取步驟從未發出這顆器件。</p>
+<p class="en">Provenance added a twist: our netlist is byte-identical to MetalNES's copy, which had itself <i>silently repaired a different missing transistor</i> over the raw Visual2A03 download. So the community's most trusted netlist had at least two extraction holes — one found by MetalNES's author years ago, one found by this campaign. We then built a geometric completeness audit (enumerate every poly-between-two-diffusions crossing in segdefs, diff against the transistor list) and ran it on both chips. Calibration: it rediscovered both known holes at their exact coordinates. Verdict: the 2A03 has <b>exactly two</b> functionally significant extraction misses — the two already patched — and the 2C02 has <b>zero</b>. The fix policy that emerged: category-E defects are repaired <i>in the data</i>, as annotated netlist patches with full provenance — not worked around in code.</p>
+<p class="zh">譜系追查再添轉折:我們的網表與 MetalNES 的副本逐位元相同,而 MetalNES 自己就曾對原始 Visual2A03 下載<i>靜默修補過另一顆缺失的電晶體</i>。所以社群最信任的網表至少有兩個萃取漏洞 —— 一個由 MetalNES 作者多年前找到,一個由本戰役找到。我們隨後做了幾何完備性審計(枚舉 segdefs 所有「poly 夾在兩塊擴散之間」的交叉、對照電晶體清單),對兩顆晶片都跑了一遍。校準:它在精確座標上重新抓回兩個已知洞。判決:2A03 有<b>恰好兩個</b>功能有效的萃取漏 —— 即已補的那兩顆 —— 2C02 是<b>零個</b>。由此確立的修復政策:E 類缺陷<i>直接修在資料裡</i>,以附完整譜系註解的網表補丁處理 —— 不在代碼裡繞。</p>
+<div class="card">
+<p class="en"><b>The lesson in one sentence:</b> a netlist is a faithful snapshot of <i>geometric connectivity</i> — it is not, and never was, a complete description of the chip. Device strengths, continuous time, analog boundary behaviour, and even the occasional dropped device all live outside it. Nothing was wrong with trusting the netlist for forty years of casual use; it took a suite this cruel to map where the description ends.</p>
+<p class="zh"><b>一句話的教訓:</b>網表是<i>幾何連通性</i>的忠實快照 —— 它不是、也從來不是晶片的完整描述。器件強度、連續時間、類比邊界行為、甚至偶爾被漏掉的器件,全都住在它之外。四十年來大家信任網表沒有錯 —— 要等到一套這麼兇殘的測試,才把描述的邊界畫出來。</p>
+</div>
+</section>
+
+<section>
+<h2><span class="en">5 · Would MOSSIM II have survived? Half of it.</span><span class="zh">5 · 換成 MOSSIM II 會活下來嗎?活一半。</span></h2>
+<p class="en">MOSSIM II (Bryant, 1984) is the canonical academic switch-level simulator, and it shares this engine's soul: event-driven propagation, connected-group resolution, charge sharing, iterate-to-fixed-point. Where it goes further is <b>signal-strength algebra</b>: transistors carry discrete conductance strengths, nodes carry discrete sizes, and group resolution solves a small strength calculus instead of a priority OR — plus a third logic value, X, for genuine conflicts.</p>
+<p class="zh">MOSSIM II(Bryant,1984)是學術界開關級模擬的正典,和本引擎共享同一個靈魂:事件驅動傳播、連通群決議、電荷分享、迭代到不動點。它更進一步的是<b>信號強度代數</b>:電晶體帶離散電導強度、節點帶離散尺寸,群組決議解一套小型強度演算而非優先級 OR —— 外加第三個邏輯值 X,標記真衝突。</p>
+<table>
+  <tr><th><span class="en">Blind spot</span><span class="zh">盲區</span></th><th>MOSSIM II</th><th><span class="en">Why</span><span class="zh">原因</span></th></tr>
+  <tr><td>A1</td><td><span class="en">✅ solves it</span><span class="zh">✅ 能解</span></td><td><span class="en">Strength algebra is precisely a model of ratioed fights — LAE/LXA would resolve naturally, no shim.</span><span class="zh">強度代數正是比例打架的模型 —— LAE/LXA 自然解出,不需任何 shim。</span></td></tr>
+  <tr><td>A2</td><td><span class="en">❌ dies the same way</span><span class="zh">❌ 一樣踩死</span></td><td><span class="en">Events still carry no durations; a 1 ns glitch and a 100 ns drive weigh the same.</span><span class="zh">事件依然沒有寬度;1 奈秒毛刺和 100 奈秒驅動等量齊觀。</span></td></tr>
+  <tr><td>A3</td><td><span class="en">⚠ still at risk</span><span class="zh">⚠ 依然危險</span></td><td><span class="en">Settle-to-quiescence still captures once; strength classes don't restore continuous tracking.</span><span class="zh">settle-到-靜止仍是一次捕捉;強度分級救不回連續追隨。</span></td></tr>
+  <tr><td>A4</td><td><span class="en">❌ dies the same way</span><span class="zh">❌ 一樣踩死</span></td><td><span class="en">Fixed-point iteration is still zero-delay; signals cross the chip instantly.</span><span class="zh">不動點迭代依然零延遲;訊號瞬間穿越整顆晶片。</span></td></tr>
+  <tr><td>D</td><td><span class="en">⚠ different lottery</span><span class="zh">⚠ 換一種彩票</span></td><td><span class="en">Fewer ties (strength breaks many), but simultaneous-event ordering remains arbitrary.</span><span class="zh">平手變少(強度能拆掉不少),但同時事件的先後仍是任意。</span></td></tr>
+  <tr><td>E</td><td><span class="en">❌ same data</span><span class="zh">❌ 同一份資料</span></td><td><span class="en">A missing transistor is missing for every faithful executor of the netlist.</span><span class="zh">缺一顆管,對任何忠實執行這份網表的模擬器都缺。</span></td></tr>
+</table>
+<p class="en">In short: MOSSIM II fixes the <i>amplitude</i> quantization, not the <i>time</i> quantization — one of the four A-blind-spots, none of the rest. And the price is steep: strength calculus in the hot loop plus contagious X states would cost orders of magnitude of speed. This engine's binary priority + O(1) LUT is what makes 140K half-cycles/s possible; MOSSIM II is a scientific instrument, this is a race car on a known-good chip. The right question is not "which model is better" but "which physics do you need, and what will you pay for it".</p>
+<p class="zh">一句話:MOSSIM II 修的是<i>振幅</i>的量化,不是<i>時間</i>的量化 —— 四個 A 類盲區只救一個,其餘全數陣亡。而且代價高昂:熱迴圈裡的強度演算加上會傳染的 X 態,速度要掉數量級。本引擎的二值優先級 + O(1) 查表正是 140K 半週期/秒的來源;MOSSIM II 是科學儀器,這是一台跑在已知好晶片上的賽車。正確的問題不是「哪個模型比較好」,而是「你需要哪些物理,願意付多少代價」。</p>
+</section>
+
+<section>
+<h2><span class="en">6 · What we plan to do about it — general mechanisms, not special cases</span><span class="zh">6 · 我們打算怎麼辦 —— 通則機制,不是特例</span></h2>
+<p class="en">Today's fixes are test-mode behavioural shims: each carries the measurement that forced it, acts at the narrowest measured site, and never loads on the benchmark path. That discipline works, but a shim protects only the site it was measured at. The roadmap replaces every hand-written special case with a general, mostly load-time mechanism:</p>
+<p class="zh">今天的修法是測試模式的行為層 shim:每顆都附著逼出它的量測、只作用在量測定位的最窄站點、永不載入效能基準路徑。這套紀律行得通,但 shim 只保護量測過的站點。路線圖要把每一個手寫特例換成通則的、多半在載入期的機制:</p>
+<table>
+  <tr><th><span class="en">Category</span><span class="zh">類別</span></th><th><span class="en">General mechanism</span><span class="zh">通則機制</span></th><th><span class="en">Status</span><span class="zh">狀態</span></th></tr>
+  <tr><td>E</td><td><span class="en">Netlist patches with provenance + the geometric completeness audit</span><span class="zh">附譜系的網表補丁 + 幾何完備性審計</span></td><td><span class="en"><b>done & proven</b></span><span class="zh"><b>已完成並實證</b></span></td></tr>
+  <tr><td>D</td><td><span class="en">Canonical renumbering: node order = a physical key (layered polygon area + structural hash), so every id-order arbitration becomes canonical with zero hot-path change; twins get identical verdicts and graph edits stop re-rolling the lottery</span><span class="zh">正準重編號:節點順序 = 物理鍵(分層多邊形面積 + 結構雜湊),所有 id-順序仲裁自動變正準、熱路徑零改動;孿生必同命,圖變更不再重擲彩票</span></td><td><span class="en">proposed</span><span class="zh">提案完成</span></td></tr>
+  <tr><td>A1</td><td><span class="en">Strength-class LUT, two-tier: a load-time census flags the &lt;1% of nodes where fights can occur; only those groups pay for strength resolution</span><span class="zh">強度類別 LUT,兩層制:載入期普查標出可能打架的 &lt;1% 節點;只有那些群付強度解析的成本</span></td><td><span class="en">designed</span><span class="zh">設計完成</span></td></tr>
+  <tr><td>A3</td><td><span class="en">Auto-detected transparent latches (pass-gate + storage node + phase net are purely structural) + a single restatement rule: while transparent, latch = settled input</span><span class="zh">自動偵測透明閂鎖(pass-gate + 儲存節點 + 相位網,純結構條件)+ 一條重述規則:透明期內,閂鎖 = 輸入側 settled 值</span></td><td><span class="en">designed — retires three shims at once</span><span class="zh">設計完成 —— 一口氣退役三顆 shim</span></td></tr>
+  <tr><td>A2</td><td><span class="en">Quiescent-conduction commit: a write to a floating group counts only if its driving path still conducts at quiescence — legitimate half-cycle drives always survive, nanosecond glitches never do</span><span class="zh">靜止導通落帳:對浮接群的寫入,只在驅動路徑活到 settle 靜止時才算數 —— 合法的半週期驅動必然活到,奈秒毛刺必然活不到</span></td><td><span class="en">proposed</span><span class="zh">提案完成</span></td></tr>
+  <tr><td>A4</td><td><span class="en">One generic delay-element primitive + a calibration data file (which paths, how many ticks) — the mechanism is general, the constants are measured</span><span class="zh">一個通用延遲元件原語 + 校準資料檔(哪些路徑、幾個 tick)—— 機制通則化,常數靠量測</span></td><td><span class="en">proposed</span><span class="zh">提案完成</span></td></tr>
+  <tr><td>B</td><td><span class="en">Behavioural peripherals + a timestamp-based analog sidecar (RC decay as precomputed integer deadlines)</span><span class="zh">行為層周邊 + 時戳式類比副層(RC 衰減預算成整數期限)</span></td><td><span class="en">pad done; sidecar blueprinted</span><span class="zh">手把已完成;sidecar 藍圖已立</span></td></tr>
+</table>
+<p class="en">The honest endgame: <b>zero hand-written special cases is reachable; zero mechanisms is not.</b> The A2/A4 residue is continuous time itself — no static analysis will ever derive "this write takes 84 ticks to land" from connectivity alone. What can be done is to make every mechanism site-agnostic and every constant a row in a data file, with the hardware answer keys as the calibration oracle.</p>
+<p class="zh">誠實的終局:<b>「零手寫特例」可達;「零機制」不可達。</b>A2/A4 的殘餘就是連續時間本身 —— 沒有任何靜態分析能單憑連通性推出「這個寫入要 84 個 tick 才落地」。能做到的,是讓每個機制都不認站點、每個常數都變成資料檔裡的一列,並以硬體答案鍵作為校準的神諭。</p>
+</section>
+
+<section>
+<h2><span class="en">7 · Closing: the value of knowing where the description ends</span><span class="zh">7 · 結語:知道描述在哪裡結束,本身就是價值</span></h2>
+<p class="en">None of this diminishes switch-level simulation — the opposite. Nine forensic campaigns produced one engine bug, one data hole, and a precise, measured map of exactly which physics a binary quiescent model cannot express. That map is worth more than the comfortable belief it replaced. The netlist remains the best executable description of these chips that exists in the open; it just isn't the <i>whole</i> truth — and now we know, blind spot by blind spot, test by test, where the rest of the truth lives and what each piece of it would cost to bring inside.</p>
+<p class="zh">這一切絲毫沒有貶低開關級模擬 —— 恰恰相反。九場取證戰役的產出是:一個引擎 bug、一個資料洞,以及一張精確的、量測得來的地圖,標明二值靜止模型到底表達不了哪些物理。這張地圖,比它取代的那個舒服的信念值錢得多。網表仍是公開世界裡這些晶片最好的可執行描述;它只是不是<i>全部的</i>真相 —— 而現在我們知道了,一個盲區接一個盲區、一顆測試接一顆測試地知道了:剩下的真相住在哪裡,把每一塊搬進來各要付出什麼代價。</p>
+<p class="mut"><span class="en">Full forensic detail: the <a href="ReportAC/index.html">AccuracyCoin campaign report</a> (taxonomy in §3, the missing-transistor trial in chapter 9). Background: <a href="primer.html">the switch-level primer</a> and <a href="study.html">the abstraction study</a>.</span><span class="zh">完整取證細節見 <a href="ReportAC/index.html">AccuracyCoin 戰役報告</a>(§3 分類學、第九章缺管審判)。背景閱讀:<a href="primer.html">開關級模擬入門</a>與<a href="study.html">抽象化研究</a>。</span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">Latest source is on the <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> branch.</span>
+     <span class="zh">最新原始碼在 <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> 分支。</span></p>
+  <p><span class="en">AprVisual S1 is an independent C#/Rust reimplementation of the MetalNES wire algorithm. The bundled 2A03/2C02 netlist data derives from the Visual 2A03 / Visual 2C02 / Visual6502 projects and is licensed CC-BY-NC-SA.</span>
+     <span class="zh">AprVisual S1 是 MetalNES wire 演算法的獨立 C#/Rust 重寫。套件內附的 2A03/2C02 netlist 資料衍生自 Visual 2A03 / Visual 2C02 / Visual6502 專案,採 CC-BY-NC-SA 授權。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable.</span><span class="zh">讓開關級矽電路變得可分析。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

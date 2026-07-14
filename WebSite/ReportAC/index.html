@@ -307,7 +307,35 @@
 <p class="en"><b>The current frontier</b>: six tests remain. APU Register Activation (its check 6 — an OAM-DMA bus-conflict matrix whose expected values mix a $4015 read with a bit-5 leak, squarely in the family this page keeps meeting) is under active work and gates the next sweep; ALERead, Address $2004 Behavior, BG Serial In, Stale Sprite Shift Regs and OAM Corruption (a faithful-deviation candidate — the RP2C02G's own corruption pattern) follow.</p>
 <p class="zh"><b>目前前線</b>:剩六顆。APU Register Activation(第 6 關 —— OAM-DMA 匯流排衝突矩陣,期望值混合了 $4015 讀取與 bit-5 洩漏,正是本頁反覆遭遇的家族)攻堅中,並排在下次掛牌跑之前;其後是 ALERead、Address $2004 Behavior、BG Serial In、Stale Sprite Shift Regs 與 OAM Corruption(忠實偏差候選 —— RP2C02G 自己的毀損圖樣)。</p>
 
-<h2><span class="en">3 · The diagnostic toolbox — how you debug 30,000 transistors</span><span class="zh">3 · 診斷工具箱 —— 怎麼對三萬顆電晶體除錯</span></h2>
+<h2><span class="en">3 · Where the failures actually come from — a taxonomy</span><span class="zh">3 · 失敗到底從哪來 —— 一份分類學</span></h2>
+
+<p class="en">Every fix on this page is <i>implemented</i> as a test-mode behavioural shim — but that says nothing about where the faults actually live. After eight campaigns the root causes sort cleanly into four categories, and the distribution is itself a finding: the netlist data is sound, and the core algorithm has yielded exactly one genuine software bug. Nearly everything else is the resolution floor of the model itself.</p>
+<p class="zh">本頁的每個修正在<i>實作上</i>都是 test-mode 的行為層 shim —— 但這不代表毛病真的出在行為層。八場戰役打完,根因乾淨地分成四類,而這個分佈本身就是一項研究發現:netlist 資料是健全的,核心演算法整場只交出一個真正的軟體 bug。其餘幾乎全是模型本身的解析度下限。</p>
+
+<p class="en"><b>Category A — the engine's semantic ceiling</b> (six of the eight fixes). The core algorithm — Visual6502-style "settle to quiescence, resolve each connected group by GND-wins" — is implemented faithfully. But it views an analog circuit through a binary, quiescent lens, and some silicon behaviour lives precisely in what that lens cannot see:</p>
+<p class="zh"><b>A 類 —— 引擎的語意天花板</b>(八個修正中佔六個)。核心演算法 —— Visual6502 式「settle 到靜止、每個連通群以 GND-wins 解析」—— 實作是忠實的。但它用二值、靜止的鏡片看一顆類比電路,而有些矽晶行為恰恰活在這副鏡片看不見的地方:</p>
+
+<table>
+  <tr><th><span class="en">Fix</span><span class="zh">修正</span></th><th><span class="en">The physics the model quantizes away</span><span class="zh">被模型量化掉的物理</span></th></tr>
+  <tr><td>LAE / LXA</td><td><span class="en"><b>Ratioed drive fights</b>: the accumulator pulls a merged bus line against a latch driver, and the outcome is set by resistance ratios. A binary model can only let GND win outright.</span><span class="zh"><b>比例式驅動打架</b>:累加器拉著合併匯流排線對抗 latch 驅動器,結果由電阻比決定。二值模型只能讓 GND 全勝。</span></td></tr>
+  <tr><td><span class="en">OpenBus err4, Implied Dummy Reads</span><span class="zh">OpenBus err4、Implied Dummy Reads</span></td><td><span class="en"><b>Window-overlap durations</b>: a nanosecond precharge glitch drowns inside a hundred-nanosecond drive window on silicon; a discrete settle only sees two events and can order them wrongly.</span><span class="zh"><b>時窗重疊的長短</b>:奈秒級的預充電毛刺在真矽上淹沒於百奈秒級的驅動窗內;離散 settle 只看見兩個事件,而且可能排錯順序。</span></td></tr>
+  <tr><td><span class="en">OpenBus err6, DMA Bus Conflicts</span><span class="zh">OpenBus err6、DMA Bus Conflicts</span></td><td><span class="en"><b>Transparent-latch tracking</b>: the real input data latch follows the bus through all of φ2; the netlist's dynamic latch captures once — whatever transient it grabs is kept.</span><span class="zh"><b>透明 latch 的持續追隨</b>:真正的輸入資料閂鎖在整段 φ2 追隨匯流排;netlist 的動態閂鎖只捕捉一次 —— 抓到什麼瞬態就留下什麼。</span></td></tr>
+  <tr><td><span class="en">Explicit / Implicit DMA Abort</span><span class="zh">Explicit / Implicit DMA Abort</span></td><td><span class="en"><b>Pipeline latency</b>: on silicon a $4015 write takes effect cycles later through the ACLK pipeline, and the DMA re-checks its gate every cycle; in a quiescent settle the write lands instantly and a committed DMA is immune.</span><span class="zh"><b>管線延遲</b>:真矽上 $4015 寫入要經 ACLK 管線晚數週期才生效,且 DMA 每週期重查它的閘;靜止 settle 讓寫入瞬間落地,已提交的 DMA 則對它免疫。</span></td></tr>
+</table>
+
+<p class="en"><b>Category B — board and peripheral modelling</b> (the two controller tests). The gate-level controller IC cannot survive GND-wins group resolution, so the rig attaches a behavioural joypad instead — an engineering choice about the right modelling level for peripherals, not an engine defect. The CIRAM A10 mirroring wire belonged here too: a genuine board-model bug, fixed outright, no shim.</p>
+<p class="zh"><b>B 類 —— 板級與周邊建模</b>(兩顆手把測試)。閘級手把 IC 活不過 GND-wins 群組解析,所以測試台改掛行為層手把 —— 這是「週邊該用什麼層級建模」的工程選擇,不是引擎缺陷。CIRAM A10 鏡像接線也屬這類:一個貨真價實的板模型 bug,直接修好,不用 shim。</p>
+
+<p class="en"><b>Category C — genuine engine bugs</b>: exactly one in the whole campaign, and it was not among the fourteen deviations. The callback machinery could tear its own queues under re-entrancy (the stack-overflow half of the $2007 Stress incident); it was fixed in the engine proper with a guard, not shimmed. That a thirty-thousand-transistor simulator survived eight forensic campaigns with a single implementation defect is the strongest code-health signal this project has.</p>
+<p class="zh"><b>C 類 —— 引擎真 bug</b>:整場戰役恰好一個,而且不在十四顆偏差之列。callback 機構在重入下會撕裂自己的佇列($2007 Stress 事故中 stack overflow 的那一半);它在引擎本體用一個 guard 直接修好,不是 shim。一顆三萬電晶體的模擬器歷經八場取證戰役只揪出一個實作缺陷 —— 這是本專案最有力的程式健康訊號。</p>
+
+<p class="en"><b>Category D — the id-order lottery</b> (an amplifier, not a bug). Floating-group tie-breaks and settle order depend on node numbering, so two identical circuit instances can resolve a real race differently: reading $4016 latched correctly while its structural twin $4017 latched a transient, purely because u7 and u8 got different node ids. The algorithm is correct to its spec — but its arbitrary choices pick sides in races that silicon settles by physics.</p>
+<p class="zh"><b>D 類 —— id 順序彩票</b>(放大器,不是 bug)。浮接平手判定與 settle 順序依賴節點編號,所以兩顆一模一樣的電路實例會把同一場真實競速解出不同結果:讀 $4016 閂得正確,而結構孿生的 $4017 閂到瞬態 —— 只因 u7 和 u8 拿到了不同的節點編號。演算法對其規格而言是正確的 —— 但它的任意選擇,替矽晶靠物理裁決的競速選了邊。</p>
+
+<p class="en">The discipline that follows from this taxonomy: every shim must carry the measurement that forced it, act at the narrowest measured site (a "restate the truth globally" version of one shim survived two regression windows and then broke six innocent tests in a third — the narrowing is chapter 6's coda), and never load on the benchmark path — which is why the golden checksum has not moved through any of this. Read that way, the shim list is not a pile of patches; it is the project's measured inventory of exactly which physics a binary quiescent model cannot express.</p>
+<p class="zh">這份分類學帶出的紀律:每個 shim 必須附上逼出它的量測、只作用在量測定位的最窄案發點(某個 shim 的「全域重申真相」版本連過兩個回歸窗、卻在第三個窗打壞六顆無辜測試 —— 收窄記在第六章尾聲)、且永不載入效能基準路徑 —— 這正是黃金 checksum 全程不動的原因。這樣讀,shim 清單就不是一堆補丁;它是本專案以量測建立的清單,逐條記錄二值靜止模型無法表達的物理。</p>
+
+<h2><span class="en">4 · The diagnostic toolbox — how you debug 30,000 transistors</span><span class="zh">4 · 診斷工具箱 —— 怎麼對三萬顆電晶體除錯</span></h2>
 
 <table>
   <tr><th><span class="en">Tool</span><span class="zh">工具</span></th><th><span class="en">What it does</span><span class="zh">做什麼</span></th></tr>
@@ -337,7 +365,7 @@
           <span class="zh">每個引擎改動落地前,必須在 300k half-cycle 基準上重現 <code>0x794A43ABDF169ADA</code>。逐位元一致是本專案的契約;上面每個修復都過了這關。</span></td></tr>
 </table>
 
-<h2><span class="en">4 · Run configuration</span><span class="zh">4 · 執行配置</span></h2>
+<h2><span class="en">5 · Run configuration</span><span class="zh">5 · 執行配置</span></h2>
 <ul>
   <li class="en"><code>--ac-verdict</code>: poll the CPU-RAM completion block; <b>no cartridge work RAM</b> at $6000-$7FFF (open-bus tests stay honest).</li>
   <li class="zh"><code>--ac-verdict</code>:輪詢 CPU RAM 完成區塊;$6000-$7FFF <b>不掛卡帶工作 RAM</b>(open bus 測試才誠實)。</li>
@@ -347,7 +375,7 @@
   <li class="zh">開機 CPU/PPU 相位對齊固定(K=1);單一綁定核心;不鎖頻;<code>--callback-drain-limit 2000</code> 上膛。</li>
 </ul>
 
-<h2><span class="en">5 · Source &amp; further reading</span><span class="zh">5 · 原始碼與延伸閱讀</span></h2>
+<h2><span class="en">6 · Source &amp; further reading</span><span class="zh">6 · 原始碼與延伸閱讀</span></h2>
 <ul>
   <li><a href="https://github.com/erspicu/AprAccuracyCoinUnattended" target="_blank" rel="noopener">AprAccuracyCoinUnattended</a> — <span class="en">the fork: unattended hook + the diagnostic ROM family</span><span class="zh">fork 本體:無人值守掛勾 + 診斷 ROM 家族</span></li>
   <li><a href="https://github.com/100thCoin/AccuracyCoin" target="_blank" rel="noopener">AccuracyCoin</a> — <span class="en">upstream, by Chris Siebert (MIT)</span><span class="zh">上游原作,Chris Siebert(MIT)</span></li>

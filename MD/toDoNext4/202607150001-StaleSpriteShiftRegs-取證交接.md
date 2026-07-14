@@ -74,6 +74,16 @@ OB_DEBUG=1 timeout 2400 dotnet "$DLL" --test AprAccuracyCoinUnattended/AccuracyC
 - **AprNes 神諭**:`AprNesRef/AprNes/bin/Release/AprNes.exe --rom <rom> --dump-ac-results --dump-debug`
   (AprNesRef 只 commit 不 push!)
 
+## 3.5 最新戰況(交接後補記,2026-07-15)
+
+- **[sz]+cols 判決:假說四陣亡** —— 兩幀 clear 都打欄 8(副欄),clear 無辜;
+- **現行輪([sz] 改裝=主欄獵捕)**:全時窗 35.0086-35.0364M,只記「主欄 0-7 有活動」
+  的寫撥桿開火(rows+cols+座標);log = `temp/ac/stale/s1_sz3.log`。
+  判讀:DMA 段(35.0087-35.0210M)的主欄寫是合法基準(col=addr&7、row=addr>>3,
+  應見 256 筆);**DMA 結束後任何主欄開火 = 現行犯**(budget 320,DMA 吃 256,
+  餘 64 抓犯罪開頭足夠)。若後段零主欄開火 → 寫入根本沒進 cells?回頭查 DMA 段
+  主欄寫的「實際列/欄 vs OAMADDR 預期」是否錯位。
+
 ## 4. 決策樹(欄線數據到手後)
 
 1. **control 打欄 8、stunt 打欄 0-7** → 假說四定罪 → 解剖欄仲裁控制鏈

@@ -188,3 +188,19 @@ transdefs;佐證三重(segdefs 幾何 + BreakNES + 硬體行為)。
 
 金 checksum `0x794A43ABDF169ADA`(full_palette 300k --extra-ram)不變。
 R4015A1Shim 零附帶損傷,修復定案。下一步:掛牌 joyON 旗艦跑。
+
+### 11b. 換軌網表補丁後的重驗(使用者拍板:E 類直接改資料,不用 shim)
+
+- 補丁 `t13032b` 進 `transdefs_named.js`(⚠ **2a03.js 載入的是 named 版** ——
+  第一次補到沒人讀的 transdefs.js,金值「不變」是假象、孤立 ROM 打回 err6 現形;
+  「先查 `*_files` 引用」已寫進補丁工具)+ transdefs.js 鏡像同步;
+- 資料目錄 gitignored → 補丁以 `tools/netlist/apply_2a03_patches.py`(冪等)
+  + `tools/netlist/2a03_patches.md`(譜系)入庫;R4015A1Shim 拆除;
+- 活補丁驗證:金 checksum **兩點皆不變**(300k `0x794A43ABDF169ADA`、
+  1M `0x6D4CCBCE2E9CD599` —— benchmark ROM 不碰 APU 讀解碼,讀窗外該項本被
+  讀取致能壓低,電氣隱形);孤立 APURegActivation `$45C=$09` = 神諭同值;
+  **六顆哨兵無 shim 全綠**(APURegActivation/IDR/Explicit/Implicit 皆 2/0,
+  OpenBus/LAE 皆 1/0)—— shim 反噬疑慮實證排除;
+- 幾何完備性審計(`tools/netlist/geom_audit.py`)同日完成:原始 2A03 功能有效
+  萃取漏恰好 2(皆已補)、2C02 = 0 —— 萃取漏類別在兩顆晶片上封閉;
+- 旗艦 run5b(joyON、補丁網表)發射。

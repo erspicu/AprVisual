@@ -84,6 +84,26 @@ OB_DEBUG=1 timeout 2400 dotnet "$DLL" --test AprAccuracyCoinUnattended/AccuracyC
   餘 64 抓犯罪開頭足夠)。若後段零主欄開火 → 寫入根本沒進 cells?回頭查 DMA 段
   主欄寫的「實際列/欄 vs OAMADDR 預期」是否錯位。
 
+## 3.6 破案級發現(主欄獵捕輪判決)
+
+- **stunt DMA 的 256 筆寫入全部 `rows=[]`** —— 沒有任何 OAM 列線打開,寫入進虛空!
+  (欄線走訪 0-7 正常、寫撥桿正常 —— 死的只有列選擇)
+- DMA 後**零**主欄開火 → 「存了被沖」不成立;v=5 eval 的 FF = 「無列開啟」的
+  預充電匯流排預設值 —— **同一根因解釋寫失敗 + 讀 FF + 零 copy**
+- 同幀 clear(v=0)列線正常走 0→31(col 8)→ 列解碼器本體活著;
+  死的是「**CPU $2004 存取路徑的列開啟**」,且時間相關:健康 DMA(v=243,
+  剛進 blank)列線正常存入;stunt DMA(v=257,**長 blank 深處、跨 2+ 幀**)列線全閉
+- 新假說(第五代):$2004 存取的列開啟依賴 OFETCH/W4-FF 類 handshake
+  (PPUSim oam.cpp:W4_FF、OFETCH_FF),某個動態閂在長 blank 中「餓死」
+  (capture-once / 需要週期性活動保持 arm 的結構)→ A 類味道 → 修法 = 機制級 shim
+  (照 2026-07-15 定案:戰役期一律 shim)
+- **確認輪跑動中**(log=temp/ac/stale/s1_sz4.log):健康 DMA(18.53M)的列線基準
+  + 兩幀 v=5 讀取時的列線([sw] 加 rows 欄位)。判讀:健康 DMA rows 應顯示
+  walking row(addr>>3);stunt v=5 讀取 rows 應=[](confirm);control v=5 讀取
+  rows 應有活動列
+- 下一步:解剖 spr_row 驅動鏈上游(CPU 存取路徑的列開啟閘)找出餓死的閂,
+  對照 PPUSim oam.cpp 的 W4_FF/OFETCH_FF 定 shim 施力點
+
 ## 4. 決策樹(欄線數據到手後)
 
 1. **control 打欄 8、stunt 打欄 0-7** → 假說四定罪 → 解剖欄仲裁控制鏈

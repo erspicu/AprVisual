@@ -104,6 +104,22 @@ OB_DEBUG=1 timeout 2400 dotnet "$DLL" --test AprAccuracyCoinUnattended/AccuracyC
 - 下一步:解剖 spr_row 驅動鏈上游(CPU 存取路徑的列開啟閘)找出餓死的閂,
   對照 PPUSim oam.cpp 的 W4_FF/OFETCH_FF 定 shim 施力點
 
+## 3.7 校正 + cell 直測輪(最後在飛)
+
+- **§3.6 的 rows=[] 是取樣相位假象**:健康 DMA(確實有存入)寫入時同樣 rows=[],
+  control 成功讀 $05 的瞬間也 rows=[] —— 列脈衝窄,取樣點錯過;列選擇理論作廢。
+  僅存事實差異:cells 內容 control=05C503FE、stunt=FF。
+- **cell 直測輪跑動中**(log=temp/ac/stale/s1_sc1.log):row0 的 12 顆 cell 候選
+  (ppu.#3028/#3066/#3120/#3156/#3202/#3240/#3285/#3318/#3363/#3409/#3463/#3495,
+  來自「gate=spr_row0 的 132 顆管」解剖,#3xxx 側=cell、對側=欄位線)在三時點
+  (35008600 pre-DMA / 35021200 post-DMA / 35036320 v=5 eval 前)快照。
+- ⚠ 已知風險:[sc] 用 `Time ==` 精確等號觸發,若 DmaProbeStep 的步進跳過該值會
+  整輪空白 —— 若 log 無 [sc] 行,改成範圍觸發 + one-shot 旗標重跑。
+- 判讀:post-DMA cells 有資料、v=5 變 FF → 「存了被吃」(row-open charge-share,
+  嫌疑=blank 期無 refresh 的列開啟);post-DMA 就 FF → 存入失敗(回頭追寫路徑的
+  cell commit);cells 三時點不變 → 這 12 顆不是目標字節的 cell(換 col 映射再選)。
+- 修法提醒:2026-07-15 定案 —— 查明後一律機制級 shim(通則推遲到全修完)。
+
 ## 4. 決策樹(欄線數據到手後)
 
 1. **control 打欄 8、stunt 打欄 0-7** → 假說四定罪 → 解剖欄仲裁控制鏈

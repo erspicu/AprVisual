@@ -659,71 +659,85 @@ namespace AprVisual.Sim
             }
         }
 
-        // ── ALERead io_ce/io_ab software-mux (test-mode; M6 phase fix, 2026-07-16) ──────────
+        // ── ALERead io_ce/io_ab software-mux + node-split (test-mode; M6 phase fix, 2026-07-16) ──
         // The boing2k7 $2007-read ReadALE overlap lands at dot 226 in S1, 3 dots (24hc) early
-        // (CPU->PPU macro phase). On hardware it is at dot 229, where the $2FFF bus-collapse's $FF
-        // gets latched by the switch-level 74LS373 (u2) via the ALE+/RD feedback -> the phantom
-        // $0FFF fetch -> the sprite-0-hit artifact. The 74LS373 is fully modelled and working; the
-        // ONLY defect is the 3-dot phase. Fix (Gemini "software-mux"): SWALLOW the early $2007
-        // access (force io_ab != 7 while io_ce=0 so read_2007_trigger never fires at dot 223) then
-        // REPLAY it 24hc later (force io_ce=0 while io_ab is STILL naturally 7 through dot 227) so
-        // read_2007_trigger fires at dot 226 and its ReadALE overlap lands at dot 229. Both are
-        // force-LOW (InstClampLow, GND-wins) -> no node-split, no GND>VCC re-assert wall. Opt-in
-        // (test-mode); the golden-checksum benchmark path never sets it.
+        // (CPU->PPU macro phase). On hardware it is at dot 229/230, where the $2FFF bus-collapse's
+        // $FF gets latched by the switch-level 74LS373 (u2) -> the phantom $0FFF fetch -> the
+        // sprite-0-hit artifact. The 74LS373 is fully modelled and working; the ONLY defect is the
+        // phase. This mux SWALLOWs the early $2007 access and REPLAYs it later so the ReadALE lands
+        // at the correct dot. The proven wall: the CPU's io_ab=7 window ends at dot 227 (the CPU
+        // moves on), and the replay could only reach dot 228 -- 2 dots short of the dot-230 artifact
+        // load -- because holding io_ab=7 needs force-HIGH (GND>VCC re-assert wall). NODE-SPLIT fix:
+        // WireCore.Module cuts ppu.io_ab[2:0] <-> cpu.ab[2:0] when this shim is on; the mux relays
+        // cpu.ab -> ppu.io_ab every hc (transparent) EXCEPT in-window, where it HOLDS ppu.io_ab=7
+        // (isolated -> SetHigh wins, no re-assert wall) long enough for read_2007_ended to land the
+        // ReadALE at dot 230. Opt-in (ALEREAD_MUX env; set BEFORE LoadSystem for the cut); the
+        // golden-checksum benchmark path never sets it.
         public static bool AleReadMuxShim = false;
         private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode, _muxR2007 = EmptyNode;
-        private static int[] _muxIoAbBits = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>();
-        private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay
+        private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>();
+        private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
         private static long _muxDetect;
         private static int _muxN;              // fired count (diag)
+        private static bool _muxReady;         // nodes resolved + split active
         private static readonly bool _muxDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
-        // Timing (8hc/dot; calibrated on the v=3 baseline trace, detect = first hc of io_ce=0 & io_ab=7):
-        private static int MuxSwallowHc = 13;      // hold io_ab low across the natural io_ce=0 window (~12hc)
-        private static int MuxReplayStartHc = 24;  // replay the access 24hc (3 dots) after detection
-        private static int MuxReplayHc = 12;       // hold io_ce=0 for ~1.5 dots so read_2007_trigger re-fires
+        // dt-window timing (dt = hc since detect; 8hc/dot; detect = first io_ce=0 & cpu.ab[2:0]=7 @ v in [1,8]):
+        //   swallow  [0, swEnd)          : ppu.io_ab := 0  -> PPU sees $2000, the early $2007 ReadALE is suppressed
+        //   replay   [rpStart, rpEnd)    : io_ce clamped 0 + ppu.io_ab := 7 -> read_2007_ended lands the ReadALE
+        //                                  overlap at dot 228, where u2 (transparent) captures the $2FFF bus $FF
+        //   freeze   [fzStart, fzEnd)    : ppu.ale clamped 0 -> u2 HOLDS $FF through dot 229 (would else re-capture
+        //                                  the pattern-low $04), so the dot-230 fetch addresses $0FFF -> $FF -> artifact
+        private static int _muxSwEnd = 13, _muxRpStart = 13, _muxRpEnd = 25, _muxFzStart = 45, _muxFzEnd = 53;
+        private static int _muxAle = EmptyNode;
+        private static bool _muxIoCeClamped, _muxAleClamped;
 
         public static void EnableAleReadMux()
         {
             _muxIoCe = LookupNode("ppu.io_ce");
+            _muxAle = LookupNode("ppu.ale");
             _muxCpuRw = LookupNode("cpu.rw"); if (_muxCpuRw == EmptyNode) _muxCpuRw = LookupNode("2a03.cpu.rw");
             _muxR2007 = LookupNode("ppu.read_2007_trigger");
-            var ab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", ab, quiet: true); _muxIoAbBits = ab.Count == 3 ? ab.ToArray() : System.Array.Empty<int>();
+            var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? pab.ToArray() : System.Array.Empty<int>();
+            var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
             var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
-            string ov = Environment.GetEnvironmentVariable("MUX_HC");   // "swallow,replayStart,replayHc" tuning override
-            if (ov != null) { var p = ov.Split(','); if (p.Length == 3 && int.TryParse(p[0], out int a0) && int.TryParse(p[1], out int a1) && int.TryParse(p[2], out int a2)) { MuxSwallowHc = a0; MuxReplayStartHc = a1; MuxReplayHc = a2; } }
-            if (_muxIoCe == EmptyNode || _muxCpuRw == EmptyNode || _muxIoAbBits.Length != 3 || _muxVp.Length != 9)
-            { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; return; }
-            AleReadMuxShim = true; _muxState = 0;
-            if (_muxDbg) Console.Error.WriteLine($"# [mux] armed: swallow={MuxSwallowHc} replayStart={MuxReplayStartHc} replayHc={MuxReplayHc}");
+            string ov = Environment.GetEnvironmentVariable("MUX_HC");   // "swEnd,rpStart,rpEnd,fzStart,fzEnd" tuning override
+            if (ov != null) { var p = ov.Split(','); if (p.Length == 5 && int.TryParse(p[0], out int a0) && int.TryParse(p[1], out int a1) && int.TryParse(p[2], out int a2) && int.TryParse(p[3], out int a3) && int.TryParse(p[4], out int a4)) { _muxSwEnd = a0; _muxRpStart = a1; _muxRpEnd = a2; _muxFzStart = a3; _muxFzEnd = a4; } }
+            if (_muxIoCe == EmptyNode || _muxAle == EmptyNode || _muxCpuRw == EmptyNode || _muxPpuAb.Length != 3 || _muxCpuAb.Length != 3 || _muxVp.Length != 9)
+            { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; _muxReady = false; return; }
+            _muxState = 0; _muxReady = true;
+            MuxRelayIoAb();   // seed: ppu.io_ab := cpu.ab now that the connection is cut
+            if (_muxDbg) Console.Error.WriteLine($"# [mux] armed (node-split): sw={_muxSwEnd} rp=[{_muxRpStart},{_muxRpEnd}) fz=[{_muxFzStart},{_muxFzEnd})");
         }
+
+        private static int MuxCpuAb() => (NodeStates[_muxCpuAb[2]] << 2) | (NodeStates[_muxCpuAb[1]] << 1) | NodeStates[_muxCpuAb[0]];
+        private static void MuxDriveIoAb(int v) { for (int i = 0; i < 3; i++) { if (((v >> i) & 1) != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
+        private static void MuxRelayIoAb() { for (int i = 0; i < 3; i++) { if (NodeStates[_muxCpuAb[i]] != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
 
         internal static void AleReadMuxStep()
         {
-            long dt = Time - _muxDetect;
-            switch (_muxState)
+            if (!_muxReady) return;
+            if (_muxState == 0)   // armed: detect the stunt $2007 read (io_ce=0 & cpu.ab[2:0]=7 & rw=read @ low visible line)
             {
-                case 0:  // armed: detect the stunt $2007 read (io_ce=0 & io_ab=7 & rw=read at a low visible line)
-                    if (NodeStates[_muxIoCe] == 0 && NodeStates[_muxCpuRw] != 0 && ReadBits(_muxIoAbBits) == 7)
-                    {
-                        int v = ReadBits(_muxVp);
-                        if (v >= 1 && v <= 8)
-                        {
-                            _muxDetect = Time; _muxState = 1; _muxN++;
-                            InstClampLow(_muxIoAbBits[0]);   // swallow: io_ab -> 6, read_2007_trigger cannot decode $2007 here
-                            if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} #{_muxN} DETECT+SWALLOW");
-                        }
-                    }
-                    break;
-                case 1:  // swallow: hold io_ab low until the natural io_ce=0 access window has closed
-                    if (dt >= MuxSwallowHc) { InstRelease(_muxIoAbBits[0]); _muxState = 2; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} SWALLOW-END"); }
-                    break;
-                case 2:  // wait until the replay point (io_ab is still naturally 7 here)
-                    if (dt >= MuxReplayStartHc) { InstClampLow(_muxIoCe); _muxState = 3; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY io_ce=0 (io_ab={ReadBits(_muxIoAbBits)})"); }
-                    break;
-                case 3:  // replay: hold io_ce=0 so the PPU decodes the (still io_ab=7) access -> ReadALE at dot 229
-                    if (dt >= MuxReplayStartHc + MuxReplayHc) { InstRelease(_muxIoCe); _muxState = 0; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY-END"); }
-                    break;
+                if (NodeStates[_muxIoCe] == 0 && NodeStates[_muxCpuRw] != 0 && MuxCpuAb() == 7)
+                {
+                    int v = ReadBits(_muxVp);
+                    if (v >= 1 && v <= 8) { _muxDetect = Time; _muxState = 1; _muxN++; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} #{_muxN} DETECT"); }
+                }
+                if (_muxState == 0) { MuxRelayIoAb(); return; }
             }
+            long dt = Time - _muxDetect;
+            // io_ce clamp edges (replay window)
+            if (dt == _muxRpStart) { InstClampLow(_muxIoCe); _muxIoCeClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY io_ce=0 (io_ab=7)"); }
+            if (dt == _muxRpEnd && _muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY-END"); }
+            // ale clamp edges (freeze window: hold u2=$FF through dot 229)
+            if (dt == _muxFzStart) { InstClampLow(_muxAle); _muxAleClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE ale=0"); }
+            if (dt == _muxFzEnd && _muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE-END"); }
+            // io_ab drive: swallow -> 0, replay -> 7, else transparent relay
+            if (dt < _muxSwEnd) MuxDriveIoAb(0);
+            else if (dt >= _muxRpStart && dt < _muxRpEnd) MuxDriveIoAb(7);
+            else MuxRelayIoAb();
+            // window done
+            if (dt >= _muxFzEnd) { if (_muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; } if (_muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; } _muxState = 0; }
         }
 
         // ── TEMP diag (ExplicitDMAAbort): rdy transitions + reg writes + $4000 reads ──

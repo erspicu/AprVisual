@@ -346,6 +346,10 @@ namespace AprVisual.Sim
                 if (EnableJoypadHandler && to == "vss"
                     && (from is "u7.1A4" or "u7.2A1" or "u7.2A2" or "u8.1A4" or "u8.2A1" or "u8.2A2"))
                     to = "vcc";
+                // ALERead node-split (test mode): cut ppu.io_ab[2:0] <-> cpu.ab[2:0] so the mux can
+                // HOLD the PPU-side register-select at 7 past the CPU's natural io_ab=7 window (which
+                // ends at dot 227). The mux relays cpu.ab -> ppu.io_ab every hc otherwise (transparent).
+                if (AleReadMuxShim && from == "ppu.io_ab[2:0]" && to == "cpu.ab[2:0]") continue;
                 AddConnection(from, to);
             }
 

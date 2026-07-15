@@ -127,6 +127,7 @@ namespace AprVisual.Test
             // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
             WireCore.PowerUpStateShim = true;
             WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
+            WireCore.AleReadMuxShim = Environment.GetEnvironmentVariable("ALEREAD_MUX") != null;   // MUST be set before LoadSystem: cuts ppu.io_ab<->cpu.ab for the ALERead phase node-split (test-mode, opt-in)
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
@@ -169,7 +170,7 @@ namespace AprVisual.Test
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (see System.cs)
-                    if (Environment.GetEnvironmentVariable("ALEREAD_MUX") != null) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux (M6; test-mode, opt-in, off by default)
+                    if (WireCore.AleReadMuxShim) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux + node-split (M6; resolves nodes + arms; the cut already happened in LoadSystem)
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
                 }

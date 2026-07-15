@@ -830,6 +830,7 @@ namespace AprVisual.Sim
             if (DmcLatchShim) DmcLatchShimStep();   // test-mode only; see WireCore.System.cs
             if (OamDmaPpuBusShim) OamDmaPpuBusShimStep();   // test-mode only; OAM-DMA from PPU I/O bus
             if (PpuWriteDelay) PpuWriteDelayStep();  // test-mode only; $2001 write-effect delay
+            if (PpuWriteDelayGlobal) PpuWriteDelayGlobalStep();  // test-mode only; global cross-chip write-delay line (OFF by default)
             Time++;
         }
     }

@@ -162,6 +162,7 @@ namespace AprVisual.Test
                     WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                     WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
                     WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
+                    WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
                     if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)

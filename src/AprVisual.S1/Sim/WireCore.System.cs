@@ -1845,6 +1845,82 @@ namespace AprVisual.Sim
             }
         }
 
+        // ── Global cross-chip write-delay line (alignment/write-delay calibration project) ──────
+        // The narrow-window PpuWriteDelay above compensates a single site (even_odd's pre-render
+        // dot-339 skip). Three remaining deviations -- Stale Sprite Shift Regs test 3, BG Serial In,
+        // ALERead -- share the same root: the CPU->PPU cross-chip write/read path is idealized to
+        // zero delay, so a $2001 effect lands 2-3 dots off where silicon puts it (measured: test 3
+        // re-enables 3 dots early; ALERead's $2007 corruption draws 2 dots late). The correct model
+        // is a uniform delay line, not per-site clamps. KEY over the single-shot narrow-window shim:
+        // clamp the DOWNSTREAM node (bkg_enable_out/spr_enable_out, which gate rendering_disabled)
+        // to a delayed copy of the REGISTER (bkg_enable/spr_enable), NEVER clamp the register --
+        // so overlapping/back-to-back writes are all observed (the single-shot version clamped the
+        // register and dropped the second write, which is exactly why a naive global delay hung
+        // even_odd). A ring buffer holds the register history; each step drives *_enable_out to the
+        // sample from N hc ago. OFF by default (N=0); --ppu-write-delay-global N enables it. This is
+        // the scaffold for the dedicated calibration+verification pass; NOT wired into --test yet.
+        public static bool PpuWriteDelayGlobal = false;
+        public static int PpuWriteDelayGlobalHc = 0;
+        private const int PwdgRing = 512;   // >= max delay in hc; covers 60+ dots
+        private static int _pwdgBkg = EmptyNode, _pwdgSpr = EmptyNode, _pwdgBkgOut = EmptyNode, _pwdgSprOut = EmptyNode;
+        private static readonly byte[] _pwdgBkgHist = new byte[PwdgRing], _pwdgSprHist = new byte[PwdgRing];
+        private static int _pwdgHead;
+        private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
+        private static long _pwdgStart;
+
+        public static void EnablePpuWriteDelayGlobal(int hc)
+        {
+            if (hc <= 0) { PpuWriteDelayGlobal = false; return; }
+            _pwdgBkg = LookupNode("ppu.bkg_enable");
+            _pwdgSpr = LookupNode("ppu.spr_enable");
+            _pwdgBkgOut = LookupNode("ppu.bkg_enable_out");
+            _pwdgSprOut = LookupNode("ppu.spr_enable_out");
+            if (_pwdgBkg == EmptyNode || _pwdgSpr == EmptyNode || _pwdgBkgOut == EmptyNode || _pwdgSprOut == EmptyNode || hc >= PwdgRing)
+            { Console.Error.WriteLine("# [shim] ppu-write-delay-global: nodes unresolved or hc too large -- disabled"); PpuWriteDelayGlobal = false; return; }
+            PpuWriteDelayGlobalHc = hc;
+            _pwdgHead = 0;
+            _pwdgBkgDriven = _pwdgSprDriven = 0;
+            _pwdgStart = Time;
+            // seed the ring with the current register values so the first N hc read consistent state
+            byte b0 = (byte)NodeStates[_pwdgBkg], s0 = (byte)NodeStates[_pwdgSpr];
+            for (int i = 0; i < PwdgRing; i++) { _pwdgBkgHist[i] = b0; _pwdgSprHist[i] = s0; }
+            PpuWriteDelayGlobal = true;
+            Console.Error.WriteLine($"# [shim] ppu-write-delay-global armed: {hc} hc ({hc / 8.0:F1} dots) -- drives *_enable_out from the delayed register");
+        }
+
+        private static void PpuWriteDelayGlobalStep()
+        {
+            if (!PpuWriteDelayGlobal) return;
+            // record the register (immediate) value at the head
+            _pwdgBkgHist[_pwdgHead] = (byte)NodeStates[_pwdgBkg];
+            _pwdgSprHist[_pwdgHead] = (byte)NodeStates[_pwdgSpr];
+            // the delayed sample = N steps back in the ring
+            int tail = _pwdgHead - PpuWriteDelayGlobalHc;
+            if (tail < 0) tail += PwdgRing;
+            _pwdgHead = (_pwdgHead + 1) % PwdgRing;
+            // before the delay line has filled, hold the seeded value (no-op relative to seed)
+            if (Time - _pwdgStart < PpuWriteDelayGlobalHc) return;
+            _pwdgBkgDriven = PwdgDrive(_pwdgBkgOut, _pwdgBkgHist[tail], _pwdgBkgDriven);
+            _pwdgSprDriven = PwdgDrive(_pwdgSprOut, _pwdgSprHist[tail], _pwdgSprDriven);
+        }
+
+        // Drive `node` to `want` (0/1) via InstClamp, tracking current clamp state to avoid churn.
+        private static int PwdgDrive(int node, byte want, int driven)
+        {
+            if (want != 0)   // want high
+            {
+                if (driven == 1) InstRelease(node);
+                if (driven != 2) InstClampHigh(node);
+                return 2;
+            }
+            else             // want low
+            {
+                if (driven == 2) InstRelease(node);
+                if (driven != 1) InstClampLow(node);
+                return 1;
+            }
+        }
+
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
         // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
         // buffer advance in the netlist — matching real hardware — but the reload's

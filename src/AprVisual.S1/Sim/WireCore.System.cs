@@ -512,6 +512,8 @@ namespace AprVisual.Sim
         private static int _t3C0 = EmptyNode, _t3C1 = EmptyNode, _t3Op = EmptyNode, _t3Use = EmptyNode,
                            _t3Bkg = EmptyNode, _t3Set = EmptyNode, _t3Spat = EmptyNode;
         private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
+        private static int _arSelPat0 = EmptyNode, _arSelPat1 = EmptyNode, _arSetHit = EmptyNode, _arHit = EmptyNode, _arAle = EmptyNode;
+        private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
         private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
                            _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
         private static readonly byte[] _dmaRdBuf = new byte[256];
@@ -1022,6 +1024,31 @@ namespace AprVisual.Sim
                             + $" sprPat={(_t3Spat != EmptyNode ? NodeStates[_t3Spat] : 9)} bkgPat={(_t3Bkg != EmptyNode ? NodeStates[_t3Bkg] : 9)}"
                             + $" setHit={(_t3Set != EmptyNode ? NodeStates[_t3Set] : 9)} hit={NodeStates[_t3Hit]}");
                     }
+                }
+            }
+            // [ar] ALERead Test 2: prioritize catching the LDA $2007 corruption dot (own budget)
+            if (Time > 35000000 && _spVp != null && _spVp.Length == 9)
+            {
+                if (_arSelPat0 == EmptyNode)
+                {
+                    _arSelPat0 = LookupNode("ppu.selected_pat0"); _arSelPat1 = LookupNode("ppu.selected_pat1");
+                    _arSetHit = LookupNode("ppu.set_spr0_hit"); _arHit = LookupNode("ppu.spr0_hit");
+                    Console.Error.WriteLine("# [ar] resolved");
+                }
+                int vA = ReadBits(_spVp), hA = ReadBits(_spHp);
+                int abA = ReadReg(R_CpuAb);
+                bool rd2007 = (abA & 0xE007) == 0x2007 && NodeStates[_pdRw] != 0;
+                if (rd2007) _arIn2007 = true;
+                else if (_arIn2007 && _arN < 60)
+                { _arIn2007 = false; _arN++; Console.Error.WriteLine($"# [ar] t={Time} LDA $2007 read END at v={vA} h={hA}"); }
+                else if (_arIn2007) _arIn2007 = false;
+                // once a corruption fired (a $2007 read in visible region v<20), watch the NEXT scanline artifact
+                if (_arN > 0 && vA >= 1 && vA <= 8 && hA >= 238 && hA <= 250 && hA != _arPrevH && _arPixN < 80)
+                {
+                    _arPrevH = hA; _arPixN++;
+                    int pat = ((_arSelPat1 != EmptyNode ? NodeStates[_arSelPat1] : 0) << 1) | (_arSelPat0 != EmptyNode ? NodeStates[_arSelPat0] : 0);
+                    if (pat != 0 || (_arSetHit != EmptyNode && NodeStates[_arSetHit] != 0))
+                        Console.Error.WriteLine($"# [ar] t={Time} v={vA} h={hA} selPat={pat} setHit={(_arSetHit != EmptyNode ? NodeStates[_arSetHit] : 9)} hit={(_arHit != EmptyNode ? NodeStates[_arHit] : 9)} *** ARTIFACT");
                 }
             }
             // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget

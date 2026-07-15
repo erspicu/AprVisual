@@ -170,6 +170,7 @@ namespace AprVisual.Test
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (see System.cs)
                     if (Environment.GetEnvironmentVariable("BOL_SHIM") != null) WireCore.EnableBoardOctalLatch(WireCore.BoardOctalLatchWindowHc);   // [EXPERIMENT] board 74LS373 octal-latch (ALERead); opt-in via env while validating
+                    { var p27 = Environment.GetEnvironmentVariable("P27_DELAY"); if (p27 != null) WireCore.EnableP2007Delay(int.TryParse(p27, out var v) ? v : 24); }   // [EXPERIMENT] M6 unified-phase: delay read_2007_trigger 24hc
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
                 }

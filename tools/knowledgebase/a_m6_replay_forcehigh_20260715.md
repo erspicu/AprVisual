@@ -1,0 +1,84 @@
+這是一個非常精彩的底層技術探討。你撞上的不是邏輯錯誤，而是 **Switch-level (開關級) 模擬器中極為經典的「非對稱強制 (Asymmetric Forcing) 限制」**。
+
+在缺乏真實 Tri-state (三態) 覆蓋或 Pad 模型的環境下，強行介入雙向匯流排或網表主動驅動的節點，確實會遇到這堵硬牆。
+
+以下針對你的問題進行具體的硬體級解答與技巧建議：
+
+### 1. 重播時 (24hc 後) 的 io_ab/io_db 是浮接還是被驅動？
+**答案是：絕對「被強烈驅動 (Actively Driven)」，不可能浮接。**
+*   **時間軸分析**：24 hc 等於整整 **2 個 CPU 週期**（NES 中 1 CPU 週期 = 12 master clock）。
+*   **CPU 行為**：當 CPU 完成 `$2007` 的讀/寫週期後，下一個週期必定是下一條指令的 **Opcode Fetch (T1)** 或後續運算。
+*   **匯流排狀態**：在 Opcode Fetch 階段，CPU 的位址腳位會「強烈驅動」`cpu_ab` 輸出 PC (程式計數器) 的值；同時 ROM/RAM 會「強烈驅動」`cpu_db` 輸出 Opcode。
+*   **結論**：24hc 後，`io_ce` 雖然被你硬壓低了，但 `io_ab` 和 `io_db` 上全都是下一條指令的位址與資料（裡面充滿了網表主動 drive-low 的 '0' 位元）。你的 `InstClampHigh` 面對這些 netlist drive-low 會**全面潰敗**，重播必定寫入/讀取到錯誤的位址與資料。提案 #2 在 S1 中是死路。
+
+---
+
+### 2. 有沒有繞過 force-high 的施力點？(S1 特有的黑客技巧)
+
+雖然提案 #2 死了，但針對你嘗試 #1（想把 `read_2007_trigger` 拉高卻失敗），其實有一個 S1 引擎專用的高階技巧：**「反向施力法 (Invert-the-Force)」**。
+
+**如何只用 GND 壓出 VCC？**
+在 NMOS/CMOS 網表中，任何 Active-High 的內部觸發信號（例如 `read_2007_trigger`），其最終驅動級必定是一個反相器 (Inverter) 或 NOR/NAND 閘。
+*   假設網表結構：`Node_A` $\rightarrow$ `[Inverter]` $\rightarrow$ `read_2007_trigger`
+*   當下網表正試圖讓 `Trigger = 0`，意思是網表正在驅動 `Node_A = 1`。
+*   你如果直接 `ClampHigh(Trigger)` 會輸給 Inverter 內部的 Pull-down NMOS。
+*   **破局法**：你去尋找它的**上游節點 (`Node_A`)**，對它執行 **`InstClampLow(Node_A)`**！
+*   **結果**：`Node_A` 被 GND 絕對壓制成 0，Inverter 內部的 Pull-up (VCC) 會自然導通，**由網表自己強烈驅動 `read_2007_trigger` 為 1！**
+
+**但這能解決你的問題嗎？（資料匯流排悖論）**
+使用「反向施力法」，你確實可以成功在 24hc 後把內部 trigger 完美地 re-assert 為高電位。**但是**，觸發是延遲了，**匯流排上的資料卻過期了**！
+24hc 後，`io_db` 已經變成下一條指令的 Opcode。即使你成功觸發了遲來的 `$2001` 寫入，PPU 寫進去的也會是 CPU 正在抓取的 Opcode 垃圾值，而不是原本要寫入的控制字節。
+
+> *你提到的 (b) 延遲 CPU 端：*
+> 在 6502 中，`RDY` 腳位只能在 Read 週期停住 CPU，對 Write 週期無效（NMOS 6502 特性），所以無法用於 `$2001/$2007` 寫入。且任何 CPU halt 都會毀掉 Cycle-counting 與 APU 相位，此法不可行。
+
+---
+
+### 3. S1 架構的先天牆：該退回 140/141 嗎？
+
+**這不是你的實作有問題，這確實是 Switch-level 在沒有掛載虛擬三態緩衝區 (Virtual Tri-state Buffer) 時的先天邊界。**
+
+AprNes/TriCNES 這種行為層或混合層，可以隨意 `bus = value` 來覆寫。但在 S1 的二值解析引擎中：
+1.  你無法對外面的匯流排可靠地 Inject '1'。
+2.  你不能只延遲 Trigger 而不提供 Data。
+3.  要同時用「壓低內部鎖存器節點」的方式來還原整個 $2007 的資料與狀態機，工程量等於用 API 重新硬刻半個 PPU，完全失去 Switch-level 的優雅。
+
+#### 給你的具體架構建議：果斷退回 140/141 策略
+
+面對 S1 的特性，**「操控『讀取點』比操控『網表觸發點』容易一百倍」**。
+
+與其強迫網表在錯誤的時間點做動作（對抗物理引擎），不如**順應網表的原生時序，但在我們「攔截結果」時做時間平移**。上一輪我們以為 24hc 延遲可以乾淨統一，但實作證明在 S1 中，這是不符合引擎物理特性的。
+
+**如何把 140/141 寫得「像是」統一的？**
+你不需要覺得 140/141 是髒 code。你可以用抽象層把它包裝起來，讓邏輯看起來是統一的：
+
+```cpp
+// 偽代碼：針對 S1 的讀取攔截抽象層
+int get_target_hc_offset(BusEvent event) {
+    if (event.is_2007_read && dot == 224) {
+        // 真實硬體會在 dot 224 的 hc=x 觸發，
+        // 但我們直到 dot 226 的 hc=x+140 才開放讀取結果
+        return 140; 
+    }
+    if (event.is_2007_read && dot == 225) {
+        return 141; // M6 相位補償
+    }
+    return 0; // 其他不受 S1 網表偏差影響的事件
+}
+
+void on_ppu_step() {
+    // 網表自己照舊在 dot 224/225 觸發 read_2007_trigger，我們不干涉
+    
+    // 在我們模擬器的 API 讀取面：
+    int offset = get_target_hc_offset(current_event);
+    if (current_hc >= event_base_hc + offset) {
+        // 條件滿足，把網表早就準備好的 r2007 值拿出來用
+        commit_read(); 
+    }
+}
+```
+
+### 總結
+1. **你的發現完全正確**，S1 的 `GND > VCC/Drive` 優先序，讓跨晶片的「延遲-重播」在驅動匯流排上是無解的死局。
+2. 以後在 S1 若遇到必須 force-high 的內部單一節點，請記住 **「反向施力法 (Clamp-Low 上游節點)」** 這個黑客技巧，它能繞過這個限制。
+3. 但對於有資料相依性的存取事件，請**放棄延遲網表，改為延遲觀察點 (Observation Point)**。退回 140/141 並不丟臉，這是 S1 引擎下最 native、最穩定、最不會產生副作用的解法。

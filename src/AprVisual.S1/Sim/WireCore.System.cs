@@ -1968,6 +1968,45 @@ namespace AprVisual.Sim
             else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
         }
 
+        // ── [EXPERIMENT] M6 unified phase: delay the $2007-read trigger 24hc (3 dots) ─────────────
+        // The unified root cause: S1's CPU->PPU cross-chip effects land ~1 CPU cycle early. For ALERead,
+        // read_2007_trigger fires at dot 224 and its ReadALE anomaly at dot 226 -- 3 dots before the dot
+        // 229 the board octal latch needs to capture $2FFF's $FF. Delay the trigger 24hc so the whole
+        // $2007-read processing (incl. ReadALE) shifts to the correct dot; the octal latch then captures
+        // $FF with no downstream shim. Re-assert via the complement (/read_2007_trigger) because the LUT's
+        // GND>VCC priority won't let InstClampHigh force the main node up (same reason dot-339 clamps a
+        // complement). First-cut prototype -- validates the unified-phase hypothesis for ALERead.
+        private static bool _p27Shim;
+        private static int _p27Trig = EmptyNode, _p27NTrig = EmptyNode, _p27PrevTrig;
+        private static long _p27T0 = -1;
+        internal static int P2007DelayHc = 24;
+
+        public static void EnableP2007Delay(int hc)
+        {
+            if (hc <= 0) { _p27Shim = false; return; }
+            _p27Trig = LookupNode("ppu.read_2007_trigger");
+            _p27NTrig = LookupNode("ppu./read_2007_trigger");
+            if (_p27Trig == EmptyNode || _p27NTrig == EmptyNode)
+            { Console.Error.WriteLine($"# [p27] read_2007_trigger delay: nodes unresolved (t={_p27Trig != EmptyNode} nt={_p27NTrig != EmptyNode}) -- disabled"); _p27Shim = false; return; }
+            P2007DelayHc = hc; _p27T0 = -1; _p27PrevTrig = 0; _p27Shim = true;
+            Console.Error.WriteLine($"# [p27] read_2007_trigger delay: {hc} hc (suppress main + re-assert /complement)");
+        }
+
+        private static void P2007DelayStep()
+        {
+            if (!_p27Shim) return;
+            int trig = NodeStates[_p27Trig];
+            if (_p27T0 < 0 && _p27PrevTrig == 0 && trig != 0) _p27T0 = Time;   // catch the natural rising edge while idle
+            _p27PrevTrig = trig;
+            if (_p27T0 >= 0)
+            {
+                long dt = Time - _p27T0;
+                if (dt < P2007DelayHc) InstClampLow(_p27Trig);                    // suppress the natural (early) pulse
+                else if (dt < P2007DelayHc + 14) InstClampLow(_p27NTrig);         // re-assert 24hc late: complement low -> main high
+                else { InstRelease(_p27Trig); InstRelease(_p27NTrig); _p27T0 = -1; _p27PrevTrig = 0; }
+            }
+        }
+
         // ── [EXPERIMENT branch] Board 74LS373 octal-latch feedback (ALERead / boing2k7) ──────────
         // See DoMemRead. A $2007 read forces an ALE+/RD overlap on the board octal latch, which holds
         // its previous low byte ($FF from the $2FFF attribute collapse) so the background low-bit-plane

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crossing the analog boundary — a physics-grounded mixed-signal plan (AprVisual)</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.8;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 18px; max-width:860px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#7ee0a8); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:860px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.6em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.5em 0 .9em; padding-left:24px;} li{margin:.35em 0;}
+  code{background:var(--code); padding:1px 6px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow:auto; font-size:13px; line-height:1.5; font-family:Consolas,monospace; color:#cfe4ff;}
+  b.term{color:var(--acc2);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 18px 14px; margin:16px 0;}
+  .phys{border-left:3px solid var(--acc2);}
+  .plan{border-left:3px solid var(--acc);}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .tag{display:inline-block; font-size:11px; font-weight:700; letter-spacing:.3px; padding:1px 7px; border-radius:4px; border:1px solid var(--bd); color:var(--acc2); background:#12171d; vertical-align:middle;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:860px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Crossing the analog boundary</span><span class="zh">跨越類比邊界</span></h1>
+  <p class="sub"><span class="en">A physics-grounded plan to model the ~1% of the NES that is genuinely analog — and a teaching tour of the device physics behind each step. Sequel to <a href="semantic-ceiling.html">the semantic ceiling</a>.</span><span class="zh">一份用物理打底的計畫,去模擬 NES 裡真正屬於類比的那 ~1% —— 並且把每一步背後的元件物理當教材講清楚。<a href="semantic-ceiling.html">語意天花板</a>的續集。</span></p>
+</header>
+
+<main>
+
+<section>
+<h2><span class="en">0 · Where the last article left off</span><span class="zh">0 · 上一篇停在哪裡</span></h2>
+<p class="en">The companion piece, <a href="semantic-ceiling.html">the semantic ceiling</a>, ended on a map: a 141-test hardware suite pushed our binary switch-level engine to its edge, and the deviations sorted into a handful of <b>analog behaviours the model quantizes away</b> — ratioed drive fights, timing-window overlaps, transparent-latch tracking, propagation latency, board-level parts, power-on state. During that campaign each was patched by a small, targeted <b class="term">shim</b>: a test-mode override at the one measured site. Roughly twenty of them accumulated across two campaigns.</p>
+<p class="zh">姊妹篇<a href="semantic-ceiling.html">語意天花板</a>停在一張地圖上:一套 141 顆的硬體測試把我們的二值開關級引擎逼到邊緣,而偏差歸類成少數幾種<b>被模型量化掉的類比行為</b> —— 比例式驅動打架、時窗重疊、透明閂鎖追隨、傳播延遲、板級零件、上電狀態。戰役期間,每一種都用一顆小而精準的 <b class="term">shim</b> 補上:在那個量測過的站點做測試模式覆蓋。兩場戰役下來,累積了大約二十顆。</p>
+<p class="en">Shims work, and — as EDA practice confirms — keeping them is the correct engineering trade for a performance-critical emulator. But a shim is a black box: it says <i>what</i> to override, not <i>why the silicon does that</i>. This article is the plan to replace the black boxes with <b>white boxes</b> — a small set of mechanisms, each a direct model of one piece of device physics — and, because the physics is the whole point, to teach that physics as we go. The target is not "zero shims" (some behaviours are continuous-time and have no static equivalent) but <b>zero hand-written special cases</b>: not one line of code that names a site or a test.</p>
+<p class="zh">Shim 是有效的,而且 —— 如 EDA 實務所證實 —— 對一個效能吃緊的模擬器而言,保留它們是正確的工程取捨。但 shim 是黑箱:它只說要覆蓋<i>什麼</i>,不說<i>矽為什麼那樣</i>。這篇文章是把黑箱換成<b>白箱</b>的計畫 —— 一小組機制,每個都是某一塊元件物理的直接模型 —— 而且既然物理才是重點,我們就邊做邊把物理教清楚。目標不是「零 shim」(有些行為是連續時間的,沒有靜態等價物),而是<b>零手寫特例</b>:沒有一行代碼認站點、認測試。</p>
+<div class="card"><p class="en"><b>The governing idea — mixed-signal co-simulation.</b> Do <i>not</i> turn the whole chip into SPICE; at 30,000 transistors that runs millions of times slower and a single test sweep would take years. Instead keep the fast binary core running ~99% of the activity, and attach cheap analog models only to the few "islands" where the digital abstraction breaks. This is exactly how production EDA handles mixed-signal blocks (Verilog-AMS). The whole plan below is islands, not oceans.</p>
+<p class="zh"><b>統領全局的想法 —— 混合訊號協同模擬。</b><i>不要</i>把整顆晶片變成 SPICE;三萬顆電晶體那樣跑會慢上百萬倍,單一測試掃描要跑好幾年。改成:讓快速的二值核心繼續跑掉約 99% 的活動,只在少數「島嶼」—— 數位抽象失效的那幾處 —— 掛上便宜的類比模型。這正是業界 EDA 處理混合訊號區塊的方式(Verilog-AMS)。下面整份計畫講的都是島,不是海。</p></div>
+</section>
+
+<section>
+<h2><span class="en">1 · Ratioed logic — when "both drivers are on" is the design</span><span class="zh">1 · 比例式邏輯 —— 當「兩個驅動源都開著」就是設計本身</span><span class="tag">M1</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> A MOSFET is a voltage-controlled resistor. Its on-resistance is set by geometry: <code>R ∝ L/W</code>, the channel's length over its width. NMOS logic of the 1970s had no p-type pull-ups, so a gate output was a permanent <i>ratio</i>: a weak, always-on depletion pull-up (long, narrow — high resistance) fighting a strong pull-down (short, wide — low resistance) whenever the input was high. The output voltage is just the resistor-divider midpoint. "Logic 0" is not "connected to ground"; it is "the pull-down wins the divider by design". Make the pull-up too strong or the pull-down too weak and the 0 floats up into forbidden territory — which is exactly what unofficial opcodes like LAE/LXA expose, where an accumulator's weak drive fights a latch's drive on one merged bus and the hardware answer ($FF) is the ratio's verdict.</p>
+<p class="zh"><b>物理。</b>一顆 MOSFET 是電壓控制的電阻。它的導通電阻由幾何決定:<code>R ∝ L/W</code>,通道長度除以寬度。七〇年代的 NMOS 邏輯沒有 p 型上拉,所以閘的輸出永遠是一個<i>比例</i>:一個微弱、恆開的耗盡型上拉(細長 —— 高電阻)對抗一個強力的下拉(短寬 —— 低電阻),只要輸入為高。輸出電壓就是這組電阻分壓的中點。「邏輯 0」不是「接到地」;而是「下拉照設計贏了這場分壓」。把上拉做太強或下拉做太弱,0 就會浮上禁區 —— 這正是 LAE/LXA 這種非官方指令暴露的:累加器的弱驅動在一條合併匯流排上對抗閂鎖的驅動,而硬體答案($FF)就是比例的判決。</p></div>
+<p class="en">Our engine has no strength <i>inside</i> a priority class: GND simply wins, so it quantizes the ratio to $00 and needs a shim to force the real $FF. The white-box fix is the classic one — <b>MOSSIM II strength classes</b> (Bryant, 1984): give each transistor a discrete conductance level and resolve a group by comparing total pull-up conductance against total pull-down conductance, not by a flat priority OR.</p>
+<p class="zh">我們的引擎在優先級類別<i>內部</i>沒有強度概念:GND 直接全勝,於是把比例量化成 $00,得靠 shim 硬灌真正的 $FF。白箱解法是經典的那個 —— <b>MOSSIM II 強度類別</b>(Bryant,1984):給每顆電晶體一個離散電導等級,群組決議改成「比較上拉總電導 vs 下拉總電導」,而不是平的優先級 OR。</p>
+<div class="card plan"><p class="en"><b>The plan.</b> We have no RC extraction data, but we have the polygon geometry (<code>segdefs</code>/<code>transdefs</code>). Compute a crude <code>W/L</code> proxy per transistor at load time, quantize to 2 bits of strength, and widen the group-resolution table from 256 to ~1024 entries — still small enough to live entirely in L1 cache, so the hot loop stays a single table lookup. A load-time census flags the &lt;1% of nodes where two different drive cones can conduct at once; only those groups take the strength path, everyone else keeps the O(1) OR. <b>Retires:</b> the LXA-magic and ALU-fight shims — LAE/LXA resolve to the ratio's real answer with no site knowledge at all.</p>
+<p class="zh"><b>計畫。</b>我們沒有 RC 萃取資料,但有多邊形幾何(<code>segdefs</code>/<code>transdefs</code>)。載入期對每顆電晶體算一個粗略的 <code>W/L</code> 代理、量化成 2 bit 強度,把群組決議表從 256 格加寬到約 1024 格 —— 仍小到能整個住進 L1,所以熱迴圈依舊是一次查表。載入期普查標出「兩個不同驅動錐可同時導通」的那 &lt;1% 節點;只有那些群走強度路徑,其餘照舊 O(1) OR。<b>退休:</b>LXA-magic 與 ALU-fight 兩顆 shim —— LAE/LXA 直接解出比例的真答案,完全不需認站點。</p></div>
+</section>
+
+<section>
+<h2><span class="en">2 · Charge storage — information parked on a capacitor</span><span class="zh">2 · 電荷儲存 —— 資訊寄放在電容上</span><span class="tag">M2</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> Every wire has parasitic capacitance to ground — the plates are the metal/poly area over the substrate, <code>C = C_ox · W · L</code>, strictly proportional to polygon area. That capacitance is not a nuisance here; it is <i>storage</i>. Disconnect a wire from every driver and the charge stays put, holding its last logic level for a while — this is dynamic RAM with no refresh, and the NES uses it everywhere: OAM sprite memory is cross-coupled cells with <b>no pull-ups at all</b>, kept alive only by being read (the read's bit-line precharge senses and restores the charge, DRAM-style), and the CPU/PPU data buses hold their last driven byte on capacitance — the famous <b>open bus</b> that game code can read back. But charge leaks: over milliseconds a floating node's voltage decays through sub-threshold and junction leakage until it crosses the logic threshold and reads as 0. "Open bus decays to zero after ~600 ms" and "an OAM cell corrupts if the rendering that refreshes it is switched off at the wrong edge" are the same physics seen from two sides.</p>
+<p class="zh"><b>物理。</b>每條線對地都有寄生電容 —— 極板就是金屬/poly 蓋在基板上的面積,<code>C = C_ox · W · L</code>,嚴格正比於多邊形面積。這裡的電容不是麻煩,而是<i>儲存</i>。把一條線從所有驅動源斷開,電荷會留在原地,把最後的邏輯電平撐住一陣子 —— 這就是不刷新的 DRAM,而 NES 到處在用:OAM 精靈記憶體是交叉耦合的 cell、<b>完全沒有上拉</b>,只靠被讀取續命(讀取的位元線預充電會 sense 並回寫,DRAM 式),而 CPU/PPU 資料匯流排把最後被驅動的位元組保持在電容上 —— 就是遊戲程式讀得回來的知名 <b>open bus</b>。但電荷會漏:數毫秒間,浮接節點的電壓會經次臨界與接面漏電衰退,直到跨過邏輯閾值、被讀成 0。「open bus 約 600 毫秒後衰減到零」和「OAM cell 在錯誤的邊沿關掉刷新它的渲染就毀損」是同一套物理的兩面。</p></div>
+<div class="card plan"><p class="en"><b>The plan — timestamp lazy decay.</b> Do <i>not</i> evaluate <code>V(t) = V₀·e^(−t/RC)</code> in the hot loop; a floating-point <code>exp</code> per half-cycle would drop the engine below 1 kHz. Instead, at load time, solve the exponential <i>once</i> for the only thing we need — the moment it crosses threshold — and store it as an integer cycle count: <code>Δt = −RC · ln(V_th/V₀)</code>. At run time: when the settle notices a storage node going floating, stamp <code>node.disconnectedAt = now</code> (one integer write). When that node is next read or shares charge, check <code>now − stamp > decayCycles</code> (one integer subtract + compare) and collapse to 0 if so. Node capacitance comes from the polygon-area tool already validated in the pipeline. Cost estimate: <b>0% to −2%</b>, because it <i>replaces</i> the existing behavioural if-else counters rather than adding to them, with no floating point in sight. <b>Retires:</b> the open-bus and OAM-blank-edge shims — both become emergent behaviour of one decay model.</p>
+<p class="zh"><b>計畫 —— 時戳惰性衰減。</b><i>不要</i>在熱迴圈算 <code>V(t) = V₀·e^(−t/RC)</code>;每半週期一次浮點 <code>exp</code> 會把引擎壓到 1 kHz 以下。改成:載入期把指數式<i>解一次</i>,只解我們唯一需要的東西 —— 它何時跨過閾值 —— 存成整數週期數:<code>Δt = −RC · ln(V_th/V₀)</code>。執行期:當 settle 發現某儲存節點進入浮接,蓋一個時戳 <code>node.disconnectedAt = now</code>(一次整數寫入)。那節點下次被讀取或參與電荷分享時,檢查 <code>now − stamp > decayCycles</code>(一次整數減法+比較),超過就塌成 0。節點電容來自管線裡已驗證的多邊形面積工具。成本估計:<b>0% 到 −2%</b>,因為它是<i>替換</i>既有的行為層 if-else 計數器,不是疊加,而且全程無浮點。<b>退休:</b>open-bus 與 OAM-blank-edge 兩顆 shim —— 兩者都變成同一個衰減模型的湧現行為。</p></div>
+</section>
+
+<section>
+<h2><span class="en">3 · Propagation delay — the wire is not instant</span><span class="zh">3 · 傳播延遲 —— 線不是瞬間的</span><span class="tag">M3</span> <span class="mut en">highest risk</span><span class="mut zh">最高風險</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> Charging that same parasitic capacitance through the driving transistor's on-resistance takes time — the <b>RC time constant</b>. A signal crossing the chip does not arrive everywhere at once; it lags by <code>~R·C</code> at each stage, and in NMOS the lag is <i>asymmetric</i> because a strong pull-down discharges faster than a weak pull-up charges (electron mobility, transistor sizing). This is why one test needs the PPU's rendering-enable to reach a decision point about three dots late, with different rise and fall delays — and why our zero-delay settle, which propagates every change to quiescence <i>within</i> one half-cycle, reads the decision at the wrong dot. The most extreme case, the boing2k7 <code>$2007</code> read that corrupts a background fetch, is this same skew at the whole-instruction scale: a CPU read's cross-chip effect lands one CPU cycle early because the write path was idealized to zero delay.</p>
+<p class="zh"><b>物理。</b>透過驅動電晶體的導通電阻去充那同一顆寄生電容,是要時間的 —— 就是 <b>RC 時間常數</b>。一個訊號穿越晶片不會同時到達每一處;它在每一級都落後約 <code>~R·C</code>,而在 NMOS 裡這個落後是<i>非對稱</i>的,因為強下拉放電比弱上拉充電快(電子遷移率、電晶體尺寸)。這就是為什麼有一顆測試需要 PPU 的渲染致能晚約三個 dot 才到某個決策點、而且上升與下降延遲不同 —— 也是為什麼我們零延遲的 settle(把每個變化<i>在</i>一個半週期內傳到靜止)會在錯的 dot 讀到那個決策。最極端的案例 —— boing2k7 那個污染背景取樣的 <code>$2007</code> 讀取 —— 是同一個偏移放大到整條指令的尺度:一次 CPU 讀取的跨晶片效應早了一個 CPU 週期到達,因為寫入路徑被理想化成零延遲。</p></div>
+<p class="en"><b>The danger.</b> This is the mechanism EDA history warns loudest about. IRSIM (1980s) added exactly this — linear RC delay on every net — and it costs the hot path dearly; tracking continuous timing across a whole chip is categorically slower. A settle-to-quiescence engine has <i>no notion of "later"</i>; adding one is the deepest architectural change on this list.</p>
+<p class="zh"><b>危險。</b>這是 EDA 歷史警告得最大聲的機制。IRSIM(1980 年代)加的正是這個 —— 每條線都上線性 RC 延遲 —— 而它讓熱路徑付出慘重代價;在整顆晶片上追蹤連續時序,本質上就是慢。一個 settle-到-靜止的引擎<i>沒有「稍後」的概念</i>;加進去是這份清單上最深的架構改動。</p>
+<div class="card plan"><p class="en"><b>The plan — bounded islands, or fall back to a data file.</b> Never a global timing layer. Instead: a load-time pass flags only the handful of genuinely cross-chip, high-fan-out nets (the CPU→PPU control lines, the AD bus). Only <i>those</i> nets route their downstream transitions through a small delay queue (fire at <code>t + delay</code> instead of same-settle); everyone else stays instant. If even that proves too costly or too hard to auto-calibrate, the honest fallback is a <i>generic delay primitive</i> whose per-net constants live in a <code>timing-calibrations.json</code> data file — the framework is code, the numbers are data. <b>Retires:</b> the dot-339 and $2001-write-delay shims — and, if the unified phase hypothesis below holds, the ALERead heuristic too.</p>
+<p class="zh"><b>計畫 —— 有界的島,否則退回資料檔。</b>絕不做全域時序層。改成:載入期只標出那少數真正跨晶片、高扇出的線(CPU→PPU 控制線、AD 匯流排)。只有<i>那些</i>線把下游轉態走一條小延遲佇列(在 <code>t + delay</code> 開火,而非同一 settle);其餘全部維持瞬間。若連這都太貴或太難自動校準,誠實的退路是一個<i>通用延遲原語</i>,它的 per-net 常數放在 <code>timing-calibrations.json</code> 資料檔 —— 框架是代碼、數字是資料。<b>退休:</b>dot-339 與 $2001-寫延遲兩顆 shim —— 而且若下面的統一相位假說成立,ALERead 的啟發式也一併退休。</p></div>
+</section>
+
+<section>
+<h2><span class="en">4 · Transparent latches — a switch that stays open too long</span><span class="zh">4 · 透明閂鎖 —— 一個開太久的開關</span><span class="tag">M4</span> <span class="mut en">most shims</span><span class="mut zh">最大宗</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> The cheapest memory in NMOS is a single pass transistor plus the wire's own capacitance. While the clock (its gate) is high the transistor is <i>on</i> and the output <b>transparently follows</b> the input; when the clock falls the transistor turns off and the last value is trapped as charge. A real transparent latch tracks its input for the entire clock phase — tens of nanoseconds — so a brief glitch during that window is overwritten before it matters. Our engine settles <i>once</i> per half-cycle: whatever intermediate value the latch's input node happened to hold at that single snapshot is what gets captured. If a bus buffer is still turning on and the group momentarily reads $00, the latch keeps the $00. Worse, when a pass transistor feeds back — output through a read path back to its own input, as the cartridge's octal latch does during an ALE+read overlap — the loop <i>locks</i> on whatever value survives, a genuine analog fixed point.</p>
+<p class="zh"><b>物理。</b>NMOS 裡最便宜的記憶體,是一顆 pass 電晶體加上線本身的電容。當時鐘(它的閘)為高,電晶體<i>導通</i>,輸出<b>透明地跟隨</b>輸入;時鐘一落,電晶體關斷,最後的值被當成電荷困住。真正的透明閂鎖在整段時鐘相位裡追隨輸入 —— 數十奈秒 —— 所以那段窗內的短暫毛刺會在它造成影響前就被蓋掉。我們的引擎每半週期只 settle <i>一次</i>:閂鎖的輸入節點在那唯一快照剎那剛好持有什麼中間值,就捕捉什麼。如果某匯流排緩衝器還在導通、群組瞬間讀成 $00,閂鎖就留下這個 $00。更糟的是,當一顆 pass 電晶體形成回授 —— 輸出經讀取路徑繞回自己的輸入,像卡帶八位閂鎖在 ALE+讀取重疊時那樣 —— 迴圈會<i>鎖</i>在能存活下來的那個值上,一個貨真價實的類比不動點。</p></div>
+<p class="en">This is the single largest shim family — six of them: the DL φ2-transparency, the DMC and ALU input latches, the frame-IRQ transient, the double-$2007 merge, the OAM-DMA bus hold. They are all the same bug: an intermediate settle value captured where silicon would have tracked to the final one.</p>
+<p class="zh">這是最大的一個 shim 家族 —— 六顆:DL 的 φ2 透明、DMC 與 ALU 輸入閂鎖、frame-IRQ 暫態、雙 $2007 合併、OAM-DMA 匯流排保持。它們全是同一個 bug:一個 settle 中間值被捕捉在矽本該追隨到終值的地方。</p>
+<div class="card plan"><p class="en"><b>The plan — auto-detect and restate, not hand-patch.</b> The pattern is purely structural and enumerable at load time: a storage node whose only drive path runs through a pass transistor whose gate is a clock phase. One scan lists every dynamic transparent latch on the chip. For each, the generic rule is: while the clock is in its transparent phase, after each settle completes, if the latch node disagrees with its actual input node, restate it to the input. This is a <i>post-settle</i> correction (the boundary tests confirm it is a no-op on correct cycles), and — critically — it derives its restate value from the latch's real input, curing the very bug that sank an earlier global attempt. Feedback loops resolve by a small relaxation to the fixed point (we already prototype this for the octal latch). <b>Retires:</b> all six, converging to one auto-derived mechanism that also covers latch sites no test has hit yet.</p>
+<p class="zh"><b>計畫 —— 自動偵測並重述,不手動 patch。</b>這個 pattern 是純結構的、載入期可枚舉:一個儲存節點,其唯一驅動路徑經過一顆 pass 電晶體,而該電晶體的閘是一個時鐘相位。一次掃描就列出全晶片每一個動態透明閂鎖。對每一個,通用規則是:當時鐘處於透明相位、每次 settle 完成後,若閂鎖節點與它真正的輸入節點不一致,就重述回輸入值。這是一個 <i>post-settle</i> 校正(邊界測試證實它在正確週期上是 no-op),而且 —— 關鍵在此 —— 它從閂鎖的真實輸入取重述值,正好治好當年一次全域嘗試失敗的那個 bug。回授迴圈用一次小型 relaxation 解到不動點(我們已經為八位閂鎖做了雛形)。<b>退休:</b>全部六顆,收斂成一個自動衍生的機制,還順便覆蓋測試還沒打到的閂鎖站點。</p></div>
+</section>
+
+<section>
+<h2><span class="en">5 · The board is an analog circuit too</span><span class="zh">5 · 主機板也是一塊類比電路</span><span class="tag">M5</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> The netlist covers two dies. The console and cartridge around them are a real circuit board full of parts the die photos never saw: the <b>74LS373 octal latch</b> that de-multiplexes the PPU's shared address/data pins (it is the transparent latch of §4, but a physical TTL chip on the AD bus — and its analog feedback under a well-timed <code>$2007</code> read is exactly what boing2k7 weaponizes), the <b>CD4021 shift register</b> inside the controller, address decoders, and passive pull/tie resistors. These parts have their own pin semantics (latch-enable, output-enable), their own propagation delays, and — for the CD4021 especially — a CMOS structure that dies instantly if you transliterate it into the netlist's NMOS-only, GND-wins vocabulary (a released button can never be written back). That is why the joypad already runs as a behavioural model rather than as transistors.</p>
+<p class="zh"><b>物理。</b>網表涵蓋兩顆 die。圍繞它們的主機與卡帶,是一塊真實的電路板,滿是 die 照片從沒看過的零件:把 PPU 共用的位址/資料腳解多工的 <b>74LS373 八位閂鎖</b>(它就是 §4 的透明閂鎖,只是一顆掛在 AD 匯流排上的實體 TTL —— 而它在一個抓準時機的 <code>$2007</code> 讀取下的類比回授,正是 boing2k7 拿來當武器的東西)、手把裡的 <b>CD4021 移位暫存器</b>、位址解碼器、以及被動的 pull/tie 電阻。這些零件有自己的 pin 語意(latch-enable、output-enable)、自己的傳播延遲,而且 —— CD4021 尤其 —— 有一種 CMOS 結構,一旦你把它翻譯成網表那套只有 NMOS、GND-wins 的語彙就立刻死掉(放開的按鍵永遠寫不回去)。這就是為什麼手把早已用行為層模型跑,而不是用電晶體跑。</p></div>
+<div class="card plan"><p class="en"><b>The plan — a board-level component library.</b> Model the external parts as <i>first-class components</i> sitting on the inter-chip buses, not as code hacks inside a memory callback: an <code>Ls373OctalLatch</code>, a <code>Cd4021ShiftRegister</code>, decoders and ties, each with datasheet pin behaviour and updated at the half-cycle grain of §4. MetalNES's <code>system-def</code> board descriptions are a starting reference for the topology. Once the 74LS373 is a real component, boing2k7's octal-latch feedback is <i>the component behaving normally</i> — not a special case in the CHR read path. <b>Retires:</b> the board-octal-latch (ALERead) shim, the exec-space tie hack, and the joypad's bespoke wiring — folded into one component library.</p>
+<p class="zh"><b>計畫 —— 板級元件庫。</b>把外部零件建成<i>一級元件</i>、掛在晶片間的匯流排上,而不是塞在記憶體 callback 裡的代碼 hack:一個 <code>Ls373OctalLatch</code>、一個 <code>Cd4021ShiftRegister</code>、解碼器與 tie,每個都有 datasheet 級的 pin 行為,並在 §4 的半週期粒度更新。MetalNES 的 <code>system-def</code> 板級描述是拓撲的起點參考。一旦 74LS373 是一個真元件,boing2k7 的八位閂鎖回授就是<i>元件的正常行為</i> —— 不是 CHR 讀取路徑裡的特例。<b>退休:</b>board-octal-latch(ALERead)shim、exec-space tie hack、以及手把的客製接線 —— 全部收進一個元件庫。</p></div>
+</section>
+
+<section>
+<h2><span class="en">6 · Power-on and phase — where the simulation starts from</span><span class="zh">6 · 上電與相位 —— 模擬從哪裡起跑</span><span class="tag">M6</span></h2>
+<div class="card phys"><p class="en"><b>The physics.</b> Two facts about the first microsecond. First, <b>power-on state is genuinely random</b>: when the rails come up, every capacitor holds whatever charge the noise gave it, so palette RAM, registers and flags start undefined — real consoles differ unit to unit, and blargg's tests encode the community-consensus power-up values. Second, <b>relative clock phase is a discrete lottery</b>: the CPU divides the master clock by 12 and free-runs from power-on; the PPU divides by 4 and restarts when reset releases. Their relative alignment can only land in one of four sub-cycle phases (because 1 CPU cycle = 3 dots and the divider quantizes to whole master-clock periods). A cycle-counted test aimed at a specific dot depends on which phase you booted into — and this is very likely the same root cause as the ALERead skew: our boot phase lands one CPU cycle off the phase the test was written for.</p>
+<p class="zh"><b>物理。</b>關於最初那一微秒的兩個事實。第一,<b>上電狀態是真的隨機</b>:電源軌一上來,每顆電容持有雜訊給它的任何電荷,所以 palette RAM、暫存器、旗標全都從未定義起跑 —— 真機一台一台不同,而 blargg 的測試把社群共識的上電值編碼進去。第二,<b>相對時鐘相位是離散抽籤</b>:CPU 把主時鐘除以 12、從上電就自由運轉;PPU 除以 4、在 reset 釋放時重啟。它們的相對對齊只可能落在四種 sub-cycle 相位之一(因為 1 CPU 週期 = 3 dot,而除頻器量化到整數個主時鐘週期)。一顆精算週期、瞄準特定 dot 的測試,取決於你開機開進哪個相位 —— 而這很可能就是 ALERead 偏移的同一個根因:我們的開機相位,比測試撰寫時所依據的相位差了一個 CPU 週期。</p></div>
+<div class="card plan"><p class="en"><b>The plan — make initial state and phase explicit parameters.</b> Replace the scattered power-up injection shims with a single <i>power-on state table</i> (node → initial charge, applied at load time), and lift the CPU/PPU divider alignment out of implicit reset timing into an explicit <i>phase selector</i> (one of the four). Sweep the four, pick the one matching the pinned reference machine — which is exactly blargg's "golden alignment". <b>The unified hypothesis:</b> even_odd, dot-339, and ALERead may all be the <i>same</i> un-arbitrated cross-chip phase offset. If the phase selector plus the M3 delay on the <code>$2002</code>/<code>$2007</code> read path arbitrate that one-cycle skew, ALERead's fetch overlap lands on the correct dot by physics — retiring the heuristic window it uses today. Cost is near zero (load-time configuration). <b>Retires:</b> the reset-hold-extra alignment, power_up_palette, and register-init shims.</p>
+<p class="zh"><b>計畫 —— 把初態與相位變成明確參數。</b>把散落的上電注入 shim 換成單一的<i>上電狀態表</i>(節點 → 初始電荷,載入期套用),並把 CPU/PPU 除頻器對齊從隱含的 reset 時序,提升成一個明確的<i>相位選擇器</i>(四選一)。掃四種、挑符合釘死參考機的那個 —— 這正是 blargg 的「golden alignment」。<b>統一假說:</b>even_odd、dot-339、ALERead 可能全是<i>同一個</i>未仲裁的跨晶片相位偏移。若相位選擇器加上 M3 在 <code>$2002</code>/<code>$2007</code> 讀取路徑上的延遲,把那個一週期偏移仲裁掉,ALERead 的取樣重疊就會靠物理落在正確的 dot 上 —— 退休它今天用的啟發式窗。成本近乎零(載入期設定)。<b>退休:</b>reset-hold-extra 對齊、power_up_palette、暫存器初始化三顆 shim。</p></div>
+</section>
+
+<section>
+<h2><span class="en">7 · Determinism — a numbering artifact, not physics</span><span class="zh">7 · 決定論 —— 一個編號的假影,不是物理</span><span class="tag">M7</span></h2>
+<div class="card phys"><p class="en"><b>Not physics — an artifact.</b> This one is different: the failure is not something the chip does, it is something <i>our engine</i> does. When two events settle at the "same" instant, the engine processes them in queue order, which is node-numbering order, which is the order nodes happened to be parsed from the file — pure arbitrary label. Silicon arbitrates that race by continuous-time physics; we arbitrate it by array index. The tell is brutal: two structurally identical sibling circuits (the twin '368 buffers <code>u7</code>/<code>u8</code>) resolve <i>oppositely</i>, for no reason but their numbers. And any graph change — patching a transistor, attaching a probe — renumbers everything and re-rolls the whole lottery.</p>
+<p class="zh"><b>不是物理 —— 是假影。</b>這一個不一樣:失敗不是晶片做的事,而是<i>我們引擎</i>做的事。當兩個事件在「同一」剎那 settle,引擎按佇列順序處理它們,而那是節點編號順序,也就是節點剛好從檔案被解析出來的順序 —— 純粹任意的標籤。矽用連續時間物理仲裁那場競速;我們用陣列索引仲裁。徵兆很殘酷:兩個結構完全相同的孿生電路(孿生 '368 緩衝器 <code>u7</code>/<code>u8</code>)解出<i>相反</i>結果,理由只是它們的編號。而任何圖變更 —— 補一顆管、掛一個探針 —— 都會重新編號、把整個彩票重抽一次。</p></div>
+<div class="card plan"><p class="en"><b>The plan — canonical renumbering.</b> Replace "load order" with a deterministic physical key computed at load time: sort nodes by <code>(class, layered polygon area, structural hash of the neighbourhood, degree)</code> before assigning integer ids — a Nauty-style canonical labeling. The engine's existing id-order arbitration then <i>becomes</i> canonical arbitration with zero hot-path change (it is a one-time load sort, foldable into the cache-locality renumber we already ship). Two payoffs: identical sub-circuits get identical local ordering, so twins share a verdict — the lottery is gone at the root; and because ids no longer depend on file order, a netlist patch or a probe perturbs only its neighbourhood instead of re-rolling everything, which makes graph edits <i>safe operations</i> for the first time. The honest caveat: consistent ≠ correct — canonicalization removes the <i>arbitrariness</i>, but whether the shared verdict matches silicon depends on how well the key correlates with the real physics (area can't see path resistance). The residue drops from "a lottery" to "a known, calibratable bias".</p>
+<p class="zh"><b>計畫 —— 正準重編號。</b>把「載入順序」換成載入期算出的確定性物理鍵:在指派整數 id 之前,按 <code>(class、分層多邊形面積、鄰域結構雜湊、degree)</code> 排序節點 —— 一種 Nauty 式的正準標記。引擎既有的 id 順序仲裁就<i>變成</i>正準仲裁,熱路徑零改動(它是一次性的載入排序,可併進我們已出貨的快取局部性重編號)。兩個回報:結構相同的子電路得到相同的局部順序,孿生共享判決 —— 樂透從根消失;而且因為 id 不再依賴檔案順序,一個網表補丁或一個探針只擾動它的鄰域、不再重抽全部,這讓圖編輯第一次成為<i>安全操作</i>。誠實的但書:一致 ≠ 正確 —— 正準化拿掉的是<i>任意性</i>,但共享判決是否符合矽,取決於這把鍵與真實物理的相關度(面積看不到路徑電阻)。殘差從「一場樂透」降格為「一個已知、可校準的偏差」。</p></div>
+</section>
+
+<section>
+<h2><span class="en">8 · The honest edge — what stays a shim, and why that's fine</span><span class="zh">8 · 誠實的邊界 —— 什麼會留成 shim,以及為何無妨</span></h2>
+<p class="en">Two of the analog behaviours — <b>window-overlap durations (A2)</b> and <b>propagation latency (A4)</b> — are continuous-time by nature. No static, load-time analysis can conjure a nanosecond out of a model that has no time axis; the only true cures are per-gate timing annotation or SPICE, both categorically too slow. So the honest end state is not a shim-free engine. It is an engine where the <i>mechanism</i> is general code and only the <i>constants</i> stay hand-supplied — moved out of the source and into three data files: <code>netlist-patch.json</code> (the missing transistors), <code>analog-sidecar.json</code> (capacitances and decay constants), <code>timing-calibrations.json</code> (the residual delays). EDA practice endorses exactly this: keep the shim architecture, because mixed-signal override is the correct trade for a performance-critical simulator; just stop letting any shim name a site.</p>
+<p class="zh">這些類比行為裡有兩種 —— <b>時窗重疊長短(A2)</b>與<b>傳播延遲(A4)</b> —— 本質上是連續時間的。沒有任何靜態的載入期分析,能從一個沒有時間軸的模型裡變出一個奈秒;唯一的真解是 per-gate 時序標註或 SPICE,兩者本質上都太慢。所以誠實的終態不是一顆零 shim 的引擎。而是一顆這樣的引擎:<i>機制</i>是通用代碼,只有<i>常數</i>還是手工供給 —— 從原始碼移出,搬進三個資料檔:<code>netlist-patch.json</code>(缺失的電晶體)、<code>analog-sidecar.json</code>(電容與衰減常數)、<code>timing-calibrations.json</code>(殘餘延遲)。EDA 實務正是背書這個:保留 shim 架構,因為對一個效能吃緊的模擬器而言,混合訊號覆蓋是正確的取捨;只是別再讓任何一顆 shim 認站點。</p>
+<div class="card"><p class="en"><b>Why a fork, not an upgrade in place.</b> Several of these mechanisms — strength classes, canonical renumbering, the decay layer — change the golden checksum, which the golden engine treats as sacred. On the fast engine you would have to package them into one "big bang" re-baseline to make it worthwhile. A separate fork (<b>AprVisual.S1a</b>, "with analog") has its own baseline, so the same work becomes a sequence of small, individually verifiable steps — and the golden speed engine stays untouched as the performance reference. Accuracy and speed stop competing for the same artifact.</p>
+<p class="zh"><b>為什麼是 fork,不是原地升級。</b>這些機制有幾個 —— 強度類別、正準重編號、衰減層 —— 會改動金 checksum,而黃金引擎視它為神聖。在快引擎上,你得把它們打包成一次「大爆炸」重定基準才划算。一個獨立的 fork(<b>AprVisual.S1a</b>,「with analog」)有自己的 baseline,所以同樣的工作變成一連串小的、可個別驗證的步驟 —— 而黃金速度引擎原封不動,留作效能基準。準確與速度,不再爭奪同一個產物。</p></div>
+</section>
+
+<section>
+<h2><span class="en">9 · The vision, in one line</span><span class="zh">9 · 一句話的願景</span></h2>
+<p class="en">Seven mechanisms — five modelling analog device physics (drive strength, charge, RC delay, transparent latches, board parts), one modelling the physical start state and phase, one removing a pure numbering artifact — replace roughly twenty hand-written behavioural patches accumulated across two hardware-test campaigns. None of them is exotic; every one is a textbook piece of device physics or EDA method, chosen because a specific test proved we needed exactly that physics and no more. The measure of success is not a score; it is a <i>curve</i>: for each mechanism, how much analog reality it buys against how much of the 99%-fast core it disturbs. That number turns the project's central finding — "~1% of the chip is genuinely analog" — from a statistic into an itemized bill of materials.</p>
+<p class="zh">七個機制 —— 五個模擬類比元件物理(驅動強度、電荷、RC 延遲、透明閂鎖、板級零件),一個模擬物理的起始狀態與相位,一個移除純粹的編號假影 —— 取代兩場硬體測試戰役累積的大約二十顆手寫行為層補丁。它們沒有一個是奇門遁甲;每一個都是教科書等級的元件物理或 EDA 方法,之所以被選中,是因為某一顆測試證明了我們正好需要那塊物理、不多不少。成功的量尺不是一個分數;是一條<i>曲線</i>:每個機制,買到多少類比真實 vs 擾動了多少那個 99% 的快核。那個數字,把專案的核心發現 —— 「晶片約 1% 是真正的類比」 —— 從一個統計數字,變成一張逐項列明的物料清單。</p>
+<p class="en">And if some mechanism proves infeasible — if RC islands cannot stay bounded, if the phase hypothesis does not unify — that is a result too, in the same spirit as this project's other findings: a falsifiable boundary, mapped with data, left as a signpost for whoever tries next.</p>
+<p class="zh">而如果某個機制被證明不可行 —— 如果 RC 島無法維持有界、如果相位假說無法統一 —— 那也是一個結果,和本專案其他發現同一個精神:一條可證偽的邊界,用資料畫出來,留成路標給下一個嘗試的人。</p>
+<p class="mut" style="margin-top:1.4em"><span class="en">Design notes: <code>MD/S1a/00</code> (the mechanism plan, M1–M7) and four 2026-07-14 consult write-ups under <code>MD/suggest/</code>. This is a roadmap, not a shipped feature — the fast S1 engine remains the golden artifact.</span><span class="zh">設計筆記:<code>MD/S1a/00</code>(機制計畫,M1–M7)與 <code>MD/suggest/</code> 下四份 2026-07-14 諮詢整理。這是一份路線圖,不是已出貨的功能 —— 快速的 S1 引擎仍是黃金產物。</span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">A sequel to <a href="semantic-ceiling.html">the semantic ceiling</a>. Latest source on the <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> branch.</span>
+     <span class="zh"><a href="semantic-ceiling.html">語意天花板</a>的續集。最新原始碼在 <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> 分支。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable.</span><span class="zh">讓開關級矽電路變得可分析。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

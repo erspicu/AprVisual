@@ -60,6 +60,12 @@
 
 <main>
 
+<div class="card win" style="margin-top:22px; border-left-width:4px;">
+<h3 style="color:#7ee0a8"><span class="en">⟳ Update (2026-07-16): this ceiling was broken — and one premise below was wrong</span><span class="zh">⟳ 更新(2026-07-16):這個天花板被打破了 —— 而下面有一個前提是錯的</span></h3>
+<p class="en">This article stands as the investigation <i>as it was</i>, but its verdict has since been overturned, and honesty requires flagging it at the top. One of the three "limits" in §4 — <b>"B · the 74LS373 octal latch is on the board, not in either die's netlist"</b> — is <b>false</b>. That chip <i>is</i> modelled: a full 96-transistor switch-level module (<code>u2</code>), wired into the video address path and depended on by every correctly-rendered frame. Once that false premise was removed, ALERead turned out to be a plain three-dot timing bug, and it now <b>passes</b> — verified three independent ways. The full story, and the three-move fix, are in the sequel: <b><a href="breaking-the-ceiling.html">Breaking the ceiling →</a></b></p>
+<p class="zh">這篇文章保留為<i>當時</i>的調查原貌,但它的判決此後已被推翻,而誠實要求在最上面標註出來。§4 那三個「極限」之一 —— <b>「B · 74LS373 八位閂鎖在板上、不在任一晶粒的網表裡」</b> —— 是<b>錯的</b>。那顆晶片<i>有</i>被模:一個完整的 96 電晶體開關級模組(<code>u2</code>),接進視訊位址路徑,每一格正常渲染的畫面都依賴它。一旦拆掉那個錯誤前提,ALERead 原來只是一個平凡的三 dot 時序 bug,而它現在<b>通過了</b> —— 三個獨立方式驗證。完整故事與三招修法在續集:<b><a href="breaking-the-ceiling.html">打破天花板 →</a></b></p>
+</div>
+
 <section>
 <h2><span class="en">1 · 140 of 141, and one that would not fall</span><span class="zh">1 · 141 顆過了 140,剩一顆打不下來</span></h2>
 <p class="en">The <a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
@@ -102,8 +108,8 @@
   <tr><th><span class="en">Limit</span><span class="zh">極限</span></th><th><span class="en">Here</span><span class="zh">在這顆</span></th></tr>
   <tr><td><b class="term">A4</b> <span class="en">propagation latency</span><span class="zh">傳播延遲</span></td>
       <td><span class="en">the cross-chip <code>$2007</code> effect lands 3 dots early — the settle model has no time axis to hold the delay</span><span class="zh">跨晶片 <code>$2007</code> 效應早 3 dot —— settle 模型沒有時間軸能承載這個延遲</span></td></tr>
-  <tr><td><b class="term">B</b> <span class="en">unmodelled board part</span><span class="zh">未建模的板級零件</span></td>
-      <td><span class="en">the corruption happens in the external 74LS373 octal latch, which is on the board, not in either die's netlist</span><span class="zh">汙染發生在外部的 74LS373 八位閂鎖,它在板上、不在任一晶粒的網表裡</span></td></tr>
+  <tr style="opacity:.62"><td><b class="term" style="text-decoration:line-through">B</b> <span class="en" style="text-decoration:line-through">unmodelled board part</span><span class="zh" style="text-decoration:line-through">未建模的板級零件</span> <b style="color:var(--warn)">✗</b></td>
+      <td><span class="en"><s>the corruption happens in the external 74LS373 octal latch, which is on the board, not in either die's netlist</s> — <b style="color:var(--acc2)">WRONG: the 74LS373 <i>is</i> modelled (module <code>u2</code>) and working; see the <a href="breaking-the-ceiling.html">sequel</a>.</b></span><span class="zh"><s>汙染發生在外部的 74LS373 八位閂鎖,它在板上、不在任一晶粒的網表裡</s> — <b style="color:var(--acc2)">錯:74LS373 <i>有</i>被模(模組 <code>u2</code>)且運作正常;見<a href="breaking-the-ceiling.html">續集</a>。</b></span></td></tr>
   <tr><td><span class="en">binary engine</span><span class="zh">二值引擎</span></td>
       <td><span class="en">GND&gt;VDD&gt;drive priority can neither force a driven wire high nor inject stale bus data — so no shim can reach the effect</span><span class="zh">GND&gt;VDD&gt;drive 優先級既不能把被驅動的線拉高、也不能注入過期匯流排資料 —— 所以沒有 shim 碰得到這個效應</span></td></tr>
 </table>

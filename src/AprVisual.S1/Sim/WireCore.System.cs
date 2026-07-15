@@ -1767,12 +1767,6 @@ namespace AprVisual.Sim
 
         private static bool PpuWriteDelayArmedWindow(int oldValue, int newValue)
         {
-            // Global calibration mode: delay EVERY bkg/spr enable transition uniformly (the correct
-            // cross-chip write-delay model). Subsumes the narrow window -- when on, the v==261 site
-            // is just one of many. Reuses the proven single-shot clamp-REGISTER machinery (holds the
-            // old register value for N hc, then releases to the netlist's already-updated value),
-            // which does NOT pin combinational nodes (that was the ruled-out downstream-clamp bug).
-            if (PpuWriteDelayGlobal) return oldValue != newValue;
             int v = ReadBits(_pwdVp);
             int h = ReadBits(_pwdHp);
             if (v != 261 || h > 339) return false;
@@ -1877,17 +1871,43 @@ namespace AprVisual.Sim
         private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
         private static long _pwdgStart;
 
-        // Global calibration MODE for the clamp-register PpuWriteDelay shim (not a separate shim):
-        // when set, PpuWriteDelayArmedWindow arms on EVERY bkg/spr enable transition (uniform delay),
-        // and the release uses PpuWriteDelayGlobalHc. The narrow-window logic is subsumed. The
-        // ruled-out downstream-clamp delay-line (its ring/nodes/PwdgDrive) is retired; kept out of
-        // the step path. MUST also enable the base PpuWriteDelay so PpuWriteDelayStep runs.
+        // ── Surgical dot-339 rendering-sample delay (Gemini consult a_2001_write_delay_20260715) ──
+        // A uniform $2001 write delay is FALSIFIED (breaks Test 1's mid-scanline toggles). The real
+        // model: `ren_en` (rendering enabled = spr|bkg) propagates to different PPU units with
+        // DIFFERENT delays; the dot-339 decisions (odd-frame skip + sprite-counter reset) sample a
+        // ~3-dot-SLOW copy while early-scanline logic sees it fast. In S1, both dot-339 decisions
+        // read one node -- `hpos_eq_339_and_rendering` -- which is meaningful ONLY at dot 339 (0
+        // elsewhere). So: on a rendering-enable rising edge, clamp that node LOW for N hc, making
+        // the dot-339 sample see rendering as not-yet-propagated. Test 1's toggles are at dots
+        // 15/33 where the node is already 0 -> the clamp is a no-op there. Surgical by construction.
+        private static bool _dot339Shim;
+        private static int _d339Node = EmptyNode, _d339Ren = EmptyNode;
+        private static int _d339PrevRen; private static long _d339HoldUntil = -1; private static bool _d339Clamped;
+        public static int PpuWriteDelayGlobalHcPublic => PpuWriteDelayGlobalHc;
+
         public static void EnablePpuWriteDelayGlobal(int hc)
         {
-            if (hc <= 0) { PpuWriteDelayGlobal = false; return; }
+            if (hc <= 0) { PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
+            _d339Node = LookupNode("ppu.hpos_eq_339_and_rendering");
+            _d339Ren = LookupNode("ppu.rendering_1");   // the PROPAGATED rendering (from which the node derives)
+            if (_d339Node == EmptyNode || _d339Ren == EmptyNode)
+            { Console.Error.WriteLine("# [shim] dot-339 delay: nodes unresolved -- disabled"); PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
             PpuWriteDelayGlobalHc = hc;
-            PpuWriteDelayGlobal = true;
-            Console.Error.WriteLine($"# [shim] ppu-write-delay GLOBAL mode: {hc} hc ({hc / 8.0:F1} dots) -- clamp-register, every enable transition");
+            _d339PrevRen = NodeStates[_d339Ren];
+            _d339HoldUntil = -1; _d339Clamped = false;
+            PpuWriteDelayGlobal = true; _dot339Shim = true;
+            Console.Error.WriteLine($"# [shim] dot-339 rendering-sample delay: {hc} hc ({hc / 8.0:F1} dots) -- clamp hpos_eq_339_and_rendering after enable rise");
+        }
+
+        private static void Dot339DelayStep()
+        {
+            if (!_dot339Shim) return;
+            int ren = NodeStates[_d339Ren];
+            if (_d339PrevRen == 0 && ren != 0) _d339HoldUntil = Time + PpuWriteDelayGlobalHc;  // rendering_1 rising edge
+            _d339PrevRen = ren;
+            bool want = _d339HoldUntil >= 0 && Time < _d339HoldUntil;   // within the propagation-delay hold
+            if (want && !_d339Clamped) { InstClampLow(_d339Node); _d339Clamped = true; }
+            else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
         }
 
         private static void PpuWriteDelayGlobalStep()

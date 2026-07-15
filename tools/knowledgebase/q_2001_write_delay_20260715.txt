@@ -1,0 +1,29 @@
+我在做一個電晶體級(switch-level, Visual6502/MetalNES 式)的 NES 模擬器 S1,追求 bit-exact。現在卡在 NES PPU(RP2C02G)的一個精確時序行為,想請教硬體真相,好決定修法。
+
+## 背景:引擎模型
+- 引擎是二值(0/1)、settle-to-quiescence 的開關級模擬,把 CPU→PPU 的跨晶片寫入路徑理想化為零延遲(CPU 寫 $2001,PPU 內部瞬間生效)。
+- 時間單位:1 PPU dot = 8 個 master-clock half-cycle(我內部叫 hc)。CPU:PPU = 1:3(1 CPU cycle = 3 dots)。
+- 我在跑 AccuracyCoin 測試套件,兩個相關測試都繞「pre-render / visible 掃描線的 dot 339」這個決策點。
+
+## 具體現象(我實測到的)
+測試 "Stale Sprite Shift Registers" 的 Test 3:
+- ROM 在 scanline 14 dot ~324 執行 `STA $2001`(開啟渲染 $1E),測試註解說「accounting for the delay, rendering should be enabled around dot 340」。
+- 硬體規則(測試註解自帶):sprite 的 shifter counter 只在「**渲染中的 dot 339**」被設回 counting 模式;若 dot 339 時渲染是關的,counter 維持先前的 halted 狀態。
+- 測試刻意讓渲染在 **dot 340** 才生效,使 **dot 339 仍是關閉** → counter 維持 halted → 下一行 sprite 立刻畫出 → sprite-zero hit。
+- 我的 S1:渲染在 **dot 337** 就生效(早了 3 個 dot)→ dot 339 變成「渲染中」→ counter 被重設 → 測試失敗。
+
+## 我試過的修法 + 失敗
+我加了一個「$2001 寫入生效延遲」的 shim(把 bkg_enable/spr_enable 暫存器轉態延遲 N 個 hc 才放開):
+- 全域均勻延遲每個 enable 轉態:D=8hc(1 dot)安全但不夠;D=16(2 dot)和 D=24(3 dot)都會**打壞**同測試的 Test 1(基本 sprite-zero-hit 驗證,渲染在 dot 15/33 附近切換)。
+- 結論:單一均勻延遲無法同時滿足 Test 1(要 D≤1 dot)和 Test 3(要 D=3 dot)。
+
+## 我想請教的問題
+1. **NES PPU 的 $2001(PPUMASK)寫入,從 CPU 寫入週期到「渲染 enable/disable 在 PPU 內部真正生效」,精確延遲是多少?** 我看過「2-5 PPU cycle、依 CPU/PPU clock alignment 而異」的說法,能否確認精確值與 alignment 的關係?
+
+2. **關鍵矛盾**:為什麼一個「均勻的 $2001 寫入延遲」會讓我的 Test 1(dot 15/33 的渲染切換)壞掉,但 Test 3(dot 339)需要 3-dot 延遲?真機上這個延遲是均勻的嗎?還是說「渲染 enable 生效」和「dot 339 的 sprite-counter-reset 決策取樣 rendering 狀態」這兩件事,本來就在 PPU 內部的不同管線深度、有不同的相對時序?
+
+3. **dot 339 的兩個決策**:(a) pre-render line(261)的 odd-frame dot-skip 決策,(b) visible line 的 sprite shifter counter 重設決策 —— 這兩個是否用「同一個 rendering 訊號、同一個相位」取樣?我的 even_odd 測試用「v=261, dot 338-339 窄窗延遲 16hc」修好了 (a),Test 3 是 (b)。
+
+4. **修法建議**:對一個二值開關級模擬器,若要精確重現「dot 339 的渲染狀態取樣」而不打壞一般的渲染 enable 時序,最乾淨的做法是什麼?是否應該延遲「渲染狀態被 dot-339 決策邏輯取樣」的那個特定內部訊號,而非延遲 $2001 寫入本身?RP2C02 的 sprite shifter counter reload(在 dot 339)在真矽上是取樣哪個 rendering 訊號?
+
+請盡量給硬體層級的精確答案(dot/cycle 級),我需要決定是「延遲整個 $2001 寫入」還是「只延遲某個內部 rendering 取樣」。謝謝。

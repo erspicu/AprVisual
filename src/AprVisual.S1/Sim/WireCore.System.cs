@@ -1871,17 +1871,19 @@ namespace AprVisual.Sim
         private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
         private static long _pwdgStart;
 
-        // ── Surgical dot-339 rendering-sample delay (Gemini consult a_2001_write_delay_20260715) ──
-        // A uniform $2001 write delay is FALSIFIED (breaks Test 1's mid-scanline toggles). The real
-        // model: `ren_en` (rendering enabled = spr|bkg) propagates to different PPU units with
-        // DIFFERENT delays; the dot-339 decisions (odd-frame skip + sprite-counter reset) sample a
-        // ~3-dot-SLOW copy while early-scanline logic sees it fast. In S1, both dot-339 decisions
-        // read one node -- `hpos_eq_339_and_rendering` -- which is meaningful ONLY at dot 339 (0
-        // elsewhere). So: on a rendering-enable rising edge, clamp that node LOW for N hc, making
-        // the dot-339 sample see rendering as not-yet-propagated. Test 1's toggles are at dots
-        // 15/33 where the node is already 0 -> the clamp is a no-op there. Surgical by construction.
+        // ── dot-339 sprite-counter-reset delay (VISIBLE lines only) -- StaleSpriteShiftRegs Test 3 ──
+        // Pragmatic split (see Gemini consults a_2001_write_delay / a_evenodd_rendering_slow):
+        // the odd-frame skip (pre-render v=261) and the sprite-counter reset (visible lines) sample
+        // the SAME hpos_eq_339_and_rendering node, and on real silicon share one ~2-dot ren_en
+        // propagation delay. But S1's register/rendering_1 edges carry a per-test sub-dot phase
+        // error, so a single uniform magnitude can't satisfy both. even_odd (v=261) is already fixed
+        // by the narrow-window enable-clamp; this shim handles ONLY the visible-line sprite-counter
+        // reset, gated to vpos != 261 so the two never overlap. It suppresses hpos_eq_339_and_rendering
+        // for N hc after rendering_1 rises (measured from rendering_1, dot 337, so N=24 covers dot
+        // 339). The node is 0 except at dot 339, so Test 1's mid-scanline toggles are untouched.
         private static bool _dot339Shim;
         private static int _d339Node = EmptyNode, _d339Ren = EmptyNode;
+        private static int[] _d339Vp = System.Array.Empty<int>();
         private static int _d339PrevRen; private static long _d339HoldUntil = -1; private static bool _d339Clamped;
         public static int PpuWriteDelayGlobalHcPublic => PpuWriteDelayGlobalHc;
 
@@ -1889,58 +1891,28 @@ namespace AprVisual.Sim
         {
             if (hc <= 0) { PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
             _d339Node = LookupNode("ppu.hpos_eq_339_and_rendering");
-            _d339Ren = LookupNode("ppu.rendering_1");   // the PROPAGATED rendering (from which the node derives)
-            if (_d339Node == EmptyNode || _d339Ren == EmptyNode)
+            _d339Ren = LookupNode("ppu.rendering_1");
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
+            _d339Vp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
+            if (_d339Node == EmptyNode || _d339Ren == EmptyNode || _d339Vp.Length != 9)
             { Console.Error.WriteLine("# [shim] dot-339 delay: nodes unresolved -- disabled"); PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
             PpuWriteDelayGlobalHc = hc;
             _d339PrevRen = NodeStates[_d339Ren];
             _d339HoldUntil = -1; _d339Clamped = false;
             PpuWriteDelayGlobal = true; _dot339Shim = true;
-            Console.Error.WriteLine($"# [shim] dot-339 rendering-sample delay: {hc} hc ({hc / 8.0:F1} dots) -- clamp hpos_eq_339_and_rendering after enable rise");
+            Console.Error.WriteLine($"# [shim] dot-339 sprite-reset delay: {hc} hc ({hc / 8.0:F1} dots), visible lines only");
         }
 
         private static void Dot339DelayStep()
         {
             if (!_dot339Shim) return;
             int ren = NodeStates[_d339Ren];
-            if (_d339PrevRen == 0 && ren != 0) _d339HoldUntil = Time + PpuWriteDelayGlobalHc;  // rendering_1 rising edge
+            if (_d339PrevRen == 0 && ren != 0) _d339HoldUntil = Time + PpuWriteDelayGlobalHc;   // rendering_1 rise
             _d339PrevRen = ren;
-            bool want = _d339HoldUntil >= 0 && Time < _d339HoldUntil;   // within the propagation-delay hold
+            bool visible = ReadBits(_d339Vp) != 261;   // leave the pre-render skip (v=261) to the narrow-window shim
+            bool want = visible && _d339HoldUntil >= 0 && Time < _d339HoldUntil;
             if (want && !_d339Clamped) { InstClampLow(_d339Node); _d339Clamped = true; }
             else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
-        }
-
-        private static void PpuWriteDelayGlobalStep()
-        {
-            if (!PpuWriteDelayGlobal) return;
-            // record the register (immediate) value at the head
-            _pwdgBkgHist[_pwdgHead] = (byte)NodeStates[_pwdgBkg];
-            _pwdgSprHist[_pwdgHead] = (byte)NodeStates[_pwdgSpr];
-            // the delayed sample = N steps back in the ring
-            int tail = _pwdgHead - PpuWriteDelayGlobalHc;
-            if (tail < 0) tail += PwdgRing;
-            _pwdgHead = (_pwdgHead + 1) % PwdgRing;
-            // before the delay line has filled, hold the seeded value (no-op relative to seed)
-            if (Time - _pwdgStart < PpuWriteDelayGlobalHc) return;
-            _pwdgBkgDriven = PwdgDrive(_pwdgBkgOut, _pwdgBkgHist[tail], _pwdgBkgDriven);
-            _pwdgSprDriven = PwdgDrive(_pwdgSprOut, _pwdgSprHist[tail], _pwdgSprDriven);
-        }
-
-        // Drive `node` to `want` (0/1) via InstClamp, tracking current clamp state to avoid churn.
-        private static int PwdgDrive(int node, byte want, int driven)
-        {
-            if (want != 0)   // want high
-            {
-                if (driven == 1) InstRelease(node);
-                if (driven != 2) InstClampHigh(node);
-                return 2;
-            }
-            else             // want low
-            {
-                if (driven == 2) InstRelease(node);
-                if (driven != 1) InstClampLow(node);
-                return 1;
-            }
         }
 
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────

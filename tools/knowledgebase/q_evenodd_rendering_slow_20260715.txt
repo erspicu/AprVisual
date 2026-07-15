@@ -1,0 +1,111 @@
+接續上一個諮詢(NES RP2C02 dot-339 rendering-sample 延遲)。你的「_slow 信號」建議我實作了:在 rendering_1 上升沿後,把 `hpos_eq_339_and_rendering` 這個節點鉗低 N 個 hc(1 dot=8hc),讓 dot-339 決策看到延遲版 rendering。
+
+## 新的實測矛盾(需要你解)
+- **StaleSpriteShiftRegs Test 3**(sprite counter reset @ dot 339 of a VISIBLE line):我的外科手術 clamp @ **24hc(3 dot)** → **修好、PASS**。
+- **blargg ppu_vbl_nmi 的 10-even_odd_timing**(odd-frame dot-skip @ dot 339 of PRE-RENDER line 261):同一個 clamp @ 24hc → **Failed #2「Clock is skipped too soon, relative to enabling BG」**。
+- 舊修法(把 bkg/spr_enable 暫存器轉態鉗住 16hc、只在 v=261 窄窗)→ even_odd PASS(輸出 08 08 09 07),但那個機制修不了 Test 3。
+
+你之前說 (a) odd-frame skip 和 (b) sprite-counter reset 取樣**同一個 `ren_en`、同一個 h_eq_339 相位**,物理上該是同一延遲。但這兩顆測試卻需要不同的等效延遲/機制。我的假設:兩顆測試的 `STA $2001`(enable BG)落在**相對 dot 339 的不同子-dot 相位**,所以「是否趕在 dot 339 前生效」的門檻不同,但物理延遲其實相同——是我的 clamp 模型(從 rendering_1 上升沿固定數 N hc)沒精確捕捉這個子-dot 相位。
+
+## even_odd test 10 的原始碼(關鍵在時序)
+```
+; Tests timing of skipped clock every other frame
+; when BG is enabled.
+;
+; Output: 08 08 09 07 
+
+.include "shell.inc"
+.include "sync_vbl.s"
+
+adjust = 2359
+
+.align 256
+test:   jsr disable_rendering
+	jsr sync_vbl_delay
+	delay 13
+
+	; $2001=X for most of VBL, Y for part of frame, then 0
+	stx $2001
+	delay adjust-4-4
+	sty $2001
+	delay 20000
+	lda #0
+	sta $2001
+	delay 29781-adjust-4-20000-6
+	
+	; Two frames with BG off
+	delay 29781
+	delay 29781-1
+	
+	; Third frame same as first. Since clock is skipped every
+	; other frame, only one of these two will have the skipped
+	; clock, so its effect on later frame timing won't be a
+	; problem.
+	stx $2001
+	delay adjust-4
+	sty $2001
+	delay 20000
+	lda #0
+	sta $2001
+	delay 29781-adjust-4-20000-6
+
+	; Find number of PPU clocks until VBL
+	delay 29781-3-22
+	ldx #0
+:       delay 29781-2-4-3
+	inx
+	bit PPUSTATUS
+	bpl :-
+	
+	jsr print_x
+	rts
+
+main:   jsr console_hide
+	
+	set_test 2,"Clock is skipped too soon, relative to enabling BG"
+	lda #4
+	ldx #0
+	ldy #8
+	jsr test
+	cpx #8
+	jne test_failed
+	
+	set_test 3,"Clock is skipped too late, relative to enabling BG"
+	lda #5
+	ldx #0
+	ldy #8
+	jsr test
+	cpx #8
+	jne test_failed
+	
+	set_test 4,"Clock is skipped too soon, relative to disabling BG"
+	lda #4
+	ldx #8
+	ldy #0
+	jsr test
+	cpx #9
+	jne test_failed
+	
+	set_test 5,"Clock is skipped too late, relative to disabling BG"
+	lda #5
+	ldx #8
+	ldy #0
+	jsr test
+	cpx #7
+	jne test_failed
+	
+	jmp tests_passed
+```
+
+## 我的問題
+1. even_odd 的 4 個子測試(enable/disable BG × 兩個 alignment A=4/A=5),期望輸出 08 08 09 07。從這段程式碼看,它精確量測「BG-enable 後,dot-skip 決策落在 dot 339 的哪一側」。**請問:真機上,從 `STA $2001`(寫入週期)到「odd-frame skip 邏輯在 dot 339 取樣到 rendering=on」,精確是幾個 PPU dot?** 這決定我的 clamp 該持續多久。
+
+2. **核心矛盾**:為什麼 even_odd 需要「≈16hc enable-clamp」而 StaleSprite Test 3 需要「24hc decision-clamp」?若兩者物理延遲相同(你說的同節點同相位),差異是否純粹來自:
+   (a) 兩顆測試的 STA $2001 落在不同 CPU/PPU 對齊子相位;或
+   (b) 我兩個 clamp 機制(鉗 enable vs 鉗決策節點)的「等效延遲」定義不同,同一個物理延遲在兩種鉗法下數值本來就不一樣?
+
+3. **最重要**:對一個二值開關級模擬器,要用**單一、統一**的模型同時正確重現 even_odd 和 StaleSprite Test 3(以及後面還有 ALERead 的 $2007 read cadence、BGSerialIn 的 dot%8 邊界),最乾淨的做法是什麼?
+   - 是否應該:在 `rendering_1`(或 ren_en)這個訊號本身插入一個固定 N-hc 的傳播延遲緩衝(產生 `rendering_slow`),然後讓**所有** dot-339 類決策都讀 `rendering_slow`——而 N 用「從 STA $2001 寫入週期到真機生效」的絕對 dot 數來定?
+   - 我需要知道那個絕對 dot 數(2? 3? 依 alignment 2-3?),以及它是否對 enable 和 disable **對稱**(even_odd test 4/5 測 disable,期望 09/07,暗示 enable 和 disable 的 skip 時序不對稱)。
+
+請給 dot/hc 級的精確答案,並說明 enable vs disable 是否對稱。這是我統一修法的關鍵。謝謝!

@@ -1960,6 +1960,53 @@ namespace AprVisual.Sim
             else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
         }
 
+        // ── [EXPERIMENT branch] Board 74LS373 octal-latch feedback (ALERead / boing2k7) ──────────
+        // See DoMemRead. A $2007 read forces an ALE+/RD overlap on the board octal latch, which holds
+        // its previous low byte ($FF from the $2FFF attribute collapse) so the background low-bit-plane
+        // fetch reads $0FFF. This step opens a window after read_2007_trigger fires on a visible line;
+        // DoMemRead uses the window to force the page-$0F low-plane fetch to $0FFF. Minimal probe to
+        // confirm the mechanism before building the full half-cycle board-latch model.
+        internal static bool BoardOctalLatchShim;
+        internal static int BoardOctalLatchWindowHc = 56;
+        private static int _bolR2007 = EmptyNode, _bolRd = EmptyNode;
+        private static int[] _bolVp = System.Array.Empty<int>(), _bolDb = System.Array.Empty<int>();
+        private static long _bolWindowUntil = -1;
+        private static int _bolFireCount, _bolHeldByte = 0xFF;
+
+        public static void EnableBoardOctalLatch(int windowHc)
+        {
+            if (windowHc <= 0) { BoardOctalLatchShim = false; return; }
+            _bolR2007 = LookupNode("ppu.read_2007_trigger");
+            _bolRd = LookupNode("ppu.rd");
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
+            _bolVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
+            var db = new List<int>(); ResolveNodes("ppu.db[7:0]", db, quiet: true);
+            _bolDb = db.Count == 8 ? db.ToArray() : System.Array.Empty<int>();
+            if (_bolR2007 == EmptyNode || _bolRd == EmptyNode || _bolVp.Length != 9 || _bolDb.Length != 8)
+            { Console.Error.WriteLine($"# [bol] board octal-latch: nodes unresolved (r2007={_bolR2007 != EmptyNode} rd={_bolRd != EmptyNode} vp={_bolVp.Length} db={_bolDb.Length}) -- disabled"); BoardOctalLatchShim = false; return; }
+            BoardOctalLatchWindowHc = windowHc;
+            _bolWindowUntil = -1; _bolFireCount = 0; _bolHeldByte = 0xFF;
+            BoardOctalLatchShim = true;
+            Console.Error.WriteLine($"# [bol] board 74LS373 octal-latch shim: window {windowHc} hc after $2007 read (visible lines), held from ppu.db");
+        }
+
+        internal static int BoardOctalLatchHeld => _bolHeldByte;
+
+        private static void BoardOctalLatchStep()
+        {
+            if (!BoardOctalLatchShim) return;
+            // The external octal latch sits on the PPU's multiplexed AD bus. While /RD is active
+            // (a PPU-bus read is driving data), the transparent latch tracks that data byte; when the
+            // $2007-read overlap freezes ALE, that byte ($FF from the $2FFF attribute collapse) is what
+            // the latch holds for the corrupted pattern fetch. Sample it from ppu.db during reads.
+            if (NodeStates[_bolRd] == 0) _bolHeldByte = ReadBits(_bolDb) & 0xFF;
+            if (NodeStates[_bolR2007] != 0)
+            {
+                int vp = ReadBits(_bolVp);
+                if (vp <= 239) _bolWindowUntil = Time + BoardOctalLatchWindowHc;   // visible-line $2007 read only
+            }
+        }
+
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
         // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
         // buffer advance in the netlist — matching real hardware — but the reload's

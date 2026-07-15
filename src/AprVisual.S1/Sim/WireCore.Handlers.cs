@@ -340,6 +340,21 @@ namespace AprVisual.Sim
                 return;
             }
             if (cb.BankPtr != null) address |= *cb.BankPtr;
+            // [EXPERIMENT branch] Board 74LS373 octal-latch feedback (boing2k7 / ALERead test 2).
+            // A $2007 read on a visible line forces an ALE+/RD overlap on the external octal latch, so
+            // it holds the previous AD-bus byte (BoardOctalLatchHeld, sampled from ppu.db during reads)
+            // instead of latching the PAR low byte. The background LOW bit plane (pattern table, bit3=0)
+            // then fetches from (PAR_high | held) -> here $0F00|$FF = $0FFF. Gated to the ~2-CPU-cycle
+            // window after read_2007_trigger; normal games never read $2007 mid-visible-line so the
+            // overlap (and this correction) never fires for them.
+            if (BoardOctalLatchShim && cb.DebugName == "cart.chr." && Time < _bolWindowUntil
+                && address < 0x2000 && (address & 0x08) == 0)
+            {
+                int forced = (address & ~0xFF) | BoardOctalLatchHeld;
+                if (_bolFireCount++ < 40)
+                    Console.Error.WriteLine($"# [bol] t={Time} force CHR ${address & cb.Mask:X4} -> ${forced & cb.Mask:X4} (octal-latch held ${BoardOctalLatchHeld:X2})");
+                address = forced;
+            }
             WriteBits(cb.DataOut, cb.DLen, cb.MemData[address & cb.Mask]);
             // CPU-bus reads only: with rendering on, CHR fetches hit this path every PPU cycle and
             // flood the 16-entry ring before the operands can land (measured: isolated ROM with

@@ -1,0 +1,35 @@
+Timestamp: 2026-06-15T19:25:51
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+I am writing a hardware-accurate transistor-level simulator and I drive each CPU with random bytes on the data bus (random-opcode fuzzing) to stress it. The problem: some random opcodes HALT or LOCK UP the CPU so it stops doing useful work. I need the COMPLETE list of such opcodes to EXCLUDE them from the random stream, for three NMOS CPUs. For each chip, list the exact hex opcode values that, when executed, cause the CPU to stop fetching/executing normally (lock up, jam, halt-and-catch-fire, or halt-until-interrupt that idles forever with no interrupt source). Be precise and give the hex bytes.
+
+1) MOS 6502 (NMOS): the illegal 'KIL'/'JAM'/'HLT' opcodes that hang the processor.
+2) Motorola 6800: the 'HCF' (halt and catch fire) opcodes, and any WAI/illegal that would idle forever with no interrupt.
+3) Zilog Z80: HALT (and note that with no interrupt/NMI it idles forever executing internal NOPs), plus any opcode that truly stops the clock. Note DI/EI do not halt.
+
+Give me, per chip: (a) the exact hex bytes to exclude, (b) a one-line reason, (c) whether the remaining random stream will keep the PC advancing. Keep it concise and authoritative; cite the standard references (e.g. the 6502 undocumented-opcodes literature, Motorola 6800 HCF lore) if relevant.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the complete, authoritative list of opcodes you must exclude from your random-byte data bus fuzzing to prevent hardware deadlocks on these three NMOS processors.
+
+### 1) MOS 6502 (NMOS)
+*   **(a) Hex Bytes to Exclude:** `$02, $12, $22, $32, $42, $52, $62, $72, $92, $B2, $D2, $F2` (12 bytes total).
+*   **(b) Reason:** These are the "JAM" (or "KIL"/"HLT") undocumented opcodes; they cause the internal state machine to deadlock, continuously driving `$FFFF` on the address bus while ignoring all interrupts (only a hardware RESET recovers it).
+*   **(c) PC Advancing:** **Yes.** If you exclude these 12 bytes, the remaining 244 valid and undocumented opcodes will all complete in a deterministic number of clock cycles and advance the Program Counter. 
+*   *Reference:* Adam Vardy’s *Extra Instructions of the 65XX Series*; confirmed by transistor-level reverse engineering via the *Visual6502* project. *(Note: The CMOS 65C02 added `WAI` `$CB` and `STP` `$DB`, but on NMOS these are just 2-byte NOPs/AXB).*
+
+### 2) Motorola 6800 (NMOS)
+*   **(a) Hex Bytes to Exclude:** `$3E, $9D, $DD, $ED, $FD` (5 bytes total).
+*   **(b) Reason:** `$3E` is `WAI` (Wait for Interrupt), which idles the CPU forever if no hardware interrupt is triggered; the others are "HCF" (Halt and Catch Fire) factory-test opcodes that disconnect the instruction register and infinitely increment the address bus to test bus continuity.
+*   **(c) PC Advancing:** **Yes.** With these 5 bytes filtered out, the 6800 sequencer will continue to fetch, decode, and execute instructions (or dummy cycles for illegals) without freezing.
+*   *Reference:* Gerry Wheeler, *Undocumented M6800 Instructions* (BYTE Magazine, Dec 1977); Motorola MC6800 Datasheet.
+
+### 3) Zilog Z80 (NMOS)
+*   **(a) Hex Bytes to Exclude:** `$76` (1 byte total).
+*   **(b) Reason:** `$76` is the `HALT` opcode; it explicitly halts instruction fetching and executes internal NOPs indefinitely to maintain DRAM refresh logic until an INT or NMI is asserted.
+*   **(c) PC Advancing:** **Yes.** The Z80 architecture famously has zero "crash" or "lock-up" undocumented opcodes. Unassigned opcode space (including unassigned `$CB`, `$ED`, `$DD`, and `$FD` prefixes) simply executes as mirror instructions or dummy NOPs. As long as `$76` is prevented from being fetched, the PC will advance. *(Note: Randomly hitting repeating block instructions like `LDIR` (`$ED $B0`) will loop until the `BC` register reaches 0, which can take up to ~1.3 million clock cycles, but it is not infinite and the CPU is still executing normally).*
+*   *Reference:* Zilog Z80 CPU Technical Manual; Sean Young's *The Undocumented Z80 Documented*.

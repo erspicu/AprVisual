@@ -1,0 +1,128 @@
+Timestamp: 2026-06-20T14:59:10
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+# Consult: AMD uProf IBS collects ZERO samples on Zen2 + Windows 11, while PMC/EBP sampling WORKS fine. How to fix IBS specifically?
+
+## Goal
+I need IBS-op LOAD samples that carry the data linear address (IbsDcLinAd) + DC-miss bits + load latency, so I can attribute data-cache misses to specific data structures (native arrays) in a .NET app. PMC event-based sampling already works, but it only gives per-instruction (code) attribution; I need IBS for per-DATA-ADDRESS.
+
+## Exact environment
+- CPU: AMD Ryzen 7 3700X = Zen2, Family 0x17, Model 0x71 (IBS is architecturally supported since Family 10h).
+- OS: Windows 11 (build 25H2), bare metal.
+- Tool: AMD uProf 5.3.521, command-line AMDuProfCLI.exe. Drivers AMDCpuProfiler / AMDPowerProfiler running; service AMDProfilerLoadService running.
+
+## Precise symptom (well-isolated)
+- IBS collect runs to COMPLETION (exit 0), e.g.:
+  `AMDuProfCLI collect -e event=ibs-op,interval=50000 -o OUT <app> <args>`   (also tried `--config ibs`, also tried system-wide `-a`, also `loadstore` flag)
+  → but captures ~ZERO samples: the raw `CpuProfile_*.prd` file is ~600 bytes (header only); the report's FUNCTION/PROCESS/MODULE/THREAD data tables are EMPTY; `report --ascii ibsop-event-dump` produces a CSV with only the header row (columns incl. IbsDcLinAd, IbsDcMiss, IbsLdOp, IbsDcMissLat) and ZERO data rows.
+  → This is consistent across two separate sessions (weeks apart), so it is NOT a transient one-off.
+- CRUCIAL CONTRAST: **PMC / EBP (event-based) sampling WORKS perfectly** on the same machine/tool:
+  `AMDuProfCLI collect --config assess ...` and `collect -e event=CYCLES_NOT_IN_HALT,interval=50000 -e event=RETIRED_INST,... -e event=L1_DC_ACCESSES_ALL,... -e event=L2_CACHE_ACCESS_FROM_L1_DC_MISS,...`
+  → produce real per-instruction disassembly reports with 221-224 populated sample rows. So the PMC overflow interrupt (PMI) fires and samples are collected and attributed correctly.
+- So: PMC sampling interrupt works; IBS sampling interrupt does NOT deliver any samples.
+- VBS / HVCI / Credential Guard are OFF (Win32_DeviceGuard VirtualizationBasedSecurityStatus=0; HypervisorPresent=False; no Memory Integrity). So it is NOT a virtualization-based-security intercept.
+- Once I saw a one-off PMU lock error `0x80070021` ("Some other process or service has locked the profiling hardware (IOCTL_START_PROFILER)"); restarting AMDProfilerLoadService cleared THAT error, but IBS still returns 0 samples afterward (the lock is not the root cause of the 0-samples).
+
+## My leading hypothesis (please confirm or refute, concretely)
+PMC uses the standard Local-APIC Performance Monitor Interrupt (LVT PMI). IBS delivers its samples through a SEPARATE Local-APIC LVT entry (the IBS/extended-APIC interrupt). If Windows 11 has the APIC in **x2APIC mode** and the uProf driver fails to program / route the IBS LVT vector in x2APIC mode, then IBS would arm but never deliver an interrupt → exactly 0 samples while PMC keeps working. Is this a known uProf-on-Win11 IBS failure mode? If so, what's the fix (BIOS "Local APIC mode" = xAPIC/Compatibility vs x2APIC/Auto; a uProf/driver setting; a Windows boot flag)?
+
+## Questions (concrete, ranked by likelihood; respect that PMC works + VBS is off)
+1. What are the KNOWN root causes of "uProf IBS = 0 samples while PMC/EBP works" on Zen + Windows? Rank them.
+2. Is the x2APIC-vs-xAPIC / IBS-LVT-routing theory correct? How do I check the current APIC mode on Windows, and which BIOS setting ("Local APIC Mode", "x2APIC", "IOMMU", "Global C-State Control", "Core Performance Boost", "Determinism") to change?
+3. Are there BIOS settings that specifically gate IBS or its interrupt delivery on Zen2 (e.g., an "IBS" toggle, "ACPI _CPC", "CPPC", "SMT", "PSS")?
+4. Is this a known uProf 5.3.521 bug on Win11 25H2 specifically? Would a different uProf version (older/newer) fix IBS? Any required driver reinstall sequence?
+5. Any Windows-side cause: Secure Boot blocking the driver's IBS interrupt handler, kernel DPC/NMI handling, "Hardware-enforced Stack Protection", core-isolation residue, BCD flags (e.g. uselegacyapicmode / x2apicpolicy)?
+6. If IBS genuinely can't be made to deliver samples here, is there ANY other Windows-side way to get per-DATA-ADDRESS (data structure) cache-miss attribution on Zen2 (e.g., Intel-only tools excluded; any AMD/Windows alternative; ETW + something)? Or is PMC-per-instruction the practical ceiling on this box?
+
+Be concrete and prioritized. Give the exact check commands / BIOS setting names / config steps, not generic "update your drivers" advice.
+
+========================================================================
+RESPONSE
+========================================================================
+Your troubleshooting and isolation are excellent. The fact that standard PMC EBP works perfectly while IBS captures exactly zero samples—without throwing an initialization or driver lock error—strongly points to a hardware-to-OS interrupt routing failure. The IBS hardware is arming, overflowing, and then silently hanging or having its interrupt dropped by the Windows HAL.
+
+Here is the concrete, prioritized analysis and steps to resolve this, addressing your hypothesis and questions directly.
+
+### Q1 & Q2: The x2APIC / LVT Routing Hypothesis (Ranked Root Causes & Fixes)
+
+**Your hypothesis is highly probable.** 
+Standard PMCs trigger the standard Performance Monitor Interrupt (PMI), which uses the standard LVT PC register. 
+**IBS does NOT use the standard LVT PC.** It requires the driver to allocate and program an **Extended Interrupt LVT (EILVT)**. AMD CPUs provide 4 EILVTs. 
+
+If Windows 11 has transitioned the APIC to **x2APIC mode**, APIC registers must be accessed via MSRs rather than MMIO. If the AMD uProf driver (`AMDCpuProfiler.sys`) relies on legacy MMIO to program the EILVT, or if the Windows 11 HAL strictly guards EILVT allocations in x2APIC mode, the driver will silently fail to program the interrupt. The IBS counter overflows once, waits for an interrupt service routine that never fires, and stops.
+
+**How to check current APIC mode in Windows:**
+Open an admin PowerShell and check the Windows System Event Log for the Kernel-Boot APIC initialization:
+```powershell
+Get-WinEvent -ProviderName "Microsoft-Windows-Kernel-Boot" | Where-Object {$_.Id -eq 153 -or $_.Id -eq 20} | Select-Object -First 5 -Property TimeCreated, Message
+```
+*(Alternatively, use Sysinternals `Coreinfo.exe -v` to see if the hardware supports x2APIC, though it doesn't definitively tell you Windows is using it).*
+
+**How to FIX / Force xAPIC (Legacy APIC) mode:**
+Instead of hunting for BIOS settings (which consumer boards often hide), force Windows to use standard xAPIC via the Boot Configuration Data (BCD). Open an elevated command prompt:
+1. `bcdedit /set x2apicpolicy Disable`
+2. `bcdedit /set uselegacyapicmode Yes`
+3. **Reboot.**
+
+*If IBS starts working after this reboot, your hypothesis is 100% confirmed.* (To revert later: `bcdedit /deletevalue x2apicpolicy` and `bcdedit /deletevalue uselegacyapicmode`).
+
+### Q3: BIOS Settings Gating IBS on Zen 2
+
+There is no dedicated "Enable IBS" toggle. However, specific settings interfere with the APIC, MSR accessibility, and interrupt routing:
+
+1. **SVM Mode (Secure Virtual Machine):** Turn this **OFF**. Even with Windows VBS/HVCI off, an enabled SVM can cause the BIOS to load ACPI tables that reserve certain hardware features or change how Windows handles hypervisor-level intercepts.
+2. **IOMMU:** Turn this **OFF** (or set to "Disabled", not "Auto"). IOMMU handles interrupt remapping. A bug in the AMD AGESA / IOMMU ACPI tables can cause the EILVT interrupts to be misrouted or dropped.
+3. **Local APIC Mode:** If visible in your BIOS (often under Advanced -> CPU Configuration or AMD CBS), explicitly change it from "Auto" to **"Compatibility"** or **"xAPIC"**. 
+
+*Settings like Global C-State Control, CPB, or CPPC do not prevent sample collection; they only affect the clock frequencies and latency calculations.*
+
+### Q4: uProf 5.3.521 Bugs and Windows 11 Driver Conflicts
+
+Windows 11 (especially 24H2/25H2) introduced strict enforcement regarding how drivers can register NMI (Non-Maskable Interrupt) callbacks. IBS is typically routed as an NMI to bypass IRQL masking. If the `AMDCpuProfiler.sys` driver uses an older API to hook the NMI, Windows 11 silently drops the hook.
+
+1. **Clean Reinstall / Downgrade:** If the BCD fix above fails, the 5.3 driver might be broken on your specific Windows build. Downgrade to **uProf 4.2** (which used a slightly different driver architecture).
+2. **The required cleanout sequence:**
+   * Close uProf.
+   * `sc stop AMDProfilerLoadService`
+   * `sc delete AMDProfilerLoadService`
+   * `sc stop AMDCpuProfiler`
+   * `sc delete AMDCpuProfiler`
+   * Go to `C:\Windows\System32\drivers` and physically delete `AMDCpuProfiler.sys`.
+   * Reboot.
+   * Install uProf.
+
+### Q5: Other Windows-Side Causes (Security Residue)
+
+You verified VBS is off via WMI, but Windows 11 is notorious for "residue" security policies that block MSR/APIC access at the HAL level.
+Double-check these specific registry keys from an Admin prompt:
+```cmd
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity"
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard"
+```
+Ensure `Enabled` is `0`.
+
+Furthermore, **Vulnerable Driver Blocklist**: Windows 11 strictly blocks drivers it deems vulnerable. Check Windows Security -> Device Security -> Core Isolation -> **Microsoft Vulnerable Driver Blocklist**. If this is ON, it might be silently blocking the specific MSR-write commands the AMD driver uses to arm IBS, while allowing the standard PMC MSRs. Toggle it OFF for testing.
+
+### Q6: Alternatives for Data-Address Attribution on Zen 2
+
+**If IBS is genuinely dead on this machine, are there alternatives?**
+
+**Hardware/Platform alternatives:**
+*No.* On AMD architecture, IBS (specifically the `IbsDcLinAd` register populated by IBS-Op) is the *only* hardware mechanism that captures the exact data linear address of a cache miss. Core PMCs only capture the Instruction Pointer (RIP). (Intel has PEBS Data Linear Address; AMD relies entirely on IBS for this).
+
+**Software/ETW alternatives:**
+ETW (Event Tracing for Windows) with the `ProcessorProfile` or `SystemProfiler` flags uses the exact same underlying PMC hardware as uProf. It will give you the instruction pointer, but **not** the data address.
+
+**The Practical Workaround (Static Analysis + PMC):**
+If you are strictly limited to per-instruction (PMC) profiling:
+1. Use uProf to find the exact *Instruction Pointer (RIP)* causing the `L2_CACHE_ACCESS_FROM_L1_DC_MISS`.
+2. Map that RIP back to your .NET assembly (using uProf's JIT unwinding or WinDbg).
+3. Look at the x64 disassembly for that instruction (e.g., `mov rax, [rcx + 18h]`).
+4. If you know the class/struct layout of your native arrays, you can infer *which* data structure is missing the cache based on the register offset being accessed by that specific instruction.
+
+### Summary Action Plan
+1. Open Admin CMD and run the **two `bcdedit` commands** to force legacy APIC mode, then reboot. (This takes 2 minutes and is the most likely fix).
+2. Disable **SVM** and **IOMMU** in the BIOS.
+3. Completely purge the `AMDCpuProfiler.sys` driver using `sc delete` and downgrade to an older uProf version.

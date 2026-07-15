@@ -1,0 +1,103 @@
+Timestamp: 2026-06-20T15:42:18
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+# Follow-up: AMD uProf IBS now WORKS on Zen2/Win11 (x2APIC fix) — but per-DATA-STRUCTURE attribution is noisy. How to get robust IBS data-address attribution for specific native arrays in a .NET app?
+
+## Background (resolved)
+Earlier IBS captured 0 samples on this Zen2 (Ryzen 3700X) + Win11 box while PMC worked. Your x2APIC hypothesis was CORRECT: `bcdedit /set x2apicpolicy Disable` + `uselegacyapicmode Yes` + reboot → IBS now captures samples (e.g. 30k IBS-op load samples per run). Thank you.
+
+## New goal
+Attribute L1/L2 data-cache misses to specific DATA STRUCTURES (native unmanaged arrays) in a .NET (C#) app. Method: the app prints each array's base+size at startup (`--array-footprint`); I collect IBS-op with `loadstore`; I dump raw samples via `report --ascii ibsop-event-dump` (columns include IbsLdOp, IbsDcLinAd = data linear addr, IbsDcMiss, IbsL2Miss, IbsDcMissLat); then I bucket each load's IbsDcLinAd into the array address ranges.
+
+## The app
+- C# / .NET 11, x64. The hot loop is an unmanaged switch-level simulator: it hammers a handful of `NativeMemory.AlignedAlloc`'d arrays (NodeStates 14KB, NodeInfos 230KB, TransistorList 232KB, etc.). Single-threaded hot loop (~135K iterations/s, runs several seconds).
+- The arrays are at high addresses (e.g. 0x01C1A586... / 0x0295...). The .NET GC managed heap is lower (0x00F35...). Stack is 0x7FF....
+
+## What works (free-running, PID/user-mode filtered)
+`AMDuProfCLI collect -e event=ibs-op,loadstore,interval=50000 -o OUT <app.exe> <args> --array-footprint`  (NO --affinity, NO -c)
+→ report --ascii ibsop-event-dump → I filter to user-mode loads (addr < 2^47) and bucket by the printed array ranges. Over a 4M-iteration run I get ~19,000 user-mode load samples, of which:
+  - **~75 (0.4%) land inside the tracked arrays**; the per-array split IS sensible and matches first-principles:
+      TransistorList: 33 loads / 6 of 7 in-array L1-misses / both in-array L2-misses / avg miss-lat 87 cyc  (the scattered 232KB array — the real miss hotspot)
+      NodeStates: 28 loads / 1 L1-miss / avg lat 9 cyc  (14KB, L1-resident — most loads, barely misses)
+      NodeInfos 7, RecalcHash 7, others ~0.
+  - **~18,920 (99.6%) land in NON-array memory**: ~44% in the .NET managed heap (0x00F35...), ~11-20% on the STACK (0x7FF...), the rest scattered in native heap NEAR but not in the tracked arrays.
+
+## The two problems
+1. **Only 0.4% of load samples hit the tracked unmanaged arrays**, even though the hot loop's *purpose* is to read those arrays billions of times. The bulk lands in .NET managed heap + stack + scattered native. Is this EXPECTED for IBS on .NET (i.e., the JIT'd hot loop genuinely issues far more stack/managed/spill loads than array loads, so array loads are a small dynamic fraction)? Or does it indicate a sampling/config problem (e.g., IBS-op tagging bias, the `loadstore` filter, GC/JIT background activity dominating, or the managed heap loads being the static-field pointer reads while the array element loads are under-counted)? How do I tell?
+2. **`--affinity N` + `-c N` (to focus IBS on one core) gave ANOMALOUS results**: with `--affinity 6 -c 6` only 2 (not 75) samples landed in-array over a similar sample count, and the address clusters shifted — as if the captured samples weren't the pinned app's array loads. There was only ONE process launch (one footprint print), so it's not a double-launch/ASLR-mismatch. The app does NOT self-pin in these runs. Why would `--affinity/-c` corrupt the data-address↔array correspondence while free-running is correct?
+
+## Questions (concrete)
+1. Is the 0.4%-in-array result expected for IBS-op on a .NET unmanaged-array hot loop, or a misconfiguration? If expected, what's the right way to read per-array results (e.g., normalize within in-array samples only, which is what I did)?
+2. How do I MAXIMIZE the fraction / count of in-app, in-array user-mode load samples efficiently — without `--affinity` (which breaks it)? Options: `--pid` attach to the running process? a finer interval (min is 25000 here; 20000 was rejected)? `ibs-op` count-control = dispatch vs cycles? excluding kernel via a uProf flag? `--ignore-system-module`? Longer run is the obvious lever but slow.
+3. Why does `--affinity N -c N` corrupt the data-address↔array mapping (single launch, app not self-pinning)? Is `-c` (per-core IBS) known to mis-attribute IBS data addresses, or does `--affinity` change the process such that the footprint addresses (printed by the app) no longer correspond to the sampled loads?
+4. Is there a uProf "Memory/Data Access" analysis mode (CLI) that directly attributes IBS samples to data objects/structures, instead of me hand-bucketing raw IbsDcLinAd? (`--config`? a view?)
+5. Given only ~75 in-array samples but a clear pattern (TransistorList = miss-dominant, NodeStates = load-dominant but L1-resident), is that statistically trustworthy for ranking, or do I need ~10x more? What total in-array sample count would you want for confident per-array L1/L2-miss ranking?
+
+Be concrete and prioritized (exact uProf flags / config names). I'm on uProf 5.3.521, Win11 25H2, Zen2.
+
+========================================================================
+RESPONSE
+========================================================================
+It is excellent that the x2APIC fix resolved the IBS hardware sampling issue. Your methodology—dumping `IbsDcLinAd` and bucketing against dynamically printed native array bounds—is **exactly the right way** to do data-oriented profiling for unmanaged arrays in .NET. 
+
+Here is the concrete analysis of your findings and how to tune your uProf setup for robust statistical attribution.
+
+---
+
+### 1. Is 0.4% in-array expected, or a misconfiguration?
+**It is 100% expected.** This is not a misconfiguration; it is the reality of instruction execution versus data layout, especially in C#.
+
+Even in heavily optimized, unmanaged C# loops, the CPU executes many more loads than just your array element accesses:
+*   **Pointer Dereferencing:** Before the CPU can load `TransistorList[i]`, it must load the base pointer of `TransistorList`. If that pointer lives in a managed object (`this.TransistorList`), that's a load from the managed heap (0x00F35...). If it is cached in a local variable, it's a load from the stack (0x7FF...).
+*   **Loop Control & Spills:** Loop iterators, bounds variables, and temporary calculations often spill to the stack due to register pressure.
+*   **IBS Skew (Cycle vs. Dispatch counting):** By default, IBS-op triggers based on *cycles*. This means instructions that stall (like an L2 miss in TransistorList) act as a "catch" for the IBS timer. However, if your loop has 20 fast stack/heap loads (L1 hits) for every 1 array load, the pure volume of fast loads will still dominate the sample pool.
+
+**How to interpret:** Your current approach is perfectly correct. **Isolate and normalize within the 0.4% in-array samples.** The fact that your in-array samples show L1/L2 misses (while the 99% stack/managed loads are almost certainly L1 hits) proves the array data is your actual memory bottleneck.
+
+### 2. How to MAXIMIZE in-array sample volume efficiently
+To get more actionable data without breaking the mapping, you need to strip out JIT/startup noise and focus the hardware entirely on the hot path in user-space.
+
+**Prioritized Steps & Flags:**
+1.  **Attach, don't Launch:** The .NET startup and JIT compilation generates millions of memory accesses. Do not profile `<app.exe>`. Instead, start the app, let it print the array bounds, wait for the hot loop to begin, and then **attach by PID**.
+2.  **Filter out Kernel/OS:** Tell the PMU to only sample user-mode operations.
+3.  **Push the interval to the absolute minimum:** 25,000 is usually the floor for Zen 2, but ensure it is hardcoded.
+
+**Exact Command:**
+```cmd
+AMDuProfCLI collect -e event=ibs-op,loadstore,os=0,interval=25000 -p <PID> -o OUT -d 15
+```
+*(Note: `-d 15` runs it for 15 seconds. Increase this duration to brute-force more samples).*
+
+**A note on Count Control (`cnt_ctl`):**
+By default, `ibs-op` counts *cycles* (`cnt_ctl=0`). If you change it to count *dispatched micro-ops* (`cnt_ctl=1`), you will get a truer representation of instruction volume rather than latency. 
+*   To find **Misses/Latency**, leave it default (cycle counting).
+*   To find **Access Volume**, use `event=ibs-op,loadstore,os=0,interval=25000,cnt_ctl=1`.
+
+### 3. Why does `--affinity N -c N` corrupt the mapping?
+This happens due to a toxic interaction between Windows OS Process Affinity, uProf core targeting, and the .NET Runtime.
+
+1.  **Core Indexing Mismatch:** Windows/.NET and uProf often disagree on logical vs. physical core numbering. You might pin the process to logical Core 6, but tell uProf to profile physical Core 6 (which is logical cores 12/13). Consequently, uProf captures background OS noise, yielding 2 random samples.
+2.  **The .NET Threading Squash:** If you force `--affinity 6` on a .NET process, the OS forces the Hot Loop thread, the GC background threads, the JIT thread, and the Finalizer thread all onto *one single core*. This causes massive context switching, trashing your L1/L2 caches and burying your target loads under a mountain of .NET runtime scheduler loads.
+3.  **ASLR / Memory Shifting:** If you used uProf to launch the app with affinity, .NET memory allocation timings change drastically when restricted to one core, heavily altering where the GC and NativeMemory allocator place objects compared to a free-running launch.
+
+**The Fix:** If you *really* want single-core profiling, **do not use uProf/OS affinity**. In your C# code, pin the specific hot-loop thread using `NativeLibrary`/PInvoke to `SetThreadAffinityMask` right before the loop starts. Then use uProf's `-c N` to watch that core. Otherwise, stick to free-running PID attach.
+
+### 4. Is there a built-in uProf Data Access mode for this?
+**No.** uProf has a "Memory Analysis" config (`AMDuProfCLI collect --config mem`), but it is designed for C/C++ static symbols (BSS/Data segments) or heavily instrumented heap allocators. 
+
+Because you are using .NET's `NativeMemory.AlignedAlloc`, uProf sees this purely as anonymous dynamically allocated virtual memory. It has no introspection into your C# variables. Your current method (custom script bucketing `IbsDcLinAd` against the printed `--array-footprint`) is the absolute most advanced, accurate, and correct way to do this for a managed/unmanaged hybrid application.
+
+### 5. Are 75 samples statistically trustworthy?
+**Statistically, no. Architecturally, yes.** 
+Because your architectural findings exactly match first-principles (e.g., the scattered 232KB array misses L2; the 14KB array hits L1), the 75 samples are accurately reflecting reality. However, for confident *ranking* and optimization validation, 75 is too noisy (a margin of error > ±15%).
+
+**The Target:** You want a minimum of **1,000 in-array samples** to reliably calculate L1/L2 miss ratios per array. 
+
+**How to get there:**
+If 15 seconds of profiling yields 75 samples, you need to run the profile for about **3 to 4 minutes** of sustained hot-loop execution. 
+1. Modify your C# app to loop continuously for 5 minutes.
+2. Start the app.
+3. Attach: `AMDuProfCLI collect -e event=ibs-op,loadstore,os=0,interval=25000 -p <PID> -d 200`
+4. Run your bucketing script. You should end up with ~250,000 total user-mode samples, of which ~1,000-1,500 will fall cleanly inside your tracked array bounds, giving you rock-solid data.

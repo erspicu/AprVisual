@@ -1,0 +1,108 @@
+Timestamp: 2026-06-19T23:35:50
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+# Follow-up consult: reducing DATA-DEPENDENT BRANCH MISPREDICTS in an event-driven switch-level MOS simulator
+
+(Continuing a prior consult on a per-pop dependent-load chain. Same simulator: event-driven Visual6502/MOSSIM-lineage whole-NES sim, ~25k nodes / ~30k transistors, ~70% of pops form a size-1 group, bit-exact MANDATORY, single-core, measured on Cortex-A76 @3.0GHz and Zen2.)
+
+## The #2 pain point (after the per-pop dependent-load latency = 19.5% backend stall)
+perf: branch-miss ~6 MPKI (245M misses / 41G instructions), at IPC 2.0. Second-biggest cost after the backend stall.
+
+## WHERE the data-dependent branches are
+1. Fast-path DISPATCH per pop: each popped node is classified at runtime into size-1 / size-2-pair / general, branching on its class + flags + the LIVE gate states. Which class is taken is DATA-DEPENDENT (depends on which transistors are ON this step) -> unpredictable.
+2. Group-resolution PRIORITY: when a group forms, resolve its value by a fixed priority order (GND wins > VCC/pull-up > externally-driven > hold-previous > floating -> largest-capacitance node wins). The winning case depends on the group's live composition -> data-dependent branch tree.
+3. Per-transistor "is gate ON?" test inside the BFS. (A parallel co-consult already proposes a BRANCHLESS packed-4-gate-OR for the size-1 case, removing this branch for ~70% of pops -- assume that is adopted.)
+
+## HARD CONSTRAINT (a measured dead-end -- respect it)
+The work-list POP ORDER is semantically load-bearing: REORDERING pops within a settle wave CHANGES the result (floating/hold tie-breaks depend on resolution order). "Within-wave reorder = wrong checksum" is measured. So I CANNOT sort/bucket the work-list by class to make dispatch predictable. Any reorder must be provably bit-exact.
+
+## Prior branch-related results (so you don't repeat)
+- Blanket branchless "OR-all" fast-path scan: +0.6% on C#/.NET-JIT but -3.2% on Rust (a sign-flip -- branchless helped the JIT, hurt the native compiler whose branch prediction was already good). So branchless is NOT a free win; it's platform-dependent.
+- Reordering &&-clauses in the hottest predicate by profiled selectivity (demoting a ~97%-true useless lead gate): +1% on C#.
+
+## Questions (answer each, concretely)
+1. The DISPATCH branch (size-1 / pair / general): can it be made prediction-friendly WITHOUT reordering the work-list? Options: predication/cmov, a computed-goto / jump table indexed by a cheap branchlessly-computed class code, or a perfect-hash dispatch. Which actually help an OoO core (A76 / Zen2), vs merely converting a mispredict into a serial data dependence (which, given my latency bottleneck, could be worse)?
+2. The group-resolution PRIORITY tree: is there a BRANCHLESS formulation that is bit-exact with GND>VCC>driven>hold>float -- e.g. encode each contribution as a priority-ranked value and take a single max/lookup, instead of an if/else tree? Would that beat the branch tree on an OoO core, or just trade branch-miss for more uops?
+3. SEGREGATION without reorder: if the co-consult's branchless gate-OR handles the 70% size-1 pops before they reach the dispatch branch, does the dispatch branch's mispredict rate drop simply because the predictable majority no longer flows through it (leaving only the ~30% genuinely-hard cases)? Is that the real lever -- i.e. "remove the easy cases from the branch's input distribution" rather than "make the branch branchless"?
+4. The C#-vs-Rust branchless sign-flip: is there a principled rule for WHEN to predicate vs branch on these data-dependent tests (e.g. based on mispredict probability vs the predicated path's added latency / critical-path length)? How do I decide per-platform without just trying both?
+5. Realistically, how much of the ~6 MPKI is reducible bit-exactly, and what is its EV vs the dependent-load-chain fix (the #1 item)? Give a concrete priority order for what to implement first.
+
+Be concrete and grounded; respect bit-exact + no-pop-reorder. Prefer naming a specific transform and its expected effect on the ~6 MPKI / the branch-mispredict cycles.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the concrete, bit-exact, no-reorder blueprint for destroying your ~6 MPKI branch mispredicts, prioritized for Zen2/Cortex-A76.
+
+At 245M misses and a typical 14-cycle mispredict penalty, you are losing **~3.4 billion cycles** to this. Out of your 20.5G total cycles (41G / 2.0 IPC), this is **~17% of your total execution time**. It is nearly tied with your 19.5% dependent-load stall.
+
+### 1. The DISPATCH Branch (Prediction-friendly, zero reorder)
+**Verdict: Use a `switch` backed by a 1D Look-Up Table (LUT). Do NOT use `cmov` for the dispatch itself.**
+
+*Why predication/cmov fails here:* To use `cmov` on dispatch, you'd have to speculatively execute *both/all* paths (size-1, pair, general) and `cmov` the final simulator state. This is disastrous on Zen2/A76 because it bloats your uops and puts the *expensive* "general" path on the critical data-dependency chain for every single pop, destroying your IPC.
+
+*What actually helps the OoO core:* **Flatten the if-else tree into a single direct table lookup -> single indirect jump (or switch).**
+Instead of:
+```c
+if (flags & SIZE1) { ... }
+else if (flags & PAIR) { ... }
+else { ... }
+```
+Do:
+```c
+// Precompute a 256-byte LUT at init time that maps all combination of node class/flags to an enum (0=Size1, 1=Pair, 2=General).
+uint8_t handler_idx = DispatchLUT[node->flags & FLAG_MASK];
+switch (handler_idx) { ... }
+```
+**Effect:** You convert a tree of multiple conditional branch mispredicts into a *single* branch instruction (an indirect jump or bounds-checked jump). The Zen2/A76 BTB (Branch Target Buffer) and indirect predictors (TAGE) are much better at finding correlations in a single instruction's history than tracking paths through a nested if-tree. Even if it mispredicts, it only misses *once* per pop, strictly capping the latency penalty.
+
+### 2. Group-Resolution PRIORITY (Branchless & Bit-Exact)
+**Verdict: YES, a branchless formulation is possible, bit-exact, and will violently outperform the if/else tree.**
+
+Instead of an `if/else` tree checking `GND > VCC > driven > hold > float`, map each node's contribution to a **single 32-bit (or 64-bit) integer score** and take the `max()`. 
+
+```c
+// Encode each node's state into a score. 
+// Bits 28-31: Base Priority (GND=5, VCC=4, Driven=3, Hold=2, Float=1)
+// Bits 0-27: Capacitance (or other tie-breakers)
+uint32_t current_score = (PriorityLUT[node_state] << 28) | node->capacitance;
+
+// Branchless max (preserves bit-exact queue order tie-breaking because '>' ignores later exact ties)
+if (current_score > best_score) {
+    best_score = current_score;
+    winning_node_val = node_val;
+}
+```
+**Effect:** A Zen2/A76 core compiles `if (A > B) best = A` to a `CMP` and a `CMOV`. This executes in ~1 cycle per node with **zero branch mispredicts**. Because a `CMOV` only adds a 1-cycle data dependency and doesn't flush the pipeline, it will trivially beat a mispredicted branch tree. 
+
+### 3. SEGREGATION without Reorder (Filtering the 70%)
+**Verdict: Yes, "removing the easy cases" is exactly how you fix the dispatch.**
+
+When you handle the 70% size-1 cases via the co-consult's branchless gate-OR, you effectively bypass the complex dispatch. 
+*   **The Math:** If the size-1 cases were highly predictable, your branch mispredict *rate (%)* on the remaining 30% will skyrocket (because only the high-entropy, complex cases are left).
+*   **The Reality:** *You don't care about the rate, you care about the absolute cycle penalty.* Removing the 70% drops the absolute volume of branches flowing through the predictor. Furthermore, diluting a branch predictor with 70% "noise" (even easy noise) evicts useful history for the 30% hard cases. By removing the 70%, the BTB and TAGE predictors can dedicate their capacity entirely to learning the patterns of the 30% complex pops. 
+
+### 4. The C#-vs-Rust Branchless Sign-Flip (When to Predicate)
+**The Principled Rule:** A correctly predicted branch has **zero latency** on the data path, because the CPU executes the predicted path speculatively. A `cmov` has **non-zero latency** because the CPU *must* wait for the predicate condition to resolve before it can pass the selected data forward.
+
+*   **Why Rust hurt (-3.2%):** Native compilers (LLVM) optimize branch layout extremely well. The branch was probably predicted correctly >90% of the time. When you forced it to be branchless (`cmov` or bitwise masking), you serialized the data dependency. In a simulator severely bottlenecked by a per-pop dependent-load chain, adding *any* latency to the critical path via `cmov` causes the backend to stall further.
+*   **Why C# helped (+0.6%):** The JIT produced a clumsy branch structure (perhaps with bounds checks or poor block layout) that the CPU failed to predict. The 14-cycle mispredict penalty outweighed the 1-cycle `cmov` latency.
+*   **How to decide:** If the code is inside your #1 dependent-load chain (e.g., fetching the next node), **prefer branches** unless the mispredict rate is astronomically high (>20%). If the code is *off* the critical path (e.g., computing the state to write back *after* the next pop is already being fetched—like the Priority Resolver in Q2), **prefer branchless `cmov`**.
+
+### 5. Expected Value (EV) & Priority Order
+Realistically, you can eliminate **~120M to 150M** of the 245M misses bit-exactly (saving ~1.6B to 2.1B cycles, a ~8-10% global speedup).
+
+**Your concrete execution order:**
+
+1. **Dependent-Load Chain Fix (from prior consult) - [Highest EV]**
+   * *Why:* It's 19.5% backend stall, but more importantly, fixing memory/latency limits *amplifies* the value of fixing branch misses. Right now, branch misses overlap with memory stalls. 
+2. **Branchless Priority `max()` Encoding - [Easiest EV]**
+   * *Why:* Trivial to implement, strictly localized, perfectly bit-exact (preserves queue order via strict `>`), and completely eliminates the complex if/else branch tree at the end of groups.
+3. **Branchless Size-1 Gate-OR (Segregation) - [Double-dip EV]**
+   * *Why:* Shrinks the absolute instruction count for 70% of pops AND starves the dispatch branch of 70% of its volume, naturally reducing total misses.
+4. **LUT-backed Switch for remaining Dispatch - [Lowest EV]**
+   * *Why:* Caps the remaining 30% dispatch penalties to a single mispredict per pop rather than cascading mispredicts.
+
+*Respect the latency:* Do not try to `cmov` massive blocks of logic. Encode data to resolve logic mathematically (like the Priority score) to let the ALUs chew through the entropy without troubling the branch predictor.

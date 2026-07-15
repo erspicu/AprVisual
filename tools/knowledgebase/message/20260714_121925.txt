@@ -1,0 +1,123 @@
+Timestamp: 2026-07-14T12:19:25
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are consulting on a transistor-level (switch-level) NES simulator project. Please read the context carefully — including the list of constraints and already-rejected approaches — before suggesting anything.
+
+# Project context
+
+- Engine: a faithful C# port of the Visual6502/MetalNES algorithm — event-driven "settle to quiescence" over ~30k transistors; each connected transistor group is resolved by a flags-OR into a 256-entry LUT with strict precedence (GND wins → VCC → external drive-high → drive-low → pull-up → hold-previous; purely floating groups: highest-capacitance member's held state wins, capacitance proxied by connection count).
+- The engine is bit-exact reproducible (a golden checksum over all node states after a fixed benchmark run gates every change) and runs at ~100-140k half-cycles/s single-core. Performance is a hard constraint: the hot path is memory-latency bound and years of optimization work sit on it.
+- Validation: the AccuracyCoin test ROM (141 hardware-accuracy tests for NTSC NES, RP2A03G + RP2C02G). Current banked score 127/141; 8 more fixed pending; 6 under work.
+- All fixes are implemented as TEST-MODE-ONLY "shims": small behavioral patches that re-state hardware semantics at a measured site, layered on top of the netlist per half-cycle (post-settle). The benchmark path never loads them, so the golden checksum never moves. Discipline: every shim must carry the measurement that forced it; act at the narrowest measured site; never per-test switches (overfitting).
+
+# The four root-cause categories we measured (A-D)
+
+A. **Engine semantic ceiling** (6 of 8 fixes). The binary quiescent-settle model provably cannot express:
+   - A1 Ratioed drive fights: unofficial opcode LAE/LXA — the accumulator pulls a merged SB/IDB line against a latch driver; silicon resolves by resistance ratios (chip- and temperature-dependent, consensus value $FF on NTSC G-revision); our model lets GND win outright, quantizing the merge to $00.
+   - A2 Timing-window overlap: a DOR bit-4 precharge glitch (ns-scale on silicon) escapes onto the bus because the discrete settle orders it wrongly against the phi1 pad-drive window (100ns-scale). Result: open-bus fetches read a corrupted byte. Shimmed by an "open bus = last transferred byte" record/replay at unmapped reads + APU-space fetch cycles.
+   - A3 Transparent-latch tracking: the 6502 input data latch (DL) is transparent through all of phi2 on silicon; the netlist's dynamic latch captures once per settle — a turn-on transient of a 74LS368 output (GND-wins intermediate resolution) gets latched permanently. Shimmed by clamping the latch's complement side through phi2 at the two measured addresses ($4016/$4017), engagement gated on a multi-bit capture signature.
+   - A4 Pipeline latency: the APU's $4015 write takes effect 3-4 CPU cycles later through the ACLK pipeline on silicon, and an in-flight DMC DMA re-checks its enable gate every cycle (so a deferred disable beheads it mid-stall). In our settle the write lands instantly and a committed DMA is immune. Shimmed by a deferred kill: clamping one ACLK phase node so the netlist's own retire path discharges the halt latch, with the kill scheduled onto a measured 48-tick boundary grid.
+
+B. **Board/peripheral modelling** (2 fixes): the gate-level controller IC netlist cannot survive GND-wins group resolution, so a behavioral joypad is attached instead. (Also one genuine board-model bug: CIRAM A10 mirroring wire — fixed outright.)
+
+C. **Genuine engine software bug**: exactly one in eight campaigns (callback queue re-entrancy tearing — fixed with a guard in the engine proper).
+
+D. **Id-order lottery**: floating-group tie-breaks and settle order depend on node numbering. Two identical circuit instances resolve the same real race differently (u7 vs u8, $4016 latched correctly while $4017 latched a transient). Load-time graph changes (attaching the joypad, adding fake probe transistors) re-roll this lottery across UNRELATED tests, which we call the probe effect; instruments therefore use flag-overlay clamps (InstClampLow/High OR a Gnd/Pwr flag into the node) instead of graph edits.
+
+# Hard constraints / already-rejected approaches (do NOT re-suggest these)
+
+- Real-time performance via IR/codegen/GPU/bit-parallel/parallelization: all measured slower (project's documented negative result). The event-driven engine at ~1.4-node average group size is the optimum.
+- Under-settling (truncating settle depth): catastrophic — even cutting the deepest 0.58% of settles diverges. Settle depth 7-45 is a true critical path.
+- Full analog/SPICE-level simulation of the whole chip: obviously incompatible with the performance budget.
+- Per-test switches / configuration: rejected as overfitting.
+- Graph edits at load time for instrumentation: rejected (probe effect re-rolls the lottery).
+
+# Questions
+
+1. For each category A1-A4: is there a known, principled technique from the switch-level-simulation literature (e.g., MOSSIM II strength models, IRSIM's linear RC timing model, Verilog 4-state/strength resolution, Bryant's papers) that would express the missing physics *generally* — without per-site shims — while (a) keeping bit-exact reproducibility, (b) costing near-zero on the hot path when the feature is quiescent, and (c) not requiring transistor R/C extraction data we don't have (we only have segdefs polygons, which do encode area)?
+2. For D specifically: is there a canonical-ordering or symmetry-aware resolution scheme that makes identical sub-circuits resolve identically regardless of node numbering? What do production switch-level simulators do about resolution-order nondeterminism?
+3. Is our "measured shim inventory" approach (behavioral restatement at measured sites, test-mode only) defensible as a long-term architecture, or does the literature suggest a better layering (e.g., a general "timing annotation" layer on specific node classes: latches, precharge nodes, pipelines)?
+4. Any cheap wins we're missing: e.g., could the segdefs polygon AREA give a good-enough capacitance estimate to replace the connection-count proxy in the floating tie-break? Would a two-phase (master/slave) latch-aware settle change any of A2/A3 generally?
+
+Answer concretely and cite which classic technique each suggestion derives from. Flag clearly anything that would break bit-exactness or add hot-path cost.
+
+========================================================================
+RESPONSE
+========================================================================
+This is a fascinating and exceptionally well-framed engineering problem. You have pushed a discrete event-driven switch-level simulator very close to its theoretical limits, and you are running into the exact boundary where the digital abstraction of silicon breaks down. 
+
+Your constraints—memory-bound C# hot path, strict bit-exactness, and no R/C extraction data—are brutal but leave room for established literature techniques. Here is an analysis of your root causes, tie-break lottery, and architecture, drawing directly from the history of EDA switch-level simulation.
+
+---
+
+### 1. Principled Techniques for A1–A4
+
+**A1. Ratioed drive fights (LAE/LXA quantization)**
+*   **The Literature Technique:** **MOSSIM II Strength Classes** (Bryant, 1984). Bryant solved this exactly by assigning discrete "conductance classes" to transistors and "capacitance classes" to nodes. 
+*   **Application:** You don't have R/C extraction, but you *do* have polygon segdefs. The conductance (strength) of a MOSFET is strictly proportional to its width/length ($W/L$) ratio. You can compute a crude $W/L$ proxy from the polygon geometries at load time.
+*   **Implementation:** Expand your 256-entry LUT. Instead of a binary `GND > VCC > PullUp`, introduce discrete drive strengths: e.g., `Strong GND > Strong VCC > Weak GND > Weak VCC`. A simple 2-bit strength modifier per group fits easily into a 1024- or 4096-entry LUT. Because the LUT is precomputed and accessed via a flat array, going from 256 to 4096 bytes keeps the LUT entirely within the L1 data cache. 
+*   **Cost:** Zero hot-path cost (just a bitwise flag OR). *Note: Fixing this will alter the golden checksum once.*
+
+**A2. Timing-window overlap (DOR precharge glitch escaping to bus)**
+*   **The Literature Technique:** **Event Queue Stratification / Delta Cycles** (VHDL/Verilog, IEEE 1364). The simulator needs to distinguish between "fast" logic propagation and "slow" pad-drive propagation without full analog timing.
+*   **Application:** Right now, your engine treats all node transitions identically in the event queue. You can enforce a two-tier queue: an `InternalQueue` and a `PadQueue`. Pad-drive events are routed to the `PadQueue`, which is only drained *after* the `InternalQueue` reaches quiescence.
+*   **Implementation:** Tag the pad-driver transistors at load-time. When they switch, enqueue their output nodes to the delayed queue. This explicitly models the 100ns vs ns scale difference by topological guarantee, forcing the glitch to resolve internally before the pad can broadcast it. 
+*   **Cost:** Very low. Checking queue tier can be branchless (e.g., two fixed arrays/pointers in the hot loop, draining the fast one until empty, then popping one from the slow one). 
+
+**A3. Transparent-latch tracking (Intermediate GND-wins transient latched)**
+*   **The Literature Technique:** **Evaluate-then-Update / Two-Phase Settle** (standard in almost all digital simulators to prevent shoot-through and glitch capture).
+*   **Application:** The transient is captured because your event-driven settle propagates intermediate states through an active pass-transistor before the driving component has finished resolving.
+*   **Implementation:** This is the hardest to fix without a performance hit. You can implement a "Master/Slave" settling phase specifically for clock-gated pass transistors. However, a cheaper, engine-level fix is to recognize that if a pass-transistor is ON (phi2 transparent), the nodes on both sides are in the *same* DC connected component. Your engine should dynamically merge them into a single group during settle, ensuring they resolve together. If your engine evaluates them sequentially, you will always be vulnerable to glitch captures.
+
+**A4. Pipeline latency (APU $4015 instantaneous write)**
+*   **The Literature Technique:** **Zero-Delay Shoot-Through Prevention.**
+*   **Application:** If a pipeline takes 3-4 cycles in silicon but 0 in your engine, you likely have a clocking shoot-through. In silicon, pipelines rely on non-overlapping clocks (e.g., phi1/phi2). If your engine transitions phi1 and phi2 instantaneously in the same settle cycle, data races through the entire pipeline at once.
+*   **Implementation:** Ensure your half-cycles strictly enforce a "break-before-make" non-overlap. If phi1 and phi2 ever cross at an intermediate step where both are evaluated as active, the pipeline collapses. Ensure ACLK phase nodes evaluate in strictly isolated half-cycle steps.
+
+---
+
+### 2. The Id-Order Lottery (D)
+
+What you are experiencing is the classic "Evaluation Order Nondeterminism" problem. When you load a new graph or add probes, the node IDs shift. If a race exists, the engine accidentally resolves it based on ID (array index) rather than physics.
+
+*   **How Production Simulators Fix It:** 
+    1. **Two-phase update:** As mentioned, they evaluate all pending changes using *current* states, buffer the results, and then commit all updates simultaneously. This makes evaluation order irrelevant.
+    2. **Deterministic Topological Sorting:** For simulators that do continuous evaluate/update, the netlist compiler runs a canonical graph labeling algorithm (like Nauty) or sorts the graph topologically from VCC/GND.
+*   **Your Best Move (Canonical Sorting):** At load time, before assigning integer IDs to the nodes, sort them deterministically based on physical topology. For example: sort by `(Distance from VCC/GND, Number of Connections, Polygon Area)`. This ensures that two identical sub-circuits (u7 vs u8) get assigned IDs in the exact same local order, forcing your simulator to resolve them symmetrically regardless of how they were parsed from the file.
+*   **Your Best Move (Tie-breaking):** *Stop using ID as a tie-breaker entirely.* (See Q4).
+
+---
+
+### 3. Defensibility of your "Shim Inventory"
+
+**Is it defensible? Absolutely. In fact, it is industry standard.**
+
+What you are doing is a rudimentary form of **Mixed-Signal / Mixed-Level Simulation** (analogous to Verilog-AMS). In production EDA, it is widely accepted that switch-level models cannot handle precise analog race conditions, ratioed logic fights, or RC delays without tanking performance. 
+
+Instead of rewriting the entire engine to support continuous time (which violates your 140k/s constraint), hardware engineers routinely drop "behavioral shims" (using Verilog `force`/`release` constructs or custom PLI/VPI C-callbacks) to state-override nodes that are known to rely on analog effects. 
+
+**Recommendation:** Keep the shim architecture. It is mathematically the only way to satisfy both your Golden Checksum / single-core performance requirement and the 141-test AccuracyCoin validation. Do not attempt to add a general "timing annotation" layer; IRSIM proved in the 1980s that tracking linear RC networks adds massive overhead to the hot path. Your discipline of "only at measured sites, gated by multi-bit signatures" prevents overfitting.
+
+---
+
+### 4. Cheap Wins & Missed Opportunities
+
+**1. Polygon AREA for Capacitance (Massive Cheap Win)**
+*   **Yes, use Polygon Area.** Gate and diffusion capacitance in CMOS are strictly proportional to polygon area ($C = C_{ox} \cdot W \cdot L$). 
+*   **Implementation:** Replace your "connection count" proxy with the sum of connected polygon areas. Do this at load time; it costs zero CPU cycles on the hot path. 
+*   **Impact:** This will vastly improve the physical accuracy of your floating-node tie-breaks (resolving many lottery issues fundamentally, rather than arbitrarily). *Note: This will require generating a new Golden Checksum.*
+
+**2. Transistor Area for Drive Strength**
+*   Just as Area proxying Capacitance fixes floating nodes, Area proxying Drive Strength fixes A1 (Ratioed fights). By calculating $W/L$ ratios from the segdefs at load time, you can assign static `Strong`/`Weak` flags to specific transistors, allowing the LUT to resolve A1 without shims.
+
+**3. Test-Mode Isolation API**
+*   To completely cure the "Probe Effect" (D), formalize your shim API so that it mimics Verilog's `force/release`. Probes should *never* alter the graph by inserting fake transistors. They should solely exist as hooks in the `post-settle` callback loop that observe state, and use your `InstClampLow/High` flags. If they don't touch the graph, they can't re-roll the ID lottery.
+
+### Summary Strategy
+
+1. **Keep the shim architecture.** It is the correct engineering tradeoff for a memory-bound, performance-critical emulator.
+2. **Implement Polygon Area at load-time.** Use it to pre-calculate node capacitance (for floating tie-breaks) and transistor $W/L$ (to add 1-2 bits of strength to your LUT). This removes the need for many A1 shims and fixes the physical reality of D.
+3. **Canonical ID Sorting.** Sort your graph deterministically at load time before ID assignment to guarantee symmetry for identical sub-circuits.
+4. **Queue Stratification.** For A2, introduce a secondary event queue for pad-drivers that only drains when the internal logic queue is empty.

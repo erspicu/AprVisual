@@ -1,0 +1,282 @@
+Timestamp: 2026-06-18T02:19:53
+Model:     gemini-2.5-pro
+========================================================================
+QUESTION
+========================================================================
+You are advising on a hot-loop micro-architecture decision in a mature, extreme-perf C#/.NET 11
+(RyuJIT, x64, Release, AMD Zen2) transistor-level NES simulator. We have beaten a C++ port, so
+the JIT's behaviour matters. Be CONCRETE and HONEST — if the move is fundamentally unwinnable,
+say so and explain why; if there is a "live" restructuring, give the exact shape.
+
+## The engine's hot path (the settle loop)
+
+Per half-cycle, a change-propagation wave drains a double-buffered queue. For each popped node we
+RESOLVE its conducting group and WRITE BACK the new state (which enqueues downstream nodes for the
+next wave). The dispatch has 3 cases by measured frequency:
+  - ~70% SINGLETON  (node resolves alone: read its gnd/pwr gates -> flags -> one new state)
+  - ~30% PAIR       (group is exactly {nn,o}: detect, resolve both to the same value)
+  -  <few% GROUP    (BFS over conducting transistors -> N members, all same value)
+All three end in the SAME primitive: "write node's state if changed, then walk its gated
+fan-out and enqueue endpoints into the next-wave queue (RecalcListNext[nextCount++], dedup via a
+per-node RecalcHashNext byte)." The fan-out walk has two specialised forms (gate-going-low vs
+gate-going-high), each ~12 lines, using a couple of id-range registers (rS/rA/rB) for static prunes.
+
+The engine is MEMORY-LATENCY bound on dependent loads (random NodeStates/NodeInfos gathers); the
+queue/static accesses are cheap L1 hits largely hidden under those stalls. Known dead-ends we will
+NOT revisit: adding any dependent load/store to the hot path; counter-maintenance fast-paths;
+bit-parallel/SIMD on these tiny groups; fine-grained parallelism.
+
+## Baseline = the JIT's automatic full inline (this is what we must beat)
+
+RecalcNode / RecalcNodeFast / SetNodeState / ComputeNodeGroup / AddNodeToGroup are all small-IL
+methods marked [AggressiveInlining]. RyuJIT folds the WHOLE chain into ONE method
+(ProcessQueue, 5409 bytes native, IL ~130 for the wrapper). Result: ZERO per-pop call, and the JIT
+specialises each of the 3 paths independently and allocates registers across the entire cascade.
+This is the fastest version. ~136K half-cycles/s.
+
+## What we tried (all bit-exact; all LOST, monotonically worse)
+
+We manually fused to (a) eliminate the per-pop structure and (b) shrink the method. Variants vs
+baseline: per-node helper inlined -10.9%; same NoInlining -18.3%; loop-inside helper (one call per
+group) -22.1%; fully hand-inlined no-helper -13.7%; and the "unified" form below -25.7%.
+
+The "unified" ProcessQueue: a SINGLE shared writeback (one off-walk + one on-walk) used by all 3
+paths, fed by either a 2-slot stack buffer (singleton/pair) or the BFS group buffer, plus
+WAVE-LEVEL hoisting (read RecalcListNext/RecalcHashNext/RecalcListNextCount + rS/rA/rB once per
+wave, keep nextCount in a register across all pops, write it back once per wave). This made the
+hot method SMALL: 3578 bytes native (IL 1880) << the 5409 baseline. Yet it is the SLOWEST (-25.7%).
+
+## Why it died (our diagnosis)
+
+The 70% SINGLETON path, which the baseline runs as a tight specialised direct line
+(resolve flags -> if(flags) write+walk), now pays a "generalisation tax":
+  wb2[0]=nn (store) -> goto -> for(m=0;m<1;m++) one-iteration loop -> wbBuf[m] (load:
+  store->load round-trip) -> pointer indirection -> branch -> walk.
+Plus ~10 wave-level locals (curList/curHash/nextList/nextHash/nextCount/nodeStates/rS/rA/rB/wb2)
+forced live across the whole pop loop -> register pressure / spills. Plus the goto-merged control
+flow funnels all 3 paths through one WRITEBACK label, so the JIT can no longer specialise the
+singleton path. We confirmed it is NOT I-cache: the method got 34% SMALLER yet 25% slower, so
+frontend/I-fetch is not the bottleneck; the cost is per-pop EXECUTION (more work per pop) + regalloc.
+
+## The questions
+
+1. Is there a "live" restructuring that keeps the small-IL win AND does not tax the 70% singleton?
+   Specifically: is the right move a HYBRID — keep the singleton (and maybe pair) on the existing
+   direct, JIT-specialised, no-buffer path, and route ONLY the rare BFS group through a shared
+   writeback? Would that recover speed while still removing the group-path duplication? Give the
+   exact code shape (how to share the walk for group-only without a per-pop call and without
+   forcing the singleton through it).
+2. Is the WAVE-LEVEL nextCount hoist (read once / write once per wave, kept in a register across
+   pops) actually worth anything on a memory-latency-bound loop where RecalcListNextCount is a hot
+   L1-resident static, or is it pure register-pressure cost? Be quantitative about when hoisting a
+   mutable static across a loop helps vs hurts on RyuJIT/x64.
+3. Can we get the JIT to keep its optimal full-inline cascade BUT also do the wave-level hoist —
+   e.g. by passing the queue cursor as a `ref int` through the inlined chain, or a small struct of
+   cursors by ref — without the 8-arg/register-pressure regression we already saw? Or does ref-
+   threading through an inlined chain reliably defeat enregistration on RyuJIT?
+4. Bottom line: is beating the JIT's auto-inline cascade here fundamentally unwinnable by manual
+   fusion (i.e., the global optimum is "write small methods + AggressiveInlining + let the JIT
+   build the mega-method"), OR is there a concrete structural change with a real chance? If the
+   only real win is an ALGORITHMIC reduction of per-pop work (fewer dependent loads), say that and
+   sketch where to look, rather than more code-reshuffling.
+
+Keep it concrete: exact code shapes, RyuJIT inliner/regalloc specifics, and a blunt ROI verdict.
+Rank options. "IL size < baseline" is achieved but anti-correlated with speed here — treat code
+size as a red herring and reason about per-pop executed work + register allocation instead.
+
+========================================================================
+RESPONSE
+========================================================================
+Excellent, this is a superb question. You've done the hard work of diagnosing the "why" behind the performance regressions, which is more than half the battle. Your diagnosis is sharp and, I believe, entirely correct. Let's get concrete.
+
+### Executive Summary
+
+**The JIT's full-inline mega-method is almost certainly the local optimum for this code shape.** Your manual fusions are losing because they create control-flow merge points that prevent the JIT from creating hyper-specialized code paths for the high-frequency cases. The generalization tax is real and you're paying it in execution latency and register pressure.
+
+There is **one plausible "live" restructuring** (the hybrid model), but its chances are slim. The real, substantial wins are no longer in code restructuring but in **algorithmic changes to reduce dependent loads**.
+
+---
+
+### 1. The "Live" Restructuring: The Hybrid Model
+
+Your intuition here is correct. The #1 goal is to protect the 70% singleton path from *any* form of generalization tax. The only way to do this is to give it a completely independent, straight-line code path with no `goto`s, shared buffers, or shared loop constructs.
+
+This leads to the hybrid model: **Isolate the 70% singleton path, and unify the 30% pair and <few% group paths.** The pair/group paths are more alike (they both process a "list" of nodes, of size 2 or N), so the generalization tax of handling them together is much lower than forcing the singleton through that machinery.
+
+#### Exact Code Shape
+
+The goal is to produce a control-flow graph (CFG) that the JIT sees as two distinct top-level branches from the dispatch.
+
+```csharp
+// Inside your ProcessQueue loop: while (currentCount < limit)
+int nn = RecalcList[currentCount++];
+
+// DISPATCH
+// The JIT sees this 'if' as the primary fork.
+// Path 1: The Golden 70% Path
+if (IsSingleton(nn)) // Assuming a cheap check
+{
+    // NO BUFFERS, NO GOTOS, NO SHARED LOGIC.
+    // This block is a direct, linear copy of the logic from the baseline's
+    // inlined singleton path.
+
+    // 1. RESOLVE SINGLETON
+    //    (read gnd/pwr gates -> flags -> newState)
+    byte oldState = NodeStates[nn];
+    byte newState = ...; // compute directly
+
+    // 2. WRITEBACK & WALK
+    if (newState != oldState)
+    {
+        NodeStates[nn] = newState;
+
+        // Specialized walk, e.g., for gate-going-high
+        if (newState > oldState)
+        {
+            // Walk fan-out for 'nn' going high.
+            // Directly read/write rS/rA/rB, RecalcListNext, RecalcHashNext.
+            // Use 'nextCount' directly.
+            // ... ~12 lines of specialized walk logic ...
+        }
+        else // Specialized walk for gate-going-low
+        {
+            // Walk fan-out for 'nn' going low.
+            // ... ~12 lines of specialized walk logic ...
+        }
+    }
+}
+// Path 2: The Slower, Unified 30% Path
+else
+{
+    // This is the "generalization zone". It can use a buffer.
+    // The store-to-load latency and loop overhead is now only paid
+    // on 30% of the nodes.
+
+    Span<ushort> groupNodes = stackalloc ushort[MAX_GROUP_SIZE]; // Or a small reusable buffer
+    int groupSize = 0;
+
+    // 1. DETECT & POPULATE BUFFER
+    if (IsPair(nn, out ushort otherNode)) // The 30% case
+    {
+        groupNodes[0] = (ushort)nn;
+        groupNodes[1] = otherNode;
+        groupSize = 2;
+        // IMPORTANT: Consume 'otherNode' from the queue if it's there
+        // to avoid double-processing. This logic is complex but vital.
+    }
+    else // The <few% GROUP case
+    {
+        // Run the full BFS, populating groupNodes.
+        groupSize = ComputeNodeGroup(nn, groupNodes);
+    }
+
+    // 2. RESOLVE GROUP (once for all)
+    byte newGroupState = ...; // compute for the whole group
+
+    // 3. SHARED WRITEBACK & WALK
+    // The JIT will generate one body of code for this loop.
+    for (int i = 0; i < groupSize; i++)
+    {
+        ushort member = groupNodes[i];
+        byte oldState = NodeStates[member];
+
+        if (newGroupState != oldState)
+        {
+            NodeStates[member] = newGroupState;
+
+            if (newGroupState > oldState)
+            {
+                // Walk fan-out for 'member' going high.
+                // This is the ~12 lines of walk logic.
+            }
+            else
+            {
+                // Walk fan-out for 'member' going low.
+                // This is the other ~12 lines of walk logic.
+            }
+        }
+    }
+}
+```
+
+**Verdict:** This is the only micro-architectural change with a chance. It quarantines the performance-critical path. You still have code duplication in your C# source (the walk logic appears in the `if` and `else` blocks), but that's what allows the JIT to create two *different*, specialized, and smaller bodies of machine code without the CFG-merge-point penalty. **You are trading C# source-level duplication for runtime specialization.**
+
+---
+
+### 2. The Wave-Level `nextCount` Hoist
+
+**This is almost certainly a net loss on a memory-latency bound workload.** Your diagnosis of register pressure is spot on.
+
+Let's be quantitative on Zen2:
+*   **Cost of NOT hoisting:** Per node-pop, you have `mov ecx, dword ptr [RecalcListNextCountAddr]`. This is a single uop. If `RecalcListNextCountAddr` is in L1 cache (and it is), the latency is ~4-5 cycles. In a memory-latency bound loop, your pipeline is stalled waiting for `NodeStates` data anyway. This 4-cycle dependency is likely hidden completely (`stalled-cycles > 4`). The cost is effectively zero.
+*   **Cost OF hoisting:** You load it once (`mov r10d, dword ptr [addr]`). Now, `r10d` must be preserved across the entire processing of every node in the wave. The JIT's register allocator now has one fewer general-purpose register (`r10`) to work with for the *entire duration* of the hot loop. In a loop that's juggling pointers to `NodeStates`, `NodeInfos`, `RecalcList`, `RecalcHash`, and various computed values, one register is gold. Losing it will very likely cause a spill of a 64-bit pointer to the stack, costing you a `mov [rsp+XX], rbx` (store) and later a `mov rbx, [rsp+XX]` (load). This round-trip to the stack L1 cache is more expensive and introduces more pipeline pressure than the trivial load of the static.
+
+**RyuJIT Specifics:** When you force the hoist by using a local variable, you are overriding the JIT's own cost/benefit analysis. The JIT's register allocator is good, but it's not magic. If you give it N live variables and it only has N-1 registers, it *must* spill. By hoisting, you increased the "live range" of `nextCount` from "just inside the walk logic" to "the entire `ProcessQueue` loop," forcing it to compete with variables from all three paths (singleton, pair, group) simultaneously.
+
+**Verdict:** Pure register-pressure cost with no benefit in a memory-bound loop. Do not do this. Let the JIT reload the L1-hot static as needed.
+
+---
+
+### 3. `ref`-threading to Force Enregistration
+
+This is a clever idea, but it will not beat the JIT and will likely perform worse.
+
+Passing `ref int` is passing a managed pointer. Inside an inlined method, the JIT sees this as an indirection (`mov ecx, [rax]`). While the JIT is capable of "value numbering" this and sometimes enregistering the *value* from the address, an address-exposed variable is poison for many optimizations. The JIT has to be more conservative and assume that any indirect memory write or method call could potentially modify the value at that address, forcing a reload.
+
+You are essentially trading a `mov ecx, [STATIC_ADDR]` for a `mov ecx, [reg_with_addr]`. The performance is identical, but the `ref` version has a higher chance of pessimizing the JIT's alias analysis. You are adding a level of indirection and complexity for the optimizer to reason about, with no upside over the simple local-variable hoist (which we've already established is a net loss).
+
+**Verdict:** Unwinnable. This combines the register pressure problem of hoisting with potential JIT pessimization due to address-exposed variables.
+
+---
+
+### 4. Bottom Line: Unwinnable by Fusion. Pivot to Algorithmic.
+
+**Yes, beating the JIT's auto-inline cascade by manual fusion or restructuring is fundamentally unwinnable here.** The baseline is fastest precisely *because* `[AggressiveInlining]` lets the JIT see the entire CFG and perform inter-procedural optimizations (like register allocation and code layout) with a global view. Your attempts to shrink the code by sharing logic are counter-productive because they hobble the JIT's ability to specialize.
+
+**The only path forward is to reduce the fundamental work per pop.** The bottleneck is dependent loads. That's your target.
+
+#### Concrete Algorithmic/Data-Structure Changes to Investigate:
+
+1.  **Rank 1: Data Layout (AoS vs SoA).** This is the highest-impact change. You are currently doing Structure-of-Arrays (SoA): `NodeStates[id]`, `NodeInfos[id]`. This means processing node `id` requires at least two random memory accesses, which are likely L2/L3 misses or worse.
+    *   **The Move:** Switch to Array-of-Structures (AoS).
+        ```csharp
+        struct NodeData
+        {
+            public byte State;
+            // Pack the MOST FREQUENTLY ACCESSED fields from NodeInfo here.
+            public ushort GndGate, PwrGate; // Example
+            // Other flags...
+        }
+        
+        NodeData[] AllNodes = new NodeData[NUM_NODES];
+        ```
+    *   **The Win:** Now, accessing all the critical data for `AllNodes[id]` is a single memory access and a single cache line fill. This directly attacks your memory latency bottleneck. The cost is that scanning a single field across all nodes is now slower, but your access pattern is random-access-by-id, which is perfect for AoS.
+
+2.  **Rank 2: Software Prefetching.** Since you are memory-latency bound, you can hide that latency by fetching data before you need it.
+    *   **The Move:** When you are in the "walk its gated fan-out" step for node `nn`, you are about to enqueue its children. At the moment you identify a child `c`, you know you will process it in the next wave. Issue a prefetch for it *immediately*.
+        ```csharp
+        // In the fan-out walk, when you find a child node ID 'childNodeId'
+        // that you are about to add to RecalcListNext...
+        
+        if (Sse.IsSupported)
+        {
+            // Prefetch the NodeData for the child into all cache levels.
+            // You need to get the address of AllNodes[childNodeId].
+            // This is unsafe code, but it's the only way.
+            fixed (NodeData* pNodes = &AllNodes[0])
+            {
+                Sse.Prefetch0(&pNodes[childNodeId]);
+            }
+        }
+        
+        // ... now add childNodeId to the queue.
+        RecalcListNext[nextCount++] = childNodeId;
+        ```
+    *   **The Win:** By the time the CPU gets to processing `childNodeId` in the next wave, its `NodeData` has a high probability of already being in L1/L2 cache, turning a long-latency miss into a short-latency hit. This is an advanced technique that the JIT will not do for you, and it's a classic way to gain performance in pointer-chasing, memory-bound simulations.
+
+**Final Verdict & Ranked Options:**
+
+1.  **(Highest ROI) Algorithmic Change:** Restructure your core data from SoA to AoS. This is the most likely path to a significant (5-20%+) performance win.
+2.  **(High ROI, High Complexity) Algorithmic Change:** Implement software prefetching for child nodes during the fan-out walk. This complements the AoS change.
+3.  **(Low ROI, Worth a Try) Micro-architecture:** Implement the Hybrid model described in Q1. It correctly targets the 70% case and might claw back a few percent over the baseline by slightly reducing code size for the JIT to chew on, without compromising the fast path.
+4.  **(Negative ROI) Do Not Pursue:** Any further attempts at manual fusion, `goto`-based sharing across all paths, hoisting L1-hot statics, or `ref`-threading. These are confirmed dead ends. Trust your own measurements.

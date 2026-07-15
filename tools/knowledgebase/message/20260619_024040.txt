@@ -1,0 +1,251 @@
+Timestamp: 2026-06-19T02:40:40
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+# Hot-path micro-optimization consult: breaking a data-dependent serial load
+
+I maintain a transistor/switch-level digital simulator of the NES chips (2A03 CPU + 2C02 PPU),
+ported from Visual6502/MetalNES. It is an **event-driven settle engine**, bit-exact, single CPU core,
+implemented in both C# (.NET 11, `unsafe`, raw pointers) and Rust. Current throughput ~135K
+half-cycles/s; NES real-time would need ~43M, so we are ~300x away and chasing every cycle. The engine
+is **memory-latency-bound on DEPENDENT loads** (the hot working set is already L1-resident — we proved
+this: a renumber that cut data density by 45% gave ±0%, so the bound is dependency-chain LATENCY, not
+cache misses).
+
+I want your help attacking ONE specific dependency: the data-dependent load `NodeStates[gate]`.
+Please read all the conditions, then propose concrete designs. Be brutally honest about which are
+viable vs which I'll have measured to be neutral/negative — I have a long list of dead-ends below.
+
+## The algorithm (what the engine does each half-cycle)
+
+The chip is a graph of ~14,000 "nodes" (wires) connected by NMOS transistors. State propagates in
+"waves" until quiescent. The hot loop pops nodes from a work-list and, for each popped node, decides
+its new boolean state by examining which of its transistor "gates" are currently ON.
+
+A node's new state, for the common case (the "fast path", ~70% of pops, a node whose conducting group
+is provably just itself):
+- The node has a small set of "gnd gates" and "pwr gates" (gate = another node id).
+- `anyGnd = OR over gnd-gate ids g of NodeStates[g]`   (is any path to GND conducting?)
+- `anyPwr = OR over pwr-gate ids g of NodeStates[g]`   (is any path to VCC conducting?)
+- `flags = nodeFlags | (anyGnd<<5) | (anyPwr<<4)`; `newState = FlagsToState[flags]` (256-byte LUT, L1-resident)
+- If newState != old, write it and enqueue downstream nodes for the next wave.
+
+## The data structures (Struct-of-Arrays, all unmanaged)
+
+- `byte* NodeStates`          — per-node current boolean state (0/1). ~14KB. THE mutable state. Changes every wave.
+- `NodeInfo* NodeInfos`       — per-node static structure, 16 bytes each (~224KB):
+    struct NodeInfo {                       // FieldOffset
+      byte  Flags;          // 0   (PullUp/SetHigh/SetLow/ForceCompute/HasCallback etc.)
+      byte  Inline;         // 1   (1 = use the embedded payload below; 0 = high-fanout, use Tlist* ints)
+      byte  C1c2Count;      // 2   (# of channel pairs)
+      byte  GndCount;       // 3
+      // 12-byte union @ offset 4:
+      fixed ushort InlinePayload[6];  // 4..15  [c1c2 pairs ...][gnd gate ids][pwr gate ids]  -- gate ids are node ids
+      // (overflow nodes instead store 3 int offsets into TransistorList here)
+      byte  PwrCount;       // (packed elsewhere)
+    }
+  KEY: the gate ids live EMBEDDED in NodeInfo (same cache line as Flags/Inline) — there is NO separate
+  pointer-chase to fetch them. This was a deliberate optimization (already done).
+
+## The dependency chain I want to attack (verified in x64 disasm)
+
+Per popped node `nn`, the deepest serial dependent-load chain is 3 levels:
+
+  (1)  nn   = recalcList[i]            // from the work-list (already in a register)
+  (2)  load NodeInfos[nn]  cache line  // gives Flags, Inline, AND the gate ids (embedded) -- ONE access
+  (3)  load NodeStates[gate]           // gate id comes FROM step 2 -> address depends on step 2  <<< THIS
+
+The actual inner loop in disasm (the gnd-OR reduction):
+    movzx rax, word ptr [payload + 2k]   ; load gate id          (load A)
+    movzx rax, byte ptr [NodeStates+rax] ; load NodeStates[gate] (load B, address depends on A)  <<<
+    or    accum, eax                     ; anyGnd |= state
+Loads A and B are strictly serialized: the CPU cannot know which NodeStates byte to fetch until the
+gate id returns. ~4-5 cycle L1 latency, pure serial wait, per gate. For the common 1-2-gate node this
+is the per-pop critical path.
+
+Within a wave, consecutive pops are independent nodes, so pops *could* overlap; but each pop also
+writes NodeStates[nn] and may append downstream node ids to the next wave's list, which couples them.
+
+## Hard constraints
+
+1. **Bit-exact.** The simulation has exactly one id-order-dependent tie-break (floating groups: largest
+   "capacitance" wins) and must reproduce golden checksums to the bit. Any reordering of the OR/flags
+   logic must be provably equivalent (the OR reduction is associative/commutative, so order-free there).
+2. **Single CPU core.** No multithreading of the settle (we proved per-chip/per-wave parallel is 15x
+   SLOWER — sync overhead crushes the tiny per-wave work).
+3. **Target = AMD Zen2 / modern x64.** Critically: **NO AVX-512** (so no hardware gather/scatter/compress).
+   AVX2 gather exists but is microcoded and slow on Zen2. ~14 GP registers.
+4. **Hot set is L1-resident** (NodeStates 14KB, the hot NodeInfo subset, the 256B LUT all fit). So this is
+   NOT a cache-miss problem — it is a LATENCY-of-dependent-L1-loads + ILP problem.
+5. **No usable hardware perf counters** (AMD Ryzen PMC sampling via ETW/xperf yields 0 events here), so I
+   cannot directly measure cache/stall behavior — I verify via (a) x64 disasm structure and (b) noisy
+   wall-clock A/B (interleaved-paired, but sub-1% is hard to resolve, machine thermals add noise).
+6. Both C# (RyuJIT, the whole hot path inlines into one ~5KB method) and Rust must stay algorithm-parity.
+
+## Dead-ends already measured (do NOT re-propose these without a new angle)
+
+- **Software prefetch** of the next pop's NodeInfo / NodeStates: NEGATIVE. The extra instructions cost
+  more than the latency they hid (random gather, hard to prefetch the right line early enough).
+- **Bitset for NodeStates** (1 bit/node instead of 1 byte): NEGATIVE. The shift+mask per access erased
+  the density/cache benefit (and the set was already L1-resident).
+- **"Counter fast-path"**: maintain per-node active_gnd_count / active_pwr_count incrementally in the
+  state-write path so the OR-loop becomes O(1). NEGATIVE (-6%): the state-write transistor-walk happens
+  ~10x more often than the fast-path read, so the extra counter updates overflowed the saved scan.
+- **Per-chip / per-wave parallelism**: 15x SLOWER (sync > work).
+- **Manual SIMD of the OR loop**: small N (1-2 gates typical), SIMD setup dwarfs the work; and the gather
+  is the cost, not the OR.
+- **Manual fusion / restructuring of the dispatch**: breaks RyuJIT's inline cascade, -5% to -25%.
+- General lesson: anything that adds work to the (very hot, frequent) state-WRITE path to save work on
+  the read path loses, because writes outnumber the fast-path reads.
+
+## What I'm asking
+
+Given ALL the above, propose concrete design(s) to **reduce, hide, or eliminate the serialized
+`NodeStates[gate]` dependent load** on the fast path. For each idea:
+- explain the mechanism and why it could win HERE specifically (given L1-resident + dependent-latency-bound + Zen2 no-AVX512 + writes>reads);
+- state how it stays bit-exact;
+- give the expected failure mode / why it might be neutral-or-negative (be skeptical — most micro-ideas here die);
+- say how I'd verify it with ONLY disasm structure + noisy wall-clock A/B (no PMC).
+
+Angles you might consider (or reject with reasons): reverse/push data flow (store states where the
+consumer needs them, updated on write); software pipelining / batching gate-id loads across multiple
+pops to expose ILP and overlap the gathers; restructuring so multiple independent NodeStates gathers
+from ONE node are in flight together (memory-level parallelism within a pop instead of across pops);
+packing a node's gate STATES (not ids) into the NodeInfo and maintaining them cheaply (note the
+counter-fastpath dead-end — explain how/if a states-bitmap variant avoids that pitfall); value
+speculation; or a principled argument that this is genuinely at the algorithmic floor and I should stop.
+
+Prioritize ideas that exploit memory-level parallelism (multiple outstanding loads) rather than removing
+loads, since the loads are L1 hits and the bottleneck is their serialization, not their count.
+
+========================================================================
+RESPONSE
+========================================================================
+This is exactly the kind of brutal, cycle-chasing micro-optimization problem I love. You have correctly identified the core issue: you are bottlenecked by **Memory-Level Parallelism (MLP)** and **serial dependency chains**, not cache misses. 
+
+On Zen2, the L1 cache can service **2 loads per cycle**, but your current loop forces the CPU to evaluate the chain sequentially: `NodeInfo` -> (wait 4-5 cycles) -> `C1c2Count` math -> `gate_id` -> (wait 4-5 cycles) -> `NodeStates`. Because of the variable-length loop and pointer math, the Out-of-Order (OoO) window cannot "see" the `NodeStates` loads early enough to issue them in parallel.
+
+Here are three concrete, bit-exact designs to shatter this dependency chain, ordered by expected impact. None of these add work to your state-write path.
+
+---
+
+### Design 1: Unconditional Fixed-Offset Loads (The "Dummy Gate" Pattern)
+**The Goal:** Eliminate the `C1c2Count` math dependency, remove all branches/loops, and force the CPU to issue all `NodeStates` loads simultaneously.
+
+**The Mechanism:** 
+Currently, your `InlinePayload` packs `[c1c2][gnd][pwr]`. This means the offset of the first Gnd gate is `4 + (C1c2Count * 4)`. The CPU *cannot even calculate the address* of the gate ID until `C1c2Count` is loaded. 
+
+We fix this by restructuring the 16-byte `NodeInfo` so the fast-path gates are at **hardcoded, fixed offsets**.
+1. Change the layout for `Inline == 1` nodes to strictly allocate 2 slots for Gnd, 2 slots for Pwr, and 1 slot for C1C2. (This perfectly fits your 12-byte payload).
+2. If a node has fewer than 2 Gnd/Pwr gates, **pad the empty slots with a `DummyNode` ID**.
+3. You allocate Node ID `0` as the `DummyNode`, and guarantee `NodeStates[0] == 0` always.
+4. If a node exceeds 2 Gnd, 2 Pwr, or 1 C1C2, it falls back to the slow path (`Inline == 0`).
+
+Your fast-path inner loop becomes straight-line code:
+```csharp
+// 1. Load Info (4-5 cycles)
+var info = NodeInfos[nn]; 
+
+// 2. AGUs calculate addresses instantly (fixed offsets, no math)
+ushort g0 = info.GndGate0; // always at offset 4
+ushort g1 = info.GndGate1; // always at offset 6
+ushort p0 = info.PwrGate0; // always at offset 8
+ushort p1 = info.PwrGate1; // always at offset 10
+
+// 3. Issue 4 parallel L1 loads! Zen2 handles this in ~2 cycles.
+byte sg0 = NodeStates[g0];
+byte sg1 = NodeStates[g1];
+byte sp0 = NodeStates[p0];
+byte sp1 = NodeStates[p1];
+
+// 4. Bitwise OR (DummyNode state is 0, so x | 0 == x)
+int anyGnd = sg0 | sg1;
+int anyPwr = sp0 | sp1;
+
+// 5. LUT
+int flags = info.Flags | (anyGnd << 5) | (anyPwr << 4);
+byte newState = FlagsToState[flags];
+```
+
+**Why it wins here:** 
+You drop the critical path per pop from `~15-20 cycles` to `~10 cycles`. The moment `NodeInfo` arrives, the CPU knows exactly where to fetch the states. Zen2 has 2 load ports; it will blast all 4 `NodeStates` loads to the L1 cache in 2 cycles. You trade a tiny bit of L1 load bandwidth (fetching dummy 0s) to completely eliminate branch mispredicts and pointer-math stalls.
+
+**Bit-exactness:** `x | 0 == x`. The logic is mathematically identical.
+**Failure mode:** If your fast-path nodes frequently have 0 gates, you are doing 4 useless loads. However, because they are L1 hits, load port contention is cheaper than serial latency.
+**Verification:** Disasm will show four back-to-back `movzx reg, byte ptr [NodeStates + reg]` with no intermediate `add`/`shl` or conditional jumps.
+
+---
+
+### Design 2: Static-Only Software Pipelining (Cross-Pop Overlap)
+**The Goal:** Hide the 4-5 cycle latency of `NodeInfos[nn]` by overlapping it with the `NodeStates` loads of the *previous* pop.
+
+**The Mechanism:**
+You noted that consecutive pops are independent, but you can't reorder them because Pop A might write a state that Pop B needs. *However*, Pop B's `NodeInfo` is **static read-only data**. We can safely load Pop B's `NodeInfo` while we are still evaluating Pop A's `NodeStates`.
+
+```csharp
+// Prime the pump outside the loop
+int nn = recalcList[head];
+var info = NodeInfos[nn];
+
+for (int i = head; i < tail; i++) {
+    // 1. ISSUE LOAD FOR NEXT ITERATION EARLY
+    int next_nn = recalcList[i + 1]; 
+    var next_info = NodeInfos[next_nn]; // CPU begins 5-cycle fetch NOW
+
+    // 2. Process CURRENT iteration (using Design 1's unconditional loads)
+    ushort g0 = info.GndGate0;
+    byte sg0 = NodeStates[g0]; // This load overlaps with next_info!
+    // ... calc and write state ...
+
+    // 3. Advance
+    nn = next_nn;
+    info = next_info;
+}
+```
+
+**Why it wins here:** 
+You tried `prefetcht0` and it failed because prefetch instructions cost decode bandwidth and often drop silently. By doing an *actual* `mov` into a register (`next_info`), you force the OoO engine to execute the load. The 5-cycle wait for `next_info` is completely hidden behind the 5-cycle wait for `NodeStates[g0]`.
+**Bit-exactness:** 100% safe. You are only pre-loading static structural data. You do not read `NodeStates[next_nn]` early, so intra-wave state dependencies are perfectly preserved.
+**Failure mode:** RyuJIT is notoriously bad at loop scheduling and might spill registers or reorder the `next_info` load downwards. You may need to use `unsafe` pointer tricks (e.g., `Volatile.Read`) to force RyuJIT to emit the load at the top of the loop.
+**Verification:** Disasm must show the `mov` from `NodeInfos` occurring *before* the `mov` from `NodeStates` for the current node.
+
+---
+
+### Design 3: Value Speculation / Masking (If Layout is Frozen)
+**The Goal:** If you absolutely *cannot* change the `NodeInfo` layout (e.g., C1C2 pairs must remain variable length at the start of the payload), you can still force MLP by speculatively loading states and masking them out later.
+
+**The Mechanism:**
+Read the first two `ushort`s of the payload *regardless* of what they are (they might be C1C2 pairs, they might be Gnd gates). Load their `NodeStates`. Then, use `C1c2Count` and `GndCount` to create a bitmask that zeroes out the results if they weren't actually Gnd gates.
+
+```csharp
+// Speculatively load the first two ushorts
+ushort raw0 = payload[0];
+ushort raw1 = payload[1];
+
+// Speculatively load their states
+byte s0 = NodeStates[raw0];
+byte s1 = NodeStates[raw1];
+
+// Now do the math to figure out if they were actually Gnd gates
+// (e.g., if C1c2Count == 0 and GndCount > 0)
+bool isG0 = (info.C1c2Count == 0) && (info.GndCount > 0);
+bool isG1 = (info.C1c2Count == 0) && (info.GndCount > 1);
+
+// Mask and OR
+int anyGnd = (s0 & (isG0 ? 1 : 0)) | (s1 & (isG1 ? 1 : 0));
+```
+
+**Why it wins here:** 
+The CPU doesn't have to wait for the `C1c2Count` math to finish before issuing the L1 loads for `s0` and `s1`. The math and the L1 loads happen in parallel.
+**Bit-exactness:** Masking ensures that if `raw0` was actually a C1C2 pair, its state is ignored.
+**Failure mode:** If `raw0` is a C1C2 pair, it might form a `ushort` that is out-of-bounds of your `NodeStates` array. You would need to pad your `NodeStates` array to 64KB (which is fine, it still easily fits in L2/L3, and the hot set remains L1-resident) to prevent access violations. It also requires more ALU instructions than Design 1.
+
+---
+
+### Summary of your Dead-Ends vs. These Proposals:
+*   **Why this isn't "Counter fast-path":** We add zero overhead to the state-write path. `NodeStates` remains a simple byte array.
+*   **Why this isn't "Manual SIMD":** We are using standard scalar GP registers. We are exploiting superscalar *load ports*, not ALUs.
+*   **Why this isn't "SW Prefetch":** We are using architectural register loads to force the OoO window to overlap independent dependency chains, rather than relying on the hardware prefetcher's microcode.
+
+**My recommendation:** Implement **Design 1**. It fundamentally changes the x64 assembly from a serial pointer-chase into a parallel scatter-gather that Zen2's load/store unit will devour. If you have register pressure room, combine it with **Design 2**.

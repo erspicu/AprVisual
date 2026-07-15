@@ -1,0 +1,145 @@
+Timestamp: 2026-06-17T20:02:06
+Model:     gemini-2.5-pro
+========================================================================
+QUESTION
+========================================================================
+You are advising on a performance-engineering micro-decision in a mature, heavily-optimized
+transistor-level (switch-level) NES simulator. I want a CONCRETE, honest assessment — not a
+generic ML/auto-tuning survey. If the honest answer is "the hardcode is fine, auto-tuning isn't
+worth it", say so plainly.
+
+## System (just enough to reason about the parameters)
+
+- Bit-exact, cycle-accurate switch-level sim of the 2A03+2C02 (whole NES). Event-driven: a
+  change wave settles a queue of "recalc node" pops to quiescence each half-cycle. ~14,723 live
+  nodes. Hot state is struct-of-arrays in unmanaged memory (NodeStates byte[], adjacency, etc.).
+- The dominant cost is MEMORY LATENCY on dependent loads (pointer/array chases on the settle
+  cascade), NOT compute. We have repeatedly measured that adding any dependent load or store to
+  the hot path loses, and that "clever" reorderings are usually neutral or negative.
+
+## The optimization in question: load-time node RENUMBERING (a permutation of node ids), always on
+
+Two purposes:
+1. Class-major sort so static prune facts become contiguous id RANGES (register compares).
+2. LOCALITY: within each class block, order nodes by the TRUE FIRST-TOUCH ORDER of the
+   production settle cascade. Measured +6.2% end-to-end (cache locality of the hot working set).
+   We proved the locality key's VALUE is specifically the order of the PRUNED cascade — an
+   unpruned warm-up key measured -1% vs this; pure line-density/RCM-style locality was NEUTRAL.
+   So the OBJECTIVE (first-touch order of the pruned cascade) is settled and not up for debate.
+
+## How the key is SELF-CAPTURED at load (per run, any ROM, no file/flag)
+
+Pass 1 build has verified ranges so prunes are ON (the real production cascade). Then:
+  Step(CaptureWarmupHc);                  // run this many half-cycles to pass the reset transient
+  WarmupCaptureFirstTouch(FirstTouchCaptureHc);  // run this many more, recording each node's
+                                                 // first-touch sequence number (first recalc pop)
+The recorded first-touch order (identity ids) becomes the within-block sort key. The capture runs
+through a COLD instrumented copy of the settle loop (the hot ProcessQueue is untouched). Nodes
+never touched inside the window get sentinel order uint.MaxValue (sorted last, ties broken by id).
+
+## THE TWO HARDCODED PARAMETERS (this is the whole question)
+
+  CaptureWarmupHc     = 1024;    // warm-up half-cycles, discard before capturing
+  FirstTouchCaptureHc = 32768;   // capture-window half-cycles (~0.3 s of load time)
+
+## Constraints / facts that bound the answer
+
+- Changing these is BIT-EXACT-SAFE: the renumber is just a permutation; the checksum is computed
+  through the inverse permutation in original id order, so it is invariant to the key. These knobs
+  ONLY affect cache locality => steady-state hc/s. Nothing can "break" — worst case is a worse key.
+- It is a SECOND-ORDER knob INSIDE a +6.2% optimization. Realistic upside from tuning it better is
+  probably small. I need you to be honest about whether it's even worth touching.
+- Load-time budget matters a little: 32768 hc ~ 0.3 s. We don't want to balloon load to several
+  seconds for a fraction of a percent.
+- The benchmark/run uses the SAME ROM that was captured (self-capture per run), so the key already
+  adapts per workload. Concern: a fixed 32768-hc window may over-weight a ROM's boot/title phase vs
+  steady-state gameplay; and 1024-hc warmup is a guess at "reset transient is over".
+- Our measurement reality: hc/s differences under ~1% are inside thermal noise; we A/B with
+  interleaved-paired runs on a locked/pinned clock, median + paired-win-count. Any auto-tuning whose
+  benefit is <1% is unmeasurable for us and therefore worthless.
+- First-touch is a SATURATING process: in 32768 hc almost every node that will ever be active has
+  likely already had its first touch, so most of the window may be redundant for COVERAGE (though
+  not necessarily for the relative ORDER among early-touched nodes).
+
+## What I'm asking
+
+1. Is there a PRINCIPLED, automatic way to set FirstTouchCaptureHc instead of hardcoding 32768 —
+   e.g. a coverage-saturation stop (halt when the rate of NEW first-touches per N hc falls below a
+   threshold), or an order-STABILITY/convergence criterion (stop when the captured permutation over
+   successive windows stops changing by some rank-correlation measure)? Give the concrete stopping
+   rule, the metric, and the threshold you'd start with.
+2. Same question for CaptureWarmupHc: is there an automatic "reset transient is over" detector
+   (activity/queue-size settling, checksum stabilization, first reset-vector fetch completing,
+   etc.) that beats a fixed 1024?
+3. Is "first-touch ORDER" actually the metric the window should optimize, or should the window be
+   chosen to stabilize a DIFFERENT statistic (e.g. touch-frequency rank, or a co-access adjacency
+   that a bandwidth-minimizing order would consume)? Note we already found pure-locality/RCM neutral
+   and pruned-first-touch the winner — so answer within that finding.
+4. Could a cheap ONLINE auto-tune work: capture under 2-3 candidate windows, build the permutation
+   for each, and pick by a quick self-timed micro-benchmark before the real run? Estimate whether
+   the load-time cost is justified given the <1% measurability floor.
+5. Bottom line: rank these by expected ROI for us — (a) leave the hardcode, (b) coverage-saturation
+   auto-stop, (c) order-stability auto-stop, (d) online self-timed pick, (e) something else. Be
+   blunt about which are not worth the complexity given our noise floor and that this is a
+   second-order knob.
+
+Keep it concrete and short. Concrete stopping rules / thresholds / metrics, not a literature tour.
+
+========================================================================
+RESPONSE
+========================================================================
+Excellent. This is a fantastic, well-defined micro-optimization problem. Here is the concrete, honest assessment you asked for.
+
+### 1. Automatic Stop for `FirstTouchCaptureHc`
+
+Yes, a coverage-saturation stop is the most principled and cheapest approach. Order-stability is too expensive.
+
+*   **Concrete Stopping Rule:** Stop capturing when the number of *newly* touched nodes in a measurement chunk falls below a small fraction of the *total* nodes touched so far. This adapts to ROMs with different active node counts.
+*   **Metric:** `new_touches_in_chunk / total_touched_nodes`
+*   **Implementation:**
+    *   Define a check interval, e.g., `chunk_hc = 1024`.
+    *   After each chunk, calculate `new_touches = (current_total_touched - prev_total_touched)`.
+    *   **Stop if `new_touches < (current_total_touched * 0.005)`**. (i.e., new discoveries in the last chunk are less than 0.5% of the discovered set). Also add a hard ceiling (e.g., 262144 hc) to prevent infinite loops on weird workloads.
+*   **Threshold Rationale:** A percentage-based threshold is superior to a fixed number because it scales with the size of the active working set. The 0.5% value is a starting point; it represents deep diminishing returns. For a game with 4000 active nodes, this means you stop when you find fewer than 20 new nodes in a ~1ms chunk.
+
+### 2. Automatic Stop for `CaptureWarmupHc`
+
+Yes, there is a much better, non-arbitrary signal for "reset transient is over".
+
+*   **Concrete Stopping Rule:** End the warmup period a fixed, small number of half-cycles *after* the CPU fetches its first instruction from the reset vector (`$FFFC`/`$FFFD`).
+*   **Metric:** A boolean flag: `has_fetched_from_reset_vector`.
+*   **Implementation:**
+    *   In the instrumented CPU model, when processing an instruction fetch cycle, check if `address == 0xFFFC`.
+    *   When this happens, set a flag and record the current half-cycle count (`reset_fetch_hc`).
+    *   Set `CaptureWarmupHc = reset_fetch_hc + 512`.
+*   **Threshold Rationale:** The 1024 hardcode is a guess. The reset vector fetch is the exact, semantic moment the system transitions from hardware power-on state to executing the ROM's first line of code. The extra `+512` hc gives the initial boot code a moment to set up the stack and initial PPU state before you start the capture, which is what the warmup is truly for. This is far more robust than any statistical measure of queue activity.
+
+### 3. Is "First-Touch Order" the Right Metric to Stabilize?
+
+**Yes.** Your existing empirical result is king here. You measured that the pruned first-touch order is the key that provides the +6.2% lift, while RCM-style locality was neutral. Trust your measurement.
+
+The theoretical reason this works is that first-touch order is a direct proxy for the *causal dependency chain* of signal propagation in the circuit. Since your bottleneck is dependent memory loads, laying out the nodes in memory to match the order they are accessed in the dependency chain is the ideal way to improve cache prefetcher efficiency and reduce latency. Stabilizing for frequency or a generic locality metric would ignore this crucial temporal aspect of the dependency chain, which you've already proven matters most. Do not change this objective.
+
+### 4. Online Auto-tune with a Micro-benchmark?
+
+**No. Do not do this.**
+
+The load-time cost is prohibitive and the potential benefit is unmeasurable.
+
+*   **Cost:** To get a stable measurement that can reliably distinguish between two keys whose performance difference is <1%, you would need to run a benchmark for several seconds, not milliseconds. Your self-timed micro-benchmark would need to be longer than the capture window itself. This would turn a 0.3-second load penalty into a 5-10 second penalty.
+*   **Benefit:** The difference in performance between the key from a 32768-hc window and one from a "perfect" window determined by saturation is almost certainly going to be deep inside your 1% measurement noise floor. You are spending seconds of load time to chase a 0.2% gain you can't even prove exists.
+
+### 5. Bottom Line: ROI Ranking
+
+Here is the blunt ranking, from best to worst ROI.
+
+1.  **(a) Leave the hardcode.** This is the highest-ROI option. Your current parameters are simple, fast enough, and provide a proven 6.2% gain. The engineering principle of "if it ain't broke, don't fix it" applies strongly. The probability that any further tuning will yield a measurable (>1%) gain is extremely low.
+
+2.  **(b+e) Implement both automatic stops.** If you feel compelled to replace the "magic numbers", the two rules from Q1 (coverage-saturation) and Q2 (reset-vector fetch) are the correct ones to implement. They are principled, cheap, and have a small chance of improving robustness or slightly reducing load times on some ROMs. The development cost is minimal. Do them together. This is the only change I would even consider.
+
+3.  **(c) Order-stability auto-stop.** Bad ROI. The computational cost at load time is too high for a questionable benefit.
+
+4.  **(d) Online self-timed pick.** Terrible ROI. The load-time cost is immense, and the benefit is guaranteed to be below your measurement noise floor. This is a textbook example of premature, over-engineered optimization.
+
+**Final Advice:**
+The hardcode is fine. You found a good local optimum. Be proud of the +6.2% and move on. If you have a spare afternoon and the magic numbers bother your engineering sense, implement the reset-vector warmup stop and the coverage-saturation capture stop. They are technically "more correct". But do not expect to measure a performance difference. Your time is better spent elsewhere.

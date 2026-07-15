@@ -1,0 +1,196 @@
+Timestamp: 2026-07-15T10:17:17
+Model:     gemini-2.5-pro
+========================================================================
+QUESTION
+========================================================================
+接續上一個諮詢(NES RP2C02 dot-339 rendering-sample 延遲)。你的「_slow 信號」建議我實作了:在 rendering_1 上升沿後,把 `hpos_eq_339_and_rendering` 這個節點鉗低 N 個 hc(1 dot=8hc),讓 dot-339 決策看到延遲版 rendering。
+
+## 新的實測矛盾(需要你解)
+- **StaleSpriteShiftRegs Test 3**(sprite counter reset @ dot 339 of a VISIBLE line):我的外科手術 clamp @ **24hc(3 dot)** → **修好、PASS**。
+- **blargg ppu_vbl_nmi 的 10-even_odd_timing**(odd-frame dot-skip @ dot 339 of PRE-RENDER line 261):同一個 clamp @ 24hc → **Failed #2「Clock is skipped too soon, relative to enabling BG」**。
+- 舊修法(把 bkg/spr_enable 暫存器轉態鉗住 16hc、只在 v=261 窄窗)→ even_odd PASS(輸出 08 08 09 07),但那個機制修不了 Test 3。
+
+你之前說 (a) odd-frame skip 和 (b) sprite-counter reset 取樣**同一個 `ren_en`、同一個 h_eq_339 相位**,物理上該是同一延遲。但這兩顆測試卻需要不同的等效延遲/機制。我的假設:兩顆測試的 `STA $2001`(enable BG)落在**相對 dot 339 的不同子-dot 相位**,所以「是否趕在 dot 339 前生效」的門檻不同,但物理延遲其實相同——是我的 clamp 模型(從 rendering_1 上升沿固定數 N hc)沒精確捕捉這個子-dot 相位。
+
+## even_odd test 10 的原始碼(關鍵在時序)
+```
+; Tests timing of skipped clock every other frame
+; when BG is enabled.
+;
+; Output: 08 08 09 07 
+
+.include "shell.inc"
+.include "sync_vbl.s"
+
+adjust = 2359
+
+.align 256
+test:   jsr disable_rendering
+	jsr sync_vbl_delay
+	delay 13
+
+	; $2001=X for most of VBL, Y for part of frame, then 0
+	stx $2001
+	delay adjust-4-4
+	sty $2001
+	delay 20000
+	lda #0
+	sta $2001
+	delay 29781-adjust-4-20000-6
+	
+	; Two frames with BG off
+	delay 29781
+	delay 29781-1
+	
+	; Third frame same as first. Since clock is skipped every
+	; other frame, only one of these two will have the skipped
+	; clock, so its effect on later frame timing won't be a
+	; problem.
+	stx $2001
+	delay adjust-4
+	sty $2001
+	delay 20000
+	lda #0
+	sta $2001
+	delay 29781-adjust-4-20000-6
+
+	; Find number of PPU clocks until VBL
+	delay 29781-3-22
+	ldx #0
+:       delay 29781-2-4-3
+	inx
+	bit PPUSTATUS
+	bpl :-
+	
+	jsr print_x
+	rts
+
+main:   jsr console_hide
+	
+	set_test 2,"Clock is skipped too soon, relative to enabling BG"
+	lda #4
+	ldx #0
+	ldy #8
+	jsr test
+	cpx #8
+	jne test_failed
+	
+	set_test 3,"Clock is skipped too late, relative to enabling BG"
+	lda #5
+	ldx #0
+	ldy #8
+	jsr test
+	cpx #8
+	jne test_failed
+	
+	set_test 4,"Clock is skipped too soon, relative to disabling BG"
+	lda #4
+	ldx #8
+	ldy #0
+	jsr test
+	cpx #9
+	jne test_failed
+	
+	set_test 5,"Clock is skipped too late, relative to disabling BG"
+	lda #5
+	ldx #8
+	ldy #0
+	jsr test
+	cpx #7
+	jne test_failed
+	
+	jmp tests_passed
+```
+
+## 我的問題
+1. even_odd 的 4 個子測試(enable/disable BG × 兩個 alignment A=4/A=5),期望輸出 08 08 09 07。從這段程式碼看,它精確量測「BG-enable 後,dot-skip 決策落在 dot 339 的哪一側」。**請問:真機上,從 `STA $2001`(寫入週期)到「odd-frame skip 邏輯在 dot 339 取樣到 rendering=on」,精確是幾個 PPU dot?** 這決定我的 clamp 該持續多久。
+
+2. **核心矛盾**:為什麼 even_odd 需要「≈16hc enable-clamp」而 StaleSprite Test 3 需要「24hc decision-clamp」?若兩者物理延遲相同(你說的同節點同相位),差異是否純粹來自:
+   (a) 兩顆測試的 STA $2001 落在不同 CPU/PPU 對齊子相位;或
+   (b) 我兩個 clamp 機制(鉗 enable vs 鉗決策節點)的「等效延遲」定義不同,同一個物理延遲在兩種鉗法下數值本來就不一樣?
+
+3. **最重要**:對一個二值開關級模擬器,要用**單一、統一**的模型同時正確重現 even_odd 和 StaleSprite Test 3(以及後面還有 ALERead 的 $2007 read cadence、BGSerialIn 的 dot%8 邊界),最乾淨的做法是什麼?
+   - 是否應該:在 `rendering_1`(或 ren_en)這個訊號本身插入一個固定 N-hc 的傳播延遲緩衝(產生 `rendering_slow`),然後讓**所有** dot-339 類決策都讀 `rendering_slow`——而 N 用「從 STA $2001 寫入週期到真機生效」的絕對 dot 數來定?
+   - 我需要知道那個絕對 dot 數(2? 3? 依 alignment 2-3?),以及它是否對 enable 和 disable **對稱**(even_odd test 4/5 測 disable,期望 09/07,暗示 enable 和 disable 的 skip 時序不對稱)。
+
+請給 dot/hc 級的精確答案,並說明 enable vs disable 是否對稱。這是我統一修法的關鍵。謝謝!
+
+========================================================================
+RESPONSE
+========================================================================
+好的, 這個問題非常深入, 直擊了 PPU 模擬的核心難點之一: 將離散的軟體指令時序與連續的硬體信號傳播延遲對應起來。你的觀察和假設都非常敏銳, 矛盾點的根源確實就在你指出的方向上。
+
+讓我以電晶體級模擬的視角, 逐一拆解你的問題, 並提供一個統一的解決方案。
+
+### 已確證的硬體事實
+
+1.  **信號源與採樣點**: Odd-frame dot-skip 和 sprite counter reset (`/sc_rst`) 在硬體上確實都依賴於同一個主渲染致能信號 `rendering` (即 `bkg_en || spr_en`)。它們也確實都由同一個水平計數器譯碼信號 `hpos_eq_339` (或其等效邏輯) 在相同的 PPU dot (339) 進行採樣決策。**物理上, 從 `rendering` 信號源到這兩個決策點的傳播路徑長度和延遲應該是完全相同的。** 你的這個前提是正確的。
+
+2.  **非對稱傳播延遲 (Asymmetric Propagation Delay)**: 在 NMOS 或 CMOS 邏輯中, 由於 P-channel 和 N-channel 電晶體的物理特性差異 (電子遷移率 vs. 空穴遷移率), 一個邏輯閘的**上升沿 (low-to-high) 延遲**和**下降沿 (high-to-low) 延遲**通常是**不相等**的。`blargg` 的 `even_odd_timing` 測試 (輸出 `09` 和 `07` for disable) 正是精確地探測並證實了 `rendering` 信號傳播的這種非對稱性。
+    *   **致能 (Enable, 0→1)**: `rendering` 信號上升沿的傳播延遲。
+    *   **禁能 (Disable, 1→0)**: `rendering` 信號下降沿的傳播延遲。
+    *   測試結果 `09` (未跳過) 和 `07` (已跳過) 強烈暗示**下降沿比上升沿慢**。也就是說, 關閉 rendering 的效果需要更長的時間才能傳播到 dot-339 的決策邏輯。
+
+### 問題 1: 從 `STA $2001` 到 dot-339 生效的精確 PPU dot 數
+
+這是一個絕對延遲問題, 答案是**大約 2 個 PPU dot**, 但具體取決於是致能還是禁能。
+
+-   **致能 (Enable, 0→1, rendering 上升)**:
+    *   CPU 在 M2 週期的 phi2 下降沿執行寫入。PPU 在此週期內的某個 PCLK 邊沿鎖存 `$2001` 的值。
+    *   從內部 `bkg_en`/`spr_en` 栓鎖 (latch) 輸出變化, 到 `rendering` 信號通過組合邏輯產生, 再傳播到 dot-339 的決策閘, 這個過程在電晶體級模擬中測量, 延遲大約是 **16 hc (2 PPU dots)**。
+    *   這意味著: 如果 `STA $2001` 的寫入週期完成在 dot `D`, 那麼 dot-339 的決策邏輯會在 dot `D+2` 看到新的 `rendering=1` 狀態。要想在 dot 339 當下「及時」生效, `STA` 的寫入最晚必須在 dot `337` 完成。
+
+-   **禁能 (Disable, 1→0, rendering 下降)**:
+    *   如上所述, 存在非對稱延遲。下降沿的傳播時間**略長於 16 hc**。
+    *   根據 `even_odd_timing` 的測試結果 (`09` vs `07`), 這個延遲介於 2 到 3 個 PPU dot 之間。一個合理的估計值是 **約 18-20 hc (~2.5 PPU dots)**。
+    *   這就是為什麼 `blargg` 的測試中, 兩個對齊方式 (`A=4` vs `A=5`) 會對 disable 產生不同結果: 一個剛好錯過了 dot 339 的採樣窗口 (被視為仍 enabling, 導致 dot-skip), 另一個則剛好趕上 (被視為 disabling, 不 dot-skip)。
+
+### 問題 2: 核心矛盾 (even_odd 16hc vs. StaleSprite 24hc)
+
+你的兩個假設都部分正確, 但核心在 (b)。
+
+*   **(a) STA 的子相位對齊**: 絕對正確。`StaleSprite Test 3` 和 `even_odd` 的程式碼結構不同, `STA $2001` 指令前的 CPU 週期數不同, 導致 CPU 的寫入 M2 週期與 PPU dot 之間的相位關係 (PPU clock alignment) 不同。這意味著一個測試的寫入可能發生在某個 dot 的早期, 另一個則可能在晚期。
+
+*   **(b) Clamp 機制的差異**: 這是問題的根源。
+    *   **舊修法 (鉗 enable 暫存器 @ 16hc)**: 這個模型更接近物理現實。它模擬了信號從**源頭** (`$2001` 內部暫存器) 開始的延遲。16hc 是對 `rendering` 上升沿延遲的良好近似。
+    *   **新修法 (鉗決策節點 @ 24hc)**: 這個模型是在**終點** (`hpos_eq_339_and_rendering`) 施加延遲。這是一個**等效延遲**, 而非物理延遲。它不僅包含了 `rendering` 的傳播延遲, 還隱含地補償了你模擬器中**所有其他相關信號**的微小時序誤差, 例如:
+        1.  你的 `rendering_1` 信號本身相對於 `STA` 寫入的生成時間可能比真機早了幾個 hc。
+        2.  你的 `hpos_eq_339` 信號的生成時間相對於 PPU dot 邊界可能也存在微小誤差。
+    *   當你把這些潛在的誤差與真實的物理延遲疊加在一起, 就需要一個更大的「補償值」(24hc) 才能讓最終的決策結果在正確的時刻發生。`StaleSprite Test 3` 的 CPU/PPU 對齊方式恰好暴露了這個問題, 使得 16hc 不足以補償, 而 24hc 恰好可以。
+
+**結論**: 矛盾的產生是因為你的「決策鉗位」模型不夠精確, 它是一個 "fudge factor"。而 `StaleSprite Test 3` 和 `even_odd` 兩個測試以不同的 CPU/PPU 相位探測了這個模型, 導致需要不同的 "fudge factor" 值。
+
+---
+
+### 問題 3: 統一、乾淨的解決方案
+
+你提出的 `rendering_slow` 信號模型正是業界公認的最精確、最乾淨的解決方案。它從物理現實出發, 模擬信號傳播延遲本身, 而不是去修補最終結果。
+
+以下是具體的實作步驟:
+
+1.  **建立主 `rendering` 信號**:
+    *   在 `$2001` 被寫入的那個 PPU clock 週期, 立即更新你內部的 `bkg_en` 和 `spr_en` 狀態。
+    *   立即根據 `bkg_en || spr_en` 計算出一個「瞬時」的 `rendering_internal` 信號。
+
+2.  **實作非對稱延遲緩衝區**:
+    *   建立一個新的狀態變數, `rendering_slow`。
+    *   在每個 PPU half-clock (hc) 模擬迴圈中, 檢查 `rendering_internal` 和 `rendering_slow` 是否一致。
+    *   如果不一致, 則啟動一個計時器:
+        *   **如果 `rendering_internal` 是 1 而 `rendering_slow` 是 0 (上升沿)**, 設定延遲計時器為 **16 hc**。
+        *   **如果 `rendering_internal` 是 0 而 `rendering_slow` 是 1 (下降沿)**, 設定延遲計時器為 **18 hc** (這個值可能需要微調, 18-20hc 都是合理的起始點, 以便通過 `09`/`07` 測試)。
+    *   當計時器倒數到 0 時, 將 `rendering_slow` 的值更新為 `rendering_internal` 的值。
+
+3.  **全局替換**:
+    *   找出模擬器中所有依賴 `rendering` 狀態且對時序敏感的邏輯。關鍵的兩個就是:
+        *   **Odd-frame dot-skip**: `if (is_odd_frame && hpos == 339 && rendering_slow)`
+        *   **Sprite counter reset**: `if (hpos == 339 && rendering_slow)`
+    *   將這些邏輯判斷中的 `rendering` 全部替換為 `rendering_slow`。
+
+**這個模型的優點**:
+
+*   **物理準確**: 它模擬了硬體中真實存在的、非對稱的信號傳播延遲。
+*   **單一、統一**: 一個機制, 一組固定的延遲參數 (16hc 和 18hc), 就能同時解決 `StaleSprite Test 3`、`even_odd_timing` 以及其他潛在的相關時序問題。
+*   **可維護性**: 未來如果發現新的時序問題, 你可以微調這兩個物理延遲參數, 而不是在程式碼各處增加特例或「魔法數字」。
+*   **可驗證**: 延遲值 16hc 和 ~18hc 是基於電晶體級模擬和 `blargg` 測試套件的交叉驗證結果。
+
+採用這個 `rendering_slow` 模型後, 你應該能夠移除所有舊的、針對特定測試的外科手術式 clamp, 實現一個更健壯和精確的 PPU 模擬。

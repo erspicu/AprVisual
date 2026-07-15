@@ -1,0 +1,201 @@
+Timestamp: 2026-06-18T02:20:57
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+You are advising on a hot-loop micro-architecture decision in a mature, extreme-perf C#/.NET 11
+(RyuJIT, x64, Release, AMD Zen2) transistor-level NES simulator. We have beaten a C++ port, so
+the JIT's behaviour matters. Be CONCRETE and HONEST — if the move is fundamentally unwinnable,
+say so and explain why; if there is a "live" restructuring, give the exact shape.
+
+## The engine's hot path (the settle loop)
+
+Per half-cycle, a change-propagation wave drains a double-buffered queue. For each popped node we
+RESOLVE its conducting group and WRITE BACK the new state (which enqueues downstream nodes for the
+next wave). The dispatch has 3 cases by measured frequency:
+  - ~70% SINGLETON  (node resolves alone: read its gnd/pwr gates -> flags -> one new state)
+  - ~30% PAIR       (group is exactly {nn,o}: detect, resolve both to the same value)
+  -  <few% GROUP    (BFS over conducting transistors -> N members, all same value)
+All three end in the SAME primitive: "write node's state if changed, then walk its gated
+fan-out and enqueue endpoints into the next-wave queue (RecalcListNext[nextCount++], dedup via a
+per-node RecalcHashNext byte)." The fan-out walk has two specialised forms (gate-going-low vs
+gate-going-high), each ~12 lines, using a couple of id-range registers (rS/rA/rB) for static prunes.
+
+The engine is MEMORY-LATENCY bound on dependent loads (random NodeStates/NodeInfos gathers); the
+queue/static accesses are cheap L1 hits largely hidden under those stalls. Known dead-ends we will
+NOT revisit: adding any dependent load/store to the hot path; counter-maintenance fast-paths;
+bit-parallel/SIMD on these tiny groups; fine-grained parallelism.
+
+## Baseline = the JIT's automatic full inline (this is what we must beat)
+
+RecalcNode / RecalcNodeFast / SetNodeState / ComputeNodeGroup / AddNodeToGroup are all small-IL
+methods marked [AggressiveInlining]. RyuJIT folds the WHOLE chain into ONE method
+(ProcessQueue, 5409 bytes native, IL ~130 for the wrapper). Result: ZERO per-pop call, and the JIT
+specialises each of the 3 paths independently and allocates registers across the entire cascade.
+This is the fastest version. ~136K half-cycles/s.
+
+## What we tried (all bit-exact; all LOST, monotonically worse)
+
+We manually fused to (a) eliminate the per-pop structure and (b) shrink the method. Variants vs
+baseline: per-node helper inlined -10.9%; same NoInlining -18.3%; loop-inside helper (one call per
+group) -22.1%; fully hand-inlined no-helper -13.7%; and the "unified" form below -25.7%.
+
+The "unified" ProcessQueue: a SINGLE shared writeback (one off-walk + one on-walk) used by all 3
+paths, fed by either a 2-slot stack buffer (singleton/pair) or the BFS group buffer, plus
+WAVE-LEVEL hoisting (read RecalcListNext/RecalcHashNext/RecalcListNextCount + rS/rA/rB once per
+wave, keep nextCount in a register across all pops, write it back once per wave). This made the
+hot method SMALL: 3578 bytes native (IL 1880) << the 5409 baseline. Yet it is the SLOWEST (-25.7%).
+
+## Why it died (our diagnosis)
+
+The 70% SINGLETON path, which the baseline runs as a tight specialised direct line
+(resolve flags -> if(flags) write+walk), now pays a "generalisation tax":
+  wb2[0]=nn (store) -> goto -> for(m=0;m<1;m++) one-iteration loop -> wbBuf[m] (load:
+  store->load round-trip) -> pointer indirection -> branch -> walk.
+Plus ~10 wave-level locals (curList/curHash/nextList/nextHash/nextCount/nodeStates/rS/rA/rB/wb2)
+forced live across the whole pop loop -> register pressure / spills. Plus the goto-merged control
+flow funnels all 3 paths through one WRITEBACK label, so the JIT can no longer specialise the
+singleton path. We confirmed it is NOT I-cache: the method got 34% SMALLER yet 25% slower, so
+frontend/I-fetch is not the bottleneck; the cost is per-pop EXECUTION (more work per pop) + regalloc.
+
+## The questions
+
+1. Is there a "live" restructuring that keeps the small-IL win AND does not tax the 70% singleton?
+   Specifically: is the right move a HYBRID — keep the singleton (and maybe pair) on the existing
+   direct, JIT-specialised, no-buffer path, and route ONLY the rare BFS group through a shared
+   writeback? Would that recover speed while still removing the group-path duplication? Give the
+   exact code shape (how to share the walk for group-only without a per-pop call and without
+   forcing the singleton through it).
+2. Is the WAVE-LEVEL nextCount hoist (read once / write once per wave, kept in a register across
+   pops) actually worth anything on a memory-latency-bound loop where RecalcListNextCount is a hot
+   L1-resident static, or is it pure register-pressure cost? Be quantitative about when hoisting a
+   mutable static across a loop helps vs hurts on RyuJIT/x64.
+3. Can we get the JIT to keep its optimal full-inline cascade BUT also do the wave-level hoist —
+   e.g. by passing the queue cursor as a `ref int` through the inlined chain, or a small struct of
+   cursors by ref — without the 8-arg/register-pressure regression we already saw? Or does ref-
+   threading through an inlined chain reliably defeat enregistration on RyuJIT?
+4. Bottom line: is beating the JIT's auto-inline cascade here fundamentally unwinnable by manual
+   fusion (i.e., the global optimum is "write small methods + AggressiveInlining + let the JIT
+   build the mega-method"), OR is there a concrete structural change with a real chance? If the
+   only real win is an ALGORITHMIC reduction of per-pop work (fewer dependent loads), say that and
+   sketch where to look, rather than more code-reshuffling.
+
+Keep it concrete: exact code shapes, RyuJIT inliner/regalloc specifics, and a blunt ROI verdict.
+Rank options. "IL size < baseline" is achieved but anti-correlated with speed here — treat code
+size as a red herring and reason about per-pop executed work + register allocation instead.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is the blunt, concrete assessment of your micro-architecture situation. 
+
+You are fighting a battle against the RyuJIT register allocator and x64 CPU execution ports, and you are losing because you traded a CPU-friendly baseline (straight-line, specialized, store-buffer-absorbed) for a CPU-hostile one (branchy, store-to-load forwarded, register-starved). 
+
+Here are the direct answers and the exact path forward.
+
+### 1. The Hybrid Restructuring: Is it live?
+**Yes, it is live, but only as a method to control register pressure, not as a magic bullet.** 
+Routing the 70% Singleton and 30% Pair through specialized, direct inline paths while kicking the <2% Group path to an **out-of-line** shared function is the correct architectural move.
+
+If you inline the Group path's shared writeback buffer into the hot loop, RyuJIT sees the buffer and the `for` loop and considers the locals "live" across the loop, trashing your GPRs. 
+
+**The Exact Shape:**
+```csharp
+// Inside your wave-pump loop
+int id = queue[head++];
+byte flags = NodeInfo[id]; 
+
+if ((flags & IS_SINGLETON) != 0) {
+    // 100% INLINED, specialized, NO buffers.
+    // Read states, eval, if changed: write and execute the 12-line fan-out walk.
+    ProcessSingletonDirect(id); 
+} 
+else if ((flags & IS_PAIR) != 0) {
+    // 100% INLINED, specialized, NO buffers.
+    ProcessPairDirect(id);
+} 
+else {
+    // DO NOT INLINE THIS. Move the BFS and buffered writeback to a cold method.
+    // This removes the BFS stack buffer and group loop from RyuJIT's 
+    // hot-path register allocation entirely.
+    ProcessGroupCold(id); 
+}
+```
+By explicitly outlining `ProcessGroupCold` `[MethodImpl(MethodImplOptions.NoInlining)]`, you remove the shared writeback generalization tax from the fast paths, and you shrink the mega-method's register footprint.
+
+### 2. The Wave-Level Hoist: Is it worth it?
+**Absolutely not. It is a pure register-pressure tax. Revert it immediately.**
+
+You are on AMD Zen 2. You have 14 general-purpose registers (GPRs) available. You are memory-latency bound. 
+When you increment `RecalcListNextCount++` as a static or class field, the CPU translates this to an L1 cache access. The Zen 2 L1 hit is ~4 cycles, **but** writes go to the CPU's Store Queue (44 entries). 
+
+Because your loop is stalled on dependent memory loads (`NodeStates`), the CPU's Out-Of-Order (OoO) window easily looks ahead, executes the counter increment, and dumps it into the store queue. It costs you *zero* effective execution time.
+
+When you hoist it to a local variable to "save" the L1 access:
+1. You consume 1 of your 14 GPRs for `nextCount`.
+2. You consume more GPRs for `curList`, `nextList`, array bases, etc.
+3. RyuJIT runs out of registers and **spills to the stack**.
+4. Stack spills are *also* L1 accesses, but now you're spilling critical pointers instead of a predictable integer counter.
+
+**Quantitative Rule for RyuJIT x64:** If your hot loop has >8 frequently accessed locals/pointers, do NOT hoist predictably-accessed predictable statics/fields (like loop counters/queue tails). Let the CPU's store buffer do its job. 
+
+### 3. Ref-Threading the Inlined Chain
+**Do not do this.** 
+Passing `ref int nextCount` or a `ref QueueState` struct through an inlined cascade relies on RyuJIT to promote the struct and enregister the fields. While RyuJIT has improved at struct promotion, threaded `ref` variables in a method with complex control flow (like your fan-out walk branches) frequently defeat enregistration. 
+Worse, even if it *succeeds*, you arrive back at the problem in Question 2: you force RyuJIT to keep them in GPRs, causing register spills of your actual data structures. Stick to `this.nextCount` or statics.
+
+### 4. Bottom Line: Is manual fusion unwinnable?
+**Yes, beating the JIT's automatic full-inline cascade via structural/IL-fusion is fundamentally unwinnable.** 
+
+Your code size shrinking (5409 -> 3578 bytes) is a red herring. The Zen 2 L1 Instruction cache is 32KB, backed by a 4K-op micro-op cache. Your 5.4KB mega-method fits *perfectly* inside the micro-op cache. The CPU *loves* the bloated, straight-line, specialized baseline.
+
+**Where to look instead (The Algorithmic Win):**
+If you are MEMORY-LATENCY BOUND on dependent loads (`pop queue -> read NodeStates[id]`), no amount of code reshuffling will gain you significant cycles. The CPU is sitting idle waiting for RAM/L2.
+
+To beat the baseline, you must attack the dependent load chain using **Memory Level Parallelism (MLP)**. You have a queue. You know exactly what nodes are going to be processed next. You need to overlap their memory stalls.
+
+**The "Live" Restructuring for Memory Bounds (Queue Unrolling):**
+Instead of processing one node at a time, process 2 or 4 *in flight* (not SIMD, just unrolled scalar).
+
+```csharp
+// SW Prefetching the next node while processing the current
+while (head < tail) {
+    int id = queue[head++];
+    
+    // Issue a software prefetch for the NEXT node's state/info.
+    // This pulls it into L1 while we stall on the CURRENT node.
+    if (head < tail) {
+        System.Runtime.Intrinsics.X86.Sse.Prefetch0(ref NodeStates[queue[head]]);
+    }
+    
+    byte flags = NodeInfo[id];
+    // ... process singleton/pair ...
+}
+```
+*Note: SW Prefetching can be finicky in C#. An alternative is manual scalar interleaving:*
+
+```csharp
+// Process 2 nodes concurrently to overlap memory stalls
+while (head <= tail - 2) {
+    int id0 = queue[head];
+    int id1 = queue[head+1];
+    head += 2;
+    
+    // The CPU will issue BOTH loads simultaneously. 
+    // You pay the latency of ONE L1/L2 miss, not two.
+    byte flags0 = NodeInfo[id0];
+    byte flags1 = NodeInfo[id1];
+    byte state0 = NodeStates[id0];
+    byte state1 = NodeStates[id1];
+    
+    // Resolve both independent nodes
+    ProcessNode(id0, flags0, state0);
+    ProcessNode(id1, flags1, state1);
+}
+// Handle tail...
+```
+
+### Final Verdict & Ranking of Moves
+1. **(Stop Bleeding):** Revert the manual loop-hoisting. Let RyuJIT access class-level or static state variables directly to free up GPRs.
+2. **(Control Mega-Method):** Implement the Hybrid (Fast-path inline, `ProcessGroup` outlined/`NoInlining`). This prevents the BFS locals from poisoning the register allocation of the 98% fast-paths.
+3. **(The Real Win):** Attack the memory stall via Software Prefetching (`Sse.Prefetch0`) or Scalar Interleaving (popping 2 items per loop iteration and loading their states simultaneously). This is how you shatter the current 136K cycles/s ceiling.

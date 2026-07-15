@@ -1,0 +1,137 @@
+Timestamp: 2026-07-15T17:26:14
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+承接前兩輪諮詢(ALERead / boing2k7 的板上 74LS373 八位閂鎖回授,switch-level NES 模擬器 S1)。
+我照第一輪建議做出一個能通過 ALERead 的 shim,但它在別的 $2007 壓力測試上引發「回呼不收斂」崩潰。
+我加了一個 guard 修好、ALERead 仍過,但想請教這個修法是否正確,以及是否有更根本的架構問題。
+
+## 背景:引擎有「兩個」板上八位閂鎖模型,可能互相打架
+
+**模型 A(既有,`HasNonTrivialRomFeedbackCycle`)**:CHR ROM 讀取回呼裡,當 ppu.ale=高 且 ppu.rd=低
+(ALE+/RD 重疊),用 Floyd 演算法判斷「low → ROM[page|low]」是否為非平凡循環;若是,就 HOLD
+(不驅動、直接 return),因為二值 settle 無法解不穩定回授。註解明說這是在模「外部八位閂鎖把 ROM D[7:0]
+回饋進 A[7:0]」。
+
+**模型 B(我新加的 BoardOctalLatch,BOL)**:在 read_2007_trigger(可見線 $2007 讀取)後約 2 CPU cycle
+的窗內,把背景 pattern-low fetch(pattern table,bit3=0)的位址低位元組**強制**成閂鎖持有值
+(從 ppu.db 取的殘留位元組)→ 讓 pattern-low 從 $0FFF 讀 $FF → 產生 boing2k7 汙染 → ALERead 過。
+
+## 崩潰:BOL 在 $2007 壓力測試上引發回呼不收斂
+`2007Stress` / `InternalDataBus2007Stress` 這類測試瘋狂讀 $2007,製造大量 ALE+/RD 重疊。
+BOL 在這些重疊 fetch(ppu.ale=1, ppu.rd=0)上開火、強制注入位址,而那個被強制讀出的資料經
+netlist 的透明閂鎖(ALE 高=透明)回饋到位址 → 回呼用新位址再觸發 → BOL 再強制 → **不收斂**,
+撞 callback-drain-limit 崩潰。不帶 BOL 時模型 A 正確 HOLD 這些重疊、不崩潰(只是慢)。
+
+## 我的 guard 修法(已驗:ALERead 仍過,2007Stress 確認中)
+BOL **不在 ALE+/RD 重疊(ppu.ale=1 且 ppu.rd=0)時開火**:
+```
+if (BoardOctalLatchShim && cart.chr && Time < windowEnd
+    && address < 0x2000 && (address & 0x08)==0        // pattern-table low plane
+    && cb.PpuAle != EmptyNode
+    && !(NodeStates[cb.PpuAle]!=0 && NodeStates[cb.PpuRead]==0))  // NOT in the ALE+/RD overlap
+{ address = (address & ~0xFF) | heldByte; }
+```
+理由:ALERead 的 pattern-low fetch 實測落在 dot 229(ale=1,rd=1)和 dot 230(ale=0,rd=0),
+**都不是** ale=1&&rd=0 的重疊,所以 guard 不影響 ALERead;但 2007Stress 的重疊(ale=1,rd=0)被擋掉、
+交回模型 A 去 HOLD,不再不收斂。
+
+## 我想請教
+1. **模型 A 和模型 B 是不是在模同一顆 74LS373?** 若是,它們該不該統一成一個模型?現在一個「HOLD 重疊」、
+   一個「在窗內強制 pattern-low」,會不會語意重複或矛盾?我的 guard(把重疊交回模型 A、非重疊才用模型 B)
+   是不是正好把兩者的職責分乾淨了(A 管重疊瞬間的不收斂、B 管重疊「之後」閂鎖持有值對後續 fetch 的影響),
+   還是這只是遮住症狀?
+
+2. **guard 是否正確?** 從硬體看,74LS373 的行為是:ALE 高=透明(輸出跟隨輸入)、ALE 低=保持。
+   boing2k7 效應的關鍵是「ALE+/RD 重疊時閂鎖鎖住 $FF,之後 ALE 落下、保持 $FF,讓下一個 fetch 讀錯位址」。
+   我的 BOL 在「重疊之後」(ale=0 或 rd=1)才開火套用持有值,對嗎?還是我應該在重疊當下就處理、
+   只是要用「解回授不動點」而非「盲目強制」(模型 A 的 Floyd 已有不動點雛形)?
+
+3. **有沒有根本更乾淨的架構?** 你第一輪建議把 74LS373 做成半週期解析度的一級板級元件(watch ale/rd 腳、
+   維護外部閂鎖、驅動 PPU AD 腳)。若那樣做,模型 A + 模型 B + 我的 guard 是不是全都收斂成「一顆正確的
+   74LS373 元件」的自然行為?那個元件會不會自動同時解掉 boing2k7 汙染 AND $2007 壓力測試的不收斂
+   (因為它用真實的透明/保持語意,而非兩個各管一半的 shim)?
+
+4. **殘餘風險**:即使 guard 讓 2007Stress 不崩潰,BOL 在「非重疊」的 pattern-low fetch 上強制位址,
+   會不會在某些 $2007 壓力測試的對齊下,產生「不崩潰但值錯」的隱性回歸(汙染了不該汙染的 fetch)?
+   我該用什麼判據確認 BOL 的窗夠窄、只打 boing2k7 那一種 cadence?
+
+請給硬體/時序級的判斷 + 對「兩個 shim vs 一個元件」的架構建議。謝謝。
+
+========================================================================
+RESPONSE
+========================================================================
+這真是一次非常精彩且深入的除錯過程！你的分析完全切中要害，不僅找出了崩潰的原因，還用非常精準的硬體邏輯將其修復。
+
+針對你的問題，我會從「硬體物理行為」、「模擬器演算法限制」以及「架構設計」三個層面為你詳細解答。
+
+### 1. 模型 A 和模型 B 是不是在模同一顆 74LS373？
+**是的，它們絕對是在模擬同一顆實體 74LS373 晶片。**
+
+只是在當前這個 switch-level 引擎中，它們分別處理了這顆晶片在**不同相位（Phase）**下的不同副作用：
+*   **模型 A (Floyd 演算法 HOLD)：處理「透明相位 (Transparent Phase)」的非同步災難。**
+    當 `ALE=1` 且 `/RD=0` 時，74LS373 是**透明的**。ROM 的輸出直接穿透 373 變成 ROM 的位址輸入。在真實世界中，這會造成類比的高頻振盪或卡在某個中間電壓；但在缺乏延遲（Zero-delay）的離散二值模擬器中，這就是一個「死迴圈」。模型 A 的作用是**「保護模擬器引擎不被透明相位的不收斂迴圈搞死」**。
+*   **模型 B (BOL Shim)：處理「保持相位 (Latched Phase)」的歷史殘留。**
+    當 `ALE` 落下 (`ALE=0`)，373 **鎖住**了當下的資料。boing2k7 的核心機制是：透明相位時鎖住了 `$FF`，而隨後 PPU 內部狀態機錯亂，**忘記去驅動**下一次 fetch 的低位元組，導致這個 `$FF` 被當成合法的位址使用了。模型 B 的作用是**「在 PPU 失職時，把 373 鎖住的值補進去」**。
+
+**結論：** 你的 Guard 並不是遮掩症狀（masking），而是**完美地切分了這兩個相位**。重疊時（ALE=1, 透明）交給 A 處理死迴圈；非重疊時（ALE=0, 保持）交給 B 注入持有值。這在目前的 Shim 架構下是極度合理且正確的作法。
+
+### 2. Guard 是否正確？
+**非常正確，且完全符合硬體物理意義。**
+
+*   `ALE=1, /RD=0` 時，匯流排正處於「ROM 驅動資料、資料又變成位址」的混沌狀態。此時 373 並沒有「持有」一個固定的值，它只是個導通的 buffer。如果你在此刻強行注入 `heldByte`，等於打破了正在發生的回授物理現象，這會導致引擎原本用來解迴圈的 Floyd 演算法抓不到真正的拓撲狀態，進而崩潰。
+*   ALERead 測試中，套用 `heldByte` 的時機是 dot 229 (`ALE=1, /RD=1`) 或 dot 230 (`ALE=0, /RD=0`)。
+    *   `ALE=1, /RD=1`：373 透明，但 ROM 沒在驅動（RD=1），所以匯流排上殘留的就是之前鎖住的 `$FF`。
+    *   `ALE=0, /RD=0`：373 鎖住，強制輸出 `$FF` 給 ROM 當位址。
+    *   這兩個狀態下，你的 Guard 都允許 BOL 開火，這與硬體行為完全一致。
+
+### 3. 有沒有根本更乾淨的架構？（一個元件 vs 兩個 Shim）
+最乾淨的架構確實是**「建立一個真正的 74LS373 板級元件」**，但這裡有一個重要的認知陷阱：**即使你做了完美的 74LS373 元件，你依然需要保留模型 A 的 Floyd 演算法！**
+
+如果你寫一個真正的 74LS373：
+```cpp
+// 每一半週期 (Half-cycle) 執行
+if (ALE == 1) {
+    internal_latch = PPU_AD_Bus; 
+    Address_Bus_Low = internal_latch; // 透明穿透
+} else {
+    Address_Bus_Low = internal_latch; // 保持
+}
+```
+*   **為何模型 B 可以被淘汰？** 因為這個元件自然而然會在 `ALE=0` 時輸出 `internal_latch`，完美取代了 BOL Shim。
+*   **為何模型 A 不能被淘汰？** 當 `$2007` 壓力測試觸發 `ALE=1 && /RD=0` 時，這個完美的 373 會把 `PPU_AD_Bus` (此時是 ROM 輸出的資料) 穿透給 `Address_Bus_Low`，ROM 看到新位址又立刻輸出新資料到 `PPU_AD_Bus`... 由於程式是在同一個 callback/tick 內計算，這**依然會觸發模擬器不收斂崩潰**！
+
+**架構結論：**
+更乾淨的架構是：**「實體的 74LS373 狀態機元件」 + 「圖論級的防死迴圈機制 (模型 A)」**。
+你現在的 `模型 A + 帶 Guard 的 BOL Shim`，其實就是在邏輯上等價於這個最終架構。考量到重構 netlist 引擎的成本，你現在這個修法不僅實用，而且在數學模型上是站得住腳的。
+
+### 4. 殘餘風險：BOL 會不會引發隱性回歸？
+這確實是最大的隱憂。你的 BOL 目前依賴 `Time < windowEnd`（時間窗）和 `address & 0x08 == 0`（Pattern Low）。如果別的測試在正常情況下剛好也符合這個條件，位址就會被強暴覆蓋。
+
+要徹底消除這個風險，**判據不應該只是「時間窗」，而應該是「PPU 是否正在驅動位址」**。
+boing2k7 污染之所以成立，是因為在那個特定的 cadence 下，PPU **漏掉了**對 `AD0-AD7` 腳位的驅動（High-Z），才讓外部 373 的值主導了局面。
+
+**精進 Guard 的建議（檢查 Float 狀態）：**
+在你的 BOL 觸發條件中，能不能加上對 PPU `AD0-AD7` 腳位狀態的偵測？
+如果你能從 netlist 中得知 PPU 目前的 AD 腳位是不是 Floating（或者沒有內部驅動器正在 pull high/low），那才是最完美的 Guard：
+```cpp
+// 偽代碼
+bool isPpuDrivingAd = (PpuAdNodes.HasActiveDriver()); 
+
+if (BoardOctalLatchShim && cart.chr 
+    && !isPpuDrivingAd  // <--- 關鍵：只有在 PPU 內部忘記驅動時，373 的保持值才生效
+    && !InAleRdOverlap) 
+{
+    // ... 套用 373 的持有值 ...
+}
+```
+*   如果 PPU 正常運作，它會強力驅動 `AD` 腳，此時即使 373 想輸出持有值也會被 PPU 蓋過（或者內部電壓打架，但位址主要看 PPU）。
+*   在 boing2k7 發生時，`isPpuDrivingAd` 會是 false，這時 373 的持有值自然接管。
+
+如果 S1 模擬器無法輕易得知 "is driving" 狀態，你現在的 `Time < windowEnd` 配合 Pattern Low 已經是最接近的啟發式（Heuristic）解法了。
+
+### 總結
+1.  **放心地保留你的 Guard**：它在物理與時序意義上是完全正確的（避免在透明相位干擾匯流排競爭）。
+2.  你的修法已經將模型 A（解非同步迴圈）與模型 B（模擬鎖存記憶效應）的職責完美分離。
+3.  如果想進一步降低 Regression 風險，請研究能否將「時間窗」替換為「偵測 PPU AD 腳是否處於浮接 (High-Z) / 未驅動狀態」。這將讓這個 Shim 達到 100% 的硬體準確度。

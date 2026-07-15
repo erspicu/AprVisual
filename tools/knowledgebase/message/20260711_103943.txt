@@ -1,0 +1,195 @@
+Timestamp: 2026-07-11T10:39:43
+Model:     gemini-3.1-pro-preview
+========================================================================
+QUESTION
+========================================================================
+# Follow-up: my concerns with the trampoline fix, and a smaller alternative (re-entrancy guard)
+
+This continues our discussion of the stack-overflow in a switch-level NES simulator. You correctly
+identified that `InvokeCallbacks` is NOT re-entrant-safe: because `_pendingCallbacks` /
+`_processingCallbacks` are shared static `List`s, a nested call swaps them mid-iteration, re-runs
+callbacks redundantly, and tears the outer loop. I verified your trace against the code — it holds.
+You proposed a trampoline. Before I touch the hottest method in the engine, here are my concerns. Please
+be blunt about which are real.
+
+## Concern 1 — I cannot PROVE a fix is checksum-identical, and that matters a lot here
+
+The entire project's baseline is a **golden bit-exact checksum** of node state after a fixed benchmark
+run. A version-comparison leaderboard and every regression depends on that number never moving without
+a deliberate re-baseline.
+
+Here is my worry. The current (buggy) code bakes the **redundant, torn re-evaluations** into that
+checksum. Any clean fix runs each pending callback once, in a well-defined order. For a pure dependency
+*chain* (one pending callback at a time) I believe DFS-nested and an iterative drain produce the
+identical sequence of `DoMemReadWrite` calls — so identical results. They only diverge on **fan-out**
+(≥2 pending callbacks at the same level, where the current code does DFS and an iterative drain does
+BFS). So:
+
+- If the benchmark ROM never fans out, the checksum won't move — but I can only confirm that empirically
+  (run it and compare), not prove it by reasoning.
+- The 147-ROM regression passes bit-exact today *with* the bug, which I read as evidence that the torn
+  re-evaluations are **idempotent in practice** (re-running a memory callback drives the same bus value,
+  `changed==false`, no effect). Correct results, wasted work.
+
+**Question 1a:** Is my chain-vs-fan-out reasoning right — that the ONLY order divergence between nested
+recursion and an iterative drain is at fan-out points?
+
+**Question 1b:** Can you construct a concrete case where a redundant re-run of a memory callback is
+**NOT idempotent** — i.e. the second run drives a *different* bus value than the first because an
+interleaved callback changed shared state (memory or another bus node) in between? If such a case can
+occur, then the current checksum encodes buggy behavior and a clean fix WILL change it. If it provably
+cannot, then the fix is safe for any ROM that only chains.
+
+## Concern 2 — the trampoline is more invasive than your sketch showed
+
+Your sketch removed `InvokeCallbacks()` from the tail of `ProcessQueue`. But `ProcessQueue` has **18
+call sites** (reset, netlist setup in System.cs, `SetHigh/SetLow/SetFloat`, `WriteBits`, `Renumber`,
+`StepCycle`). Every one of them currently relies on that tail call to drain callbacks. If I remove it,
+all those paths stop draining unless I also add a drain loop to each — a big, risky diff across the
+engine, not a localized change.
+
+## Concern 3 — a smaller alternative: a re-entrancy GUARD (keep the recursion structure, kill the tearing)
+
+Instead of restructuring into a trampoline, keep `ProcessQueue` calling `InvokeCallbacks()` at its tail
+exactly as today, but make **only the outermost `InvokeCallbacks` drain**; nested entries return
+immediately (their pending work is drained by the outermost loop, which already re-checks
+`_pendingCallbacks.Count` each iteration):
+
+```csharp
+private static bool _invoking;   // re-entrancy guard
+
+internal static void InvokeCallbacks()
+{
+    if (_invoking) return;       // nested entry: the outermost loop will drain _pendingCallbacks
+    _invoking = true;
+    try
+    {
+        while (_pendingCallbacks.Count > 0)
+        {
+            (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
+            for (int i = 0; i < _processingCallbacks.Count; i++)
+            {
+                var cb = _processingCallbacks[i];
+                cb.Enqueued = false;
+                switch (cb.Kind) { /* DoMemReadWrite / DoMemRead / DoVideo / ... */ }
+            }
+            _processingCallbacks.Clear();
+        }
+    }
+    finally { _invoking = false; }
+}
+```
+
+With this, when callback A drives the bus → `WriteBits` → `ProcessQueue` (nodes settle) →
+`InvokeCallbacks` (nested, returns immediately). The callback A's bus change triggered (say B) stays in
+`_pendingCallbacks` and is drained by the outermost loop's next iteration. `_processingCallbacks` is
+never swapped out from under an active loop, so the tearing is gone. `ProcessQueue`'s node settling
+still runs synchronously inside `WriteBits`, so bus values are exact when the next callback reads them.
+
+Advantages I see: ~4-line diff, no change to the 18 `ProcessQueue` call sites, no `StepCycle`
+restructure, stack depth bounded (no nested `InvokeCallbacks`).
+
+**Question 3a:** Is this guard functionally equivalent to your trampoline in *execution order*? My claim
+is yes — both drain pending callbacks in an iterative BFS order from the outermost frame, so they should
+produce identical `DoMemReadWrite` sequences. If they differ, show me how.
+
+**Question 3b:** Correctness of the guard: is there any path where a callback enqueues work AFTER the
+outermost `while` has done its final `Count` check and exited, stranding that work until the next
+`StepCycle`? Trace whether the outermost loop always observes late enqueues. (Note the outermost
+`InvokeCallbacks` is entered from `StepCycle`'s top-level `ProcessQueue`; `WriteBits` inside callbacks
+calls `ProcessQueue` which node-settles then hits the guarded no-op.)
+
+**Question 3c:** With the guard, a callback's bus write settles nodes (`ProcessQueue`) but its
+*downstream callback* is deferred to the outermost loop instead of running synchronously. Does deferring
+it change any RESULT versus running it synchronously — assuming node settling already happened? My
+intuition: the downstream callback reads bus nodes that are already settled, so it sees the same values
+whether it runs now (nested) or one drain-iteration later. Only fan-out ordering differs. Confirm or
+break this.
+
+## What I want from you
+
+Rank the two options for a bit-exact-sensitive, hot-path engine where minimizing risk beats elegance:
+(A) the re-entrancy guard above, (B) your full trampoline. Tell me which you'd ship and why, whether the
+guard has a flaw I'm missing, and your best answer to 1b (the non-idempotent redundant-run question),
+since that determines whether ANY clean fix can keep the golden checksum or forces a re-baseline.
+Concrete, code-level reasoning please.
+
+========================================================================
+RESPONSE
+========================================================================
+Here is a blunt, code-level analysis of your concerns and your proposed re-entrancy guard. You have excellent intuition regarding the risks here.
+
+### Question 1a: Chain vs. Fan-out execution order
+**Your reasoning is 100% correct.** 
+If your callbacks form a strict dependency chain (A → B → C), a nested DFS (the old intent) and an iterative drain (BFS) execute in the exact same sequence. They only diverge on **fan-out** (A triggers B and C). DFS executes `A, B, (B's children), C`. Iterative BFS executes `A, B, C, (B's children)`. If your benchmark ROM happens to only trigger linear chains in its memory callback graph, the execution order won't diverge, and the checksum won't move.
+
+### Question 1b: Concrete non-idempotent redundant run
+**Yes. Redundant callback runs are provably NOT always idempotent.**
+Consider a callback mapping to a **read-sensitive register**, such as reading PPU STATUS (`$2002`). 
+Reading `$2002` clears the VBlank flag (bit 7). 
+1. The CPU initiates a read. Your callback (Cb1) runs, reads the PPU state, sees VBlank=1, clears the internal VBlank flag, and drives `1` onto the data bus bit 7.
+2. Cb1 calls `ProcessQueue` -> `InvokeCallbacks` (nested).
+3. The nested `InvokeCallbacks` swaps the lists. It processes some downstream fan-out callback (Cb2).
+4. Because of the list swap tearing bug, the nested loop restores the outer `_pendingCallbacks` into its `_processingCallbacks` and **re-runs Cb1**.
+5. Cb1 runs again. It reads the PPU state. But VBlank is now `0` (cleared by the first run). Cb1 drives `0` to the data bus bit 7.
+6. The nested loop finishes. The outer loop resumes, skips remaining callbacks due to the torn `Count`, and completes.
+
+**Result:** The CPU sees a `0` instead of a `1` on the bus. The redundant run actively corrupted the simulation state. 
+
+If your 147-ROM regression passes today *with* the bug, it means either:
+1. The specific ROMs tested never hit a fan-out tear that overlaps with a destructive read / clock-edge increment.
+2. The golden checksum you are matching currently *bakes in the corrupted state*, and a clean fix **will** change the checksum, forcing a re-baseline. If a non-idempotent double-read is happening, there is no way to write a "clean" fix that preserves the checksum.
+
+### Concern 2: Trampoline Invasiveness
+**Your concern is entirely valid.** My initial trampoline sketch assumed `ProcessQueue` was mostly an internal loop mechanic. If `ProcessQueue` has 18 call sites relying on synchronous drain to guarantee that all downstream node settling has completely finished before the next line of C# executes, ripping `InvokeCallbacks` out of its tail breaks that contract globally. That is a massive risk. **Do not use the trampoline.**
+
+### Question 3a: Guard vs. Trampoline Execution Order
+**Yes, they are functionally identical in execution order.**
+Both strictly enforce an iterative Event-Queue drain (BFS). The trampoline does it by deferring execution to an outer main loop; your Guard does it by deferring execution to the outermost active stack frame. Both result in pending work being appended to a queue and processed in a flat `while` loop.
+
+### Question 3b: Stranded Work / Correctness of the Guard
+**No work will be stranded.**
+Because your simulator is strictly single-threaded, `_pendingCallbacks` can only be modified by synchronous code executing *inside* the `for` loop. 
+1. `_pendingCallbacks` has 1 item.
+2. Outer loop evaluates `Count > 0` (True). Swaps lists. `_pendingCallbacks` is now empty.
+3. `for` loop processes the 1 item.
+4. The item triggers a bus change, `WriteBits` calls `ProcessQueue`, which enqueues a new item into `_pendingCallbacks` (Count is now 1).
+5. `ProcessQueue` calls `InvokeCallbacks`. The Guard hits `if (_invoking) return;`.
+6. Control returns to `ProcessQueue`, which returns to the callback.
+7. The `for` loop finishes. `_processingCallbacks.Clear()`.
+8. The outer `while` loop immediately checks `_pendingCallbacks.Count > 0`. It sees the 1 new item and continues.
+
+Work is never stranded because nothing can enqueue work *after* step 8 evaluates to false.
+
+### Question 3c: Deferring Downstream Callbacks
+**This is the only potential behavioral difference, but it is standard for switch-level simulators.**
+Under the old nested structure, if Callback A triggers Callback B, B executes *before* A finishes its C# method body.
+With the Guard, B executes *after* A finishes its C# method body (deferred to the next `while` iteration).
+
+Does this change the result? **Only if Callback A expects to read B's response in the same method invocation.**
+If Callback A looks like this:
+```csharp
+void DoMemReadWrite() {
+    WriteBits(AddressBus, 0x2002);
+    ProcessQueue(); // Old code synchronously ran the PPU callback here
+    var data = ReadBits(DataBus); // Expecting PPU to have driven data!
+}
+```
+If your codebase does this, the Guard will break it, because the PPU callback is now sitting in `_pendingCallbacks` and `DataBus` hasn't been driven yet. 
+*However*, in typical switch-level half-cycle simulation, components are atomic reactive state-machines. The CPU puts the address on the bus, and *terminates*. The PPU reacts to the address bus, puts data on the data bus, and *terminates*. The CPU later reacts to the clock edge and reads the data bus. If your engine is structured reactively like this (which the existence of `_pendingCallbacks` strongly implies), deferring is perfectly safe.
+
+---
+
+### What you should do (The Verdict)
+
+**Rank:**
+1. **Option A (Re-entrancy Guard)** - 🥇 Winner.
+2. **Option B (Trampoline)** - 🛑 Reject (Too invasive for 18 call sites).
+
+**Why I would ship the Guard:**
+It is a 4-line, surgically precise fix. It leaves the synchronous contract of `ProcessQueue` intact for the 18 call sites (when the outermost `ProcessQueue` returns, the queue *is* fully drained). It bounds the stack depth, completely eliminates the tearing/redundant runs, and isolates the risk. 
+
+**What about the Checksum?**
+Ship the Re-entrancy Guard. Run the benchmark. 
+* If the checksum matches, your golden ROM purely chains, or only fans out on idempotent nodes. You win.
+* If the checksum breaks, you now have mathematical proof (via Question 1b) that the old code was redundantly executing a non-idempotent operation. Accept the break, document that the old checksum contained torn state, and **re-baseline**. You cannot preserve a bit-exact checksum of a bug without preserving the bug.

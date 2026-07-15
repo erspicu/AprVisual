@@ -514,6 +514,9 @@ namespace AprVisual.Sim
         private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
         private static int _arSelPat0 = EmptyNode, _arSelPat1 = EmptyNode, _arSetHit = EmptyNode, _arHit = EmptyNode, _arAle = EmptyNode;
         private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
+        private static int _aeAle = EmptyNode, _aeRd = EmptyNode, _aeR2007 = EmptyNode, _aeSel0 = EmptyNode, _aeSel1 = EmptyNode;
+        private static int[] _aeAb = System.Array.Empty<int>(), _aeVp = System.Array.Empty<int>(), _aeHp = System.Array.Empty<int>();
+        private static int _aeN, _aePrevH = -1, _aeArmV = -1, _aeHcBudget = 400;
         private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
                            _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
         private static readonly byte[] _dmaRdBuf = new byte[256];
@@ -1049,6 +1052,48 @@ namespace AprVisual.Sim
                     int pat = ((_arSelPat1 != EmptyNode ? NodeStates[_arSelPat1] : 0) << 1) | (_arSelPat0 != EmptyNode ? NodeStates[_arSelPat0] : 0);
                     if (pat != 0 || (_arSetHit != EmptyNode && NodeStates[_arSetHit] != 0))
                         Console.Error.WriteLine($"# [ar] t={Time} v={vA} h={hA} selPat={pat} setHit={(_arSetHit != EmptyNode ? NodeStates[_arSetHit] : 9)} hit={(_arHit != EmptyNode ? NodeStates[_arHit] : 9)} *** ARTIFACT");
+                }
+            }
+            // [ae] ALERead: trace the ALE+Read octal-latch feedback (self-contained: own vp/hp)
+            if (Time > 20000000 && _aeN < 260)
+            {
+                if (_aeAle == EmptyNode)
+                {
+                    _aeAle = LookupNode("ppu.ale"); _aeRd = LookupNode("ppu.rd");
+                    _aeR2007 = LookupNode("ppu.read_2007_trigger");
+                    var aeab = new List<int>(); ResolveNodes("ppu.ab[13:0]", aeab, quiet: true); _aeAb = aeab.Count == 14 ? aeab.ToArray() : System.Array.Empty<int>();
+                    var aevp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", aevp, quiet: true); _aeVp = aevp.Count == 9 ? aevp.ToArray() : System.Array.Empty<int>();
+                    var aehp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", aehp, quiet: true); _aeHp = aehp.Count == 9 ? aehp.ToArray() : System.Array.Empty<int>();
+                    _aeSel0 = LookupNode("ppu.selected_pat0"); _aeSel1 = LookupNode("ppu.selected_pat1");
+                    Console.Error.WriteLine($"# [ae] resolve ale={(_aeAle != EmptyNode ? 1 : 0)} rd={(_aeRd != EmptyNode ? 1 : 0)} r2007={(_aeR2007 != EmptyNode ? 1 : 0)} ab={_aeAb.Length} vp={_aeVp.Length} sel={(_aeSel0 != EmptyNode ? 1 : 0)}");
+                }
+                if (_aeAb.Length == 14 && _aeVp.Length == 9 && _aeHp.Length == 9)
+                {
+                    // arm when a $2007 read trigger fires on a low visible scanline (the stunt); then log the next ~35 dots
+                    if (_aeR2007 != EmptyNode && NodeStates[_aeR2007] != 0 && _aeArmV < 0)
+                    {
+                        int vv = ReadBits(_aeVp);
+                        if (vv >= 1 && vv <= 8) { _aeArmV = vv; _aePrevH = -1; Console.Error.WriteLine($"# [ae] ARM: $2007 read trigger at v={vv} h={ReadBits(_aeHp)}"); }
+                    }
+                    if (_aeArmV >= 0)
+                    {
+                        int vE = ReadBits(_aeVp), hE = ReadBits(_aeHp);
+                        // HALF-CYCLE sub-probe: within the overlap window, log EVERY hc (not just on hpos
+                        // change) to catch the sub-dot ALE=1 & /RD=0 transient Gemini flagged.
+                        if (vE == _aeArmV && hE >= 224 && hE <= 233 && _aeHcBudget > 0)
+                        {
+                            _aeHcBudget--;
+                            int r2007 = _aeR2007 != EmptyNode ? NodeStates[_aeR2007] : 9;
+                            Console.Error.WriteLine($"# [aehc] t={Time} v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} r2007={r2007} chrAb=${ReadBits(_aeAb):X4}");
+                        }
+                        if (vE == _aeArmV && hE != _aePrevH)
+                        {
+                            _aePrevH = hE; _aeN++;
+                            int sel = ((_aeSel1 != EmptyNode ? NodeStates[_aeSel1] : 0) << 1) | (_aeSel0 != EmptyNode ? NodeStates[_aeSel0] : 0);
+                            Console.Error.WriteLine($"# [ae] v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} chrAb=${ReadBits(_aeAb):X4} selPat={sel}");
+                        }
+                        else if (vE != _aeArmV && vE != ((_aeArmV) & 0x1FF)) { }  // stay on the armed line
+                    }
                 }
             }
             // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget

@@ -347,8 +347,16 @@ namespace AprVisual.Sim
             // then fetches from (PAR_high | held) -> here $0F00|$FF = $0FFF. Gated to the ~2-CPU-cycle
             // window after read_2007_trigger; normal games never read $2007 mid-visible-line so the
             // overlap (and this correction) never fires for them.
+            //
+            // MUST NOT fire while the netlist is itself resolving an ALE+/RD overlap (PpuAle high AND
+            // PpuRead low): injecting a forced byte there feeds the data bus back into the address
+            // through the transparent latch, re-triggering this callback without converging ($2007
+            // stress ROMs create these overlaps constantly -> callback-drain non-convergence). The real
+            // pattern-low fetch we target is NOT in that overlap (ALERead fires it at ale&rd or !ale&!rd).
             if (BoardOctalLatchShim && cb.DebugName == "cart.chr." && Time < _bolWindowUntil
-                && address < 0x2000 && (address & 0x08) == 0)
+                && address < 0x2000 && (address & 0x08) == 0
+                && cb.PpuAle != EmptyNode
+                && !(NodeStates[cb.PpuAle] != 0 && NodeStates[cb.PpuRead] == 0))
             {
                 int forced = (address & ~0xFF) | BoardOctalLatchHeld;
                 if (_bolFireCount++ < 40)

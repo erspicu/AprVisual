@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The last test — anatomy of a switch-level ceiling (AprVisual)</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8; --warn:#ffb454;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.8;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 18px; max-width:860px; margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#cfe4ff,#ffb454); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:860px; margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.6em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.5em 0 .9em; padding-left:24px;} li{margin:.35em 0;}
+  code{background:var(--code); padding:1px 6px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.5; font-family:Consolas,monospace; color:#cfe4ff;}
+  b.term{color:var(--acc2);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 18px 14px; margin:16px 0;}
+  .wall{border-left:3px solid var(--warn);}
+  .win{border-left:3px solid var(--acc2);}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:860px; margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">The last test</span><span class="zh">最後一顆</span></h1>
+  <p class="sub"><span class="en">Anatomy of a switch-level ceiling: how one hardware test (ALERead / boing2k7) resisted every fix, why it is unreachable in a pure binary switch-level engine, and exactly what it would take to break it.</span><span class="zh">一個開關級天花板的解剖:一顆硬體測試(ALERead / boing2k7)如何擋下每一種修法、為什麼純二值開關級引擎碰不到它,以及要破它究竟需要什麼。</span></p>
+</header>
+
+<main>
+
+<section>
+<h2><span class="en">1 · 140 of 141, and one that would not fall</span><span class="zh">1 · 141 顆過了 140,剩一顆打不下來</span></h2>
+<p class="en">The <a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
+<p class="zh"><a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin 硬體測試套件</a>有 141 顆,期望值全在真機上驗證過。我們的開關級引擎 —— 一顆一顆電晶體地跑 2A03 與 2C02 —— 過了 140 顆。最後一顆 <b class="term">ALERead</b>,重現的是 Damian Yerrick 的 <code>boing2k7.nes</code> 裡一個著名效應:一個抓準時機的 <code>LDA $2007</code> 汙染了一個背景 tile 的 fetch。這篇文章是完整的驗屍報告:為什麼這一顆測試成了整個專案撞過最鋒利的邊界 —— 以及一個負面結果裡藏著的好消息。</p>
+</section>
+
+<section>
+<h2><span class="en">2 · What boing2k7 actually does</span><span class="zh">2 · boing2k7 到底在做什麼</span></h2>
+<p class="en">To save pins, the PPU multiplexes its low eight VRAM address pins with the data pins. So every VRAM access takes two cycles: on the first, the full address is output and the low eight bits are latched into an <b>external 74LS373 octal latch</b> by pulsing the ALE (Address Latch Enable) line; on the second, the PPU outputs only the upper six bits, the octal latch supplies the low eight, and the data is read back on the low pins. The NESdev Wiki states the failure mode precisely:</p>
+<p class="zh">為了省腳位,PPU 把低八位 VRAM 位址腳和資料腳多工共用。所以每次 VRAM 存取要兩個週期:第一個週期輸出完整位址、脈衝 ALE(位址閂鎖致能)把低八位存進<b>外部的 74LS373 八位閂鎖</b>;第二個週期 PPU 只輸出高六位,八位閂鎖提供低八位,資料在低腳被讀回。NESdev Wiki 把這個失效模式講得一清二楚:</p>
+<div class="card"><p class="en" style="font-style:italic">"Reads come from an address composed of the latched low 8 bits and the current high 6 bits. If rendering is toggled, these can become desynced, producing a hybrid address sourced from two different addresses and reading from <b>an address the PPU itself never actually outputted</b>."</p>
+<p class="zh" style="font-style:italic">「讀取來自一個由『被閂鎖的低八位』與『當前高六位』組成的位址。若渲染被切換,兩者可能失去同步,產生一個由兩個不同位址混成的 hybrid address,從<b>一個 PPU 自己從未真正輸出過的位址</b>讀取。」</p></div>
+<p class="en">boing2k7 arranges exactly that "hybrid address". A <code>LDA $2007</code> read, cycle-counted onto a specific dot, leaves the octal latch holding a stale <code>$FF</code> (from a prior <code>$2FFF</code> attribute fetch). The next background low-plane fetch therefore reads from <code>$0FFF</code> instead of its real address — pulling in an opaque pixel run where the tile should be transparent, which a sprite-zero hit can detect. The test asks: does your emulator produce that phantom pixel? Real hardware does. A behavioural emulator (AprNes/TriCNES) does. Our switch-level engine did not.</p>
+<p class="zh">boing2k7 布置的正是這個「hybrid address」。一個精算週期、瞄準特定 dot 的 <code>LDA $2007</code> 讀取,讓八位閂鎖持有一個過期的 <code>$FF</code>(來自前一次 <code>$2FFF</code> 屬性 fetch)。於是下一次背景低位面 fetch 從 <code>$0FFF</code> 讀取、而非它真正的位址 —— 在本該透明的 tile 位置拉進一串不透明像素,一個 sprite-zero hit 就能偵測到。測試問:你的模擬器產得出那個幻影像素嗎?真機會。行為層模擬器(AprNes/TriCNES)會。我們的開關級引擎不會。</p>
+</section>
+
+<section>
+<h2><span class="en">3 · Three walls, one after another</span><span class="zh">3 · 三道牆,一道接一道</span></h2>
+<p class="en">Six forensic campaigns and six independent expert consults later, the reasons formed a stack. Each looks fixable until you hit the next.</p>
+<p class="zh">六場取證戰役、六輪獨立專家諮詢之後,原因疊成了一落。每一道看起來都可修,直到你撞上下一道。</p>
+
+<div class="card wall"><h3><span class="en">Wall 1 — the downstream shim over-fires</span><span class="zh">牆一 — 下游 shim 過度開火</span></h3>
+<p class="en">The obvious fix is to model the missing octal latch: when a <code>$2007</code> read lands during rendering, force the next background fetch's low byte to the held value. This <i>passed</i> ALERead. But it also fired on the <code>$2007</code>-stress tests — which read <code>$2007</code> constantly — and corrupted fetches that should have been clean, turning two passing tests into failures. The corruption is <b>data-dependent</b>: a time-window heuristic cannot tell boing2k7's one deliberate collision from a stress test's thousands of benign reads. (The tempting "only fire when the held byte is <code>$FF</code>" gate is 100% overfitting — the latch holds whatever the previous fetch left there; <code>$FF</code> is a coincidence of this test's tile data.)</p>
+<p class="zh">最直覺的修法是把那顆缺失的八位閂鎖補上:當 <code>$2007</code> 讀取落在渲染期,把下一個背景 fetch 的低位元組強制成閂鎖持有值。這<i>過了</i> ALERead。但它也在 <code>$2007</code> 壓力測試上開火 —— 那些測試瘋狂讀 <code>$2007</code> —— 汙染了本該乾淨的 fetch,把兩顆原本會過的測試變成失敗。這個汙染是<b>資料相依</b>的:時間窗啟發式分不出 boing2k7 那一次刻意的對撞,和壓力測試裡數千次無害的讀取。(那個誘人的「只在持有值是 <code>$FF</code> 時開火」條件是 100% 過擬合 —— 閂鎖持有的是前一次 fetch 留下的任何值,<code>$FF</code> 只是這顆測試 tile 資料的巧合。)</p></div>
+
+<div class="card wall"><h3><span class="en">Wall 2 — the upstream fix is architecturally impossible</span><span class="zh">牆二 — 上游修法在架構上不可能</span></h3>
+<p class="en">If a downstream patch is too blunt, fix it upstream: the real problem is that our CPU→PPU cross-chip timing is idealized to zero delay, so the <code>$2007</code> read's effect lands about <b>one CPU cycle (three PPU dots) early</b> — the octal latch samples at the wrong dot. Delay the access by 24 half-cycles and the phase corrects itself. Except: a binary switch-level engine resolves each wire group by a fixed priority — <b>a path to ground wins, then VDD, then external drives</b>. That makes it trivial to force a wire <i>low</i> but, when the netlist is actively driving a wire low, essentially impossible to force it <i>high</i>. You cannot delay a netlist-driven trigger (re-asserting it high fails), and you cannot replay the access later either — 24 half-cycles on, the CPU has moved to its next instruction and is strongly driving the shared bus with a new opcode, so the stale address/data can't be injected. A behavioural model just writes <code>bus = value</code>; a switch-level engine cannot.</p>
+<p class="zh">如果下游 patch 太粗,就往上游修:真正的問題是我們的 CPU→PPU 跨晶片時序被理想化成零延遲,所以 <code>$2007</code> 讀取的效應早了約<b>一個 CPU 週期(三個 PPU dot)</b>—— 八位閂鎖在錯的 dot 取樣。把存取延遲 24 個半週期,相位就自己修正了。只是:二值開關級引擎用固定優先級解每個線群 —— <b>通往地的路徑贏,其次 VDD,再其次外部驅動</b>。這讓「把線壓低」很容易,但當網表正主動驅動一條線為低時,「把它拉高」基本上不可能。你無法延遲一個網表驅動的觸發信號(重新拉高會失敗),也無法稍後重播那個存取 —— 24 個半週期後,CPU 已經走到下一條指令、正用新的 opcode 強力驅動共用匯流排,過期的位址/資料注不進去。行為層模型只要寫 <code>bus = value</code>;開關級引擎做不到。</p></div>
+
+<div class="card wall"><h3><span class="en">Wall 3 — it was never one test</span><span class="zh">牆三 — 它從來不是一顆測試</span></h3>
+<p class="en">The deepest turn: that same "cross-chip effect lands three dots early" is <i>also</i> the root cause of two tests we <b>had</b> fixed — the dot-339 sprite-counter reset and the even-odd frame timing. All three are one phenomenon: propagation latency (the pins, wires and synchronizers between the two chips) quantized to zero by a settle-to-quiescence model. The difference is only in what the early signal lands on. dot-339 and even-odd land on <i>internal PPU logic nodes</i> that have a clean downstream point to intercept, so a surgical delay fixes them. ALERead's lands on the <i>external board 74LS373</i>, through a <i>data-dependent</i> corruption — and neither the downstream nor the upstream intercept is reachable, as Walls 1 and 2 just showed.</p>
+<p class="zh">最深的轉折:那個「跨晶片效應早三個 dot」<i>同時</i>是另外兩顆我們<b>已經修好</b>的測試的根因 —— dot-339 的 sprite counter 重設、以及 even-odd 的畫格時序。三顆是同一個現象:傳播延遲(兩顆晶片之間的腳位、走線、同步器)被 settle-到-靜止模型量化成零。差別只在那個提早的信號打在什麼上面。dot-339 和 even-odd 打在<i>PPU 內部邏輯節點</i>上、有乾淨的下游點可攔截,外科手術式的延遲就修好了。ALERead 打在<i>板上的外部 74LS373</i>、透過一個<i>資料相依</i>的汙染 —— 而下游和上游的攔截都碰不到,牆一和牆二剛剛證明了。</p></div>
+</section>
+
+<section>
+<h2><span class="en">4 · The ceiling, stated exactly</span><span class="zh">4 · 天花板,精確陳述</span></h2>
+<p class="en">ALERead is the only test in all 141 that sits at the intersection of three limits at once:</p>
+<p class="zh">ALERead 是全部 141 顆裡唯一同時坐落在三個極限交集上的:</p>
+<table>
+  <tr><th><span class="en">Limit</span><span class="zh">極限</span></th><th><span class="en">Here</span><span class="zh">在這顆</span></th></tr>
+  <tr><td><b class="term">A4</b> <span class="en">propagation latency</span><span class="zh">傳播延遲</span></td>
+      <td><span class="en">the cross-chip <code>$2007</code> effect lands 3 dots early — the settle model has no time axis to hold the delay</span><span class="zh">跨晶片 <code>$2007</code> 效應早 3 dot —— settle 模型沒有時間軸能承載這個延遲</span></td></tr>
+  <tr><td><b class="term">B</b> <span class="en">unmodelled board part</span><span class="zh">未建模的板級零件</span></td>
+      <td><span class="en">the corruption happens in the external 74LS373 octal latch, which is on the board, not in either die's netlist</span><span class="zh">汙染發生在外部的 74LS373 八位閂鎖,它在板上、不在任一晶粒的網表裡</span></td></tr>
+  <tr><td><span class="en">binary engine</span><span class="zh">二值引擎</span></td>
+      <td><span class="en">GND&gt;VDD&gt;drive priority can neither force a driven wire high nor inject stale bus data — so no shim can reach the effect</span><span class="zh">GND&gt;VDD&gt;drive 優先級既不能把被驅動的線拉高、也不能注入過期匯流排資料 —— 所以沒有 shim 碰得到這個效應</span></td></tr>
+</table>
+<p class="en">This is why it is not "we haven't found the shim yet". dot-339 and even-odd prove the A4 ceiling can <i>sometimes</i> be shimmed; ALERead proves it sometimes <i>cannot</i>. That distinction — a limit that is genuinely unreachable, not merely unsolved — is the real result. Six consults with a frontier model, cross-checked against the NESdev Wiki and two independent silicon-derived emulators, all converged on the same verdict: a pure binary switch-level engine, lacking a virtual tri-state bus model, cannot reproduce this. 140 / 141 is the honest, falsifiable ceiling.</p>
+<p class="zh">這就是為什麼它不是「我們還沒找到 shim」。dot-339 和 even-odd 證明 A4 天花板<i>有時</i>能被 shim;ALERead 證明它有時<i>不能</i>。這個區別 —— 一個真正碰不到、而非只是還沒解的極限 —— 才是真正的結果。六輪與前沿模型的諮詢,交叉比對 NESdev Wiki 與兩個獨立的、從矽推導的模擬器,全部收束到同一個判決:一個缺少虛擬三態匯流排模型的純二值開關級引擎,重現不了這個。140 / 141 是誠實、可證偽的天花板。</p>
+</section>
+
+<section>
+<h2><span class="en">5 · The good news: not absolute, just switch-level</span><span class="zh">5 · 好消息:不是絕對,只是開關級</span></h2>
+<p class="en">The ceiling is <i>pure switch-level</i>, not absolute. The behavioural emulators that pass ALERead do it by modelling exactly the parts our die-only netlist omits — an explicit <code>$2007</code> read state machine (a small shift-register pipeline that generates the read's ALE at the correct phase) plus a behavioural octal latch (a code byte, which sidesteps the force-high wall entirely). Address = high six bits from the PPU, low eight from that latch. Because the pipeline gives the <i>correct</i> phase, the latch captures its stale byte only when boing2k7 actually happens — precise, where the time-window shim was blunt, so the stress tests stay clean.</p>
+<p class="zh">這個天花板是<i>純開關級</i>的,不是絕對的。通過 ALERead 的行為層模擬器,靠的正是模擬我們「只有晶粒」的網表所省略的那些零件 —— 一個顯式的 <code>$2007</code> 讀取狀態機(一小段移位暫存器 pipeline,在正確相位產生讀取的 ALE)加上一個行為層八位閂鎖(一個 code byte,完全繞過拉高牆)。位址 = PPU 的高六位、加上那個閂鎖的低八位。因為 pipeline 給了<i>正確</i>相位,閂鎖只在 boing2k7 真正發生時捕捉它的過期位元組 —— 精確,而時間窗 shim 是粗糙的,所以壓力測試維持乾淨。</p>
+<div class="card win"><p class="en">And this is not a foreign graft. Our engine is <i>already</i> a hybrid: the two dies run at switch level, but everything off-die — work RAM, cartridge ROM, the controller's CD4021 shift register, the mapper — is behavioural. The 74LS373 is a board chip, exactly like the CD4021 already is. Modelling it behaviourally is not a compromise of the switch-level principle; it is the principle's own boundary, drawn where it was always meant to be: <b>the netlist describes the silicon; the board is a separate, legitimately behavioural layer.</b> The fix belongs to a planned analog-aware fork (<a href="mixed-signal.html">its board-component mechanism, M5</a>), and it is ALERead that makes the strongest case for why that mechanism is load-bearing, not decorative.</p>
+<p class="zh">而這不是外來的移植。我們的引擎<i>本來</i>就是混合體:兩顆晶粒跑開關級,但晶粒以外的一切 —— 工作 RAM、卡帶 ROM、手把的 CD4021 移位暫存器、mapper —— 都是行為層。74LS373 是一顆板級晶片,和 CD4021 完全同級。用行為層模它不是對開關級原則的妥協;它就是那個原則自己的邊界,畫在它本該在的地方:<b>網表描述矽晶片;板子是一個獨立的、正當的行為層。</b>這個修法屬於一個規劃中的類比感知分支(<a href="mixed-signal.html">它的板級元件機制,M5</a>),而正是 ALERead,為「那個機制是承重的、不是裝飾的」提供了最強的理由。</p></div>
+</section>
+
+<section>
+<h2><span class="en">6 · What the last test taught</span><span class="zh">6 · 最後一顆教會的事</span></h2>
+<p class="en">A netlist looks like the ultimate ground truth — every transistor traced from die photographs. This one test is the sharpest reminder that it is a snapshot of <i>geometric connectivity</i>, not a complete description of a running console. The console is two dies on a board full of analog technique and TTL glue, and one deliberately cruel test can aim straight at the seam between them. We did not "fail" ALERead so much as <i>locate</i> it: map the exact three-way intersection that puts it out of a binary switch-level engine's reach, prove the reach ends there rather than guessing, and hand the next stage a precise, load-bearing reason to build the one mechanism that crosses it. In a project whose whole ethos is <a href="semantic-ceiling.html">falsifiable results</a>, a boundary this cleanly drawn is worth more than a 141 with a shim nobody can explain.</p>
+<p class="zh">網表看起來像終極的真相 —— 每顆電晶體都從 die 照片描下來。這一顆測試是最鋒利的提醒:它是<i>幾何連通性</i>的快照,不是一台運轉中主機的完整描述。主機是兩顆晶粒放在一塊滿是類比手法與 TTL 膠合邏輯的板子上,而一顆刻意兇殘的測試,能瞄準它們之間的接縫直射。我們與其說「沒過」ALERead,不如說是<i>定位</i>了它:把讓它超出二值開關級引擎射程的那個確切三方交集畫出來、證明射程到此為止而非用猜的、並交給下一階段一個精確而承重的理由去建那個唯一能跨過它的機制。在一個整個精神就是<a href="semantic-ceiling.html">可證偽結果</a>的專案裡,一條畫得這麼乾淨的邊界,比一個帶著沒人解釋得清的 shim 的 141 更有價值。</p>
+<p class="mut" style="margin-top:1.4em"><span class="en">Sister articles: <a href="semantic-ceiling.html">the semantic ceiling</a> (where the boundary is) · <a href="mixed-signal.html">crossing the analog boundary</a> (the plan to cross it). Investigation record: six consults under <code>tools/knowledgebase/a_{aleread,bol,m6}_*</code>, handoffs under <code>MD/toDoNext4/</code>.</span><span class="zh">姊妹文章:<a href="semantic-ceiling.html">語意天花板</a>(邊界在哪)· <a href="mixed-signal.html">跨越類比邊界</a>(跨越它的計畫)。調查紀錄:六輪諮詢在 <code>tools/knowledgebase/a_{aleread,bol,m6}_*</code>,交接在 <code>MD/toDoNext4/</code>。</span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">Part of the <a href="semantic-ceiling.html">semantic-ceiling</a> series. Latest source on the <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> branch.</span>
+     <span class="zh"><a href="semantic-ceiling.html">語意天花板</a>系列之一。最新原始碼在 <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> 分支。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable.</span><span class="zh">讓開關級矽電路變得可分析。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

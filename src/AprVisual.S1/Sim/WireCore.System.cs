@@ -1767,6 +1767,12 @@ namespace AprVisual.Sim
 
         private static bool PpuWriteDelayArmedWindow(int oldValue, int newValue)
         {
+            // Global calibration mode: delay EVERY bkg/spr enable transition uniformly (the correct
+            // cross-chip write-delay model). Subsumes the narrow window -- when on, the v==261 site
+            // is just one of many. Reuses the proven single-shot clamp-REGISTER machinery (holds the
+            // old register value for N hc, then releases to the netlist's already-updated value),
+            // which does NOT pin combinational nodes (that was the ruled-out downstream-clamp bug).
+            if (PpuWriteDelayGlobal) return oldValue != newValue;
             int v = ReadBits(_pwdVp);
             int h = ReadBits(_pwdHp);
             if (v != 261 || h > 339) return false;
@@ -1774,6 +1780,9 @@ namespace AprVisual.Sim
             if (oldValue != 0 && newValue == 0) return h >= 338;  // late disable
             return false;
         }
+
+        // Delay magnitude: global mode overrides the narrow-window default.
+        private static int PpuWriteDelayEffectiveHc() => PpuWriteDelayGlobal ? PpuWriteDelayGlobalHc : PpuWriteDelayHc;
 
         private static void PpuWriteDelayDebug(string nodeName, int oldValue, int newValue, bool armed)
         {
@@ -1809,7 +1818,7 @@ namespace AprVisual.Sim
                         _pwdBkgHold = _pwdBkgPrev;
                         _pwdBkgClamp = _pwdBkgHold == 0 ? _pwdBkg : _pwdNBkg;
                         InstClampLow(_pwdBkgClamp);
-                        _pwdBkgRel = Time + PpuWriteDelayHc;
+                        _pwdBkgRel = Time + PpuWriteDelayEffectiveHc();
                     }
                     else _pwdBkgPrev = now;
                 }
@@ -1838,7 +1847,7 @@ namespace AprVisual.Sim
                         _pwdSprHold = _pwdSprPrev;
                         _pwdSprClamp = _pwdSprHold == 0 ? _pwdSpr : _pwdNSpr;
                         InstClampLow(_pwdSprClamp);
-                        _pwdSprRel = Time + PpuWriteDelayHc;
+                        _pwdSprRel = Time + PpuWriteDelayEffectiveHc();
                     }
                     else _pwdSprPrev = now;
                 }
@@ -1868,24 +1877,17 @@ namespace AprVisual.Sim
         private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
         private static long _pwdgStart;
 
+        // Global calibration MODE for the clamp-register PpuWriteDelay shim (not a separate shim):
+        // when set, PpuWriteDelayArmedWindow arms on EVERY bkg/spr enable transition (uniform delay),
+        // and the release uses PpuWriteDelayGlobalHc. The narrow-window logic is subsumed. The
+        // ruled-out downstream-clamp delay-line (its ring/nodes/PwdgDrive) is retired; kept out of
+        // the step path. MUST also enable the base PpuWriteDelay so PpuWriteDelayStep runs.
         public static void EnablePpuWriteDelayGlobal(int hc)
         {
             if (hc <= 0) { PpuWriteDelayGlobal = false; return; }
-            _pwdgBkg = LookupNode("ppu.bkg_enable");
-            _pwdgSpr = LookupNode("ppu.spr_enable");
-            _pwdgBkgOut = LookupNode("ppu.bkg_enable_out");
-            _pwdgSprOut = LookupNode("ppu.spr_enable_out");
-            if (_pwdgBkg == EmptyNode || _pwdgSpr == EmptyNode || _pwdgBkgOut == EmptyNode || _pwdgSprOut == EmptyNode || hc >= PwdgRing)
-            { Console.Error.WriteLine("# [shim] ppu-write-delay-global: nodes unresolved or hc too large -- disabled"); PpuWriteDelayGlobal = false; return; }
             PpuWriteDelayGlobalHc = hc;
-            _pwdgHead = 0;
-            _pwdgBkgDriven = _pwdgSprDriven = 0;
-            _pwdgStart = Time;
-            // seed the ring with the current register values so the first N hc read consistent state
-            byte b0 = (byte)NodeStates[_pwdgBkg], s0 = (byte)NodeStates[_pwdgSpr];
-            for (int i = 0; i < PwdgRing; i++) { _pwdgBkgHist[i] = b0; _pwdgSprHist[i] = s0; }
             PpuWriteDelayGlobal = true;
-            Console.Error.WriteLine($"# [shim] ppu-write-delay-global armed: {hc} hc ({hc / 8.0:F1} dots) -- drives *_enable_out from the delayed register");
+            Console.Error.WriteLine($"# [shim] ppu-write-delay GLOBAL mode: {hc} hc ({hc / 8.0:F1} dots) -- clamp-register, every enable transition");
         }
 
         private static void PpuWriteDelayGlobalStep()

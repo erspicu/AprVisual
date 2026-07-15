@@ -37,7 +37,7 @@ namespace AprVisual.Test
         internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
         internal static bool _noPpuAleReadFeedbackShim;    // --no-ppu-ale-read-feedback-shim: A/B the CHR analog-loop guard
         internal static int  _ppuWriteDelayHc = 16;        // $2001 write-effect delay in hc (even_odd; GLOBAL test-mode, --ppu-write-delay overrides, 0=off)
-        internal static int  _ppuWriteDelayGlobalHc = 0;   // GLOBAL cross-chip write-delay line in hc (calibration project, --ppu-write-delay-global, 0=OFF; scaffold only)
+        internal static int  _ppuWriteDelayGlobalHc = 24;  // dot-339 sprite-counter-reset delay in hc (visible lines; StaleSprite Test3; --ppu-write-delay-global overrides, 0=off). 9-test regression + even_odd verified clean.
         internal static bool _oamDmaPpuBusShim = true;      // $4014-from-PPU-I/O-bus OAM write-data hold (GLOBAL test-mode; --no-oam-dma-ppu-bus-shim disables)
         internal static bool _noShims;                     // --no-shims: disable ALL test-mode shims (diagnostics)
         internal static bool _joypad;                      // --joypad: enable behavioral joypad + tie-rewire (per-test; perturbs graph)

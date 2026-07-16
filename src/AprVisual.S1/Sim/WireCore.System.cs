@@ -514,6 +514,10 @@ namespace AprVisual.Sim
         private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
         private static int _arSelPat0 = EmptyNode, _arSelPat1 = EmptyNode, _arSetHit = EmptyNode, _arHit = EmptyNode, _arAle = EmptyNode;
         private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
+        // [bgs] BGSerialIn toggle-phase probe fields (OB_DEBUG only)
+        private static int _bgsN, _bgsDb, _bgsAb; private static bool _bgsInWr;
+        // [syn] sync-routine decision probe fields: $4015 reads (SLO get/put detector) + $4017 writes
+        private static int _synN; private static bool _synIn4015R, _synIn4017W; private static int _syn4017Db, _syn4015Db;
         // [ae]/[aehc] ALERead forensic probe (OB_DEBUG only): per-dot + per-hc ALE/RD/chrAb around the $2007-read overlap
         private static int _aeAle = EmptyNode, _aeRd = EmptyNode, _aeR2007 = EmptyNode, _aeSel0 = EmptyNode, _aeSel1 = EmptyNode;
         private static int[] _aeAb = System.Array.Empty<int>(), _aeVp = System.Array.Empty<int>(), _aeHp = System.Array.Empty<int>(), _aeIoAb = System.Array.Empty<int>();
@@ -817,6 +821,46 @@ namespace AprVisual.Sim
                         Console.Error.WriteLine($"# [sp] t={Time} tup bkg={tup >> 5 & 1} spr={tup >> 4 & 1} bkgOut={tup >> 3 & 1} sprOut={tup >> 2 & 1} rend={tup >> 1 & 1} hit={tup & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
                         _spPrevTup = tup;
                     }
+                }
+            }
+            // [bgs] BGSerialIn toggle-phase probe: every $2001-SPACE write ((ab&$E007)==$2001 --
+            // including the $3E01 mirror the test's DISABLE half uses) that lands in the visible
+            // region, with PPU coords. The 360-toggle loop self-aligns its enable writes to land
+            // at dot%8==6 (hardware +2 delay -> effect at %8==0, straddling the %8==7 shifter
+            // load); a systematic phase slip here is the in-suite err2 root-cause signature.
+            if (_bgsN < 900 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
+            {
+                int abB = ReadReg(R_CpuAb);
+                bool wrB = (abB & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
+                if (wrB) { _bgsDb = ReadReg(R_CpuDb); if (!_bgsInWr) { _bgsInWr = true; _bgsAb = abB; } }
+                else if (_bgsInWr)
+                {
+                    _bgsInWr = false;
+                    int vB = ReadBits(_spVp), hB = ReadBits(_spHp);
+                    if (vB >= 2 && vB <= 235)   // visible region only: the toggle loop; menu/vblank writes skipped
+                    { _bgsN++; Console.Error.WriteLine($"# [bgs] t={Time} W${_bgsAb:X4}=${_bgsDb:X2} v={vB} h={hB} h%8={hB % 8}"); }
+                }
+            }
+            // [syn] sync-routine decision probe: every $4015 READ (the SLO get/put detector reads
+            // the frame-IRQ flag whose set-cycle parity IS the discriminator) with the value the
+            // CPU actually got, and every $4017 write (frame-counter reset). Low-frequency; the
+            // BGSerialIn in-suite sync walks a branch the standalone never takes.
+            if (_synN < 240 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
+            {
+                int abS2 = ReadReg(R_CpuAb);
+                bool rd4015 = abS2 == 0x4015 && NodeStates[_pdRw] != 0;
+                bool wr4017 = abS2 == 0x4017 && NodeStates[_pdRw] == 0;
+                if (rd4015) { _synIn4015R = true; _syn4015Db = ReadReg(R_CpuDb); }   // sample DURING the read; last hc wins
+                else if (_synIn4015R)
+                {
+                    _synIn4015R = false; _synN++;
+                    Console.Error.WriteLine($"# [syn] t={Time} R4015 -> ${_syn4015Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                }
+                if (wr4017) { _synIn4017W = true; _syn4017Db = ReadReg(R_CpuDb); }
+                else if (_synIn4017W)
+                {
+                    _synIn4017W = false; _synN++;
+                    Console.Error.WriteLine($"# [syn] t={Time} W4017=${_syn4017Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
                 }
             }
             // [sq] sprite-eval pipeline edges in the control frame (no blank) vs the stunt frame

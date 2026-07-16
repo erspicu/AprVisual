@@ -68,8 +68,8 @@
 
 <section>
 <h2><span class="en">1 · 140 of 141, and one that would not fall</span><span class="zh">1 · 141 顆過了 140,剩一顆打不下來</span></h2>
-<p class="en">The <a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
-<p class="zh"><a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin 硬體測試套件</a>有 141 顆,期望值全在真機上驗證過。我們的開關級引擎 —— 一顆一顆電晶體地跑 2A03 與 2C02 —— 過了 140 顆。最後一顆 <b class="term">ALERead</b>,重現的是 Damian Yerrick 的 <code>boing2k7.nes</code> 裡一個著名效應:一個抓準時機的 <code>LDA $2007</code> 汙染了一個背景 tile 的 fetch。這篇文章是完整的驗屍報告:為什麼這一顆測試成了整個專案撞過最鋒利的邊界 —— 以及一個負面結果裡藏著的好消息。</p>
+<p class="en">The <a href="https://erspicu.github.io/AprVisual/ReportAC/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
+<p class="zh"><a href="https://erspicu.github.io/AprVisual/ReportAC/">AccuracyCoin 硬體測試套件</a>有 141 顆,期望值全在真機上驗證過。我們的開關級引擎 —— 一顆一顆電晶體地跑 2A03 與 2C02 —— 過了 140 顆。最後一顆 <b class="term">ALERead</b>,重現的是 Damian Yerrick 的 <code>boing2k7.nes</code> 裡一個著名效應:一個抓準時機的 <code>LDA $2007</code> 汙染了一個背景 tile 的 fetch。這篇文章是完整的驗屍報告:為什麼這一顆測試成了整個專案撞過最鋒利的邊界 —— 以及一個負面結果裡藏著的好消息。</p>
 </section>
 
 <section>

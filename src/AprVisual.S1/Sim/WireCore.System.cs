@@ -687,7 +687,7 @@ namespace AprVisual.Sim
         //                                  overlap at dot 228, where u2 (transparent) captures the $2FFF bus $FF
         //   freeze   [fzStart, fzEnd)    : ppu.ale clamped 0 -> u2 HOLDS $FF through dot 229 (would else re-capture
         //                                  the pattern-low $04), so the dot-230 fetch addresses $0FFF -> $FF -> artifact
-        private static int _muxSwEnd = 13, _muxRpStart = 13, _muxRpEnd = 25, _muxFzStart = 45, _muxFzEnd = 53;
+        private static int _muxSwEnd = 13, _muxRpStart = 13, _muxRpEnd = 25, _muxFzStart = 44, _muxFzEnd = 52;
         // Detection gate: only the boing2k7 stunt (v=3, dot ~223). $2007-stress tests read $2007 hundreds of
         // times but never at v=3 -- gating tight here is what keeps the mux from corrupting their value-checks.
         private static int _muxVlo = 3, _muxVhi = 3, _muxHlo = 220, _muxHhi = 226;

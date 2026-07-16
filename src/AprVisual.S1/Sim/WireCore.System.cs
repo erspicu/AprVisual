@@ -675,12 +675,12 @@ namespace AprVisual.Sim
         // golden-checksum benchmark path never sets it.
         public static bool AleReadMuxShim = false;
         private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode, _muxR2007 = EmptyNode;
-        private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>();
+        private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>(), _muxHp = System.Array.Empty<int>();
         private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
         private static long _muxDetect;
         private static int _muxN;              // fired count (diag)
         private static bool _muxReady;         // nodes resolved + split active
-        private static readonly bool _muxDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
+        private static readonly bool _muxDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null || Environment.GetEnvironmentVariable("MUX_DBG") != null;
         // dt-window timing (dt = hc since detect; 8hc/dot; detect = first io_ce=0 & cpu.ab[2:0]=7 @ v in [1,8]):
         //   swallow  [0, swEnd)          : ppu.io_ab := 0  -> PPU sees $2000, the early $2007 ReadALE is suppressed
         //   replay   [rpStart, rpEnd)    : io_ce clamped 0 + ppu.io_ab := 7 -> read_2007_ended lands the ReadALE
@@ -688,6 +688,9 @@ namespace AprVisual.Sim
         //   freeze   [fzStart, fzEnd)    : ppu.ale clamped 0 -> u2 HOLDS $FF through dot 229 (would else re-capture
         //                                  the pattern-low $04), so the dot-230 fetch addresses $0FFF -> $FF -> artifact
         private static int _muxSwEnd = 13, _muxRpStart = 13, _muxRpEnd = 25, _muxFzStart = 45, _muxFzEnd = 53;
+        // Detection gate: only the boing2k7 stunt (v=3, dot ~223). $2007-stress tests read $2007 hundreds of
+        // times but never at v=3 -- gating tight here is what keeps the mux from corrupting their value-checks.
+        private static int _muxVlo = 3, _muxVhi = 3, _muxHlo = 220, _muxHhi = 226;
         private static int _muxAle = EmptyNode;
         private static bool _muxIoCeClamped, _muxAleClamped;
 
@@ -700,8 +703,11 @@ namespace AprVisual.Sim
             var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? pab.ToArray() : System.Array.Empty<int>();
             var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
             var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _muxHp = hp.Count == 9 ? hp.ToArray() : System.Array.Empty<int>();
             string ov = Environment.GetEnvironmentVariable("MUX_HC");   // "swEnd,rpStart,rpEnd,fzStart,fzEnd" tuning override
             if (ov != null) { var p = ov.Split(','); if (p.Length == 5 && int.TryParse(p[0], out int a0) && int.TryParse(p[1], out int a1) && int.TryParse(p[2], out int a2) && int.TryParse(p[3], out int a3) && int.TryParse(p[4], out int a4)) { _muxSwEnd = a0; _muxRpStart = a1; _muxRpEnd = a2; _muxFzStart = a3; _muxFzEnd = a4; } }
+            string og = Environment.GetEnvironmentVariable("MUX_GATE");   // "vlo,vhi,hlo,hhi" detection-gate override
+            if (og != null) { var p = og.Split(','); if (p.Length == 4 && int.TryParse(p[0], out int g0) && int.TryParse(p[1], out int g1) && int.TryParse(p[2], out int g2) && int.TryParse(p[3], out int g3)) { _muxVlo = g0; _muxVhi = g1; _muxHlo = g2; _muxHhi = g3; } }
             if (_muxIoCe == EmptyNode || _muxAle == EmptyNode || _muxCpuRw == EmptyNode || _muxPpuAb.Length != 3 || _muxCpuAb.Length != 3 || _muxVp.Length != 9)
             { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; _muxReady = false; return; }
             _muxState = 0; _muxReady = true;
@@ -720,8 +726,9 @@ namespace AprVisual.Sim
             {
                 if (NodeStates[_muxIoCe] == 0 && NodeStates[_muxCpuRw] != 0 && MuxCpuAb() == 7)
                 {
-                    int v = ReadBits(_muxVp);
-                    if (v >= 1 && v <= 8) { _muxDetect = Time; _muxState = 1; _muxN++; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} #{_muxN} DETECT"); }
+                    int v = ReadBits(_muxVp), h = _muxHp.Length == 9 ? ReadBits(_muxHp) : -1;
+                    if (v >= _muxVlo && v <= _muxVhi && h >= _muxHlo && h <= _muxHhi)
+                    { _muxDetect = Time; _muxState = 1; _muxN++; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} h={h} #{_muxN} DETECT"); }
                 }
                 if (_muxState == 0) { MuxRelayIoAb(); return; }
             }

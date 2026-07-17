@@ -97,6 +97,7 @@ class Svg:
         self.el.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{fill}" fill-opacity="{opac}" rx="{rx}"/>')
 
     def text(self, x, y, s, fill=MUT, size=12, anchor="start", bold=False, rotate=None):
+        s = str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         fw = ' font-weight="700"' if bold else ""
         tr = f' transform="rotate({rotate} {x} {y})"' if rotate is not None else ""
         self.el.append(f'<text x="{x:.1f}" y="{y:.1f}" fill="{fill}" font-size="{size}"{fw} text-anchor="{anchor}"{tr}>{s}</text>')

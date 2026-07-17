@@ -518,6 +518,13 @@ namespace AprVisual.Sim
         private static int _bgsN, _bgsDb, _bgsAb; private static bool _bgsInWr;
         // [syn] sync-routine decision probe fields: $4015 reads (SLO get/put detector) + $4017 writes
         private static int _synN; private static bool _synIn4015R, _synIn4017W; private static int _syn4017Db, _syn4015Db;
+        // [pc] probe window (PC_WIN=lo,hi env override; defaults = the original IDR-forensics window)
+        private static readonly long _pcWinLo = ParsePcWin(0, 13750000), _pcWinHi = ParsePcWin(1, 15090000);
+        private static long ParsePcWin(int idx, long dflt)
+        {
+            var s = Environment.GetEnvironmentVariable("PC_WIN")?.Split(',');
+            return s != null && s.Length == 2 && long.TryParse(s[idx], out long v) ? v : dflt;
+        }
         // [ae]/[aehc] ALERead forensic probe (OB_DEBUG only): per-dot + per-hc ALE/RD/chrAb around the $2007-read overlap
         private static int _aeAle = EmptyNode, _aeRd = EmptyNode, _aeR2007 = EmptyNode, _aeSel0 = EmptyNode, _aeSel1 = EmptyNode;
         private static int[] _aeAb = System.Array.Empty<int>(), _aeVp = System.Array.Empty<int>(), _aeHp = System.Array.Empty<int>(), _aeIoAb = System.Array.Empty<int>();
@@ -1685,8 +1692,9 @@ namespace AprVisual.Sim
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
             OamBlankEdgeShimStep();   // rendering-disable edge must not write OAM (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
-            // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
-            if (_pdDbg && Time >= 13750000 && Time <= 15090000 && _pcTrN < 900)
+            // TEMP diag: PC-transition log in a Time window (default = the IDR-forensics window;
+            // override with PC_WIN=lo,hi for new investigations without a per-window rebuild)
+            if (_pdDbg && Time >= _pcWinLo && Time <= _pcWinHi && _pcTrN < 900)
             {
                 int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
                 int pgN = pcNow >> 8, pgP = _pcTrPrev >> 8;

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual S1a — advance &amp; analogy: exploring the netlist's physical boundary</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+
+  header.hero{padding:72px 24px 56px; text-align:center;
+    background:radial-gradient(1100px 520px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(42px,9vw,76px); margin:0 0 6px; letter-spacing:-1px;
+    background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.hero .tag{font-size:clamp(16px,3.4vw,21px); color:#e8dcff; margin:0 auto 10px; max-width:720px; font-weight:500;}
+  header.hero .sub{color:var(--mut); max-width:680px; margin:0 auto 26px; font-size:15px;}
+  .hbtns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .btn{display:inline-block; border-radius:8px; padding:11px 20px; font-size:14px; font-weight:600; border:1px solid var(--bd);}
+  .btn.primary{background:var(--acc); color:#160f1f; border-color:var(--acc);}
+  .btn.primary:hover{text-decoration:none; filter:brightness(1.08);}
+  .btn.ghost{background:var(--card); color:var(--fg);}
+  .btn.ghost:hover{text-decoration:none; border-color:var(--acc); color:var(--acc);}
+
+  main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:34px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:24px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700; margin-bottom:2px;}
+  h3{font-size:17px; margin:1.4em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace;}
+
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr;}}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0; border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+
+  .ladder{list-style:none; padding:0; margin:14px 0;}
+  .ladder li{padding:10px 14px; border:1px solid var(--bd); border-radius:8px; margin:7px 0; background:#171420; font-size:14px; display:flex; gap:12px; align-items:baseline;}
+  .ladder li .lv{min-width:150px; font-weight:700; color:#efe9f7;}
+  .ladder li.me{border-color:var(--acc); background:#221a2e;}
+  .ladder li.gap{border-style:dashed; border-color:var(--acc2); background:#14201a;}
+
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:max(920px, 50vw); margin:0 auto;}
+
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="#charter"><span class="en">Charter</span><span class="zh">定位</span></a>
+  <a class="sec" href="#gap"><span class="en">The gap</span><span class="zh">那道縫</span></a>
+  <a class="sec" href="#evidence"><span class="en">Evidence</span><span class="zh">證據</span></a>
+  <a class="sec" href="#plan"><span class="en">Mechanisms</span><span class="zh">機制</span></a>
+  <a class="sec" href="#education"><span class="en">Education</span><span class="zh">教育</span></a>
+  <a class="sec" href="#archaeology"><span class="en">Foundations</span><span class="zh">考古文庫</span></a>
+  <a class="sec" href="#status"><span class="en">Status</span><span class="zh">現況</span></a>
+  <a class="sec" href="index.html" style="color:var(--acc2)"><span class="en">← AprVisual (S1)</span><span class="zh">← AprVisual 主站(S1)</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1>S1a</h1>
+  <p class="tag en">advance &amp; analogy — a study fork that walks past the netlist's edge, toward the physics underneath.</p>
+  <p class="tag zh">advance &amp; analogy —— 一個走出網表邊緣、朝底下物理前進的研究分支。</p>
+  <p class="sub en">The golden engine (S1) proved a binary switch-level netlist can match real silicon on 141 + 147 hardware-verified tests. S1a asks the next question: what is the <i>minimum necessary physics</i> to model the residue the netlist cannot express — and can we fill the gap between switch level and circuit/device level, one principled mechanism at a time?</p>
+  <p class="sub zh">黃金引擎(S1)已證明:二值開關級網表能在 141 + 147 顆硬體驗證測試上追平真矽。S1a 問下一個問題:要描述網表表達不了的那些殘餘,「最小必要的物理」是什麼 —— 我們能不能用一個個有原理的機制,把 switch-level 與 circuit/device-level 之間的縫填起來?</p>
+  <div class="hbtns">
+    <a class="btn primary" href="index.html"><span class="en">← Back to AprVisual</span><span class="zh">← 回 AprVisual 主站</span></a>
+    <a class="btn ghost" href="https://github.com/erspicu/AprVisual"><span class="en">View on GitHub</span><span class="zh">前往 GitHub</span></a>
+  </div>
+  <p class="mut" style="font-size:12.5px; margin-top:10px"><span class="en">Fork scaffolded 2026-07-17 · starts life as a bit-exact clone of S1 (golden checksum verified) · study in progress</span><span class="zh">分支建立於 2026-07-17 · 以 S1 的 bit-exact 克隆起跑(金 checksum 驗證)· 研究進行中</span></p>
+</header>
+
+<main>
+
+<section id="charter">
+  <h2><span class="kick"><span class="en">What this is</span><span class="zh">這是什麼</span></span><span class="en">A study, not a product</span><span class="zh">一場 study,不是一個產品</span></h2>
+  <p class="en">S1a is <b>research-natured</b>: an extended implementation that deliberately probes and challenges the physical and analog boundary of the netlist abstraction. The name's <b>a</b> carries a double meaning — <b>advance</b>, because it moves past where the golden engine stops; and <b>analogy</b>, in both senses of the word 類比: the electronic one (<i>analog</i> signals, charge, delay, drive strength) and the methodological one (modelling by <i>physical analogy</i> instead of by per-case patching).</p>
+  <p class="zh">S1a 是<b>研究性質</b>的:一個刻意去探測、挑戰網表抽象之物理與類比邊界的延伸實作。名字裡的 <b>a</b> 是雙關 —— <b>advance</b>(進階),因為它走過黃金引擎停下的地方;以及 <b>analogy</b>(類比),取「類比」一詞的兩面:電子的那面(<i>analog</i>:訊號、電荷、延遲、驅動強度),和方法的那面(用<i>物理類推</i>建模,而不是逐案打補丁)。</p>
+  <div class="card">
+    <p class="en"><b>The division of labour is strict.</b> S1 remains the untouched golden engine — fastest, bit-exact, the reference every experiment is measured against. S1a is a full fork (<code>src/AprVisual.S1A/</code>) that trades speed for principled physics, on purpose. Every mechanism lands behind its own switch, and every step is validated against three anchors: the golden checksum, the 141-test AccuracyCoin suite, and the 147-ROM regression.</p>
+    <p class="zh"><b>分工是嚴格的。</b>S1 保持不動,仍是黃金引擎 —— 最快、bit-exact、所有實驗的參考基準。S1a 是完整分支(<code>src/AprVisual.S1A/</code>),刻意用速度換有原理的物理。每個機制都躲在自己的開關後面,每一步都對三個錨驗證:金 checksum、141 顆 AccuracyCoin、147 顆回歸。</p>
+  </div>
+</section>
+
+<section id="gap">
+  <h2><span class="kick"><span class="en">Why it exists</span><span class="zh">為什麼存在</span></span><span class="en">The gap in the abstraction ladder</span><span class="zh">抽象階梯上的那道縫</span></h2>
+  <p class="en">Simulation lives on a ladder. Each rung knows more physics and pays more compute. The strange thing about the rung we live on — the switch-level netlist — is how <i>empty</i> the space below it is: between "transistors as on/off switches" and "transistors as differential equations" there is a factor-of-millions cost cliff, and almost nobody builds there.</p>
+  <p class="zh">模擬活在一座階梯上。每一階懂得更多物理、付出更多計算。我們住的這一階 —— 開關級網表 —— 奇怪的地方在於它下面有多<i>空</i>:從「電晶體是開關」到「電晶體是微分方程」之間,是數百萬倍的成本斷崖,而幾乎沒有人在那個空間裡蓋東西。</p>
+  <ul class="ladder">
+    <li><span class="lv"><span class="en">Behavioural</span><span class="zh">行為層</span></span><span class="mut"><span class="en">registers &amp; rules — what most emulators are; fast, but the silicon's quirks must be hand-coded</span><span class="zh">暫存器與規則 —— 多數模擬器的層;快,但矽的怪癖得手工重刻</span></span></li>
+    <li><span class="lv"><span class="en">Gate level</span><span class="zh">閘級</span></span><span class="mut"><span class="en">AND/OR/latch primitives — logic without layout</span><span class="zh">AND/OR/閂鎖原語 —— 有邏輯、沒版圖</span></span></li>
+    <li class="me"><span class="lv"><span class="en">Switch level ← S1</span><span class="zh">開關級 ← S1</span></span><span class="mut"><span class="en">every transistor as a switch, from the die photograph — connectivity is exact, but <b>time, strength and charge are gone</b></span><span class="zh">每顆電晶體都是開關,來自晶粒照片 —— 連接性精確,但<b>時間、強度、電荷都不見了</b></span></span></li>
+    <li class="gap"><span class="lv"><span class="en">the gap ← S1a</span><span class="zh">那道縫 ← S1a</span></span><span class="mut"><span class="en">minimum-necessary physics: drive ratios, charge storage, propagation delay, transparent latches, board parts, power-on state — as <i>islands</i> on a fast binary core</span><span class="zh">最小必要物理:驅動比、電荷儲存、傳播延遲、透明閂鎖、板級零件、上電狀態 —— 以<i>島嶼</i>的形式長在快速二值核心上</span></span></li>
+    <li><span class="lv"><span class="en">Circuit level</span><span class="zh">電路級</span></span><span class="mut"><span class="en">SPICE — continuous voltages, exact and unusable (one frame: hours to days)</span><span class="zh">SPICE —— 連續電壓,精確但不可用(一幀:數小時到數天)</span></span></li>
+    <li><span class="lv"><span class="en">Device level</span><span class="zh">元件級</span></span><span class="mut"><span class="en">TCAD — carrier physics inside one transistor</span><span class="zh">TCAD —— 單顆電晶體內的載子物理</span></span></li>
+  </ul>
+  <p class="en">S1a's thesis: that gap is not empty because it is useless — it is empty because nobody had both a fast switch-level engine <i>and</i> a hardware-verified measuring stick to build it against. We now have both.</p>
+  <p class="zh">S1a 的命題:那道縫不是因為沒用才空著 —— 是因為從來沒有人同時擁有一個快速的開關級引擎<i>和</i>一把硬體驗證的量尺,可以邊蓋邊對答案。現在我們兩樣都有了。</p>
+</section>
+
+<section id="evidence">
+  <h2><span class="kick"><span class="en">What we measured</span><span class="zh">量到了什麼</span></span><span class="en">The campaign evidence: the gap has a shape</span><span class="zh">戰役證據:那道縫有形狀</span></h2>
+  <p class="en">Two accuracy campaigns (288 hardware-verified tests) mapped the boundary empirically. The findings that define S1a's work list:</p>
+  <p class="zh">兩場精度戰役(288 顆硬體驗證測試)把邊界實測了出來。定義 S1a 工作清單的發現:</p>
+  <ul>
+    <li class="en"><b>~98.9%</b> of the chips' activity reduces cleanly to logic + registers; <b>~1.1%</b> is genuinely analog — the gap is small, real, and enumerable.</li>
+    <li class="zh">晶片活動的 <b>~98.9%</b> 乾淨地化約成邏輯 + 暫存器;<b>~1.1%</b> 是真正的類比 —— 縫很小、是真的、可列舉。</li>
+    <li class="en"><b>~25 "mines"</b> were hit and fixed across the campaigns; every one falls into a closed taxonomy of six propagation-delay patterns plus five outside families (charge, drive strength, initial state, data defects, vocabulary mismatch). No exceptions in 288 tests.</li>
+    <li class="zh">戰役中踩中並修復了 <b>~25 顆「雷」</b>;每一顆都落在一個封閉分類裡:六個傳播延遲 pattern + 五個範圍外家族(電荷、強度、初態、資料缺陷、語彙不匹配)。288 顆測試無一例外。</li>
+    <li class="en"><b>Five delay anchors</b> were measured the hard way (24 / 16 / 16-18 half-cycles…), and a geometry-based physical model (Elmore, from the die polygons we already parse) can plausibly produce the rest — turning tests from calibrators into verifiers.</li>
+    <li class="zh"><b>五個延遲錨點</b>用最辛苦的方式量了出來(24 / 16 / 16-18 半週期⋯),而以幾何為底的物理模型(Elmore,用我們本就解析的晶粒多邊形)有望生出其餘 —— 讓測試從校準工具變回驗證工具。</li>
+    <li class="en">Today those fixes are <b>shims</b> — small, honest, test-mode overrides. They work, but each is a black box: it says <i>what</i> to override, not <i>why the silicon behaves so</i>. S1a's job is to replace the black boxes with <b>white-box mechanisms</b>.</li>
+    <li class="zh">今天那些修復是 <b>shim</b> —— 小而誠實的測試模式覆蓋。它們有效,但每顆都是黑箱:只說要覆蓋<i>什麼</i>,不說矽<i>為什麼</i>那樣。S1a 的工作,就是把黑箱換成<b>白箱機制</b>。</li>
+  </ul>
+</section>
+
+<section id="plan">
+  <h2><span class="kick"><span class="en">The plan</span><span class="zh">計畫</span></span><span class="en">Seven mechanisms and a detection pass</span><span class="zh">七個機制與一輪偵測</span></h2>
+  <table>
+    <tr><th></th><th><span class="en">Mechanism</span><span class="zh">機制</span></th><th><span class="en">Physics it restores</span><span class="zh">還原的物理</span></th></tr>
+    <tr><td>M1</td><td><span class="en">Conductance-weighted resolution</span><span class="zh">電導加權群解析</span></td><td><span class="en">ratioed drive fights (W/L)</span><span class="zh">比例式驅動對抗(W/L)</span></td></tr>
+    <tr><td>M2</td><td><span class="en">Charge storage &amp; decay</span><span class="zh">電荷儲存與衰減</span></td><td><span class="en">bus hold, dynamic cells, open bus</span><span class="zh">匯流排保持、動態 cell、open bus</span></td></tr>
+    <tr><td>M3</td><td><span class="en">RC propagation delay</span><span class="zh">RC 傳播延遲</span></td><td><span class="en">cross-chip &amp; long-line latency (timing-annotated netlist + geometry priors)</span><span class="zh">跨晶片與長線延遲(時序標註網表 + 幾何先驗)</span></td></tr>
+    <tr><td>M4</td><td><span class="en">Sub-cycle transparent latches</span><span class="zh">亞週期透明閂鎖</span></td><td><span class="en">closing-edge races, feedback loops</span><span class="zh">關門沿賽跑、回授迴圈</span></td></tr>
+    <tr><td>M5</td><td><span class="en">Board-level component library</span><span class="zh">板級元件庫</span></td><td><span class="en">TTL/CMOS parts around the dies</span><span class="zh">晶粒周圍的 TTL/CMOS 零件</span></td></tr>
+    <tr><td>M6</td><td><span class="en">Power-on state &amp; phase</span><span class="zh">上電狀態與相位</span></td><td><span class="en">the boot lottery, CPU/PPU alignment</span><span class="zh">開機抽籤、CPU/PPU 對齊</span></td></tr>
+    <tr><td>M7</td><td><span class="en">Canonical renumbering</span><span class="zh">正準重編號</span></td><td><span class="en">determinism under graph changes</span><span class="zh">圖變更下的決定論</span></td></tr>
+  </table>
+  <p class="en">Before any mechanism: <b>Phase 0, the detection pass</b> — six programmable structural scanners (latch races, cross-chip samplers, mid-flight aborts, feedback loops, geometry ranking, glitch capture) that enumerate <i>where</i> the physics matters, so mechanisms are built for measured targets, not guesses. The goal metric is not "zero shims" — it is <b>zero hand-written special cases</b>.</p>
+  <p class="zh">任何機制之前:<b>Phase 0,偵測 pass</b> —— 六個可程式化的結構掃描器(閂鎖賽跑、跨晶片取樣、中途廢止、回授迴圈、幾何排名、毛刺捕捉),先列舉物理<i>在哪裡</i>要緊,讓機制為量測過的目標而蓋、不是為猜測而蓋。目標指標不是「零 shim」—— 是<b>零手寫特例</b>。</p>
+</section>
+
+<section id="education">
+  <h2><span class="kick"><span class="en">The other half</span><span class="zh">另一半</span></span><span class="en">Built in public, taught as it goes</span><span class="zh">公開地蓋,邊蓋邊教</span></h2>
+  <p class="en">S1a develops on two legs. One is engineering: the fork, the mechanisms, the regressions. The other is <b>education</b>: this site will accumulate technical and semi-academic articles that document the process honestly — the physics primers, the dead ends, the falsified hypotheses, the measurements with error bars. The campaign already showed the format works: a negative result rigorously written up (<i>the last test</i>) later produced its own refutation (<i>breaking the ceiling</i>) — and both articles stayed up, because the correction <b>is</b> the lesson.</p>
+  <p class="zh">S1a 用兩條腿走路。一條是工程:分支、機制、回歸。另一條是<b>教育</b>:這個站會累積技術與半學術性的專文,誠實記錄過程 —— 物理入門、死路、被證偽的假設、帶誤差棒的量測。戰役已經證明這個format行得通:一個嚴謹寫下的負面結果(《最後一顆》)後來生出了它自己的反駁(《打破天花板》)—— 而兩篇都留在站上,因為更正<b>就是</b>那堂課。</p>
+  <div class="card">
+    <p class="en"><b>Planned write-ups</b> (the working queue): the 16/18 rise-fall parity audit (a falsifiable prediction from the geometry consult); building the per-net Elmore binner and what the die's histogram looks like; auto-detecting every transparent latch on two dies; how a ratioed NMOS fight actually resolves; the board as a circuit; and a running lab-notebook series as each mechanism lands.</p>
+    <p class="zh"><b>已排隊的專文</b>(工作佇列):16/18 rise-fall 奇偶稽核(幾何諮詢給出的可證偽預言);打造 per-net Elmore 分級器、看看晶粒的直方圖長什麼樣;自動偵測兩顆晶粒上的每一個透明閂鎖;比例式 NMOS 對抗實際怎麼分勝負;把主機板當電路;以及每個機制落地時的實驗筆記系列。</p>
+  </div>
+</section>
+
+<section id="archaeology">
+  <h2><span class="kick"><span class="en">Foundations</span><span class="zh">考古文庫</span></span><span class="en">The investigations that created S1a</span><span class="zh">催生 S1a 的那些調查</span></h2>
+  <p class="en">S1a was not designed on a whiteboard — it condensed out of casework. These five articles (on the main site) are the archaeology: each documents a real investigation that hit the netlist's boundary, and together they define the gap this fork studies.</p>
+  <p class="zh">S1a 不是在白板上設計出來的 —— 它是從一件件案子裡凝結出來的。這五篇(在主站上)就是考古紀錄:每篇都是一場撞上網表邊界的真實調查,合起來定義了這個分支要研究的那道縫。</p>
+  <ul>
+    <li><a href="semantic-ceiling.html"><b><span class="en">When the netlist isn't the whole truth</span><span class="zh">當網表不是全部的真相</span></b></a> — <span class="mut"><span class="en">the semantic ceiling: what a binary switch-level model structurally cannot say</span><span class="zh">語意天花板:二值開關級模型結構上說不出口的事</span></span></li>
+    <li><a href="mixed-signal.html"><b><span class="en">Crossing the analog boundary</span><span class="zh">跨越類比邊界</span></b></a> — <span class="mut"><span class="en">the original M1–M7 blueprint, taught through device physics</span><span class="zh">M1–M7 藍圖的原型,用元件物理當教材講</span></span></li>
+    <li><a href="last-test.html"><b><span class="en">The last test</span><span class="zh">最後一顆</span></b></a> — <span class="mut"><span class="en">a rigorous negative result: anatomy of a (then-believed) unreachable ceiling</span><span class="zh">嚴謹的負面結果:一個(當時相信)碰不到的天花板的解剖</span></span></li>
+    <li><a href="breaking-the-ceiling.html"><b><span class="en">Breaking the ceiling</span><span class="zh">打破天花板</span></b></a> — <span class="mut"><span class="en">its refutation: the false premise, the three-move fix, and what honest retraction looks like</span><span class="zh">它的反駁:錯誤前提、三招修法、以及誠實撤回長什麼樣</span></span></li>
+    <li><a href="die-timing.html"><b><span class="en">The die knows its own delays</span><span class="zh">晶粒知道自己的延遲</span></b></a> — <span class="mut"><span class="en">timing from geometry: the physical-priors plan S1a will execute</span><span class="zh">從幾何算時序:S1a 將要執行的物理先驗計畫</span></span></li>
+  </ul>
+  <p class="en">Also essential context: the <a href="ReportAC/index.html">AccuracyCoin report</a> (the thirteen-chapter war record, 141/141) and the <a href="Report/">147-ROM report card</a> — the measuring sticks every S1a mechanism must keep satisfying.</p>
+  <p class="zh">同樣是必要脈絡:<a href="ReportAC/index.html">AccuracyCoin 報告</a>(十三章戰記,141/141)與 <a href="Report/">147 顆成績單</a> —— 每個 S1a 機制都必須持續滿足的量尺。</p>
+</section>
+
+<section id="status">
+  <h2><span class="kick"><span class="en">Where we are</span><span class="zh">走到哪了</span></span><span class="en">Status &amp; roadmap</span><span class="zh">現況與路線</span></h2>
+  <ul>
+    <li class="en"><b>2026-07-17</b> — dual green achieved (AccuracyCoin 141/141 banked; 147-ROM baseline replicated). The S1a fork is scaffolded and verified as a bit-exact clone of S1 (golden checksum identical). <span class="pill">done</span></li>
+    <li class="zh"><b>2026-07-17</b> —— 雙綠達成(AccuracyCoin 141/141 入帳;147 顆基線復刻)。S1a 分支鷹架完成,驗證為 S1 的 bit-exact 克隆(金 checksum 相同)。<span class="pill">完成</span></li>
+    <li class="en"><b>Next</b> — Phase 0 detection pass: the six scanners + the geometry τ binner produce the first annotated map of where physics matters on the two dies. <span class="pill">queued</span></li>
+    <li class="zh"><b>接下來</b> —— Phase 0 偵測 pass:六個掃描器 + 幾何 τ 分級器,產出兩顆晶粒上「物理在哪裡要緊」的第一張標註地圖。<span class="pill">排隊中</span></li>
+    <li class="en"><b>Then</b> — mechanisms land one at a time, each behind a switch, each with its article. <span class="pill">study</span></li>
+    <li class="zh"><b>然後</b> —— 機制一個一個落地,每個都在開關後面、都配一篇專文。<span class="pill">study</span></li>
+  </ul>
+  <p class="mut" style="font-size:13px"><span class="en">Design documents (Traditional Chinese) live in the repo: <code>MD/S1a/00</code> (master plan, M1–M7) and <code>MD/S1a/01</code> (timing-annotated netlist, detection patterns, geometry priors).</span><span class="zh">設計文件(繁中)在 repo:<code>MD/S1a/00</code>(總綱,M1–M7)與 <code>MD/S1a/01</code>(時序標註網表、偵測 pattern、幾何先驗)。</span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a is the study fork of <a href="index.html">AprVisual</a> — same repository, same measuring sticks, one rung deeper.</span>
+     <span class="zh">S1a 是 <a href="index.html">AprVisual</a> 的研究分支 —— 同一個 repo、同一批量尺,往下多走一階。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable — and now, made physical.</span><span class="zh">讓開關級矽電路變得可分析 —— 現在,也讓它有物理。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

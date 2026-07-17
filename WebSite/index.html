@@ -40,6 +40,16 @@
   .btn.ghost{background:var(--card); color:var(--fg);}
   .btn.ghost:hover{text-decoration:none; border-color:var(--acc); color:var(--acc);}
 
+  .s1aband{display:block; max-width:760px; margin:26px auto 0; text-align:left; font-size:14px;
+    border:1px solid #4a3a5f; background:linear-gradient(135deg,#1c1526,#171a21);
+    border-radius:12px; padding:13px 18px; color:var(--fg); line-height:1.65;}
+  .s1aband:hover{text-decoration:none; border-color:#c792ea; box-shadow:0 0 0 1px rgba(199,146,234,.2);}
+  .s1aband .k{display:inline-block; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    color:#c792ea; font-weight:700; border:1px solid #4a3a5f; border-radius:20px; padding:1px 10px;
+    margin:0 8px 4px 0; background:#221a2e;}
+  .s1aband b{color:#e8d9f7;}
+  .s1aband .go{color:#c792ea; font-weight:700; white-space:nowrap;}
+
   main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
   section{padding:34px 0 8px; border-top:1px solid var(--bd);}
   section:first-of-type{border-top:none;}
@@ -93,6 +103,7 @@
   <a class="sec" href="#compare"><span class="en">Comparison</span><span class="zh">比較</span></a>
   <a class="sec" href="#papers"><span class="en">Papers</span><span class="zh">論文</span></a>
   <a class="sec" href="#reading"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <a class="sec" href="s1a.html" style="color:#c792ea"><span class="en">S1a — study fork</span><span class="zh">S1a 研究分支</span></a>
   <a class="sec" href="calculator.html"><span class="en">Calculator</span><span class="zh">換算器</span></a>
   <a class="sec" href="https://baxermux.org/myemu/AprVisual" target="_blank" rel="noopener" style="color:var(--acc2)"><span class="en">Leaderboard ↗</span><span class="zh">排行榜 ↗</span></a>
   <a class="sec" href="https://baxermux.org/myemu/AprVisual/version/" target="_blank" rel="noopener" style="color:var(--acc2)"><span class="en">Perf dashboard ↗</span><span class="zh">效能檢測 ↗</span></a>
@@ -115,6 +126,11 @@
   </div>
   <p class="mut" style="font-size:12px; margin-top:10px"><span class="en">Release <b>benchmark-2026.06.23</b> &middot; 2026-06-23 &middot; engine 92ce32b &middot; .NET 11 &middot; pair-path supply helper + tagged turn-on gate lists</span><span class="zh">發佈版本 <b>benchmark-2026.06.23</b> &middot; 2026-06-23 &middot; 引擎 92ce32b &middot; .NET 11 &middot; pair-path 供電 helper + tagged turn-on 閘列表</span></p>
   <p class="mut" style="font-size:12.5px; margin-top:6px"><span class="en">Last updated</span><span class="zh">最後更新</span>: <span class="lastupd">2026-06-23</span> (UTC)</p>
+  <a class="s1aband" href="s1a.html">
+    <span class="k">NEW &middot; 2026-07 &middot; S1a</span>
+    <span class="en"><b>S1a — advance &amp; analogy.</b> With both hardware-verified suites all green (141/141 AccuracyCoin + the 147-ROM library), the project opens a study fork: exploring and challenging the netlist's physical and analog boundary, aiming to fill the gap between switch level and circuit / device level — mechanism by mechanism, write-up by write-up. Charter, the M1&ndash;M7 plan, and the build-in-public education site: <span class="go">visit the S1a site &rarr;</span></span>
+    <span class="zh"><b>S1a —— advance &amp; analogy。</b>兩套硬體驗證測試全數通過(AccuracyCoin 141/141 + 147 顆測試庫)之後,專案開出一個 study 性質的研究分支:探索並挑戰網表本身的物理與類比邊界,目標是把 switch-level 與 circuit / device-level 之間的縫,一個機制、一篇專文地填起來。定位宣言、M1&ndash;M7 機制計畫與公開開發教育站: <span class="go">前往 S1a 專屬站 &rarr;</span></span>
+  </a>
 </header>
 
 <main>

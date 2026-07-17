@@ -1,0 +1,200 @@
+AprVisual.S1 hotpath 優化候選分類
+主題：資料結構預計算 / 熱迴圈冗餘 store-load 消除
+基準：main 39b640a Optimize recalc hash clearing
+
+目的
+----
+這份清單只整理「接下來還能安全嘗試的方向」與「需要嚴格 A/B、可能退步的方向」。
+目前 hotpath 已經高度壓縮，剩餘空間大多落在 0%~2% 的區間；單次 bench 不足以判斷，需要 --pin 並做 interleaved A/B。
+
+
+一、偏中性無害：正確性風險低，可能中性或微幅幫助
+================================================
+
+1. 明顯重複 store/load 消除
+   說明：
+   - 只移除同一語意下的重複寫入或重複讀取。
+   - 例如已採用的 RecalcHash[nn] pre-clear：在 ProcessQueue 進 RecalcNode 前清 current pop，AddNodeToGroup(seed) 就不需要重複清 seed。
+   判斷條件：
+   - 不改變 enqueue order。
+   - 不改變 RecalcHash 對「同 wave pending pop 是否取消」的語意。
+   - 不跨越可能重新 enqueue 或改動 queue/hash 的呼叫。
+   預期：
+   - 正確性風險低。
+   - 效能可能小幅改善，也可能中性。
+
+2. hot loop 內 static field / pointer hoist 到 local
+   說明：
+   - 在同一段 hot loop 中，把 RecalcListNext、RecalcHashNext、NodeStates、TransistorList 等穩定指標放到 local。
+   - 目前 SetNodeState、AddNodeToGroup 已經大量做過。
+   判斷條件：
+   - local 的生命週期不能跨越會 swap 指標的區塊。
+   - 不能跨越 ProcessQueue 的 current/next buffer swap。
+   預期：
+   - 通常安全。
+   - 目前大多已完成，剩餘收益有限。
+
+3. Reset 建表期預先過濾固定條件
+   說明：
+   - 把 hot loop 中不依賴 runtime state 的判斷搬到 Reset 建表期。
+   - 已採用例子：falling writeback 的 NodeTlistGatesOff，預先移除 c < RangePruneS endpoint。
+   判斷條件：
+   - 必須在 range-prune verification 完成後建表。
+   - verification 失敗時必須使用 fallback 後的安全 range。
+   - 建表不能改變原本 enqueue 順序中仍需保留的節點順序。
+   預期：
+   - 若能減少 hot loop compare/branch，可能有小幅收益。
+   - 額外資料表不可太大，否則 working set 可能抵消收益。
+
+4. direction-specific path 延後載入不用的指標
+   說明：
+   - falling path 不先讀 rising list，rising path 不先讀 off-list。
+   - 目前 SetNodeState 已採用 newState 分流，這類空間可能剩不多。
+   判斷條件：
+   - 只改 load 位置，不改行為。
+   - 不增加過多分支或重複 code。
+   預期：
+   - 正確性風險低。
+   - 效能可能中性，偶爾改善 code layout。
+
+5. dead local / dead branch / Release dead code 清理
+   說明：
+   - 移除 hot method 內 Release 永遠不用的 local 或 branch。
+   - 確認 debug-only profiler、安全 cap、字串插值等完全在 #if DEBUG 下。
+   判斷條件：
+   - 不移除實際 Release 會用到的 correctness guard。
+   - 不為了「看起來乾淨」拆 helper，避免破壞 inline chain。
+   預期：
+   - 正確性風險低。
+   - 效能多半中性，但可避免 code size 膨脹。
+
+6. 非 hot 建表期統計欄位預先計算
+   說明：
+   - 若某些 hot path 每次都從多個欄位推導相同布林或小分類，可在 Reset 產生 class byte。
+   - 例：已存在 IsPureLogic、PruneMask/range-prune。
+   判斷條件：
+   - class 必須只依賴靜態 netlist 或 Reset 後不變的 flags。
+   - runtime SetHigh/SetLow/Callback 會改動的語意不可被錯誤快取。
+   預期：
+   - 若覆蓋率高且減少 hot loop 判斷，可能有收益。
+   - 若覆蓋率低，可能中性。
+
+
+二、有風險：可能有效，但容易退步或破壞語意
+========================================
+
+1. 手動融合 / 手動完整展開 SetNodeState
+   風險：
+   - 之前多個變體已測出負收益。
+   - 容易破壞 JIT inline cascade，增加 code size、register pressure。
+   - 可能讓 RecalcNode / ProcessQueue native code layout 變差。
+   結論：
+   - 不建議再做大面積融合。
+
+2. shared writeback / generic writeback buffer
+   風險：
+   - singleton hot path 會被迫付泛化成本。
+   - 之前 unified writeback 類型明顯變慢。
+   - wbBuf、wbCount、callback check、loop boundary 都會污染最熱路徑。
+   結論：
+   - 除非只用在冷 BFS path，否則不建議。
+
+3. structural pair 新分類
+   風險：
+   - 概念上可把部分 pair path 的 runtime proof 搬到 Reset。
+   - 但實測 shared-commit structural pair 幾乎打平；duplicated resolver 版本大幅退步。
+   - 主要風險是 RecalcNode code size / layout 改壞。
+   結論：
+   - 可保留為研究方向，但不是優先項。
+
+4. rising tagged-list / 額外 TransistorListOn
+   風險：
+   - 目的：把 rising path 的 range unsafe 判斷預先 tag 到 c1。
+   - 實測 4-run A/B 幾乎打平，且偶有低點。
+   - 額外 working set、mask、tag branch 可能抵消少掉的 range compare。
+   結論：
+   - 不建議保留，除非後續能找到更低成本的 encoding。
+
+5. 合併 _inGroup clear loop 與 group writeback loop
+   風險：
+   - 看似省一個 loop，但可能改變 group buffer 使用時序。
+   - 也可能讓 SetNodeState writeback 與 inGroup cleanup 的 live locals 互相干擾。
+   - 若 callback path 需要 _groupBuf/_groupCount，時序更敏感。
+   結論：
+   - 需要非常小心，屬於高風險 A/B。
+
+6. callback/BFS cold path 抽成 NoInlining helper
+   風險：
+   - 理論上可縮小 RecalcNode hot body。
+   - 但 ComputeNodeGroup/AddNodeToGroup/SetNodeState 的 inline cascade 是目前效能核心。
+   - 抽錯位置會讓 BFS 或 pair path 變慢。
+   結論：
+   - 只有 callback tail 這種極冷區塊可以考慮；BFS 主體不建議輕易拆。
+
+7. NodeInfo layout / InlineCap 調整
+   風險：
+   - 影響所有 RecalcNodeFast、BFS、pair path。
+   - 可能改善 cache，也可能增加 overflow 或改壞 register allocation。
+   - 需要重新跑 payload hist、full_palette、多 ROM A/B。
+   結論：
+   - 風險高，除非有明確統計證據。
+
+8. queue/hash 結構改造
+   例子：
+   - RecalcHash bitset。
+   - packed queue。
+   - branchless enqueue。
+   風險：
+   - 之前 bitset 類方向已被 shift/mask 成本吃掉。
+   - branchless enqueue 可能多做 store，污染 cache。
+   - queue order 是 settle semantics 的一部分，不能任意改。
+   結論：
+   - 高風險，需要 bit-exact + 多輪 pinned A/B。
+
+9. wave interleaving / 一次處理兩個 pop
+   風險：
+   - 可能改善 memory-level parallelism。
+   - 但 RecalcNode 會改 NodeStates、RecalcHash、RecalcListNext。
+   - 很容易破壞 Gauss-Seidel order 或 next-wave append order。
+   結論：
+   - correctness 風險最高，不建議除非建立嚴格等價條件。
+
+10. prefetch / 手動 memory scheduling
+   風險：
+   - C# 對 prefetch 控制有限。
+   - 額外指令可能比隱藏 latency 的收益更大。
+   - random NodeStates gather 很難靠簡單 prefetch 穩定改善。
+   結論：
+   - 不優先。
+
+
+建議優先順序
+------------
+
+優先嘗試：
+1. 明顯重複 store/load 消除。
+2. Reset 建表期預先過濾固定條件。
+3. direction-specific path 延後載入不用指標。
+4. Release hot method dead code / dead local 清理。
+
+暫緩或避免：
+1. 手動融合 SetNodeState。
+2. shared writeback。
+3. 大幅改 RecalcNode dispatch。
+4. 改 queue/hash 結構。
+5. 改變 pop/order 的任何 wave interleaving。
+
+測試標準
+--------
+
+每個候選至少要：
+1. dotnet build -c Release
+2. dotnet run -c Release -- --selftest
+3. 使用 --pin --bench-hc 400000
+4. interleaved A/B，至少 A/B 各 3~4 次
+5. checksum 必須維持 0x9174E19D961CB6E5
+
+判斷原則：
+- < 0.5%：視為 noise，不值得增加複雜度。
+- 0.5%~1.0%：只有在 diff 很小、語意明確時保留。
+- > 1.0%：可保留，但仍需 paired run 確認不是環境波動。

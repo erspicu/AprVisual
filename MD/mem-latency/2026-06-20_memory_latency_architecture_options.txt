@@ -1,0 +1,495 @@
+AprVisual S1 memory-latency wall — 架構級方案評估
+日期：2026-06-20
+基準分支：mem-latency-relayout / c90ddd6
+輸入文件：MD/mem-latency/01_predicament_for_other_models.txt
+
+結論摘要
+========
+
+目前判斷：這個 single-core event-driven MOS simulator 已經非常接近單核架構上限。
+不是因為「完全沒有任何方案」，而是剩下方案都必須做到以下其中一件事才有意義：
+
+1. 真正減少 NodeStates scattered load 的數量。
+2. 把兩個以上原本序列化的 NodeStates load 變成同一個 load 或可重疊 load。
+3. 在不改變 in-wave Gauss-Seidel order 的前提下，安全投機跨 pop 重疊讀取。
+
+單純減少 branch、換排序、加 prefetch、改寫成更 branchless，若沒有減少上述依賴 load，通常只會中性或退步。
+
+我不建議再走：
+- 手動融合 SetNodeState。
+- shared writeback。
+- generic BFS/writeback helper 化。
+- density-only renumber。
+- 一般 software prefetch。
+- 無條件 gate-load unroll。
+
+真正還值得考慮的只剩三類：
+
+1. Speculative fast-pop lookahead：最高 EV，但有 correctness 和 code-size 風險。
+2. NodeStates bitset mirror + co-read packing：需要先做診斷，可能有效也可能被 write-side 成本吃掉。
+3. 選擇性 edge-local cache：理論上可減 scatter load，但接近已否決的 denormalize/fat-node，只有很窄條件下值得試。
+
+
+方案 A：Speculative fast-pop lookahead
+=====================================
+
+核心機制
+--------
+
+在同一個 settle wave 中，維持 commit order 不變，但嘗試提前計算下一個 fast singleton pop。
+
+基本形式：
+
+1. pop A、pop B 都還在 current wave。
+2. 先用 read-only/speculative evaluator 計算 A 的預期 newState。
+3. 同時或緊接著計算 B 的預期 newState，讓 CPU 有機會把 B 的 NodeInfo / NodeStates scattered loads 放進 ROB。
+4. 先依原順序 commit A。
+5. 如果 A 沒有 state change，則 B 的 speculative read 一定沒有被 A 改壞，可以直接依原順序 commit B。
+6. 如果 A 有 state change，丟棄 B 的 speculative result，B 回到原本路徑重新計算。
+
+為什麼可能打到 memory-latency wall
+----------------------------------
+
+目前 within-pop MLP 失敗，原因是每個 pop 實際 gate load 太少，dummy load 過多。
+這個方案不同：它不是把同一個 pop 展成 6 個 dummy load，而是把「下一個真實 pop」的真實 load 提早放進 ROB。
+
+它利用的是：
+
+- 多數 pop no-change。
+- A no-change 時，B 早讀不會違反 Gauss-Seidel 語意。
+- B 的 load 不是 dummy load，而是本來就要做的 work。
+
+正確性條件
+----------
+
+只允許在以下條件下使用 B 的 speculative result：
+
+1. A commit 後確認 no-change。
+2. B 在 current wave 的 RecalcHash 仍為 1。
+3. B 的 speculative evaluator 不做任何 write，不 enqueue，不清其他 hash。
+4. commit B 時仍照原本 pop order：A 完成後才 B。
+5. 如果 A 有 change，B 必須完全重跑，不能沿用 speculative result。
+
+安全子集
+--------
+
+建議第一版只支援：
+
+- cls == 1 static singleton。
+- 或 cls == 2 且 runtime all-off 的 singleton。
+- 不碰 BFS。
+- 不碰 pair path。
+- 不碰 HasCallback / ForceCompute。
+
+第一版甚至可以只支援 cls == 1，確認 framework 是否有正收益；若覆蓋率太低再擴到 cls == 2 all-off。
+
+需要的程式形狀
+--------------
+
+需要新增「compute-only」版本，不能直接呼叫現有 RecalcNodeFast，因為 RecalcNodeFast 會 SetNodeState。
+
+可能 API：
+
+    TryComputeFastSingletonValue(int nn, out byte newState, out bool hasDrivenValue)
+
+語意：
+
+- 回傳是否能用 fast singleton evaluator。
+- 若 floating hold previous，回傳 hasDrivenValue=false，表示 commit 是 no-op。
+- 不改 NodeStates。
+- 不改 RecalcHash。
+- 不 enqueue。
+
+commit 階段仍呼叫 SetNodeState(nn, newState)，或直接套用既有 no-op 判斷。
+
+預期收益
+--------
+
+粗估：
+
+- 若只支援 cls == 1，覆蓋率可能不足，收益小。
+- 若支援 cls == 2 all-off，覆蓋率才有機會足夠。
+- 如果 JIT 願意把 A/B 的 independent loads 交錯排入 ROB，可能有 0.5%~3%。
+- 若 code size 增加或 register pressure 變差，可能中性或負。
+
+主要風險
+--------
+
+1. JIT 不一定照期望排程，最後只是增加 code。
+2. compute-only duplicate fast resolver 可能破壞 inline/code layout。
+3. cls == 2 all-off 的 runtime proof 本身也要讀 gate state；若寫得太重，會吃掉收益。
+4. A changed 時 B 重跑會有浪費；但 no-change 高時可接受。
+
+建議
+----
+
+這是目前最值得試的架構級方案，但要用小步驟：
+
+階段 1：
+- 只做 cls==1 + A no-change 才採用 B。
+- A/B 各 4~6 次 pinned benchmark。
+- 若無收益，停止，不要擴大。
+
+階段 2：
+- 若階段 1 中性或微正，再擴 cls==2 all-off。
+
+keeper 條件：
+- checksum 必須一致。
+- 至少 interleaved A/B mean > +1% 才保留。
+- 若 < +0.5%，不值得增加複雜度。
+
+
+方案 B：NodeStates bitset mirror + co-read packing
+=================================================
+
+核心機制
+--------
+
+目前 NodeStates 是 byte per node。每讀一個 gate state 都是一次 scattered byte load。
+
+建立 mirror：
+
+    ulong* NodeStateBits
+
+每個 node state 同步維護到 bitset。讀 gate state 時可用：
+
+    bit = (NodeStateBits[node >> 6] >> (node & 63)) & 1
+
+如果兩個 gate node 落在同一個 64-bit word，就能用一次 64-bit load 取兩個 state bit。
+
+最有可能受益的位置：
+
+1. SetNodeState rising path 的 nodeStates[c1] != nodeStates[c2]。
+2. RecalcNodeFast 的 gnd/pwr OR-all，如果多個 gate 落在同一 word。
+3. cls==2 all-off scan，如果多個 gate 落在同一 word。
+
+為什麼可能打到 memory-latency wall
+----------------------------------
+
+它唯一可能有效的原因不是「bitset 比 byte 小」，因為 NodeStates 已經 L1-resident。
+真正理由是：
+
+- 若多個 state bit 來自同一 64-bit word，可以把多個 scattered byte load 合併成一個 word load。
+- 減少 load 數量才可能降低 load-to-use latency。
+
+必要診斷
+--------
+
+先不要直接實作 mirror。
+應先加一次離線診斷，統計目前 renumber 後：
+
+1. rising path 的 (c1,c2) 有多少比例落在同一 NodeStateBits word。
+2. RecalcNodeFast 的 gnd/pwr gate set 有多少比例可由 1 個 word 覆蓋。
+3. cls2 all-off 的 c1c2 gate set 有多少比例可由 1 個 word 覆蓋。
+4. hot pop 加權後，同-word 覆蓋率是多少。
+
+如果同-word 比例低，bitset mirror 必死。
+
+建議 threshold：
+
+- rising same-word < 35%：不做。
+- fast-path gate-set single-word < 50%：不做 fast-path bitset。
+- 如果只有少數冷 path 受益：不做。
+
+寫入成本
+--------
+
+每次 NodeStates[nn] 改變時，需要同步更新 bitset：
+
+    if newState == 0: NodeStateBits[word] &= ~mask
+    else:             NodeStateBits[word] |=  mask
+
+這會增加 SetNodeState write-side 成本。
+SetNodeState 已經很熱，所以 read-side 必須有明顯 load 減少才值得。
+
+可降低風險的做法
+----------------
+
+不要一開始全域替換 NodeStates read。
+
+階段 1：
+- 只維護 NodeStateBits。
+- 不使用它。
+- bench 確認 mirror write-side 成本。
+- 如果光維護 mirror 就退步 > 1%，停止。
+
+階段 2：
+- 只讓 rising path 的 same-state compare 使用 bitset。
+- 因為 rising path 本來就要讀 c1/c2，若 same-word 高，這裡最可能減 load。
+
+階段 3：
+- 再考慮 RecalcNodeFast gate OR。
+
+預期收益
+--------
+
+- 若同-word co-read 高，可能 1%~4%。
+- 若同-word co-read 普通，可能中性。
+- 若 write-side 成本高，可能負。
+
+建議
+----
+
+先做診斷，不要直接做正式實作。
+這是第二優先方案。
+
+
+方案 C：co-read aware renumber
+=============================
+
+核心機制
+--------
+
+目前 renumber 的有效目標是 pruned cascade pop order，也就是 temporal locality。
+density-only renumber 已證明無效。
+
+但如果方案 B 使用 bitset mirror，renumber 目標可以改成：
+
+- 在不破壞 range-prune class block 的前提下，
+- 讓常被同時讀取的 gate nodes 落在同一 64-bit bitset word。
+
+這不是一般圖密度排序，而是 bitset co-read packing。
+
+可能目標
+--------
+
+1. rising path 中常見的 (c1,c2) pair 放同一 64-bit word。
+2. RecalcNodeFast 的 gnd/pwr gate set 盡量放同一 word。
+3. cls2 all-off scan 的 gate set 盡量放同一 word。
+
+限制
+----
+
+必須保留 class-major block：
+
+    [3,A), [A,S), [S,B), [B,inf)
+
+否則 range-prune 會失效。
+
+因此 co-read packing 只能在 block 內做 secondary key。
+
+風險
+----
+
+- 可能破壞目前 first-touch pop-order locality。
+- 若 bitset mirror 不使用，這個 renumber 沒有意義。
+- 若 bitset same-word 覆蓋率提升不夠，收益可能是 0。
+
+建議
+----
+
+只在方案 B 診斷顯示 bitset 有機會時才做。
+不應單獨做。
+
+
+方案 D：選擇性 edge-local state cache
+===================================
+
+核心機制
+--------
+
+對少數 read-heavy / write-cold gate node，把該 gate 的 state 複製到 consumer-side edge-local cache。
+consumer 讀連續 edge cache，而不是 scattered NodeStates[gate]。
+
+這類似 denormalize/fat-node，但只對極少數高 read/write ratio 的 gate 做。
+
+為什麼可能有效
+--------------
+
+如果某 gate：
+
+- 被非常多 hot pop 讀取。
+- 自己很少改變。
+
+那 write-side 更新 edge cache 的成本可能小於 read-side scattered load 的成本。
+
+必要診斷
+--------
+
+必須先統計每個 node：
+
+1. 被當作 gate 讀取的次數。
+2. 自己 state change 的次數。
+3. fanout edge 數。
+4. read_count / (change_count * fanout) 比值。
+
+只有 read/write ratio 極高的 node 才值得。
+
+風險
+----
+
+- 很接近已失敗的 active counter / fat-node 類方向。
+- clock 類高 fanout 節點雖 read-heavy，但也 change-heavy，通常不適合。
+- 每次 state change 更新多份 edge cache 可能污染更多 cache line。
+
+建議
+----
+
+低優先。
+只做診斷，不先實作。
+
+
+方案 E：fast-path shape specialization
+====================================
+
+核心機制
+--------
+
+對常見 RecalcNodeFast payload shape 寫少數專用分支：
+
+- no gnd/pwr gates：直接 flags 判斷。
+- exactly one gnd gate。
+- exactly one pwr gate。
+- one gnd + one pwr。
+
+目標不是減 L1 latency，而是減 loop/count/branch 和 code path。
+
+問題
+----
+
+predicament 已指出 memory latency 是主牆，不是算術。
+因此這個方案不會真正打掉 19.5% backend stall，只可能改善一些 branch/front-end 或 register pressure。
+
+風險
+----
+
+- RecalcNodeFast code size 變大。
+- 破壞 JIT inline/layout。
+- payload shape 覆蓋率若不足，負收益。
+
+建議
+----
+
+只有在 DEBUG diagnostic 顯示某一兩種 shape 壓倒性常見時才值得。
+否則不優先。
+
+
+我不建議做的項目
+================
+
+1. Branchless priority max group resolve
+---------------------------------------
+
+原因：
+
+- 目前非-floating resolve 已經是 FlagsToState[flags] LUT。
+- floating largest-cap branch很少。
+- 把 resolve 改成 branchless max 不會碰到主要 memory-latency chain。
+
+結論：不值得優先做。
+
+2. LUT 化 dispatch
+-----------------
+
+原因：
+
+- cls 是 static per node。
+- 目前 cls dispatch 偏斜且可預測。
+- branch-miss 主因不是 cls dispatch。
+- 改 dispatch 不會減少 NodeInfo -> NodeStates dependent load。
+
+結論：低價值。
+
+3. 一般 software prefetch
+------------------------
+
+原因：
+
+- 目標地址依賴前一個 load 結果。
+- work-list prefetch 已中性。
+- NodeStates[gate] 在知道 gate id 後馬上使用，prefetch 太晚。
+
+結論：不建議。
+
+4. 無條件 gate-load unroll
+-------------------------
+
+原因：
+
+- 已測 CLEAN LOSS。
+- gate count 多為 1~2，dummy load 成本高於 branch saving。
+
+結論：死路。
+
+5. 任意 cross-pop reorder
+------------------------
+
+原因：
+
+- in-wave pop order 是語意的一部分。
+- floating/hold-previous、enqueue order、RecalcHash cancellation 都可能受影響。
+
+結論：只有「speculative read + commit in original order + invalidation」這種受控形式可以考慮。
+
+
+建議執行順序
+============
+
+第一優先：方案 A 的極小版
+------------------------
+
+只做 cls==1 speculative lookahead。
+
+目的不是一次拿到大收益，而是驗證：
+
+- JIT 是否能讓兩個 pop 的 independent loads 有重疊。
+- compute-only fast resolver 是否會把 code layout 搞壞。
+- A no-change reuse B result 的流程是否乾淨。
+
+若 cls==1 版本無收益，就不要擴大。
+
+第二優先：方案 B 的診斷
+----------------------
+
+先統計 same-word co-read，不實作 bitset mirror。
+
+若統計不好，直接停止。
+若統計很好，再分階段測 mirror write-side 成本。
+
+第三優先：方案 D 的 read/write ratio 診斷
+----------------------------------------
+
+只診斷，不實作。
+如果沒有極端 read-heavy/write-cold gate，停止。
+
+
+判斷標準
+========
+
+每個候選至少：
+
+1. dotnet build -c Release
+2. dotnet run -c Release -- --selftest
+3. --pin --bench-hc 400000
+4. interleaved A/B，各 4 次以上
+5. checksum 必須是 0x9174E19D961CB6E5
+
+保留門檻：
+
+- < 0.5%：視為 noise，不保留。
+- 0.5%~1.0%：只有 diff 很小、語意非常清楚才保留。
+- > 1.0%：可保留，但至少做一次 paired final run。
+
+
+最終判斷
+========
+
+如果方案 A 的受控 speculative lookahead 失敗，方案 B 的 same-word 診斷也不理想，那可以很明確地說：
+
+    single-core event-driven exact simulator 在目前資料結構下已接近架構上限。
+
+原因是：
+
+- NodeStates 已 L1-resident。
+- 主要成本是 L1 hit load-to-use latency。
+- 每 pop 只有 1~2 個真實 gate load。
+- OoO core 已能跨 pop overlap 大部分獨立 work。
+- bit-exact order 限制阻止任意 batch/reorder。
+
+所以剩下的真正突破不會是一般 micro-opt，而會是改變表示法：
+
+- 讓多個 state read 合併成一個 word read。
+- 或安全投機跨 pop。
+- 或選擇性把 read-side scatter 轉成 write-side maintenance。
+
+這三個若都無法成立，就應把單核 C#/Rust event-driven 版本視為接近 ceiling，後續投入應轉向更大架構層，例如多 instance throughput、非 bit-exact approximation、或局部硬體/原生特殊化；但這些都超出目前硬約束。

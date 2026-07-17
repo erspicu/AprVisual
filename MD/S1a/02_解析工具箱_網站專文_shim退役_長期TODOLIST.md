@@ -126,6 +126,19 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   spr_d7_int(9饋)、/bkg_pat_out、/spr_pat_out 全中;dor*/_pcm_out4=暫存器輸出、
   oam_write_disable=控制訊號(正確拒收)。教訓入 script:錐深 3 萬物相交→深 2;
   回授判定要排除 data↔cell 直接邊。
+- **2026-07-18:★ 第一顆 shim 正式退役 —— io_db 衰減 shim(M2 時戳衰減機制取代)★**。
+  **M2 的另一半(時戳惰性衰減)實作**:引擎層 per-bit 時戳,節點值改變重置、持非零過 25.7M hc
+  (36 幀≈600ms)以 force-low+release 衰減;掛 StepCycle 尾、每 16384 hc 掃一次(對 600ms 常數
+  綽綽有餘、成本可忽略);env 預設 ON(`NO_M2DECAY` 帶回舊 shim)。**三段論證(ppu_open_bus,
+  釘實體核)**:baseline(shim)PASS / **ctrl(拔 shim 無機制)FAIL(3) ← 證 shim 承重** /
+  **mech(拔 shim + 機制)PASS 且 hc 逐位同 179,338,695** = 機制精確取代 shim。Gate A 金
+  0x794A 不變(衰減閾值進不了 benchmark)。→ **拔除 commit 待建置驗證後填入本表與 s1a.html。**
+- **2026-07-18:M4 通用 edge-capture 原語實作(取代 DMC + ALU shim 的通用化)**。
+  一個機制兩種判決:data-wins(關門沿捕捉資料值,DMC pcm_latch)/ hold(關門沿恢復前緣快照,
+  ALU 輸入閂鎖);標註列驅動(內建 DMC + alua/alub 兩列),env `M4_EDGE` armed 時自動取代兩顆
+  shim;驗證中(7-dmc_basics + 03-immediate 各三臂)。**架構修:shim 派發菊花鏈攤平**
+  (原 Dmc→Alu→Lxa 巢狀,單一 kill 開關會連殺下游全家 = 混淆對照;TestShimChainStep 攤平、
+  保留原順序、7 個 Enable 各掛 ShimChainArmed)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

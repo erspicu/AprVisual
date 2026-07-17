@@ -830,7 +830,8 @@ namespace AprVisual.Sim
                 EnqueueNode(clk);
                 ProcessQueue();
             }
-            if (DmcLatchShim) DmcLatchShimStep();   // test-mode only; see WireCore.System.cs
+            if (M2DecayEnabled) M2DecayStep();      // M2 charge-decay island (mechanism, not a shim; env M2_DECAY)
+            if (ShimChainArmed) TestShimChainStep();   // flattened test-shim family dispatch; see WireCore.System.cs
             if (AleReadMuxShim) AleReadMuxStep();   // test-mode only; ALERead $2007 access phase-delay (M6)
             if (BgSerialReloadShim) BgSerialReloadShimStep();   // test-mode only; $2001-enable reload-delay (BGSerialIn, M6)
             if (OamDmaPpuBusShim) OamDmaPpuBusShimStep();   // test-mode only; OAM-DMA from PPU I/O bus

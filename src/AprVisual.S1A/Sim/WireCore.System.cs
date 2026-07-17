@@ -324,7 +324,102 @@ namespace AprVisual.Sim
             if (_dmcShimClk1 == EmptyNode || _dmcShimFf == EmptyNode || _dmcShimLatch == EmptyNode)
             { Console.Error.WriteLine("# [shim] DMC latch shim: nodes unresolved — disabled"); DmcLatchShim = false; return; }
             _dmcShimPrevClk1 = NodeStates[_dmcShimClk1];
-            DmcLatchShim = true;
+            DmcLatchShim = true; ShimChainArmed = true;
+        }
+
+        // ── M4 edge-latch mechanism (the generic edge-capture primitive) ─────────────────────
+        // A transparent latch's closing edge defines the cell's value; zero-delay settling lets
+        // same-wave data races corrupt it. One primitive expresses both measured verdicts:
+        //   data-wins: at the enable's falling edge the cell captures the post-settle DATA value
+        //              (DMC pcm_latch — analog clock-decay overlap lets the data through);
+        //   hold     : at the enable's falling edge the cell RESTORES its pre-edge snapshot
+        //              (ALU input latches — hold time met, the same-wave collapse must not leak).
+        // Annotation rows are name-resolved at arm time; env M4_EDGE arms the built-in rows
+        // (DMC + ALU — the first entries of the M4 annotation table; the per-site shims they
+        // replace auto-supersede in the test runner). The M4 toolbox scan (m4_latch_scan.py)
+        // is the source of future rows; race verdicts come from measurement or the M3 binner.
+        private struct M4Row
+        {
+            public string Name; public bool DataWins;
+            public int Enable; public int[] Cells; public int[] Datas;
+            public byte PrevEnable; public byte[] Snap;
+        }
+        private static bool _m4Edge;
+        public static bool M4EdgeEnabled => _m4Edge;
+        private static M4Row[] _m4Rows = Array.Empty<M4Row>();
+
+        public static void EnableM4EdgeLatch()
+        {
+            var rows = new List<M4Row>();
+            {   // row: DMC pcm_latch — data-wins (measured: blargg 7-dmc_basics #19 reads $80)
+                int en = LookupNode("cpu.apu_clk1"), d = LookupNode("cpu.#13907"), c = LookupNode("cpu.#13947");
+                if (en != EmptyNode && d != EmptyNode && c != EmptyNode)
+                    rows.Add(new M4Row { Name = "dmc_pcm_latch", DataWins = true, Enable = en,
+                                         Cells = new[] { c }, Datas = new[] { d },
+                                         PrevEnable = NodeStates[en], Snap = new byte[1] });
+                else Console.Error.WriteLine("# [m4] edge-latch row dmc_pcm_latch: nodes unresolved -- skipped");
+            }
+            foreach (var (nm, enName, cellsExpr) in new[]
+                     { ("alu_a", "cpu.dpc11_SBADD", "cpu.alua[7:0]"),
+                       ("alu_b", "cpu.dpc9_DBADD",  "cpu.alub[7:0]") })
+            {   // rows: ALU input latches — hold (the phi-boundary bus collapse must not leak in)
+                int en = LookupNode(enName);
+                var cells = new List<int>(); ResolveNodes(cellsExpr, cells, quiet: true);
+                if (en != EmptyNode && cells.Count == 8)
+                {
+                    var row = new M4Row { Name = nm, DataWins = false, Enable = en,
+                                          Cells = cells.ToArray(), Datas = Array.Empty<int>(),
+                                          PrevEnable = NodeStates[en], Snap = new byte[8] };
+                    for (int i = 0; i < 8; i++) row.Snap[i] = NodeStates[row.Cells[i]];
+                    rows.Add(row);
+                }
+                else Console.Error.WriteLine($"# [m4] edge-latch row {nm}: nodes unresolved -- skipped");
+            }
+            _m4Rows = rows.ToArray();
+            _m4Edge = _m4Rows.Length > 0;
+            if (_m4Edge) ShimChainArmed = true;
+            Console.Error.WriteLine($"# [m4] edge-latch armed: {_m4Rows.Length} annotation rows");
+        }
+
+        private static void M4EdgeLatchStep()
+        {
+            for (int r = 0; r < _m4Rows.Length; r++)
+            {
+                ref var row = ref _m4Rows[r];
+                byte cur = NodeStates[row.Enable];
+                if (row.PrevEnable == 1 && cur == 0)
+                {
+                    for (int i = 0; i < row.Cells.Length; i++)
+                    {
+                        byte want = row.DataWins ? NodeStates[row.Datas[i]] : row.Snap[i];
+                        int n = row.Cells[i];
+                        if (NodeStates[n] != want)
+                        { if (want == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
+                    }
+                }
+                row.PrevEnable = cur;
+                if (!row.DataWins)
+                    for (int i = 0; i < row.Cells.Length; i++) row.Snap[i] = NodeStates[row.Cells[i]];
+            }
+        }
+
+        // ── per-hc test-shim dispatch (flattened 2026-07-18) ─────────────────────────────────
+        // Was a daisy chain hosted inside DmcLatch→Alu→Lxa: any single shim's kill switch
+        // silently disabled the whole downstream family — a confounded control for retirement
+        // experiments. Flattened with the ORIGINAL execution order preserved exactly:
+        // Dmc → Alu → OpenBus → DL → abort → OamEdge → Lxa-rest. ShimChainArmed is set by
+        // every Enable* in this family; the benchmark path never arms anything (bit-exact).
+        internal static bool ShimChainArmed;
+        internal static void TestShimChainStep()
+        {
+            if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (supersedes the DMC/ALU shim rows)
+            if (DmcLatchShim) DmcLatchShimStep();
+            if (AluLatchShim) AluLatchShimStep();
+            OpenBusShimStep();        // self-guarded no-ops unless armed —
+            DlShimStep();             // (this was the block hosted at the top of LxaMagicShimStep)
+            Dmc4015AbortShimStep();
+            OamBlankEdgeShimStep();
+            if (LxaMagicShim) LxaMagicShimStep();
         }
 
         internal static void DmcLatchShimStep()
@@ -340,7 +435,6 @@ namespace AprVisual.Sim
                 }
             }
             _dmcShimPrevClk1 = cur;
-            if (AluLatchShim) AluLatchShimStep();
         }
 
         // ── ALU input-latch hold shim (test mode only) ───────────────────────────────────────
@@ -370,7 +464,7 @@ namespace AprVisual.Sim
             for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
             _aluShimPrevSbadd = NodeStates[_aluShimSbadd];
             _aluShimPrevDbadd = NodeStates[_aluShimDbadd];
-            AluLatchShim = true;
+            AluLatchShim = true; ShimChainArmed = true;
         }
 
         private static void AluLatchShimStep()
@@ -392,7 +486,6 @@ namespace AprVisual.Sim
                 }
             _aluShimPrevSbadd = sa; _aluShimPrevDbadd = db;
             for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
-            if (LxaMagicShim) LxaMagicShimStep();
         }
 
         // ── LXA ($AB) magic-constant shim (test mode only) ───────────────────────────────────
@@ -464,7 +557,7 @@ namespace AprVisual.Sim
             // ResolveNodes returns ascending bit order (ReadBits: index i = bit i)
             for (int b = 0; b < 8; b++) _pdDb[b] = db[b];
             _pdObTop = LookupNode("cart.eram.gate") != EmptyNode ? 0x5FFF : 0x7FFF;
-            _openBusShim = true;
+            _openBusShim = true; ShimChainArmed = true;
         }
 
         private static bool AnyChannelOn(int nn)
@@ -653,7 +746,7 @@ namespace AprVisual.Sim
             if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb[7] == 0)
             { Console.Error.WriteLine("# [shim] DL-transparency: nodes unresolved -- disabled (enable AFTER EnableOpenBusShim)"); return; }
             for (int b = 0; b < 8; b++) { _dlIdl[b] = idl[b]; _dlNotIdl[b] = nidl[b]; }
-            _dlShim = true;
+            _dlShim = true; ShimChainArmed = true;
         }
 
         private static int _dlHeldMask;   // notidl bits currently clamped (held through the rest of phi2)
@@ -1552,7 +1645,7 @@ namespace AprVisual.Sim
             _oeSprAddr = sa.ToArray();
             _oePrevRend = NodeStates[_oeRend];
             _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0; _oeFires = 0;
-            _oamEdgeShim = true;
+            _oamEdgeShim = true; ShimChainArmed = true;
         }
 
         private static void OamBlankEdgeShimStep()
@@ -1614,7 +1707,7 @@ namespace AprVisual.Sim
             _dmcAbPhase = LookupNode("cpu.#11466");   // ACLK phase holding the retire gate (#11483) shut
             if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
             { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
-            _dmcAbortShim = true;
+            _dmcAbortShim = true; ShimChainArmed = true;
         }
 
         private static void Dmc4015AbortShimStep()
@@ -1728,15 +1821,62 @@ namespace AprVisual.Sim
             _lxaPrevPhi2 = NodeStates[_lxaPhi2];
             _lxaArm = 0;
             _laeRecent = 0; _laeWait = 0; _laeVal = -1; _laeSbsSeen = false;
-            LxaMagicShim = true;
+            LxaMagicShim = true; ShimChainArmed = true;
+        }
+
+        // ── M2 charge-decay mechanism (the timestamp half of M2; replaces the runner-level
+        // _io_db decay shim). Physics: a dynamic latch bit leaks its charge to 0 in ~600 ms of
+        // real time when not refreshed (ppu_open_bus readme; "some decay sooner"). Engine model:
+        // per annotated node, an hc timestamp of the last observed state change; a bit that has
+        // held nonzero past the threshold is decayed with the proven force-low-then-release
+        // recipe (the node then float-holds 0). Per-BIT independent timers — physically truer
+        // than the shim's aggregate-value clock (each cell leaks on its own). The annotation set
+        // is the first entry of the analog-sidecar plan: the 2C02 io-bus latch island.
+        // Scan every 16,384 hc (~0.38 ms) — ample resolution for a 600 ms constant, negligible
+        // cost. Enabled via env M2_DECAY (EnableM2Decay from the test runner); golden/bench
+        // paths never enable it, and the threshold (25.7M hc) cannot fire inside benchmark runs.
+        private static bool _m2Decay;
+        public static bool M2DecayEnabled => _m2Decay;
+        private static int[] _m2dNodes = Array.Empty<int>();
+        private static byte[] _m2dPrev = Array.Empty<byte>();
+        private static long[] _m2dStamp = Array.Empty<long>();
+        private const long M2DecayThresholdHc = 36L * 714_732;   // 36 NTSC frames ≈ 600 ms of master clock
+
+        public static void EnableM2Decay()
+        {
+            var nodes = new List<int>();
+            ResolveNodes("ppu._io_db[7:0]", nodes, quiet: true);   // the io data-bus LATCH side (the "decay register")
+            if (nodes.Count != 8)
+            { Console.Error.WriteLine("# [m2] decay island: nodes unresolved -- disabled"); return; }
+            _m2dNodes = nodes.ToArray();
+            _m2dPrev = new byte[_m2dNodes.Length];
+            _m2dStamp = new long[_m2dNodes.Length];
+            for (int i = 0; i < _m2dNodes.Length; i++) { _m2dPrev[i] = NodeStates[_m2dNodes[i]]; _m2dStamp[i] = Time; }
+            _m2Decay = true;
+            Console.Error.WriteLine($"# [m2] decay island armed: {_m2dNodes.Length} nodes, threshold {M2DecayThresholdHc:N0} hc (~600 ms)");
+        }
+
+        private static void M2DecayStep()
+        {
+            if (!_m2Decay || (Time & 0x3FFF) != 0) return;
+            for (int i = 0; i < _m2dNodes.Length; i++)
+            {
+                int n = _m2dNodes[i];
+                byte s = NodeStates[n];
+                if (s != _m2dPrev[i]) { _m2dPrev[i] = s; _m2dStamp[i] = Time; }
+                else if (s != 0 && Time - _m2dStamp[i] >= M2DecayThresholdHc)
+                {
+                    SetLow(n); SetFloat(n);        // drive low, settle, release — float-holds 0
+                    _m2dPrev[i] = NodeStates[n]; _m2dStamp[i] = Time;
+                    Console.Error.WriteLine($"# [m2] decay fired at t={Time:N0}: {GetNodeName(n)} -> {NodeStates[n]}");
+                }
+            }
         }
 
         private static void LxaMagicShimStep()
         {
-            OpenBusShimStep();   // open-bus last-byte replay (no-op unless EnableOpenBusShim ran)
-            DlShimStep();        // DL phi2 transparency restatement (no-op unless EnableDlShim ran)
-            Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
-            OamBlankEdgeShimStep();   // rendering-disable edge must not write OAM (no-op unless enabled)
+            // (the OpenBus/DL/abort/OamEdge family used to be hosted here — now dispatched by
+            //  TestShimChainStep, same relative order)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
             // TEMP diag: PC-transition log in a Time window (default = the IDR-forensics window;
             // override with PC_WIN=lo,hi for new investigations without a per-window rebuild)

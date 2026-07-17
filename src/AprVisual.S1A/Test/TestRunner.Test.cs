@@ -156,10 +156,17 @@ namespace AprVisual.Test
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 if (WireCore.PpuAleReadFeedbackShim)
                     Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
+                // M4 edge-latch MECHANISM (not a shim; independent of --no-shims): env M4_EDGE arms
+                // the generic edge-capture primitive with the built-in annotation rows (DMC pcm_latch
+                // data-wins + ALU input-latch hold). When armed it supersedes those two shims below.
+                if (Environment.GetEnvironmentVariable("M4_EDGE") is { Length: > 0 } m4e && m4e != "0")
+                    WireCore.EnableM4EdgeLatch();
                 if (!_noShims)
                 {
-                    WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (documented analog-race shim)
-                    if (!_noAluShim) WireCore.EnableAluLatchShim();   // ALU input-latch hold (documented analog-race shim)
+                    if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
+                        WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (superseded by M4_EDGE)
+                    if (!_noAluShim && !WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_ALU_SHIM") == null)
+                        WireCore.EnableAluLatchShim();   // ALU input-latch hold (superseded by M4_EDGE)
                     WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                     WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
                     WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
@@ -175,6 +182,13 @@ namespace AprVisual.Test
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
                 }
+                // M2 charge-decay MECHANISM (not a shim; independent of --no-shims). RETIRES the
+                // runner-level _io_db decay shim below: engine-level per-bit timestamp decay on the
+                // 2C02 io-bus latch island. Default ON in S1A (mechanism supersedes shim); the old
+                // shim returns only if the mechanism is explicitly disabled (NO_M2DECAY). Retirement
+                // proven 2026-07-18: ppu_open_bus 3-arm — shim PASS / no-shim FAIL(3) / mechanism PASS.
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M2DECAY") == null)
+                    WireCore.EnableM2Decay();
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // --ac-verdict: the NES internal 2K CPU RAM (nes-001 instantiates it as "u1" = SRAM2K).
@@ -223,10 +237,15 @@ namespace AprVisual.Test
                 // force it to 0 (drive low, settle, release — the dynamic node then float-holds 0).
                 var ioDb = new List<int>();
                 WireCore.ResolveNodes("ppu._io_db[7:0]", ioDb, quiet: true);   // _io_db = the io data-bus LATCH side (io_db is the live internal bus)
-                int[] ioDbN = ioDb.Count == 8 ? ioDb.ToArray() : Array.Empty<int>();
+                bool ioDecayShim = ioDb.Count == 8 && !WireCore.M2DecayEnabled
+                                && Environment.GetEnvironmentVariable("NO_IODECAY_SHIM") == null;
+                int[] ioDbN = ioDecayShim ? ioDb.ToArray() : Array.Empty<int>();
                 int ioPrev = -1, ioStable = 0;
                 const int IoDecayFrames = 36;
-                Console.Error.WriteLine($"# [shim] _io_db decay armed: resolved {ioDb.Count}/8 nodes");
+                Console.Error.WriteLine(WireCore.M2DecayEnabled
+                    ? "# [shim] _io_db decay shim superseded by the M2 decay mechanism"
+                    : ioDecayShim ? $"# [shim] _io_db decay armed: resolved {ioDb.Count}/8 nodes"
+                                  : "# [shim] _io_db decay shim disabled (NO_IODECAY_SHIM)");
 
                 long t0 = WireCore.Time;
                 int resetAtFrame = -1;

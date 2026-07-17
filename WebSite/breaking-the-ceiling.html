@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breaking the ceiling — how the last test fell, and the mistake we corrected first (AprVisual)</title>
+<style>
+  :root{ --bg:#0f1115; --fg:#d7dde3; --mut:#8b95a1; --acc:#4ea1ff; --acc2:#7ee0a8; --warn:#ffb454;
+    --card:#171a21; --bd:#262b34; --code:#1d2129; }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.8;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(17,20,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px;}
+  nav a.home{color:var(--mut); font-size:14px;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
+  header.top{padding:46px 24px 18px; max-width:max(860px, 50vw); margin:0 auto;}
+  header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
+    background:linear-gradient(90deg,#7ee0a8,#4ea1ff); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.top .sub{color:var(--mut); font-size:15px; margin:0;}
+  main{max-width:max(860px, 50vw); margin:0 auto; padding:0 24px 90px;}
+  section{padding:26px 0 6px; border-top:1px solid var(--bd);}
+  h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
+  h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
+  p{margin:.6em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.5em 0 .9em; padding-left:24px;} li{margin:.35em 0;}
+  code{background:var(--code); padding:1px 6px; border-radius:4px; font-size:12.5px; font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.5; font-family:Consolas,monospace; color:#cfe4ff;}
+  b.term{color:var(--acc2);}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:4px 18px 14px; margin:16px 0;}
+  .wall{border-left:3px solid var(--warn);}
+  .win{border-left:3px solid var(--acc2);}
+  .fix{border-left:3px solid var(--acc);}
+  .retract{background:linear-gradient(180deg,#1a2320,#171a21); border:1px solid #2f7d54; border-left:4px solid var(--acc2); border-radius:10px; padding:6px 18px 14px; margin:18px 0;}
+  table{border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#cfe4ff;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:max(860px, 50vw); margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual</span>
+  <a class="home" href="index.html">&larr; <span class="en">Home</span><span class="zh">回首頁</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="top">
+  <h1><span class="en">Breaking the ceiling</span><span class="zh">打破天花板</span></h1>
+  <p class="sub"><span class="en">The "unreachable" last test fell — but only after we found the mistake in our own diagnosis. This is the sequel to <a href="last-test.html">The last test</a>: the chip we thought was missing was there all along, the real defect was one of pure timing, and it took three surgical moves at the CPU↔PPU seam to break it inside a binary switch-level engine.</span><span class="zh">那顆「碰不到」的最後測試,倒下了 —— 但前提是先找出我們自己診斷裡的錯誤。這是 <a href="last-test.html">最後一顆</a> 的續集:我們以為缺席的那顆晶片其實一直都在、真正的病灶只是純粹的時序,而要在二值開關級引擎裡破它,靠的是在 CPU↔PPU 接縫上的三招外科手術。</span></p>
+</header>
+
+<main>
+
+<section>
+<div class="retract"><h3><span class="en">Correction first — because the honest result demands it</span><span class="zh">先更正 —— 因為誠實的結果要求如此</span></h3>
+<p class="en">The companion article <a href="last-test.html">The last test</a> concluded that ALERead was a <i>provably unreachable</i> switch-level ceiling, and named three intersecting limits. One of those three — <b>"the 74LS373 octal latch is a board part, not in either die's netlist"</b> — was simply <b class="term">wrong</b>. A one-line question ("do we actually load that chip?") sent us to check, and the answer was yes: the board's octal latch is a full 96-transistor switch-level module (<code>u2</code>, from <code>74LS373.js</code>), wired by name into the video address path, and every game that renders correctly is proof it works — because during a pattern fetch the low address byte <i>can only</i> come from that latch. We had modelled the chip, used it, and depended on it, while writing that it was absent. Removing that false floor is what let the ceiling break. The rest of this article is what was underneath.</p>
+<p class="zh">姊妹文章 <a href="last-test.html">最後一顆</a> 的結論是:ALERead 是一個<i>可證明碰不到</i>的開關級天花板,並點名三個交集的極限。這三個之中的一個 —— <b>「74LS373 八位閂鎖是板級零件、不在任一晶粒的網表裡」</b> —— 根本就<b class="term">錯了</b>。一句話的提問(「我們實際運作真的有把它載入嗎?」)把我們送去查證,答案是有:板上的八位閂鎖是一顆完整的 96 電晶體開關級模組(<code>u2</code>,來自 <code>74LS373.js</code>),用名稱接進視訊位址路徑,而每一款能正常渲染的遊戲就是它有作用的鐵證 —— 因為在 pattern fetch 時,低位址位元組<i>只能</i>來自那顆閂鎖。我們模了那顆晶片、用了它、依賴它,卻寫說它不存在。把那個假的地板拆掉,天花板才破得了。這篇文章其餘的部分,就是地板底下的東西。</p></div>
+</section>
+
+<section>
+<h2><span class="en">1 · What was actually wrong: only the phase</span><span class="zh">1 · 真正錯的:只有相位</span></h2>
+<p class="en">With the latch confirmed present and working, the whole three-way "ceiling" collapsed to a single defect. A half-cycle-resolution trace of the failing scanline shows the background fetch cadence is <b>perfectly aligned</b> — dot 227 reads <code>$2FC7</code>, dot 228 collapses to <code>$2FFF</code>, exactly as the hardware script says. The only thing out of place is the <code>$2007</code> read's ripple into the PPU's fetch: on real silicon the read's extra VRAM access (the "ReadALE") lands on <b>dot 229/230</b>; in our engine it lands on <b>dot 226 — three dots (24 half-cycles, one CPU cycle) early.</b></p>
+<p class="zh">確認閂鎖存在且運作後,整個三方「天花板」塌成了單一病灶。失敗掃描線的半週期解析度 trace 顯示背景 fetch 節奏<b>完全對齊</b> —— dot 227 讀 <code>$2FC7</code>、dot 228 塌成 <code>$2FFF</code>,和硬體劇本一字不差。唯一錯位的,是 <code>$2007</code> 讀取對 PPU fetch 的漣漪:在真矽上,這個讀取的額外 VRAM 存取(「ReadALE」)落在 <b>dot 229/230</b>;在我們引擎裡它落在 <b>dot 226 —— 早了三個 dot(24 個半週期,一個 CPU 週期)。</b></p>
+<p class="en">This is the same phenomenon <a href="last-test.html">The last test</a> already named <b class="term">A4</b> — the propagation latency between the two chips (pins, wires, synchronizers) quantized to zero by a settle-to-quiescence model that has no time axis. It is real, and it is the <i>only</i> thing wrong here. The octal latch would capture exactly the right stale byte if the read simply arrived three dots later. So the problem was never "we can't model the latch." It was "we deliver a correct signal to a correct latch at the wrong instant."</p>
+<p class="zh">這正是 <a href="last-test.html">最後一顆</a> 已經點名的 <b class="term">A4</b> 現象 —— 兩顆晶片之間的傳播延遲(腳位、走線、同步器)被一個沒有時間軸的 settle-到-靜止模型量化成零。它是真的,而且是這裡<i>唯一</i>錯的東西。只要那個讀取晚三個 dot 到達,八位閂鎖就會捕捉到完全正確的過期位元組。所以問題從來不是「我們模不出那顆閂鎖」,而是「我們把一個正確的信號,在錯的瞬間,送給了一顆正確的閂鎖」。</p>
+</section>
+
+<section>
+<h2><span class="en">2 · Why you cannot just "delay it": the priority wall</span><span class="zh">2 · 為什麼不能只是「延遲它」:優先級的牆</span></h2>
+<p class="en">Fixing a three-dot phase error sounds trivial — delay the access by 24 half-cycles. It is not, and understanding why is the whole point. A binary switch-level engine resolves each connected group of wires by a fixed priority: <b>a conducting path to ground wins, then VDD / pull-up, then external drives.</b> That makes forcing a wire <i>low</i> free and reliable, but forcing a netlist-driven wire <i>high</i> essentially impossible — ground always outranks you.</p>
+<p class="zh">修一個三 dot 的相位錯誤聽起來很簡單 —— 把存取延遲 24 個半週期。並不簡單,而搞懂為什麼正是重點。二值開關級引擎用固定優先級解每一個相連的線群:<b>通往地的導通路徑贏,其次 VDD / pull-up,再其次外部驅動。</b>這讓「把線壓低」免費又可靠,但把一條網表驅動的線「拉高」基本上不可能 —— 地永遠壓過你。</p>
+<p class="en">So the two obvious fixes both die on that wall. You cannot delay the internal <code>read_2007</code> trigger: suppressing it low works, but re-asserting it high 24 half-cycles later fails, because the netlist is driving it low at that instant. And you cannot naively "replay" the whole CPU access later either: 24 half-cycles on, the CPU has moved to its next instruction and is driving the shared register-select bus with a new address — so you'd need to hold the old value <i>high</i> against it, which is exactly the forbidden move.</p>
+<p class="zh">所以兩個最直覺的修法都撞死在那道牆上。你無法延遲內部的 <code>read_2007</code> 觸發信號:把它壓低沒問題,但 24 個半週期後把它拉高會失敗,因為那一刻網表正驅動它為低。你也無法天真地稍後「重播」整個 CPU 存取:24 個半週期後,CPU 已走到下一條指令、正用一個新位址驅動共用的暫存器選擇匯流排 —— 所以你得把舊值<i>拉高</i>去對抗它,而那正是被禁止的那一手。</p>
+</section>
+
+<section>
+<h2><span class="en">3 · The solution: three moves, all downhill</span><span class="zh">3 · 解法:三招,全部往低走</span></h2>
+<p class="en">The way through is to phrase every intervention as a force-<i>low</i>, plus one structural trick to sidestep the one place a force-<i>high</i> is unavoidable. The whole fix rides the CPU↔PPU interface (the chip-enable <code>io_ce</code>, the register-select <code>io_ab</code>, and the latch-enable <code>ale</code>) — the physical seam where the propagation delay actually lives — and lets the native netlist compute the real result at each step.</p>
+<p class="zh">通過的方法,是把每一次介入都措辭成 force-<i>低</i>,再加一個結構性的小手法,繞過那個唯一無法避免 force-<i>高</i> 的地方。整個修法都跑在 CPU↔PPU 介面上(晶片致能 <code>io_ce</code>、暫存器選擇 <code>io_ab</code>、閂鎖致能 <code>ale</code>)—— 傳播延遲真正所在的物理接縫 —— 並讓原生網表在每一步計算真實的結果。</p>
+
+<div class="card fix"><h3><span class="en">Move 1 — Swallow (force <code>io_ab</code> low)</span><span class="zh">招一 — 吞掉(把 <code>io_ab</code> 壓低)</span></h3>
+<p class="en">When the cycle-counted <code>$2007</code> read fires, drive the PPU's register-select lines to a value other than 7. The PPU decodes a harmless register instead of <code>$2007</code>, so the early ReadALE at dot 226 never happens. This is a force-low — reliable — and it cleanly deletes the wrongly-timed effect.</p>
+<p class="zh">當精算週期的 <code>$2007</code> 讀取開火時,把 PPU 的暫存器選擇線驅動成 7 以外的值。PPU 解碼出一個無害的暫存器、而非 <code>$2007</code>,於是 dot 226 那個過早的 ReadALE 根本不會發生。這是 force-低 —— 可靠 —— 乾淨地刪除了那個時序錯誤的效應。</p></div>
+
+<div class="card fix"><h3><span class="en">Move 2 — Split &amp; Replay (cut the bus, then hold it low-side)</span><span class="zh">招二 — 切開並重播(切斷匯流排,再從低側握住)</span></h3>
+<p class="en">This is where a force-high would normally be required — to hold the register-select at 7 past the point where the CPU releases it. Instead of fighting the CPU on a shared wire, we <b>cut the wire</b>: while the shim is active, the connection between the PPU's <code>io_ab</code> pins and the CPU's address bus is not created (a one-line change at load time; the shim otherwise relays the CPU value every half-cycle, perfectly transparent). Now the PPU-side lines are isolated — nothing else drives them — so setting them to 7 is unopposed. Clamp <code>io_ce</code> low to open the access, hold <code>io_ab</code> = 7 past the CPU's natural window, and the netlist's own <code>read_2007_ended</code> edge now lands the ReadALE at dot 228, where the transparent octal latch captures the <code>$2FFF</code> bus's <code>$FF</code>.</p>
+<p class="zh">這裡本來會需要一次 force-高 —— 要把暫存器選擇握在 7,撐過 CPU 放掉它的那一刻。我們不在共用線上跟 CPU 硬拚,而是<b>把線切斷</b>:shim 啟用時,PPU 的 <code>io_ab</code> 腳位和 CPU 位址匯流排之間的連接不建立(載入期一行改動;其餘時候 shim 每個半週期把 CPU 的值 relay 過去,完全透明)。現在 PPU 側的線被隔離了 —— 沒有別的東西驅動它 —— 所以把它設成 7 沒有對手。把 <code>io_ce</code> 壓低開啟存取、把 <code>io_ab</code> 握在 7 撐過 CPU 的自然視窗,網表自己的 <code>read_2007_ended</code> 沿現在就把 ReadALE 放到了 dot 228,透明的八位閂鎖在那裡抓到 <code>$2FFF</code> 匯流排的 <code>$FF</code>。</p></div>
+
+<div class="card fix"><h3><span class="en">Move 3 — Freeze (force <code>ale</code> low at dot 229)</span><span class="zh">招三 — 凍結(在 dot 229 把 <code>ale</code> 壓低)</span></h3>
+<p class="en">The latch now holds <code>$FF</code> at dot 228 — but at dot 229 the ALE line pulses again for the real pattern fetch, and a transparent latch would immediately re-capture the correct low byte <code>$04</code>, erasing the effect. So freeze it: clamp the ALE line low for that one dot. Another force-low. With ALE held low the latch holds its <code>$FF</code>, the dot-230 fetch addresses <code>$0FFF</code> instead of its real target, the opaque pixel run appears where the tile should be transparent, and sprite-zero hit fires — exactly what boing2k7 is built to detect.</p>
+<p class="zh">閂鎖現在在 dot 228 持有 <code>$FF</code> —— 但在 dot 229,ALE 線為了真正的 pattern fetch 又脈衝一次,透明的閂鎖會立刻重新抓到正確的低位元組 <code>$04</code>,把效應抹掉。所以凍結它:把 ALE 線在那一個 dot 壓低。又一次 force-低。ALE 被壓低,閂鎖就持有它的 <code>$FF</code>,dot 230 的 fetch 定址到 <code>$0FFF</code>、而非它真正的目標,不透明像素串出現在本該透明的 tile 位置,sprite-zero hit 開火 —— 正是 boing2k7 打造出來要偵測的東西。</p></div>
+</section>
+
+<section>
+<h2><span class="en">4 · Three independent proofs</span><span class="zh">4 · 三個獨立證據</span></h2>
+<p class="en">A cruel test deserves a paranoid verdict. Three separate lines of evidence agree:</p>
+<p class="zh">一顆兇殘的測試值得一個偏執的判定。三條各自獨立的證據一致:</p>
+<table>
+  <tr><th><span class="en">Evidence</span><span class="zh">證據</span></th><th><span class="en">Result</span><span class="zh">結果</span></th></tr>
+  <tr><td><span class="en">Mechanism trace (our engine)</span><span class="zh">機制 trace(我們的引擎)</span></td>
+      <td><span class="en">dot 230 CHR address = <code>$0FFF</code>; sprite-0 hit flag = 1 — the phantom fetch physically happens</span><span class="zh">dot 230 CHR 位址 = <code>$0FFF</code>;sprite-0 hit 旗標 = 1 —— 幻影 fetch 實際發生了</span></td></tr>
+  <tr><td><span class="en">Reference emulator (AprNes)</span><span class="zh">參考模擬器(AprNes)</span></td>
+      <td><span class="en">a behavioural, silicon-independent oracle: <code>pass 1/1</code> — it agrees the correct answer is PASS</span><span class="zh">一個行為層、與矽無關的 oracle:<code>pass 1/1</code> —— 它同意正確答案是 PASS</span></td></tr>
+  <tr><td><span class="en">Switch-level verdict (our engine)</span><span class="zh">開關級判定(我們的引擎)</span></td>
+      <td><span class="en"><code>AccuracyCoin_ALERead.nes: 1/1 passed</code>, read from the console's own <code>$07F0</code> result block — not from the picture</span><span class="zh"><code>AccuracyCoin_ALERead.nes: 1/1 passed</code>,讀自主機自己的 <code>$07F0</code> 結果區塊 —— 不是看畫面</span></td></tr>
+  <tr><td><span class="en">Neighbour blast-radius (the two <code>$2007</code> stress tests, shim armed)</span><span class="zh">鄰居爆炸半徑(兩顆 <code>$2007</code> 壓力測試,shim 上膛)</span></td>
+      <td><span class="en"><code>2007Stress</code> and <code>InternalDataBus2007Stress</code> both <b>pass with the shim firing zero times</b> — they hammer <code>$2007</code> hundreds of times, never at the stunt's one scanline. The control experiment proves the gate is load-bearing: deliberately widen the detection window and the same fix fires 679 times and <i>breaks</i> the stress test.</span><span class="zh"><code>2007Stress</code> 和 <code>InternalDataBus2007Stress</code> 都<b>在 shim 上膛下通過,而且 shim 零次開火</b> —— 它們狂打 <code>$2007</code> 幾百次,但從不落在 stunt 的那一條掃描線上。對照實驗證明閘門是承重的:刻意把偵測窗放寬,同一個修法開火 679 次、把壓力測試<i>打爆</i>。</span></td></tr>
+</table>
+<p class="en">And the golden checksum — a hash of the engine's full node state after a fixed benchmark — is byte-for-byte unchanged, because the shim is opt-in and the bus cut only happens when it is enabled. The core engine is untouched.</p>
+<p class="zh">而黃金 checksum —— 引擎在固定基準跑後全部節點狀態的雜湊 —— 逐位元組不變,因為 shim 是選擇性啟用的,而匯流排切割只在它啟用時才發生。核心引擎毫髮無傷。</p>
+</section>
+
+<section>
+<h2><span class="en">5 · Is it a hack? An honest grade</span><span class="zh">5 · 這算 hack 嗎?誠實打個分數</span></h2>
+<p class="en">Half of one — and worth saying exactly which half. What makes it <i>not</i> a hack: nothing is fabricated. The <code>$FF</code> is latched by the real 74LS373 transistors, not written by us; the three interventions all act at the physical CPU↔PPU seam, correcting a delay that genuinely exists on silicon and is genuinely zeroed by the model; and the netlist computes every actual value. This is categorically above the earlier "force the output byte to <code>$FF</code>" attempt, which was pure fabrication and over-fired on the stress tests.</p>
+<p class="zh">半個 —— 而且值得講清楚是哪半個。讓它<i>不算</i> hack 的部分:沒有任何東西是捏造的。那個 <code>$FF</code> 是真的 74LS373 電晶體閂進去的,不是我們寫的;三次介入全都作用在物理的 CPU↔PPU 接縫上,修的是一個矽上真實存在、也真的被模型抹零的延遲;而網表計算每一個實際的值。這在本質上高於先前那個「把輸出位元組強制成 <code>$FF</code>」的嘗試 —— 那是純捏造,而且在壓力測試上過度開火。</p>
+<p class="en">What keeps it honest to call it half-hack: the timing constants are calibrated to boing2k7's one specific alignment, the freeze is a discrete stand-in for what is really a continuous analog feedback, and the whole thing is razor-thin (one half-cycle either way and it stops working). It is <b>a scenario-tuned interface intervention</b> — the hand-built form of the clean, general fix that a planned <a href="mixed-signal.html">analog-aware fork</a> would provide automatically (a proper CPU→PPU delay pipeline plus a bus-capacitance model). Its real value is not just the passing test: it <i>proves the two right levers</i> — correct the phase, hold the analog value — turning "this ceiling is unreachable" into "this ceiling is reachable, and here is exactly how." That de-risks the general mechanism far more than a clean negative result would have.</p>
+<p class="zh">讓「叫它半個 hack」誠實的部分:時序常數是校準於 boing2k7 那一次特定的對齊、凍結是對一個其實是連續類比回授的離散替身、而整件事刀鋒般敏感(任一方向差半個週期就不動了)。它是<b>一個場景校準的介面介入</b> —— 一個規劃中的<a href="mixed-signal.html">類比感知分支</a>會自動提供的那個乾淨通用修法(一條正規的 CPU→PPU 延遲 pipeline 加上匯流排電容模型)的手工版。它真正的價值不只是通過的那顆測試:它<i>證明了那兩根對的槓桿</i> —— 修正相位、握住類比值 —— 把「這個天花板碰不到」變成「這個天花板碰得到,而且這就是確切的方法」。這對通用機制的去風險,遠比一個乾淨的負面結果做得多。</p>
+<p class="en">One more honesty note, and the path out of the "half". The scenario gate exists for a concrete implementation reason: the swallowed early read hands the CPU a garbage byte, which is harmless only because boing2k7 discards the value — so the shim must fire only where that discard is guaranteed. The general form removes exactly that: replay the access <i>with its data path</i> (the CPU gets its buffer byte, the PPU-side effects land one CPU cycle later), and the gate can be deleted — at which point the fix stops being per-test and the original bouncing boing2k7 demo, not just this extracted test, should reproduce. That general mechanism is no longer hand-waving: it is specced as <b>data</b> — per-access delay annotations on the netlist (an SDF-style timing sidecar), with the measured 24-half-cycle constant this fix validated.</p>
+<p class="zh">再一個誠實的註腳,以及走出「半個」的路。場景閘門存在的原因很具體:被吞掉的過早讀取會塞給 CPU 一個垃圾位元組,而這無害只因為 boing2k7 丟棄那個值 —— 所以 shim 只敢在「保證會被丟棄」的地方開火。通用版拆掉的正是這個:把存取<i>連同資料路徑</i>一起重播(CPU 拿到它的緩衝位元組、PPU 側效應晚一個 CPU 週期落地),閘門就能刪掉 —— 屆時這個修法不再是 per-test 的,原版那個彈跳的 boing2k7 demo(而不只是這顆抽出來的測試)也應該重現。那個通用機制已不再是空談:它被規格化成了<b>資料</b> —— 掛在網表旁的逐存取延遲標註(SDF 式的時序 sidecar),用的正是這次修法驗證出來的 24 半週期常數。</p>
+</section>
+
+<section>
+<h2><span class="en">6 · What breaking it taught</span><span class="zh">6 · 打破它教會的事</span></h2>
+<p class="en">The most useful lesson was not the fix — it was the retraction. <a href="last-test.html">The last test</a> was a careful, six-consult, cross-checked piece of reasoning, and one of its three load-bearing premises was false the whole time, unnoticed because it fit the story. A single skeptical question — <i>do we actually load that chip?</i> — dissolved a "provably unreachable" ceiling into a plain three-dot timing bug. Falsifiability cuts both ways: the same discipline that lets you trust a negative result is the discipline that must let a negative result be overturned when a premise turns out wrong. We would rather publish the correction than defend a tidy ceiling. The last test is still the sharpest boundary the project hit — but the boundary was a phase, not a wall, and the seam between two chips turned out to have a door in it after all.</p>
+<p class="zh">最有用的一課不是那個修法 —— 是那個更正。<a href="last-test.html">最後一顆</a> 是一篇謹慎的、六輪諮詢、交叉比對過的推理,而它三個承重前提之一,自始至終是錯的,沒被發現只因為它剛好合乎故事。一個帶著懷疑的提問 —— <i>我們實際運作真的有把它載入嗎?</i> —— 把一個「可證明碰不到」的天花板,溶解成一個平凡的三 dot 時序 bug。可證偽性是雙面刃:讓你能信任一個負面結果的那份紀律,也正是當一個前提被證明錯誤時、必須讓那個負面結果被推翻的那份紀律。我們寧可發表更正,也不願捍衛一個整齊的天花板。最後一顆仍是這個專案撞過最鋒利的邊界 —— 但那個邊界是一個相位、不是一道牆,而兩顆晶片之間的接縫,原來上面真的有一扇門。</p>
+<p class="mut" style="margin-top:1.4em"><span class="en">Series: <a href="semantic-ceiling.html">the semantic ceiling</a> · <a href="mixed-signal.html">crossing the analog boundary</a> · <a href="last-test.html">the last test</a> (the diagnosis this corrects). Record: consult <code>tools/knowledgebase/a_aleread_ioce_replay_*</code>; fix on branch <code>aleread-ioce-mux</code>; the three-move mux is <code>AleReadMuxShim</code> in <code>WireCore.System.cs</code>.</span><span class="zh">系列:<a href="semantic-ceiling.html">語意天花板</a>·<a href="mixed-signal.html">跨越類比邊界</a>·<a href="last-test.html">最後一顆</a>(本文更正的那個診斷)。紀錄:諮詢 <code>tools/knowledgebase/a_aleread_ioce_replay_*</code>;修法在分支 <code>aleread-ioce-mux</code>;三招 mux 是 <code>WireCore.System.cs</code> 裡的 <code>AleReadMuxShim</code>。</span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">Part of the <a href="semantic-ceiling.html">semantic-ceiling</a> series. Latest source on the <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> branch.</span>
+     <span class="zh"><a href="semantic-ceiling.html">語意天花板</a>系列之一。最新原始碼在 <a href="https://github.com/erspicu/AprVisual"><code>main</code></a> 分支。</span></p>
+  <p class="mut">© AprVisual — <span class="en">switch-level silicon, made analyzable.</span><span class="zh">讓開關級矽電路變得可分析。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

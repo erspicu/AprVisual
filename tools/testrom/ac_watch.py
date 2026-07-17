@@ -30,7 +30,9 @@ STALL_SEC    = 15 * 60     # no new checkpoint for this long, with the process a
 def mail(subject, body, attach=None):
     cmd = [sys.executable, SEND_MAIL, "--subject", subject, "--body", body, "--html"]
     if attach:
-        cmd += ["--attach"] + [a for a in attach if os.path.isfile(a)]
+        files = [a for a in attach if os.path.isfile(a)]
+        if files:
+            cmd += ["--attach"] + files
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=180)

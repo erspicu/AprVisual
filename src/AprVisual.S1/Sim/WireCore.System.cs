@@ -514,6 +514,65 @@ namespace AprVisual.Sim
         private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
         private static int _arSelPat0 = EmptyNode, _arSelPat1 = EmptyNode, _arSetHit = EmptyNode, _arHit = EmptyNode, _arAle = EmptyNode;
         private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
+        // [bgs] BGSerialIn toggle-phase probe fields (OB_DEBUG only)
+        private static int _bgsN, _bgsDb, _bgsAb; private static bool _bgsInWr;
+        // ── BG serial-in reload-delay shim (test-mode; BGSerialIn $487 err2; M6 family) ─────────
+        // The 2C02 pipelines $2001 write effects by 2-5 dots. AC's BGSerialIn toggles rendering
+        // every scanline so the dot%8==7 BG shifter RELOAD falls inside the OFF window: on silicon
+        // the ENABLE (write landing dot%8==6) only takes effect at %8==0, so the adjacent %8==7
+        // reload is SKIPPED and the shifters serial-in a run of '1's (the white line the test's
+        // sprite-0 hit detects). Zero-delay S1 restores rendering instantly -> that reload happens
+        // -> no line -> err 2. Shim (Gemini-consulted, a_bgserial_lever_20260717): when a $2001
+        // ENABLE write completes at hpos%8 in [4,7] (the only phases where the hardware delay
+        // crosses the reload point), InstClampLow the reload gate for 16hc (2 dots). Force-LOW
+        // only; phase-orthogonal to the dot-339 (339%8==3) and even_odd (vpos261) shims.
+        public static bool BgSerialReloadShim = false;
+        private static int _bgrGate = EmptyNode, _bgrHold;
+        private static int[] _bgrHp3 = System.Array.Empty<int>();
+        private static bool _bgrInWr; private static int _bgrDb;
+        private static long _bgrFires;
+
+        /// <summary>Resolve nodes and arm. Call after LoadSystem (test mode only).</summary>
+        public static void EnableBgSerialReloadShim()
+        {
+            _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
+            if (_bgrGate == EmptyNode) _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[2:0]", hp, quiet: true); _bgrHp3 = hp.Count == 3 ? hp.ToArray() : System.Array.Empty<int>();
+            if (_bgrGate == EmptyNode || _bgrHp3.Length != 3)
+            { Console.Error.WriteLine("# [shim] bg-serial reload delay: nodes unresolved -- disabled"); BgSerialReloadShim = false; return; }
+            _bgrHold = 0; _bgrInWr = false; _bgrFires = 0; BgSerialReloadShim = true;
+        }
+
+        internal static void BgSerialReloadShimStep()
+        {
+            // release path first: the clamp outlives the write by design
+            if (_bgrHold > 0 && --_bgrHold == 0) InstRelease(_bgrGate);
+            int ab = ReadReg(R_CpuAb);
+            bool wr = (ab & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
+            if (wr) { _bgrInWr = true; _bgrDb = ReadReg(R_CpuDb); return; }
+            if (!_bgrInWr) return;
+            _bgrInWr = false;                              // write just ENDED this hc
+            if ((_bgrDb & 0x18) == 0) return;              // not an enable (neither BG nor sprites on)
+            int phase = ReadBits(_bgrHp3);                 // hpos % 8 at the write's effect instant
+            if (phase < 4) return;                         // effect lands before the reload point -> hardware agrees with zero-delay
+            if (_bgrHold == 0) InstClampLow(_bgrGate);     // suppress the imminent %8==7 reload
+            _bgrHold = 16; _bgrFires++;
+        }
+
+        // [syn] sync-routine decision probe fields: $4015 reads (SLO get/put detector) + $4017 writes
+        private static int _synN; private static bool _synIn4015R, _synIn4017W; private static int _syn4017Db, _syn4015Db;
+        // [pc] probe window (PC_WIN=lo,hi env override; defaults = the original IDR-forensics window)
+        private static readonly long _pcWinLo = ParsePcWin(0, 13750000), _pcWinHi = ParsePcWin(1, 15090000);
+        private static long ParsePcWin(int idx, long dflt)
+        {
+            var s = Environment.GetEnvironmentVariable("PC_WIN")?.Split(',');
+            return s != null && s.Length == 2 && long.TryParse(s[idx], out long v) ? v : dflt;
+        }
+        // [ae]/[aehc] ALERead forensic probe (OB_DEBUG only): per-dot + per-hc ALE/RD/chrAb around the $2007-read overlap
+        private static int _aeAle = EmptyNode, _aeRd = EmptyNode, _aeR2007 = EmptyNode, _aeSel0 = EmptyNode, _aeSel1 = EmptyNode;
+        private static int[] _aeAb = System.Array.Empty<int>(), _aeVp = System.Array.Empty<int>(), _aeHp = System.Array.Empty<int>(), _aeIoAb = System.Array.Empty<int>();
+        private static int _aeN, _aePrevH = -1, _aeArmV = -1, _aeHcBudget = 400;
+        private static int _aeIoCe = EmptyNode, _aeCpuRw = EmptyNode;
         private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
                            _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
         private static readonly byte[] _dmaRdBuf = new byte[256];
@@ -654,6 +713,94 @@ namespace AprVisual.Sim
             }
         }
 
+        // ── ALERead io_ce/io_ab software-mux + node-split (test-mode; M6 phase fix, 2026-07-16) ──
+        // The boing2k7 $2007-read ReadALE overlap lands at dot 226 in S1, 3 dots (24hc) early
+        // (CPU->PPU macro phase). On hardware it is at dot 229/230, where the $2FFF bus-collapse's
+        // $FF gets latched by the switch-level 74LS373 (u2) -> the phantom $0FFF fetch -> the
+        // sprite-0-hit artifact. The 74LS373 is fully modelled and working; the ONLY defect is the
+        // phase. This mux SWALLOWs the early $2007 access and REPLAYs it later so the ReadALE lands
+        // at the correct dot. The proven wall: the CPU's io_ab=7 window ends at dot 227 (the CPU
+        // moves on), and the replay could only reach dot 228 -- 2 dots short of the dot-230 artifact
+        // load -- because holding io_ab=7 needs force-HIGH (GND>VCC re-assert wall). NODE-SPLIT fix:
+        // WireCore.Module cuts ppu.io_ab[2:0] <-> cpu.ab[2:0] when this shim is on; the mux relays
+        // cpu.ab -> ppu.io_ab every hc (transparent) EXCEPT in-window, where it HOLDS ppu.io_ab=7
+        // (isolated -> SetHigh wins, no re-assert wall) long enough for read_2007_ended to land the
+        // ReadALE at dot 230. Opt-in (ALEREAD_MUX env; set BEFORE LoadSystem for the cut); the
+        // golden-checksum benchmark path never sets it.
+        public static bool AleReadMuxShim = false;
+        private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode, _muxR2007 = EmptyNode;
+        private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>(), _muxHp = System.Array.Empty<int>();
+        private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
+        private static long _muxDetect;
+        private static int _muxN;              // fired count (diag)
+        private static bool _muxReady;         // nodes resolved + split active
+        private static readonly bool _muxDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null || Environment.GetEnvironmentVariable("MUX_DBG") != null;
+        // dt-window timing (dt = hc since detect; 8hc/dot; detect = first io_ce=0 & cpu.ab[2:0]=7 @ v in [1,8]):
+        //   swallow  [0, swEnd)          : ppu.io_ab := 0  -> PPU sees $2000, the early $2007 ReadALE is suppressed
+        //   replay   [rpStart, rpEnd)    : io_ce clamped 0 + ppu.io_ab := 7 -> read_2007_ended lands the ReadALE
+        //                                  overlap at dot 228, where u2 (transparent) captures the $2FFF bus $FF
+        //   freeze   [fzStart, fzEnd)    : ppu.ale clamped 0 -> u2 HOLDS $FF through dot 229 (would else re-capture
+        //                                  the pattern-low $04), so the dot-230 fetch addresses $0FFF -> $FF -> artifact
+        private static int _muxSwEnd = 13, _muxRpStart = 13, _muxRpEnd = 25, _muxFzStart = 44, _muxFzEnd = 52;
+        // Detection gate: only the boing2k7 stunt (v=3, dot ~223). $2007-stress tests read $2007 hundreds of
+        // times but never at v=3 -- gating tight here is what keeps the mux from corrupting their value-checks.
+        private static int _muxVlo = 3, _muxVhi = 3, _muxHlo = 220, _muxHhi = 226;
+        private static int _muxAle = EmptyNode;
+        private static bool _muxIoCeClamped, _muxAleClamped;
+
+        public static void EnableAleReadMux()
+        {
+            _muxIoCe = LookupNode("ppu.io_ce");
+            _muxAle = LookupNode("ppu.ale");
+            _muxCpuRw = LookupNode("cpu.rw"); if (_muxCpuRw == EmptyNode) _muxCpuRw = LookupNode("2a03.cpu.rw");
+            _muxR2007 = LookupNode("ppu.read_2007_trigger");
+            var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? pab.ToArray() : System.Array.Empty<int>();
+            var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _muxHp = hp.Count == 9 ? hp.ToArray() : System.Array.Empty<int>();
+            string ov = Environment.GetEnvironmentVariable("MUX_HC");   // "swEnd,rpStart,rpEnd,fzStart,fzEnd" tuning override
+            if (ov != null) { var p = ov.Split(','); if (p.Length == 5 && int.TryParse(p[0], out int a0) && int.TryParse(p[1], out int a1) && int.TryParse(p[2], out int a2) && int.TryParse(p[3], out int a3) && int.TryParse(p[4], out int a4)) { _muxSwEnd = a0; _muxRpStart = a1; _muxRpEnd = a2; _muxFzStart = a3; _muxFzEnd = a4; } }
+            string og = Environment.GetEnvironmentVariable("MUX_GATE");   // "vlo,vhi,hlo,hhi" detection-gate override
+            if (og != null) { var p = og.Split(','); if (p.Length == 4 && int.TryParse(p[0], out int g0) && int.TryParse(p[1], out int g1) && int.TryParse(p[2], out int g2) && int.TryParse(p[3], out int g3)) { _muxVlo = g0; _muxVhi = g1; _muxHlo = g2; _muxHhi = g3; } }
+            if (_muxIoCe == EmptyNode || _muxAle == EmptyNode || _muxCpuRw == EmptyNode || _muxPpuAb.Length != 3 || _muxCpuAb.Length != 3 || _muxVp.Length != 9)
+            { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; _muxReady = false; return; }
+            _muxState = 0; _muxReady = true;
+            MuxRelayIoAb();   // seed: ppu.io_ab := cpu.ab now that the connection is cut
+            if (_muxDbg) Console.Error.WriteLine($"# [mux] armed (node-split): sw={_muxSwEnd} rp=[{_muxRpStart},{_muxRpEnd}) fz=[{_muxFzStart},{_muxFzEnd})");
+        }
+
+        private static int MuxCpuAb() => (NodeStates[_muxCpuAb[2]] << 2) | (NodeStates[_muxCpuAb[1]] << 1) | NodeStates[_muxCpuAb[0]];
+        private static void MuxDriveIoAb(int v) { for (int i = 0; i < 3; i++) { if (((v >> i) & 1) != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
+        private static void MuxRelayIoAb() { for (int i = 0; i < 3; i++) { if (NodeStates[_muxCpuAb[i]] != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
+
+        internal static void AleReadMuxStep()
+        {
+            if (!_muxReady) return;
+            if (_muxState == 0)   // armed: detect the stunt $2007 read (io_ce=0 & cpu.ab[2:0]=7 & rw=read @ low visible line)
+            {
+                if (NodeStates[_muxIoCe] == 0 && NodeStates[_muxCpuRw] != 0 && MuxCpuAb() == 7)
+                {
+                    int v = ReadBits(_muxVp), h = _muxHp.Length == 9 ? ReadBits(_muxHp) : -1;
+                    if (v >= _muxVlo && v <= _muxVhi && h >= _muxHlo && h <= _muxHhi)
+                    { _muxDetect = Time; _muxState = 1; _muxN++; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} h={h} #{_muxN} DETECT"); }
+                }
+                if (_muxState == 0) { MuxRelayIoAb(); return; }
+            }
+            long dt = Time - _muxDetect;
+            // io_ce clamp edges (replay window)
+            if (dt == _muxRpStart) { InstClampLow(_muxIoCe); _muxIoCeClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY io_ce=0 (io_ab=7)"); }
+            if (dt == _muxRpEnd && _muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY-END"); }
+            // ale clamp edges (freeze window: hold u2=$FF through dot 229)
+            if (dt == _muxFzStart) { InstClampLow(_muxAle); _muxAleClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE ale=0"); }
+            if (dt == _muxFzEnd && _muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE-END"); }
+            // io_ab drive: swallow -> 0, replay -> 7, else transparent relay
+            if (dt < _muxSwEnd) MuxDriveIoAb(0);
+            else if (dt >= _muxRpStart && dt < _muxRpEnd) MuxDriveIoAb(7);
+            else MuxRelayIoAb();
+            // window done
+            if (dt >= _muxFzEnd) { if (_muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; } if (_muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; } _muxState = 0; }
+        }
+
         // ── TEMP diag (ExplicitDMAAbort): rdy transitions + reg writes + $4000 reads ──
         private static int _dmaPrRdy = -2, _dmaPrN;
         private static int _dmaPrPrevAb = -1, _dmaPrRdyFall;
@@ -724,6 +871,46 @@ namespace AprVisual.Sim
                         Console.Error.WriteLine($"# [sp] t={Time} tup bkg={tup >> 5 & 1} spr={tup >> 4 & 1} bkgOut={tup >> 3 & 1} sprOut={tup >> 2 & 1} rend={tup >> 1 & 1} hit={tup & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
                         _spPrevTup = tup;
                     }
+                }
+            }
+            // [bgs] BGSerialIn toggle-phase probe: every $2001-SPACE write ((ab&$E007)==$2001 --
+            // including the $3E01 mirror the test's DISABLE half uses) that lands in the visible
+            // region, with PPU coords. The 360-toggle loop self-aligns its enable writes to land
+            // at dot%8==6 (hardware +2 delay -> effect at %8==0, straddling the %8==7 shifter
+            // load); a systematic phase slip here is the in-suite err2 root-cause signature.
+            if (_bgsN < 900 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
+            {
+                int abB = ReadReg(R_CpuAb);
+                bool wrB = (abB & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
+                if (wrB) { _bgsDb = ReadReg(R_CpuDb); if (!_bgsInWr) { _bgsInWr = true; _bgsAb = abB; } }
+                else if (_bgsInWr)
+                {
+                    _bgsInWr = false;
+                    int vB = ReadBits(_spVp), hB = ReadBits(_spHp);
+                    if (vB >= 2 && vB <= 235)   // visible region only: the toggle loop; menu/vblank writes skipped
+                    { _bgsN++; Console.Error.WriteLine($"# [bgs] t={Time} W${_bgsAb:X4}=${_bgsDb:X2} v={vB} h={hB} h%8={hB % 8}"); }
+                }
+            }
+            // [syn] sync-routine decision probe: every $4015 READ (the SLO get/put detector reads
+            // the frame-IRQ flag whose set-cycle parity IS the discriminator) with the value the
+            // CPU actually got, and every $4017 write (frame-counter reset). Low-frequency; the
+            // BGSerialIn in-suite sync walks a branch the standalone never takes.
+            if (_synN < 240 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
+            {
+                int abS2 = ReadReg(R_CpuAb);
+                bool rd4015 = abS2 == 0x4015 && NodeStates[_pdRw] != 0;
+                bool wr4017 = abS2 == 0x4017 && NodeStates[_pdRw] == 0;
+                if (rd4015) { _synIn4015R = true; _syn4015Db = ReadReg(R_CpuDb); }   // sample DURING the read; last hc wins
+                else if (_synIn4015R)
+                {
+                    _synIn4015R = false; _synN++;
+                    Console.Error.WriteLine($"# [syn] t={Time} R4015 -> ${_syn4015Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
+                }
+                if (wr4017) { _synIn4017W = true; _syn4017Db = ReadReg(R_CpuDb); }
+                else if (_synIn4017W)
+                {
+                    _synIn4017W = false; _synN++;
+                    Console.Error.WriteLine($"# [syn] t={Time} W4017=${_syn4017Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
                 }
             }
             // [sq] sprite-eval pipeline edges in the control frame (no blank) vs the stunt frame
@@ -1049,6 +1236,51 @@ namespace AprVisual.Sim
                     int pat = ((_arSelPat1 != EmptyNode ? NodeStates[_arSelPat1] : 0) << 1) | (_arSelPat0 != EmptyNode ? NodeStates[_arSelPat0] : 0);
                     if (pat != 0 || (_arSetHit != EmptyNode && NodeStates[_arSetHit] != 0))
                         Console.Error.WriteLine($"# [ar] t={Time} v={vA} h={hA} selPat={pat} setHit={(_arSetHit != EmptyNode ? NodeStates[_arSetHit] : 9)} hit={(_arHit != EmptyNode ? NodeStates[_arHit] : 9)} *** ARTIFACT");
+                }
+            }
+            // [ae] ALERead: trace the ALE+Read octal-latch feedback (self-contained: own vp/hp). OB_DEBUG only.
+            // Low Time gate: the standalone ALERead ROM runs the stunt early (isolated), unlike the full AC run.
+            if (Time > 200000 && _aeN < 260)
+            {
+                if (_aeAle == EmptyNode)
+                {
+                    _aeAle = LookupNode("ppu.ale"); _aeRd = LookupNode("ppu.rd");
+                    _aeR2007 = LookupNode("ppu.read_2007_trigger");
+                    var aeab = new List<int>(); ResolveNodes("ppu.ab[13:0]", aeab, quiet: true); _aeAb = aeab.Count == 14 ? aeab.ToArray() : System.Array.Empty<int>();
+                    var aevp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", aevp, quiet: true); _aeVp = aevp.Count == 9 ? aevp.ToArray() : System.Array.Empty<int>();
+                    var aehp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", aehp, quiet: true); _aeHp = aehp.Count == 9 ? aehp.ToArray() : System.Array.Empty<int>();
+                    _aeSel0 = LookupNode("ppu.selected_pat0"); _aeSel1 = LookupNode("ppu.selected_pat1");
+                    _aeIoCe = LookupNode("ppu.io_ce"); _aeCpuRw = LookupNode("cpu.rw");
+                    if (_aeCpuRw == EmptyNode) _aeCpuRw = LookupNode("2a03.cpu.rw");
+                    var aeioab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", aeioab, quiet: true); _aeIoAb = aeioab.Count == 3 ? aeioab.ToArray() : System.Array.Empty<int>();
+                    Console.Error.WriteLine($"# [ae] resolve ale={(_aeAle != EmptyNode ? 1 : 0)} rd={(_aeRd != EmptyNode ? 1 : 0)} r2007={(_aeR2007 != EmptyNode ? 1 : 0)} ab={_aeAb.Length} vp={_aeVp.Length} sel={(_aeSel0 != EmptyNode ? 1 : 0)} ioce={(_aeIoCe != EmptyNode ? 1 : 0)} ioab={_aeIoAb.Length} cpurw={(_aeCpuRw != EmptyNode ? 1 : 0)}");
+                }
+                if (_aeAb.Length == 14 && _aeVp.Length == 9 && _aeHp.Length == 9)
+                {
+                    if (_aeR2007 != EmptyNode && NodeStates[_aeR2007] != 0 && _aeArmV < 0)
+                    {
+                        int vv = ReadBits(_aeVp);
+                        if (vv >= 1 && vv <= 8) { _aeArmV = vv; _aePrevH = -1; Console.Error.WriteLine($"# [ae] ARM: $2007 read trigger at v={vv} h={ReadBits(_aeHp)}"); }
+                    }
+                    if (_aeArmV >= 0)
+                    {
+                        int vE = ReadBits(_aeVp), hE = ReadBits(_aeHp);
+                        if (vE == _aeArmV && hE >= 210 && hE <= 234 && _aeHcBudget > 0)
+                        {
+                            _aeHcBudget--;
+                            int r2007 = _aeR2007 != EmptyNode ? NodeStates[_aeR2007] : 9;
+                            int ioab = _aeIoAb.Length == 3 ? ReadBits(_aeIoAb) : 9;
+                            int ioce = _aeIoCe != EmptyNode ? NodeStates[_aeIoCe] : 9;
+                            int crw = _aeCpuRw != EmptyNode ? NodeStates[_aeCpuRw] : 9;
+                            Console.Error.WriteLine($"# [aehc] t={Time} v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} r2007={r2007} chrAb=${ReadBits(_aeAb):X4} ioce={ioce} ioab={ioab} rw={crw}");
+                        }
+                        if (vE == _aeArmV && hE != _aePrevH)
+                        {
+                            _aePrevH = hE; _aeN++;
+                            int sel = ((_aeSel1 != EmptyNode ? NodeStates[_aeSel1] : 0) << 1) | (_aeSel0 != EmptyNode ? NodeStates[_aeSel0] : 0);
+                            Console.Error.WriteLine($"# [ae] v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} chrAb=${ReadBits(_aeAb):X4} selPat={sel}");
+                        }
+                    }
                 }
             }
             // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget
@@ -1503,8 +1735,9 @@ namespace AprVisual.Sim
             Dmc4015AbortShimStep();   // deferred $4015 disable kills in-flight DMC DMA (no-op unless enabled)
             OamBlankEdgeShimStep();   // rendering-disable edge must not write OAM (no-op unless enabled)
             if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
-            // TEMP diag: PC-transition log in a hard Time window (IDR derail forensics)
-            if (_pdDbg && Time >= 13750000 && Time <= 15090000 && _pcTrN < 900)
+            // TEMP diag: PC-transition log in a Time window (default = the IDR-forensics window;
+            // override with PC_WIN=lo,hi for new investigations without a per-window rebuild)
+            if (_pdDbg && Time >= _pcWinLo && Time <= _pcWinHi && _pcTrN < 900)
             {
                 int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
                 int pgN = pcNow >> 8, pgP = _pcTrPrev >> 8;

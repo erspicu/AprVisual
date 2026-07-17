@@ -19,11 +19,11 @@
   nav .spacer{flex:1;}
   nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
   nav button.active{background:var(--acc); color:#06121f; border-color:var(--acc); font-weight:600;}
-  header.top{padding:46px 24px 18px; max-width:860px; margin:0 auto;}
+  header.top{padding:46px 24px 18px; max-width:max(860px, 50vw); margin:0 auto;}
   header.top h1{font-size:clamp(26px,5.5vw,38px); margin:0 0 8px; letter-spacing:-.5px;
     background:linear-gradient(90deg,#cfe4ff,#ffb454); -webkit-background-clip:text; background-clip:text; color:transparent;}
   header.top .sub{color:var(--mut); font-size:15px; margin:0;}
-  main{max-width:860px; margin:0 auto; padding:0 24px 90px;}
+  main{max-width:max(860px, 50vw); margin:0 auto; padding:0 24px 90px;}
   section{padding:26px 0 6px; border-top:1px solid var(--bd);}
   h2{font-size:22px; margin:.4em 0 .15em; color:#cfe4ff;}
   h3{font-size:16px; margin:1.3em 0 .2em; color:#e7eef7;}
@@ -40,7 +40,7 @@
   th{background:var(--card); color:#cfe4ff;}
   .en,.zh{display:none;}
   body.lang-en .en, body.lang-zh .zh{display:revert;}
-  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:860px; margin:0 auto;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:max(860px, 50vw); margin:0 auto;}
 </style>
 </head>
 <body class="lang-en">
@@ -60,10 +60,16 @@
 
 <main>
 
+<div class="card win" style="margin-top:22px; border-left-width:4px;">
+<h3 style="color:#7ee0a8"><span class="en">⟳ Update (2026-07-16): this ceiling was broken — and one premise below was wrong</span><span class="zh">⟳ 更新(2026-07-16):這個天花板被打破了 —— 而下面有一個前提是錯的</span></h3>
+<p class="en">This article stands as the investigation <i>as it was</i>, but its verdict has since been overturned, and honesty requires flagging it at the top. One of the three "limits" in §4 — <b>"B · the 74LS373 octal latch is on the board, not in either die's netlist"</b> — is <b>false</b>. That chip <i>is</i> modelled: a full 96-transistor switch-level module (<code>u2</code>), wired into the video address path and depended on by every correctly-rendered frame. Once that false premise was removed, ALERead turned out to be a plain three-dot timing bug, and it now <b>passes</b> — verified three independent ways. The full story, and the three-move fix, are in the sequel: <b><a href="breaking-the-ceiling.html">Breaking the ceiling →</a></b></p>
+<p class="zh">這篇文章保留為<i>當時</i>的調查原貌,但它的判決此後已被推翻,而誠實要求在最上面標註出來。§4 那三個「極限」之一 —— <b>「B · 74LS373 八位閂鎖在板上、不在任一晶粒的網表裡」</b> —— 是<b>錯的</b>。那顆晶片<i>有</i>被模:一個完整的 96 電晶體開關級模組(<code>u2</code>),接進視訊位址路徑,每一格正常渲染的畫面都依賴它。一旦拆掉那個錯誤前提,ALERead 原來只是一個平凡的三 dot 時序 bug,而它現在<b>通過了</b> —— 三個獨立方式驗證。完整故事與三招修法在續集:<b><a href="breaking-the-ceiling.html">打破天花板 →</a></b></p>
+</div>
+
 <section>
 <h2><span class="en">1 · 140 of 141, and one that would not fall</span><span class="zh">1 · 141 顆過了 140,剩一顆打不下來</span></h2>
-<p class="en">The <a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
-<p class="zh"><a href="https://erspicu.github.io/AprVisual/Report/">AccuracyCoin 硬體測試套件</a>有 141 顆,期望值全在真機上驗證過。我們的開關級引擎 —— 一顆一顆電晶體地跑 2A03 與 2C02 —— 過了 140 顆。最後一顆 <b class="term">ALERead</b>,重現的是 Damian Yerrick 的 <code>boing2k7.nes</code> 裡一個著名效應:一個抓準時機的 <code>LDA $2007</code> 汙染了一個背景 tile 的 fetch。這篇文章是完整的驗屍報告:為什麼這一顆測試成了整個專案撞過最鋒利的邊界 —— 以及一個負面結果裡藏著的好消息。</p>
+<p class="en">The <a href="https://erspicu.github.io/AprVisual/ReportAC/">AccuracyCoin hardware suite</a> has 141 tests whose expected values are verified on real consoles. Our switch-level engine — running the 2A03 and 2C02 transistor by transistor — passed 140. The last one, <b class="term">ALERead</b>, is a reproduction of a famous effect from Damian Yerrick's <code>boing2k7.nes</code>: a single, precisely-timed <code>LDA $2007</code> that corrupts a background tile fetch. This article is the full autopsy of why that one test became the sharpest boundary the whole project ever hit — and the good news hiding inside a negative result.</p>
+<p class="zh"><a href="https://erspicu.github.io/AprVisual/ReportAC/">AccuracyCoin 硬體測試套件</a>有 141 顆,期望值全在真機上驗證過。我們的開關級引擎 —— 一顆一顆電晶體地跑 2A03 與 2C02 —— 過了 140 顆。最後一顆 <b class="term">ALERead</b>,重現的是 Damian Yerrick 的 <code>boing2k7.nes</code> 裡一個著名效應:一個抓準時機的 <code>LDA $2007</code> 汙染了一個背景 tile 的 fetch。這篇文章是完整的驗屍報告:為什麼這一顆測試成了整個專案撞過最鋒利的邊界 —— 以及一個負面結果裡藏著的好消息。</p>
 </section>
 
 <section>
@@ -102,8 +108,8 @@
   <tr><th><span class="en">Limit</span><span class="zh">極限</span></th><th><span class="en">Here</span><span class="zh">在這顆</span></th></tr>
   <tr><td><b class="term">A4</b> <span class="en">propagation latency</span><span class="zh">傳播延遲</span></td>
       <td><span class="en">the cross-chip <code>$2007</code> effect lands 3 dots early — the settle model has no time axis to hold the delay</span><span class="zh">跨晶片 <code>$2007</code> 效應早 3 dot —— settle 模型沒有時間軸能承載這個延遲</span></td></tr>
-  <tr><td><b class="term">B</b> <span class="en">unmodelled board part</span><span class="zh">未建模的板級零件</span></td>
-      <td><span class="en">the corruption happens in the external 74LS373 octal latch, which is on the board, not in either die's netlist</span><span class="zh">汙染發生在外部的 74LS373 八位閂鎖,它在板上、不在任一晶粒的網表裡</span></td></tr>
+  <tr style="opacity:.62"><td><b class="term" style="text-decoration:line-through">B</b> <span class="en" style="text-decoration:line-through">unmodelled board part</span><span class="zh" style="text-decoration:line-through">未建模的板級零件</span> <b style="color:var(--warn)">✗</b></td>
+      <td><span class="en"><s>the corruption happens in the external 74LS373 octal latch, which is on the board, not in either die's netlist</s> — <b style="color:var(--acc2)">WRONG: the 74LS373 <i>is</i> modelled (module <code>u2</code>) and working; see the <a href="breaking-the-ceiling.html">sequel</a>.</b></span><span class="zh"><s>汙染發生在外部的 74LS373 八位閂鎖,它在板上、不在任一晶粒的網表裡</s> — <b style="color:var(--acc2)">錯:74LS373 <i>有</i>被模(模組 <code>u2</code>)且運作正常;見<a href="breaking-the-ceiling.html">續集</a>。</b></span></td></tr>
   <tr><td><span class="en">binary engine</span><span class="zh">二值引擎</span></td>
       <td><span class="en">GND&gt;VDD&gt;drive priority can neither force a driven wire high nor inject stale bus data — so no shim can reach the effect</span><span class="zh">GND&gt;VDD&gt;drive 優先級既不能把被驅動的線拉高、也不能注入過期匯流排資料 —— 所以沒有 shim 碰得到這個效應</span></td></tr>
 </table>
@@ -116,7 +122,9 @@
 <p class="en">The ceiling is <i>pure switch-level</i>, not absolute. The behavioural emulators that pass ALERead do it by modelling exactly the parts our die-only netlist omits — an explicit <code>$2007</code> read state machine (a small shift-register pipeline that generates the read's ALE at the correct phase) plus a behavioural octal latch (a code byte, which sidesteps the force-high wall entirely). Address = high six bits from the PPU, low eight from that latch. Because the pipeline gives the <i>correct</i> phase, the latch captures its stale byte only when boing2k7 actually happens — precise, where the time-window shim was blunt, so the stress tests stay clean.</p>
 <p class="zh">這個天花板是<i>純開關級</i>的,不是絕對的。通過 ALERead 的行為層模擬器,靠的正是模擬我們「只有晶粒」的網表所省略的那些零件 —— 一個顯式的 <code>$2007</code> 讀取狀態機(一小段移位暫存器 pipeline,在正確相位產生讀取的 ALE)加上一個行為層八位閂鎖(一個 code byte,完全繞過拉高牆)。位址 = PPU 的高六位、加上那個閂鎖的低八位。因為 pipeline 給了<i>正確</i>相位,閂鎖只在 boing2k7 真正發生時捕捉它的過期位元組 —— 精確,而時間窗 shim 是粗糙的,所以壓力測試維持乾淨。</p>
 <div class="card win"><p class="en">And this is not a foreign graft. Our engine is <i>already</i> a hybrid: the two dies run at switch level, but everything off-die — work RAM, cartridge ROM, the controller's CD4021 shift register, the mapper — is behavioural. The 74LS373 is a board chip, exactly like the CD4021 already is. Modelling it behaviourally is not a compromise of the switch-level principle; it is the principle's own boundary, drawn where it was always meant to be: <b>the netlist describes the silicon; the board is a separate, legitimately behavioural layer.</b> The fix belongs to a planned analog-aware fork (<a href="mixed-signal.html">its board-component mechanism, M5</a>), and it is ALERead that makes the strongest case for why that mechanism is load-bearing, not decorative.</p>
-<p class="zh">而這不是外來的移植。我們的引擎<i>本來</i>就是混合體:兩顆晶粒跑開關級,但晶粒以外的一切 —— 工作 RAM、卡帶 ROM、手把的 CD4021 移位暫存器、mapper —— 都是行為層。74LS373 是一顆板級晶片,和 CD4021 完全同級。用行為層模它不是對開關級原則的妥協;它就是那個原則自己的邊界,畫在它本該在的地方:<b>網表描述矽晶片;板子是一個獨立的、正當的行為層。</b>這個修法屬於一個規劃中的類比感知分支(<a href="mixed-signal.html">它的板級元件機制,M5</a>),而正是 ALERead,為「那個機制是承重的、不是裝飾的」提供了最強的理由。</p></div>
+<p class="zh">而這不是外來的移植。我們的引擎<i>本來</i>就是混合體:兩顆晶粒跑開關級,但晶粒以外的一切 —— 工作 RAM、卡帶 ROM、手把的 CD4021 移位暫存器、mapper —— 都是行為層。74LS373 是一顆板級晶片,和 CD4021 完全同級。用行為層模它不是對開關級原則的妥協;它就是那個原則自己的邊界,畫在它本該在的地方:<b>網表描述矽晶片;板子是一個獨立的、正當的行為層。</b>這個修法屬於一個規劃中的類比感知分支(<a href="mixed-signal.html">它的板級元件機制,M5</a>),而正是 ALERead,為「那個機制是承重的、不是裝飾的」提供了最強的理由。</p>
+<p class="en" style="border-top:1px solid var(--bd); padding-top:10px; margin-top:10px"><b style="color:var(--acc2)">⟳ Sequel correction (2026-07-16):</b> this "way out" was itself standing on the false premise. The 74LS373 is <i>not</i> off-die-and-unmodelled — it was a switch-level module (<code>u2</code>) all along, so no behavioural latch was ever needed. The fix that actually landed corrects the <i>phase</i> at the CPU↔PPU seam and lets the real transistors do the rest — the M3/M6 route, not M5. See <a href="breaking-the-ceiling.html">Breaking the ceiling</a>.</p>
+<p class="zh" style="border-top:1px solid var(--bd); padding-top:10px; margin-top:10px"><b style="color:var(--acc2)">⟳ 續集更正(2026-07-16):</b>這條「出路」本身就站在那個錯誤前提上。74LS373 並<i>不是</i>晶粒外未建模的零件 —— 它一直都是一顆開關級模組(<code>u2</code>),所以根本不需要行為層閂鎖。實際落地的修法,是在 CPU↔PPU 接縫上修正<i>相位</i>、讓真的電晶體做其餘的事 —— 走的是 M3/M6 路線,不是 M5。見<a href="breaking-the-ceiling.html">打破天花板</a>。</p></div>
 </section>
 
 <section>

@@ -328,21 +328,29 @@ namespace AprVisual.Sim
         }
 
         // ── M4 edge-latch mechanism (the generic edge-capture primitive) ─────────────────────
-        // A transparent latch's closing edge defines the cell's value; zero-delay settling lets
-        // same-wave data races corrupt it. One primitive expresses both measured verdicts:
-        //   data-wins: at the enable's falling edge the cell captures the post-settle DATA value
-        //              (DMC pcm_latch — analog clock-decay overlap lets the data through);
-        //   hold     : at the enable's falling edge the cell RESTORES its pre-edge snapshot
-        //              (ALU input latches — hold time met, the same-wave collapse must not leak).
-        // Annotation rows are name-resolved at arm time; env M4_EDGE arms the built-in rows
-        // (DMC + ALU — the first entries of the M4 annotation table; the per-site shims they
-        // replace auto-supersede in the test runner). The M4 toolbox scan (m4_latch_scan.py)
-        // is the source of future rows; race verdicts come from measurement or the M3 binner.
+        // A transparent latch's edge defines the cell's value; zero-delay settling lets same-wave
+        // races and mid-settle glitches corrupt it. One primitive expresses three measured verdicts:
+        //   DataWins   : at the enable's FALLING edge the cell captures the post-settle DATA value
+        //                (DMC pcm_latch — analog clock-decay overlap lets the data through);
+        //   Hold       : at the enable's FALLING edge the cell RESTORES its pre-edge snapshot
+        //                (ALU input latches — hold time met, the same-wave collapse must not leak);
+        //   Transparent: while the enable is HIGH the cell TRACKS the settled DATA, overwriting a
+        //                mid-settle capture glitch (DL/idl — the input latch is transparent through
+        //                phi2, so the settled bus wins over a group-resolution transient). This is
+        //                the glitch-immunity verdict: inertial delay expressed as "the settled value
+        //                at the right phase wins over the wrong-phase transient."
+        // A row may qualify Transparent with a behavioral address window (AddrLo..AddrHi on the CPU
+        // address bus) and a divergence threshold (MinBits) — DL only restates the bus on the
+        // measured $4016/$4017 race sites, and only on a >=2-bit capture signature; a single-bit
+        // difference is a legitimate controller-shift boundary. That per-site SCOPING is the shim's
+        // irreducible content (the latch physics is generic; where/when to apply it is calibration).
+        private enum M4Kind { DataWins, Hold, Transparent }
         private struct M4Row
         {
-            public string Name; public bool DataWins;
+            public string Name; public M4Kind Kind;
             public int Enable; public int[] Cells; public int[] Datas;
             public byte PrevEnable; public byte[] Snap;
+            public int AddrLo, AddrHi, MinBits;   // Transparent scoping (0/0/0 = unscoped)
         }
         private static bool _m4Edge;
         public static bool M4EdgeEnabled => _m4Edge;
@@ -354,7 +362,7 @@ namespace AprVisual.Sim
             {   // row: DMC pcm_latch — data-wins (measured: blargg 7-dmc_basics #19 reads $80)
                 int en = LookupNode("cpu.apu_clk1"), d = LookupNode("cpu.#13907"), c = LookupNode("cpu.#13947");
                 if (en != EmptyNode && d != EmptyNode && c != EmptyNode)
-                    rows.Add(new M4Row { Name = "dmc_pcm_latch", DataWins = true, Enable = en,
+                    rows.Add(new M4Row { Name = "dmc_pcm_latch", Kind = M4Kind.DataWins, Enable = en,
                                          Cells = new[] { c }, Datas = new[] { d },
                                          PrevEnable = NodeStates[en], Snap = new byte[1] });
                 else Console.Error.WriteLine("# [m4] edge-latch row dmc_pcm_latch: nodes unresolved -- skipped");
@@ -367,13 +375,27 @@ namespace AprVisual.Sim
                 var cells = new List<int>(); ResolveNodes(cellsExpr, cells, quiet: true);
                 if (en != EmptyNode && cells.Count == 8)
                 {
-                    var row = new M4Row { Name = nm, DataWins = false, Enable = en,
+                    var row = new M4Row { Name = nm, Kind = M4Kind.Hold, Enable = en,
                                           Cells = cells.ToArray(), Datas = Array.Empty<int>(),
                                           PrevEnable = NodeStates[en], Snap = new byte[8] };
                     for (int i = 0; i < 8; i++) row.Snap[i] = NodeStates[row.Cells[i]];
                     rows.Add(row);
                 }
                 else Console.Error.WriteLine($"# [m4] edge-latch row {nm}: nodes unresolved -- skipped");
+            }
+            if (Environment.GetEnvironmentVariable("M4_DL") is { Length: > 0 } m4dl && m4dl != "0")
+            {   // row: DL/idl input latch — TRANSPARENT (glitch immunity). Enable = clk1out==0 (phi2)
+                // of a read; cell tracks the settled db. Scoped to $4016/$4017 with a >=2-bit
+                // capture signature (the DL shim's measured blast-radius guard). Datas = cpu.db.
+                int en = LookupNode("cpu.clk1out");
+                var idl = new List<int>(); ResolveNodes("cpu.idl[7:0]", idl, quiet: true);
+                var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
+                if (en != EmptyNode && idl.Count == 8 && db.Count == 8)
+                    rows.Add(new M4Row { Name = "dl_idl", Kind = M4Kind.Transparent, Enable = en,
+                                         Cells = idl.ToArray(), Datas = db.ToArray(),
+                                         PrevEnable = NodeStates[en], Snap = new byte[8],
+                                         AddrLo = 0x4016, AddrHi = 0x4017, MinBits = 2 });
+                else Console.Error.WriteLine("# [m4] edge-latch row dl_idl: nodes unresolved -- skipped");
             }
             _m4Rows = rows.ToArray();
             _m4Edge = _m4Rows.Length > 0;
@@ -387,18 +409,44 @@ namespace AprVisual.Sim
             {
                 ref var row = ref _m4Rows[r];
                 byte cur = NodeStates[row.Enable];
+                if (row.Kind == M4Kind.Transparent)
+                {
+                    // enable HIGH for a transparent latch = its transparent phase. For DL the
+                    // netlist enable is clk1out==0 (phi2), so treat LOW as the transparent window.
+                    bool window = cur == 0;
+                    if (window && row.AddrHi != 0)
+                    {
+                        int ab = ReadReg(R_CpuAb);
+                        if (ab < row.AddrLo || ab > row.AddrHi || NodeStates[_pdRw] == 0) window = false;
+                    }
+                    if (window)
+                    {
+                        int diff = 0;
+                        for (int i = 0; i < row.Cells.Length; i++)
+                            if (NodeStates[row.Cells[i]] != NodeStates[row.Datas[i]]) diff++;
+                        if (diff >= row.MinBits)
+                            for (int i = 0; i < row.Cells.Length; i++)
+                            {
+                                byte want = NodeStates[row.Datas[i]];
+                                int n = row.Cells[i];
+                                if (NodeStates[n] != want) { if (want == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
+                            }
+                    }
+                    row.PrevEnable = cur;
+                    continue;
+                }
                 if (row.PrevEnable == 1 && cur == 0)
                 {
                     for (int i = 0; i < row.Cells.Length; i++)
                     {
-                        byte want = row.DataWins ? NodeStates[row.Datas[i]] : row.Snap[i];
+                        byte want = row.Kind == M4Kind.DataWins ? NodeStates[row.Datas[i]] : row.Snap[i];
                         int n = row.Cells[i];
                         if (NodeStates[n] != want)
                         { if (want == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
                     }
                 }
                 row.PrevEnable = cur;
-                if (!row.DataWins)
+                if (row.Kind == M4Kind.Hold)
                     for (int i = 0; i < row.Cells.Length; i++) row.Snap[i] = NodeStates[row.Cells[i]];
             }
         }

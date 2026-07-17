@@ -139,6 +139,22 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   shim;驗證中(7-dmc_basics + 03-immediate 各三臂)。**架構修:shim 派發菊花鏈攤平**
   (原 Dmc→Alu→Lxa 巢狀,單一 kill 開關會連殺下游全家 = 混淆對照;TestShimChainStep 攤平、
   保留原順序、7 個 Enable 各掛 ShimChainArmed)。
+- **2026-07-18:攻 OpenBus/OamBlankEdge 毛刺免疫 —— M4 Transparent 判決 + 誠實邊界**。
+  **M4 原語加第三判決 Transparent(a07fe8b)**:致能透明相位內 cell 追隨 settled data,
+  蓋掉 mid-settle 捕捉毛刺 = 慣性延遲(「對相位的 settled 值勝過錯相位瞬態」);可帶行為
+  scoping(位址窗 + MinBits 位元門檻)。Gate A 金 0x794A 不變,opt-in `M4_DL`。
+  **OpenBus 依賴矩陣(AC OpenBus)**:baseline PASS / **noDL PASS**(AC OpenBus 不需 DL!)/
+  noOAM PASS / **noOB FAIL(1)**(唯一承重=last-byte replay)。
+  **★ 誠實邊界(可證偽負面):OpenBus err1/last-byte 不是毛刺免疫,是外部匯流排電容保持。★**
+  M4 全 stack(data-wins+hold+transparent)+ NO_OB_SHIM 仍 FAIL(1)(ob_lastbyte 實證);
+  加上先前 M2_CAP 也救不了 —— 因 CPU db 每 cycle 被主動重驅動(非浮接),charge/裁決/毛刺三
+  機制皆無管轄權。**結論:last-byte replay 屬 L3 行為資料層(外部匯流排模型),非物理機制可退。**
+  M4_DL 對 AC OpenBus 安全(ob_m4dl_safe PASS,scoping $4016/17 不干擾 err4 路徑)。
+  **DL(err6)孤立不可判**:ppu_open_bus noDL PASS + M4_DL PASS(且 AC OpenBus noDL 也 PASS)
+  → 兩個孤立 OpenBus 測試都不需要 DL,無 control FAIL 可證,與 OamBlankEdge 同類(孤立協定
+  判不了,需套內 141/blargg 證據)。**毛刺免疫三結論:(a)Transparent 判決=原語就位可用;
+  (b)OpenBus last-byte=真邊界(L3 行為資料);(c)DL/OAM=判決可機制化但孤立不可判。**
+  無乾淨退役產出 —— 是 campaign 式誠實負面 + 精確邊界刻畫,不是失敗。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

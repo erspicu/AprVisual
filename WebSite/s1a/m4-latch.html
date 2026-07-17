@@ -170,6 +170,29 @@
   </ul>
 </section>
 
+<section id="glitch">
+  <h2><span class="kick"><span class="en">Update · 2026-07-18</span><span class="zh">後續 · 2026-07-18</span></span>
+      <span class="en">Attacking glitch immunity — what mechanized, and the honest wall</span><span class="zh">攻毛刺免疫 —— 什麼機制化了,以及那道誠實的牆</span></h2>
+  <p class="en">The primitive grew a third verdict, <b>Transparent</b>: while the enable is in its transparent phase the cell <i>tracks the settled data</i>, overwriting a mid-settle capture glitch. That is inertial delay stated in binary — the settled value at the right phase beats the wrong-phase transient — and it is the principled cure for the DL input latch (transparent through φ2, but the netlist captures once and keeps whatever transient resolved that instant). It carries optional behavioral scoping (an address window + a divergence threshold), because the DL race is only the measured $4016/$4017 sites with a ≥2-bit capture signature.</p>
+  <p class="zh">原語長出第三種判決 <b>Transparent</b>:致能在透明相位時,cell <i>追隨 settled 資料</i>,蓋掉 mid-settle 捕捉的毛刺。這就是二值化的慣性延遲 —— 對相位的 settled 值勝過錯相位的瞬態 —— 也是 DL 輸入閂鎖的原理解(它在 φ2 全程透明,但網表只捕捉一次、把那一刻解出來的瞬態留下)。它可帶行為 scoping(位址窗 + 分歧門檻),因為 DL 賽跑只發生在實測的 $4016/$4017 站點、且要 ≥2 位元的捕捉指紋。</p>
+  <p class="en">Then the experiments spoke, and the result is a clean map of a boundary — three verdicts, three fates:</p>
+  <p class="zh">然後實驗說話了,結果是一張邊界的清楚地圖 —— 三種判決、三種命運:</p>
+  <table>
+    <tr><th><span class="en">Shim</span><span class="zh">shim</span></th><th><span class="en">Verdict</span><span class="zh">判決</span></th><th><span class="en">Experiment</span><span class="zh">實驗</span></th><th><span class="en">Fate</span><span class="zh">命運</span></th></tr>
+    <tr><td>OpenBus (err1, last byte)</td><td><span class="en">none — not a latch</span><span class="zh">無 —— 不是閂鎖</span></td><td><span class="en">full M4 stack + no OpenBus shim → <b>FAIL(1)</b></span><span class="zh">M4 全 stack + 拔 OpenBus shim → <b>FAIL(1)</b></span></td><td class="hot"><span class="en">hard boundary</span><span class="zh">真邊界</span></td></tr>
+    <tr><td>DL (err6, capture glitch)</td><td>Transparent</td><td><span class="en">AC OpenBus <i>and</i> ppu_open_bus both PASS without it</span><span class="zh">AC OpenBus <i>與</i> ppu_open_bus 拔掉都 PASS</span></td><td class="wa"><span class="en">undecidable in isolation</span><span class="zh">孤立不可判</span></td></tr>
+    <tr><td>OamBlankEdge</td><td>Hold</td><td><span class="en">4 arms all PASS, shim never fires in isolation</span><span class="zh">四臂全 PASS、孤立零開火</span></td><td class="wa"><span class="en">undecidable in isolation</span><span class="zh">孤立不可判</span></td></tr>
+  </table>
+  <ul>
+    <li class="en"><b>OpenBus's last byte is not glitch immunity — it is the external bus.</b> The open-bus read returns the last byte <i>transferred on the pins</i>, held by the package/board bus capacitance. That is not a node inside either die, so no on-die mechanism — charge arbitration (M2), latch verdicts (M4), delay (M3) — can reach it. Proven: the full M4 stack with the behavioral replay removed still fails, and M2 capacitance arbitration failed the same test earlier. This byte belongs to a board-level bus model (the L3 data layer / M5 territory), and it is the cleanest example yet of a genuinely irreducible behavioral boundary — exactly the kind of falsifiable negative the whole project is built on.</li>
+    <li class="zh"><b>OpenBus 的 last byte 不是毛刺免疫 —— 是外部匯流排。</b>open-bus 讀取回傳的是<i>接腳上最後傳輸的位元組</i>,由封裝/主機板的匯流排電容保持。那不是任一晶粒<i>內部</i>的節點,所以任何晶粒內機制 —— 電荷裁決(M2)、閂鎖判決(M4)、延遲(M3)—— 都碰不到它。實證:M4 全 stack 去掉行為重播仍失敗,先前 M2 電容裁決也敗在同一測試。這個位元組屬於板級匯流排模型(L3 資料層 / M5 地盤),而且是至今最乾淨的一個真正不可約的行為邊界 —— 正是整個專案賴以立足的那種可證偽負面。</li>
+    <li class="en"><b>DL and OAM: the verdict mechanizes, but the isolated protocol cannot judge them.</b> The Transparent and Hold verdicts express both faithfully — yet neither shim is load-bearing on any isolated ROM available (both OpenBus tests pass without DL; the blank-edge write only happens mid-suite). With no control that fails, there is nothing to prove a retirement against. Their verdict is ready in the primitive; their judgement waits for in-suite (snapshot-resume) or blargg evidence — the same decidability wall the OamBlankEdge experiment hit first.</li>
+    <li class="zh"><b>DL 與 OAM:判決可機制化,但孤立協定判不了它們。</b>Transparent 與 Hold 判決都能忠實表達 —— 但兩顆 shim 在手上的任何孤立 ROM 都不承重(兩個 OpenBus 測試拔掉 DL 都過;關渲染邊沿的寫入只在套內發生)。沒有會失敗的對照組,就沒有東西可以證明退役。它們的判決已在原語裡就位;判決書要等套內(snapshot resume)或 blargg 證據 —— 正是 OamBlankEdge 實驗最先撞到的那道可判定性的牆。</li>
+    <li class="en"><b>What this run banked:</b> the Transparent primitive (opt-in <code>M4_DL</code>, Gate A golden, safe on AC OpenBus), and a precisely-drawn boundary. No shim retired here — but a research fork's job is to find where the wall is, and this found it exactly.</li>
+    <li class="zh"><b>這一輪入帳的:</b>Transparent 原語(opt-in <code>M4_DL</code>、Gate A 金、對 AC OpenBus 安全),以及一條精確畫出的邊界。這裡沒有 shim 退役 —— 但研究分支的工作就是找出牆在哪,而這次剛好找準了。</li>
+  </ul>
+</section>
+
 <section id="limits">
   <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
       <span class="en">What this scan cannot say</span><span class="zh">這次掃描說不了的事</span></h2>

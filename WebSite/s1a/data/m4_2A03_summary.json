@@ -1,0 +1,139 @@
+{
+ "label": "2A03",
+ "transistors": 10951,
+ "cells": {
+  "pass_fed_total": 1247,
+  "single_feed": 557,
+  "mux_fed": 690,
+  "gated_drive": 2003
+ },
+ "cross_coupled": {
+  "static": 25,
+  "dynamic": 0
+ },
+ "race": {
+  "cells_with_shared_support": 1247,
+  "tight_1to4": 654,
+  "no_shared_support": 0
+ },
+ "pass_feedback_cells": 415,
+ "tightest_races": [
+  {
+   "shared": 1,
+   "node": 15,
+   "names": "n15"
+  },
+  {
+   "shared": 1,
+   "node": 40,
+   "names": "pipeT2out"
+  },
+  {
+   "shared": 1,
+   "node": 44,
+   "names": "pipeUNK05"
+  },
+  {
+   "shared": 1,
+   "node": 45,
+   "names": "pipeVectorA2"
+  },
+  {
+   "shared": 1,
+   "node": 55,
+   "names": "n55"
+  },
+  {
+   "shared": 1,
+   "node": 56,
+   "names": "pipeUNK34"
+  },
+  {
+   "shared": 1,
+   "node": 68,
+   "names": "notalu6"
+  },
+  {
+   "shared": 1,
+   "node": 73,
+   "names": "pipeUNK27"
+  },
+  {
+   "shared": 1,
+   "node": 88,
+   "names": "n88"
+  },
+  {
+   "shared": 1,
+   "node": 99,
+   "names": "pipeUNK04"
+  },
+  {
+   "shared": 1,
+   "node": 114,
+   "names": "#pchp2/~pchp2"
+  },
+  {
+   "shared": 1,
+   "node": 116,
+   "names": "notidl0"
+  },
+  {
+   "shared": 1,
+   "node": 126,
+   "names": "n126"
+  },
+  {
+   "shared": 1,
+   "node": 151,
+   "names": "pipeUNK39"
+  },
+  {
+   "shared": 1,
+   "node": 164,
+   "names": "DC78.phi2"
+  }
+ ],
+ "validation": [
+  {
+   "name": "idl0",
+   "status": "found",
+   "detail": "gated-drive latch (1 pass feed + 3 driver + pull-up)"
+  },
+  {
+   "name": "idl7",
+   "status": "found",
+   "detail": "gated-drive latch (1 pass feed + 3 driver + pull-up)"
+  },
+  {
+   "name": "dor0",
+   "status": "missed",
+   "detail": "drive=1 pass=0 obs=3"
+  },
+  {
+   "name": "dor4",
+   "status": "missed",
+   "detail": "drive=1 pass=0 obs=3"
+  },
+  {
+   "name": "alua0",
+   "status": "found",
+   "detail": "gated-drive latch (1 pass feed + 1 driver)"
+  },
+  {
+   "name": "alub0",
+   "status": "found",
+   "detail": "pure pass-fed cell (3 feed); shared support 8"
+  },
+  {
+   "name": "_pcm_out4",
+   "status": "missed",
+   "detail": "drive=1 pass=0 obs=8"
+  }
+ ],
+ "params": {
+  "cone_depth": 2,
+  "cone_cap": 500,
+  "clk_fanout_excl": 200
+ }
+}

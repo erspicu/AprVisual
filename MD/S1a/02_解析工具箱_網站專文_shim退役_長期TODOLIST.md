@@ -53,7 +53,7 @@ MD/S1a/02_...TODOLIST.md         本檔(進度總帳)
 | **M2** | `m2_charge_wins.py` | `m2-charge-wins.html` | **電容誰輸誰贏**:segdefs 分層多邊形面積 + transdefs gate 面積 → 每節點物理電容代理 C_phys;pass-gate 節點對的「浮接裁決」census —— 引擎連接數代理 vs 物理電容,誰翻盤、平手樂透在哪 | OpenBusShim、OamBlankEdgeShim(地基);浮接裁決升級(S1A) | — | — | **✅ 本階段(2026-07-17)** |
 | M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | — | **✅ 普查+專文 live(2026-07-17)** |
 | M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | — | M1+M2 | **✅ 分級器+專文 live(2026-07-18)** |
-| M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆) | — | — | 排隊 |
+| M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆)+ 改判的 OpenBus/OamBlankEdge 瞬態半邊 | — | — | **✅ 掃描器+專文 live(2026-07-18)** |
 | M5 | `m5_board_inventory.py` | `m5-board.html` | 板級盤點:nes-001 connections 全清單(跨晶片網)、板級元件 pin 語意表('373/'139/4021)、閘級模組「結構性不可驅動」自動判定 | BoardOctalLatch 殘餘 hack、行為層手把的元件化 | — | — | 排隊 |
 | M6 | `m6_interface_census.py` | `m6-phase.html` | P2 掃描:跨晶片網 → 下游 BFS 找「計數器比較器錐」(hpos/vpos 位元支撐)→ 延遲敏感介面全清單;4 相位參數盤點 | reset-hold-extra、power_up_palette、registers 上電注入 | — | M5 清單 | 排隊 |
 | M7 | `m7_canonical_key.py` | `m7-canonical.html` | 正準鍵 (class, layeredArea, structHash, degree) 計算;孿生偵測(u7/u8、joy 通道、db 位元)+ 同構同命一致性報告 | (D 類樂透根源;非單一 shim) | — | M2 面積 | 排隊 |
@@ -103,6 +103,29 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   runner 逐測配方旗標),**皆被機制開完美複製** → M2 對驗證集零擾動。結論:機制安全,
   靜態 1,000 翻盤點在這些負載未被踩到或無可觀察後果;下一步 = 動態開火統計(哪些翻盤真的
   發生)→ 再做拔 shim 實驗(如 M2 開 + OpenBusShim 關 → OpenBus 還過嗎)。
+- **2026-07-18:M2 動態開火統計 + OpenBusShim 試拔(f776e15 儀器)**。
+  census(DEBUG #if 慣例,Release 熱路徑零位元組變動;雙鍵影子表在 ClearPostLoadBuildState
+  前建):金配方 300k = 430 萬次浮接裁決、**32.6% 換贏家、state-diff 僅 2 次且全被沖掉**
+  (checksum 仍金);AC OpenBus/OAMCorruption 各 **245M 次裁決、8,000 萬次換贏家、
+  state-diff 僅 18/26 次**、279 個翻盤點(頂級=PPU 精靈路徑內部對,spr_d7_int 等)。
+  **核心事實:浮接群壓倒性同狀態 —— 換裁決者幾乎不換答案。**
+  **試拔 OpenBusShim:失敗(誠實負面)** —— 對照(拔shim無M2)FAIL(1) ≡ 實驗(拔shim+M2)
+  FAIL(1);shim 承重點 = DOR precharge 毛刺經導通 pad 洩出(P6 瞬態,群根本不浮接,
+  裁決層無管轄權)+ last-byte 行為重播。**分類學修正:「M2 shim」的不可約部分屬
+  P6/M4×M3(瞬態×時間),M2 只覆蓋其穩態(hold-previous 本來就有)。**
+- **2026-07-18:OamBlankEdgeShim 試拔 —— 四臂全 PASS 含對照組(判不了)**。
+  NO_OAMEDGE_SHIM ± M2_CAP × {OAMCorruption, StaleSpriteShiftRegs} 四臂皆 PASS,且 shim
+  開時零開火 → **孤立包裝版根本沒踩到此 shim 的場景(套內互動雷)**;孤立協定對這顆
+  無鑑別力。要判退役需套內證據(snapshot resume 時光機),任何預設變更前必補。
+  對照 OpenBus(對照組 FAIL = 場景有踩到、M2 救不了):孤立協定「能判就判得準」。
+- **2026-07-18:M4 第四組落地(掃描器+專文)**:`m4_latch_scan.py` + `m4-latch.html`。
+  純拓撲零先驗四指紋:純 pass 饋入 cell 1,247+1,247(單饋/多工)、帶驅動閂鎖 2,003+6,126
+  (上拉=刷新源 — idl 教的)、交叉耦合 25+209 靜態、**動態(無上拉)2A03=0 vs 2C02=2,114
+  = OAM 陣列被結構自己點名**;緊湊關門賽跑 654+819;pass 回授 415+268。
+  **ground-truth 驗證 8/11**:idl0/7(1饋+3驅+上拉)、alua0、alub0(3饋,支撐8)、
+  spr_d7_int(9饋)、/bkg_pat_out、/spr_pat_out 全中;dor*/_pcm_out4=暫存器輸出、
+  oam_write_disable=控制訊號(正確拒收)。教訓入 script:錐深 3 萬物相交→深 2;
+  回授判定要排除 data↔cell 直接邊。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

@@ -1,0 +1,124 @@
+{
+ "label": "2C02",
+ "transistors": 16872,
+ "cells": {
+  "pass_fed_total": 1247,
+  "single_feed": 704,
+  "mux_fed": 543,
+  "gated_drive": 6126
+ },
+ "cross_coupled": {
+  "static": 209,
+  "dynamic": 2114
+ },
+ "race": {
+  "cells_with_shared_support": 1247,
+  "tight_1to4": 819,
+  "no_shared_support": 0
+ },
+ "pass_feedback_cells": 268,
+ "tightest_races": [
+  {
+   "shared": 1,
+   "node": 52,
+   "names": "n52"
+  },
+  {
+   "shared": 1,
+   "node": 53,
+   "names": "n53"
+  },
+  {
+   "shared": 1,
+   "node": 135,
+   "names": "n135"
+  },
+  {
+   "shared": 1,
+   "node": 373,
+   "names": "n373"
+  },
+  {
+   "shared": 1,
+   "node": 421,
+   "names": "+++pal_d0_out"
+  },
+  {
+   "shared": 1,
+   "node": 459,
+   "names": "+++pal_d1_out"
+  },
+  {
+   "shared": 1,
+   "node": 475,
+   "names": "+++pal_d2_out"
+  },
+  {
+   "shared": 1,
+   "node": 490,
+   "names": "+++pal_d3_out"
+  },
+  {
+   "shared": 1,
+   "node": 508,
+   "names": "+spr_addr_7_carry_out"
+  },
+  {
+   "shared": 1,
+   "node": 511,
+   "names": "+in_range_3"
+  },
+  {
+   "shared": 1,
+   "node": 559,
+   "names": "++/pal_d3_out"
+  },
+  {
+   "shared": 1,
+   "node": 573,
+   "names": "++/pal_d0_out"
+  },
+  {
+   "shared": 1,
+   "node": 608,
+   "names": "+spr_ptr4_carry_out"
+  },
+  {
+   "shared": 1,
+   "node": 644,
+   "names": "++/pal_d2_out"
+  },
+  {
+   "shared": 1,
+   "node": 714,
+   "names": "n714"
+  }
+ ],
+ "validation": [
+  {
+   "name": "spr_d7_int",
+   "status": "found",
+   "detail": "gated-drive latch (9 pass feed + 3 driver)"
+  },
+  {
+   "name": "oam_write_disable",
+   "status": "missed",
+   "detail": "drive=3 pass=0 obs=16"
+  },
+  {
+   "name": "/bkg_pat_out",
+   "status": "found",
+   "detail": "gated-drive latch (1 pass feed + 1 driver + pull-up)"
+  },
+  {
+   "name": "/spr_pat_out",
+   "status": "found",
+   "detail": "gated-drive latch (1 pass feed + 1 driver + pull-up)"
+  }
+ ],
+ "params": {
+  "cone_depth": 2,
+  "cone_cap": 500,
+  "clk_fanout_excl": 200
+ }
+}

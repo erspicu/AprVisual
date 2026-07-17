@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M4 · Every latch on two dies — pure-topology enumeration of the racing storage</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  header.hero{padding:56px 24px 34px; text-align:center;
+    background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px); margin:0 0 10px; color:#e8dcff; letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut); max-width:860px; margin:0 auto; font-size:15px;}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0;
+        border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+  main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:30px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:22px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc);
+           font-weight:700; margin-bottom:2px;}
+  h3{font-size:16.5px; margin:1.3em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px;
+      overflow-x:auto; font-size:12.5px; line-height:1.55;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+  td.n{text-align:right; font-family:Consolas,monospace;}
+  .hot{color:var(--bad); font-weight:700;} .ok{color:var(--good); font-weight:700;}
+  figure{margin:20px 0; text-align:center;}
+  figure img{max-width:100%; border:1px solid var(--bd); border-radius:10px; background:var(--bg);}
+  figure figcaption{color:var(--mut); font-size:13px; margin-top:8px; max-width:780px; margin-left:auto; margin-right:auto;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px;
+        border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut);
+         font-size:13px; max-width:max(920px, 50vw); margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m3-delay.html"><span class="en">Prev: M3 binner</span><span class="zh">上一篇:M3 分級器</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Every latch on two dies</span><span class="zh">兩顆晶粒上的每一個閂鎖</span></h1>
+  <p class="tag en">Toolbox study #4 (mechanism M4). Eight shims — the campaigns' largest family, including the two the M2 retirement experiments just proved irreducible — are one phenomenon: a transparent latch racing its own closing edge. Unlike strengths or delays, latches are <b>pure topology</b>: four graph fingerprints, zero physical priors. The scan enumerates <b>11,379 latch structures</b>, finds the OAM array by accident, and re-discovers the campaign's hand-located sites — validated against ground truth, misses explained.</p>
+  <p class="tag zh">工具箱研究 #4(機制 M4)。八顆 shim —— 戰役最大宗,包括 M2 試拔實驗剛證明不可約的那兩顆 —— 是同一個現象:透明閂鎖和自己的關門沿賽跑。與強度、延遲不同,閂鎖是<b>純拓撲</b>:四個圖指紋、零物理先驗。掃描列舉出 <b>11,379 個閂鎖結構</b>、順手把 OAM 陣列整批點名,並重新發現戰役手工定位的站點 —— 對 ground truth 驗證,漏抓有解釋。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M4 · transparent latches</span>
+    <span class="pill"><a href="py/m4_latch_scan.py">m4_latch_scan.py</a></span>
+    <span class="pill"><a href="data/m4_2A03_summary.json">2A03 JSON</a></span>
+    <span class="pill"><a href="data/m4_2C02_summary.json">2C02 JSON</a></span>
+    <span class="pill">2026-07-18</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">Eight shims, one physics</span><span class="zh">八顆 shim,一種物理</span></h2>
+  <p class="en">A transparent latch follows its input while the enable is high and holds on the closing edge. In zero-delay settling, "the closing edge" and "the data changing" collapse into the same instant — so every race resolves by graph accident instead of physics. The campaigns paid for this eight times: <b>DL</b> (φ2 transparency at $4016/7), <b>DmcLatch</b> (data vs closing clock), <b>Dmc4015Abort</b>, <b>FrameIrq</b> (a settle-internal pulse caught by an RS pair), <b>Dbl2007</b>, <b>OamDmaPpuBus</b> — and, as of this morning's retirement experiments, the transient halves of <b>OpenBus</b> (a DOR precharge pulse escaping through an open pad driver) and <b>OamBlankEdge</b> (a rendering-disable edge writing $FF into OAM cells). The M2 census proved those last two are <i>not</i> arbitration problems: the fights happen while a driver is conducting, at sub-settle granularity. Every arrow points here.</p>
+  <p class="zh">透明閂鎖在致能高時跟隨輸入、在關門沿保持。零延遲收斂裡,「關門沿」和「資料改變」塌縮成同一瞬間 —— 所以每場賽跑都由圖的偶然決定,不由物理決定。戰役為此付了八次學費:<b>DL</b>($4016/7 的 φ2 透明)、<b>DmcLatch</b>(資料 vs 關門時脈)、<b>Dmc4015Abort</b>、<b>FrameIrq</b>(settle 內脈衝被 RS 對咬住)、<b>Dbl2007</b>、<b>OamDmaPpuBus</b> —— 以及今晨試拔實驗剛定讞的:<b>OpenBus</b> 的瞬態半邊(DOR precharge 脈衝經敞開的 pad 驅動洩出)與 <b>OamBlankEdge</b>(關渲染邊沿把 $FF 寫進 OAM cell)。M2 普查證明了後兩者<i>不是</i>裁決問題:打架發生時有驅動器在導通,粒度在 settle 之內。所有箭頭都指向這裡。</p>
+</section>
+
+<section id="method">
+  <h2><span class="kick"><span class="en">The method</span><span class="zh">方法</span></span>
+      <span class="en">Four fingerprints, zero priors</span><span class="zh">四個指紋,零先驗</span></h2>
+  <p class="en">This is the purest census in the toolbox: no layer weights, no era constants, no calibration — connectivity only.</p>
+  <p class="zh">這是工具箱裡最純的一次普查:沒有層權重、沒有時代常數、沒有校準 —— 只有連接性。</p>
+  <ul>
+    <li class="en"><b>1 · Pure pass-fed cell</b> — observers but no rail driver and no pull-up; fed only through signal-to-signal pass devices. Holds by charge alone (the pcm/OAM style). Single-feed = classic latch; multi-feed = mux/register-file cell.</li>
+    <li class="zh"><b>1 · 純 pass 饋入 cell</b> —— 有觀察者、無電源軌驅動、無上拉;只靠訊號對訊號的 pass 器件餵。純靠電荷保持(pcm/OAM 型)。單饋 = 經典閂鎖;多饋 = 多工/暫存器檔 cell。</li>
+    <li class="en"><b>2 · Gated-drive latch</b> — a pass feed <i>plus</i> refresh sources (drivers or a pull-up): the DL/ALU style. A pull-up is just another refresh source — the DL bits taught the scanner that.</li>
+    <li class="zh"><b>2 · 帶驅動閂鎖</b> —— pass 饋入<i>加上</i>刷新源(驅動器或上拉):DL/ALU 型。上拉就是另一種刷新源 —— 這課是 DL 位元教會掃描器的。</li>
+    <li class="en"><b>3 · Cross-coupled pair</b> — node a gates a pull-down of b and vice versa. With a pull-up: static SR. Without: a <i>dynamic regenerative cell</i> — charge-refreshed, glitch-vulnerable.</li>
+    <li class="zh"><b>3 · 交叉耦合對</b> —— a 閘控 b 的下拉、b 也閘控 a 的下拉。帶上拉:靜態 SR。不帶:<i>動態再生 cell</i> —— 靠電荷刷新、怕毛刺。</li>
+    <li class="en"><b>4 · The closing-edge race (P1)</b> — bounded fan-in cones (depth 2) of each cell's enable and data: shared support means one trigger can close the gate and change the data in the same wave. Clock-class nodes (fanout &gt; 200) excluded as trivial.</li>
+    <li class="zh"><b>4 · 關門沿賽跑(P1)</b> —— 每個 cell 的 enable 與 data 各取有界 fan-in 錐(深度 2):共享支撐 = 同一個觸發能在同一波裡既關門又改資料。時脈級節點(扇出 &gt; 200)當平凡交集排除。</li>
+  </ul>
+  <div class="note">
+    <span class="en"><b>Self-validation is part of the method.</b> The campaigns hand-located these structures the hard way; the scan must re-find them or explain why not. A detector that cannot re-find known mines has no business proposing new ones.</span>
+    <span class="zh"><b>自我驗證是方法的一部分。</b>戰役用最辛苦的方式手工定位過這些結構;掃描必須重新找到它們,或解釋為什麼沒有。連已知的雷都找不回來的偵測器,沒資格提名新的。</span>
+  </div>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">11,379 latches — and the OAM array, found by accident</span><span class="zh">11,379 個閂鎖 —— 以及被順手點名的 OAM 陣列</span></h2>
+  <table>
+    <tr><th></th><th>2A03 (CPU+APU)</th><th>2C02 (PPU)</th></tr>
+    <tr><td><span class="en">pure pass-fed cells (single / mux)</span><span class="zh">純 pass 饋入 cell(單饋 / 多工)</span></td><td class="n">1,247 (557 / 690)</td><td class="n">1,247 (704 / 543)</td></tr>
+    <tr><td><span class="en">gated-drive latches (feed + refresh)</span><span class="zh">帶驅動閂鎖(饋入 + 刷新)</span></td><td class="n">2,003</td><td class="n">6,126</td></tr>
+    <tr><td><span class="en">cross-coupled static (SR + pull-up)</span><span class="zh">交叉耦合靜態(SR + 上拉)</span></td><td class="n">25</td><td class="n">209</td></tr>
+    <tr><td><span class="en">cross-coupled dynamic (no pull-up)</span><span class="zh">交叉耦合動態(無上拉)</span></td><td class="n"><b>0</b></td><td class="n hot"><b>2,114</b></td></tr>
+    <tr><td><span class="en">tight closing-edge races (shared support 1–4)</span><span class="zh">緊湊關門賽跑(共享支撐 1–4)</span></td><td class="n hot">654</td><td class="n hot">819</td></tr>
+    <tr><td><span class="en">pass-feedback loops</span><span class="zh">pass 回授環</span></td><td class="n">415</td><td class="n">268</td></tr>
+  </table>
+  <ul>
+    <li class="en"><b>The OAM array announces itself.</b> The 2C02 carries 2,114 pull-up-less cross-coupled cells; the 2A03 carries <i>zero</i>. That population is the PPU's OAM (64 sprites × 4 bytes × 8 bits ≈ 2,048, plus secondary OAM) — the exact no-pull-up, refresh-by-read, glitch-vulnerable cells the OamBlankEdge shim defends. The scanner had no idea what OAM is; the structure alone drew its outline.</li>
+    <li class="zh"><b>OAM 陣列自報家門。</b>2C02 有 2,114 個無上拉交叉耦合 cell;2A03 有<i>零個</i>。那批人口就是 PPU 的 OAM(64 sprite × 4 bytes × 8 bits ≈ 2,048,加二級 OAM)—— 正是 OamBlankEdge shim 防守的那種無上拉、讀取即刷新、怕毛刺的 cell。掃描器不知道 OAM 是什麼;結構自己畫出了它的輪廓。</li>
+    <li class="en"><b>Ground truth: 8 of 11 known sites re-found</b>, and all three misses are correct class boundaries, not failures — <code>dor0/4</code> and <code>_pcm_out4</code> are driven register <i>outputs</i> (the latch lives upstream), <code>oam_write_disable</code> is control logic, not storage (a correct rejection).</li>
+    <li class="zh"><b>Ground truth:11 個已知站點重新找到 8 個</b>,三個漏抓全是正確的類別邊界、不是失敗 —— <code>dor0/4</code> 與 <code>_pcm_out4</code> 是被驅動的暫存器<i>輸出</i>(閂鎖在上游),<code>oam_write_disable</code> 是控制邏輯不是儲存(正確拒收)。</li>
+    <li class="en"><b>Named catches:</b> <code>idl0/idl7</code> (the DL bits: 1 pass feed + 3 drivers + pull-up — the gated-drive class was carved for them), <code>alua0</code> (gated), <code>alub0</code> (pure 3-feed mux cell, shared support 8 — the ALU race, fingerprinted), <code>spr_d7_int</code> (9-feed mux — also M2's top flip site), <code>/bkg_pat_out</code> and <code>/spr_pat_out</code> (gated latches — the same nodes M2's capacitance census flagged, now identified structurally).</li>
+    <li class="zh"><b>具名捕獲:</b><code>idl0/idl7</code>(DL 位元:1 pass 饋入 + 3 驅動 + 上拉 —— 帶驅動類就是為它們刻的)、<code>alua0</code>(帶驅動)、<code>alub0</code>(純 3 饋多工 cell,共享支撐 8 —— ALU 賽跑,指紋到手)、<code>spr_d7_int</code>(9 饋多工 —— 也是 M2 的頭號翻盤點)、<code>/bkg_pat_out</code> 與 <code>/spr_pat_out</code>(帶驅動閂鎖 —— M2 電容普查點名過的同一批節點,現在有了結構身分)。</li>
+  </ul>
+
+  <div class="grid2">
+    <figure><img src="img/m4_2A03_classes.svg" alt="2A03 latch classes">
+      <figcaption><span class="en"><b>2A03 latch structures.</b></span><span class="zh"><b>2A03 閂鎖結構。</b></span></figcaption></figure>
+    <figure><img src="img/m4_2C02_classes.svg" alt="2C02 latch classes">
+      <figcaption><span class="en"><b>2C02:</b> note the 2,114 dynamic pairs — the OAM.</span><span class="zh"><b>2C02:</b>注意那 2,114 對動態 cell —— OAM。</span></figcaption></figure>
+    <figure><img src="img/m4_2A03_race.svg" alt="2A03 race fingerprint">
+      <figcaption><span class="en"><b>2A03 race tightness:</b> 654 cells share 1–4 support nodes between enable and data.</span><span class="zh"><b>2A03 賽跑緊湊度:</b>654 個 cell 的 enable/data 共享 1–4 個支撐節點。</span></figcaption></figure>
+    <figure><img src="img/m4_2C02_race.svg" alt="2C02 race fingerprint">
+      <figcaption><span class="en"><b>2C02:</b> 819 tight races.</span><span class="zh"><b>2C02:</b>819 場緊湊賽跑。</span></figcaption></figure>
+    <figure><img src="img/m4_2A03_valid.svg" alt="2A03 validation">
+      <figcaption><span class="en"><b>2A03 validation scoreboard.</b></span><span class="zh"><b>2A03 驗證計分板。</b></span></figcaption></figure>
+    <figure><img src="img/m4_2C02_valid.svg" alt="2C02 validation">
+      <figcaption><span class="en"><b>2C02 validation scoreboard.</b></span><span class="zh"><b>2C02 驗證計分板。</b></span></figcaption></figure>
+  </div>
+</section>
+
+<section id="road">
+  <h2><span class="kick"><span class="en">So what</span><span class="zh">所以呢</span></span>
+      <span class="en">The retirement road now runs through here</span><span class="zh">退役之路現在從這裡走</span></h2>
+  <ul>
+    <li class="en"><b>The mechanism has a proven prototype.</b> Each of the six latch shims is a hand-written edge-capture; the M4 mechanism is <i>one</i> generic edge-capture primitive consuming annotations — the shim-chain pattern the hot path already tolerates at zero measured cost.</li>
+    <li class="zh"><b>機制有已證明的原型。</b>六顆閂鎖 shim 每顆都是手寫的關門沿捕捉;M4 機制是<i>一個</i>吃標註的通用 edge-capture 原語 —— 熱路徑已實測零感的 shim 鏈模式。</li>
+    <li class="en"><b>Race verdicts come from M3.</b> Who wins a tight race = enable-path τ vs data-path τ — the Elmore binner's job. The toolbox pipeline extends one more stage: M1+M2 → M3 → per-site race verdicts for M4's annotations. Sites the τ comparison can't settle keep measured verdicts as data (the L3 layer), not code.</li>
+    <li class="zh"><b>賽跑判決交給 M3。</b>緊湊賽跑誰贏 = enable 路徑 τ vs data 路徑 τ —— 正是 Elmore 分級器的工作。工具箱管線再延一節:M1+M2 → M3 → M4 標註的逐站判決書。τ 比不出來的站點,實測判決當資料(L3 層)保留,不寫進程式。</li>
+    <li class="en"><b>Glitch immunity is a latch property.</b> The P6 transients (DOR pulse, blank edge) are sub-settle pulses caught by storage; the physical cure is hold-time / inertial delay at the annotated cells — an M4-primitive behavior parameterized by M3's τ, not a per-test patch. That is the honest route to retiring OpenBus and OamBlankEdge.</li>
+    <li class="zh"><b>毛刺免疫是閂鎖的屬性。</b>P6 瞬態(DOR 脈衝、關渲染邊沿)是被儲存元件咬住的次 settle 脈衝;物理解法是在被標註的 cell 上給 hold-time / 慣性延遲 —— 由 M3 的 τ 參數化的 M4 原語行為,不是逐測試補丁。這才是 OpenBus 與 OamBlankEdge 的誠實退役路線。</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this scan cannot say</span><span class="zh">這次掃描說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Cells, not registers.</b> Driven register outputs (dor*, _pcm_out*) and control signals are outside the storage classes by design; their latches live upstream and are caught there.</li>
+    <li class="zh"><b>找的是 cell,不是暫存器。</b>被驅動的暫存器輸出(dor*、_pcm_out*)與控制訊號設計上不在儲存類;它們的閂鎖在上游,由上游被抓。</li>
+    <li class="en"><b>Races are candidates.</b> Shared support says a same-wave race <i>can</i> happen; whether it fires, and who should win, needs the dynamic step and M3's τ — 1,473 tight candidates is the watch-list, not a bug count.</li>
+    <li class="zh"><b>賽跑是候選。</b>共享支撐說同波賽跑<i>可能</i>發生;會不會開火、誰該贏,要動態步驟和 M3 的 τ —— 1,473 個緊湊候選是監視名單,不是 bug 數。</li>
+    <li class="en"><b>Cone depth 2 is a lens, not the truth</b> — deeper triggers exist; the depth trades discrimination against trivial-intersection noise (at depth 3, everything intersects).</li>
+    <li class="zh"><b>錐深 2 是鏡頭,不是真相</b> —— 更深的觸發存在;深度是在鑑別力與平凡交集雜訊之間取捨(深度 3 時萬物相交)。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #4 · script: <a href="py/m4_latch_scan.py">m4_latch_scan.py</a> · data: <a href="data/m4_2A03_summary.json">2A03</a> / <a href="data/m4_2C02_summary.json">2C02</a> · prev: <a href="m3-delay.html">M3</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a 工具箱研究 #4 · 程式:<a href="py/m4_latch_scan.py">m4_latch_scan.py</a> · 數據:<a href="data/m4_2A03_summary.json">2A03</a> / <a href="data/m4_2C02_summary.json">2C02</a> · 上一篇:<a href="m3-delay.html">M3</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the shims were latches all along; now they have a census.</span><span class="zh">那些 shim 從頭到尾都是閂鎖;現在它們有戶口了。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

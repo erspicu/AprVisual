@@ -95,6 +95,14 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   6,424 雙路網僅 29(0.45%)做得到** → 奇偶反相/super-buffer 預言;`ale` 13.8/13.8 完美對稱
   (M1 推挽 13:13 呼應)、io_db0=31 最慢。pass 串鏈 401 網旗標未解。下一隻:ren_en 路徑反相
   計數走訪(可證偽測試)。
+- **2026-07-18:M2 引擎機制 Gate B 收官 —— 14/14 全對照一致(clean sweep)**。
+  釘實體核 6/8/10/12/14 三波跑完:AC 五顆(OpenBus/OAMCorruption/StaleSpriteShiftRegs/
+  InternalDataBus=樂透金絲雀 → 關開皆 PASS;2007Stress → 關開皆 err1)+ nes 兩顆
+  (ppu_open_bus 關開皆 PASS **且 hc 逐位相同 179,338,695**;oam_read 關開皆 err1)。
+  兩個 err1 基線 = 孤立包裝/快速 harness 環境差異(2007Stress 套內綠、oam_read 少帶 147
+  runner 逐測配方旗標),**皆被機制開完美複製** → M2 對驗證集零擾動。結論:機制安全,
+  靜態 1,000 翻盤點在這些負載未被踩到或無可觀察後果;下一步 = 動態開火統計(哪些翻盤真的
+  發生)→ 再做拔 shim 實驗(如 M2 開 + OpenBusShim 關 → OpenBus 還過嗎)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

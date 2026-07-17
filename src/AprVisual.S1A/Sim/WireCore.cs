@@ -86,6 +86,31 @@ namespace AprVisual.Sim
         private const int GateListAllSafe = 0x40000000;
         private const int GateListAllUnsafe = unchecked((int)0x80000000);
 
+        // ── M2 (S1A study): physical-capacitance floating arbitration ──────────────────────────
+        // When ON (env M2_CAP), NodeConnections is filled with a quantized physical capacitance
+        // instead of the connection count: Σ segdefs polygon-area × layer-weight (metal 0.03 /
+        // poly 0.04 / diffusion 0.10 — Mead & Conway era NMOS priors) + Σ gate W×L × 1.0 (gate
+        // oxide dominates node capacitance). Same array, same hot-path instructions — the whole
+        // mechanism is a load-time data swap, so the floating branch AND the fast-path dominance
+        // checks inherit it for free. Changing the arbitration changes the checksum BY DESIGN
+        // (S1A re-baselines; S1 golden untouched — with M2_CAP unset this path is byte-identical).
+        // Census evidence: WebSite/s1a/m2-charge-wins.html — 10.3% of pass-gate pair verdicts
+        // flip under physics; 12.5% were connection-count ties settled by walk order.
+        public static bool M2CapArbitration;      // set from env M2_CAP at LoadSystem (S1A only)
+        internal const double M2CapScale = 16.0;  // fixed-point quantization: 1 die-unit² → 16
+        internal const int M2ConnUnit = 60 * 16;  // geometry-less fallback: 1 connection ≈ one median gate (W×L ≈ 60 unit²)
+        internal static double M2LayerWeight(int layer) => layer switch { 0 => 0.03, 5 => 0.04, _ => 0.10 };
+        private static int M2ArbKey(Node node)
+        {
+            // Physical value first: after LowerNetlist every node carries a CapacityOverride
+            // (max member conn count), which must not shadow real die geometry.
+            if (node.CapWeighted > 0)
+                return (int)Math.Min(int.MaxValue, (long)Math.Round(node.CapWeighted * M2CapScale));
+            if (node.CapacityOverride >= 0)
+                return (int)Math.Min(int.MaxValue, (long)node.CapacityOverride * M2ConnUnit);
+            return (node.C1c2s.Count + node.Gates.Count) * M2ConnUnit;
+        }
+
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
         public static byte* FlagsToState;
@@ -165,10 +190,26 @@ namespace AprVisual.Sim
                 Node? node = Nodes[nn];
                 if (node == null) continue;   // AllocArray zeroed: state 0, flags 0, tlist* 0
                 ref NodeInfo ns = ref NodeInfos[nn];
-                NodeConnections[nn] = node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
+                NodeConnections[nn] = M2CapArbitration
+                    ? M2ArbKey(node)
+                    : node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
                 ns.Flags = NodeFlags.None;
                 if (node.Pullups > 0) { ns.Flags |= NodeFlags.PullUp; NodeStates[nn] = 1; }
                 if (node.Callback != null) ns.Flags |= NodeFlags.HasCallback;
+            }
+            if (M2CapArbitration)
+            {
+                int m2Geom = 0, m2Fallback = 0;
+                for (int nn = 0; nn < NodeCount; nn++)
+                {
+                    var n = Nodes[nn];
+                    if (n == null || IsPwrGnd(nn)) continue;
+                    if (n.CapWeighted > 0) m2Geom++; else m2Fallback++;
+                }
+                long kMax = 0, kSum = 0; int kN = 0;
+                for (int nn = 3; nn < NodeCount; nn++)
+                { var n = Nodes[nn]; if (n == null) continue; long v = NodeConnections[nn]; if (v > kMax) kMax = v; kSum += v; kN++; }
+                Console.Error.WriteLine($"[m2] capacitance arbitration ON: {m2Geom} nodes with die geometry, {m2Fallback} fallback (conn x {M2ConnUnit}); key max={kMax} mean={(kN > 0 ? kSum / kN : 0)}");
             }
 
             // ── flattened transistor lists (cache-friendly; one big int[] of null(0)-terminated sub-lists) ──

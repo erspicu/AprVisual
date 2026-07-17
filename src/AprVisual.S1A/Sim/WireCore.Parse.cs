@@ -47,15 +47,15 @@ namespace AprVisual.Sim
             public NodeRef Node;
             public char Pull;     // '+' = pull-up, '-' = pull-down, '\0' = none. KEEP BOTH.
             public int Layer;
-            // polygon points omitted in S1 (not needed for simulation)
+            public double Area;   // M2 (S1A): shoelace area of the polygon, die units² (0 = no coords)
         }
 
         internal struct TransDef
         {
             public string Name;
             public NodeRef Gate, C1, C2;
-            public bool IsWeak;   // 7th column boolean (2A03/2C02). Default false.
-            // bbox / geom omitted in S1.
+            public bool IsWeak;       // 7th column boolean (2A03/2C02). Default false.
+            public double GateArea;   // M2 (S1A): geom[4] = W×L gate area, die units² (0 = no geom)
         }
 
         internal struct SubModuleRef { public string Prefix; public string Type; }
@@ -161,7 +161,19 @@ namespace AprVisual.Sim
                 C2 = ReadNodeRef(ar),
             };
             if (ar.PeekKind() == JsLexer.Kind.LBracket) ar.SkipValue();   // bbox
-            if (ar.PeekKind() == JsLexer.Kind.LBracket) ar.SkipValue();   // geom
+            if (ar.PeekKind() == JsLexer.Kind.LBracket)                   // geom = [w1, w2, length, #segs, W×L]
+            {
+                ar.BeginArray();
+                double g0 = 0, g2 = 0, g4 = 0; int gn = 0;
+                while (ar.PeekKind() == JsLexer.Kind.Number)
+                {
+                    double v = ar.ReadInt();
+                    if (gn == 0) g0 = v; else if (gn == 2) g2 = v; else if (gn == 4) g4 = v;
+                    gn++;
+                }
+                ar.EndArray();
+                td.GateArea = gn >= 5 ? g4 : gn >= 3 ? g0 * g2 : 0;       // M2: gate-oxide area
+            }
             if (ar.TryReadBool(out bool weak)) td.IsWeak = weak;          // 7th column (2A03/2C02)
             ar.EndArray();
             return td;
@@ -177,7 +189,21 @@ namespace AprVisual.Sim
                 sd.Pull = p.Length > 0 ? p[0] : '\0';                    // '+' or '-'
             }
             if (ar.PeekKind() == JsLexer.Kind.Number) sd.Layer = ar.ReadInt();
-            ar.EndArray();                                                // skips the polygon coordinates
+            // M2 (S1A): shoelace area over the polygon vertices (previously skipped wholesale)
+            {
+                double a2 = 0; int x0 = 0, y0 = 0, px = 0, py = 0, k = 0;
+                while (ar.PeekKind() == JsLexer.Kind.Number)
+                {
+                    int x = ar.ReadInt();
+                    if (ar.PeekKind() != JsLexer.Kind.Number) break;      // odd trailing value — tolerate
+                    int y = ar.ReadInt();
+                    if (k == 0) { x0 = x; y0 = y; }
+                    else a2 += (double)px * y - (double)x * py;
+                    px = x; py = y; k++;
+                }
+                if (k >= 3) { a2 += (double)px * y0 - (double)x0 * py; sd.Area = Math.Abs(a2) / 2.0; }
+            }
+            ar.EndArray();
             return sd;
         }
 

@@ -31,6 +31,7 @@ namespace AprVisual.Sim
             public readonly List<int> C1c2s  = new();   // transistor indices this node is a channel end of
             public CallbackInfo? Callback;      // set by AddCallback (Step 6)
             public int CapacityOverride = -1;   // -1 = use C1c2s.Count+Gates.Count; ≥0 = explicit "capacitance" (set by LowerNetlist on merged nodes)
+            public double CapWeighted;          // M2 (S1A): Σ polygon-area × layer-weight + Σ gate W×L, die units² (0 = no geometry)
         }
 
         // build-time tables (consumed by WireCore.Reset() in Step 3 to fill the unmanaged hot arrays)
@@ -164,7 +165,7 @@ namespace AprVisual.Sim
             return nn;
         }
 
-        public static void AddTransistor(string name, int gate, int c1, int c2, bool isWeak = false)
+        public static void AddTransistor(string name, int gate, int c1, int c2, bool isWeak = false, double gateArea = 0)
         {
             if (gate == EmptyNode || c1 == EmptyNode || c2 == EmptyNode) return;
             if (c1 == c2) return;
@@ -175,7 +176,9 @@ namespace AprVisual.Sim
 
             int i = _transistors.Count;
             _transistors.Add(new Transistor { Gate = gate, C1 = c1, C2 = c2, IsWeak = isWeak, Name = name });
-            GetOrCreateNode(gate)!.Gates.Add(i);
+            var gn = GetOrCreateNode(gate)!;
+            gn.Gates.Add(i);
+            gn.CapWeighted += gateArea;               // M2: gate-oxide term (weight 1.0), non-deduped devices only
             GetOrCreateNode(c1)!.C1c2s.Add(i);
             GetOrCreateNode(c2)!.C1c2s.Add(i);
         }
@@ -305,13 +308,15 @@ namespace AprVisual.Sim
                     _memories[full] = new Memory { Name = full, Data = AllocHandlerArray<byte>(msize), Length = msize };
                 }
 
-                // setupSegments — pull-ups (we don't keep the polygons)
+                // setupSegments — pull-ups + M2 wiring capacitance (polygon areas, kept since M2)
                 foreach (var sd in def.Segs)
                 {
                     int nid = ResolveRef(sd.Node);
                     if (nid == EmptyNode || IsPwrGnd(nid)) continue;
                     var n = GetOrCreateNode(nid);
-                    if (n != null && sd.Pull == '+') n.Pullups++;
+                    if (n == null) continue;
+                    if (sd.Pull == '+') n.Pullups++;
+                    n.CapWeighted += sd.Area * M2LayerWeight(sd.Layer);
                 }
                 foreach (var pu in def.Pullups)
                 {
@@ -322,7 +327,7 @@ namespace AprVisual.Sim
 
                 // setupTransistors
                 foreach (var td in def.Trans)
-                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak);
+                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak, td.GateArea);
             }
 
             // recurse into sub-modules

@@ -105,6 +105,8 @@ namespace AprVisual.Sim
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
+            // M2 (S1A): physical-capacitance floating arbitration — data swap at Reset() fill time.
+            M2CapArbitration = Environment.GetEnvironmentVariable("M2_CAP") is { Length: > 0 } m2 && m2 != "0";
             bool chrIsRam = rom.ChrRom.Length == 0;
             bool isTestRom = ForceExtraRam
                           || rom.Path.Contains("nes-test-roms", StringComparison.OrdinalIgnoreCase)

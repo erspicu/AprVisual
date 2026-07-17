@@ -94,6 +94,7 @@ namespace AprVisual.Sim
                 if (on.Callback != null) nn.Callback = on.Callback;       // (no callbacks attached at this stage, but be correct)
                 int cap = on.C1c2s.Count + on.Gates.Count;               // pre-lowering "capacitance" = what the old tie-break used
                 if (cap > nn.CapacityOverride) nn.CapacityOverride = cap;
+                nn.CapWeighted += on.CapWeighted;                        // M2: merged nets = parallel capacitances, sum
                 if (string.IsNullOrEmpty(nn.Name)) nn.Name = on.Name;
             }
 

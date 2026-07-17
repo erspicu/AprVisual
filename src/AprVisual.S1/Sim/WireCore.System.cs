@@ -516,6 +516,49 @@ namespace AprVisual.Sim
         private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
         // [bgs] BGSerialIn toggle-phase probe fields (OB_DEBUG only)
         private static int _bgsN, _bgsDb, _bgsAb; private static bool _bgsInWr;
+        // ── BG serial-in reload-delay shim (test-mode; BGSerialIn $487 err2; M6 family) ─────────
+        // The 2C02 pipelines $2001 write effects by 2-5 dots. AC's BGSerialIn toggles rendering
+        // every scanline so the dot%8==7 BG shifter RELOAD falls inside the OFF window: on silicon
+        // the ENABLE (write landing dot%8==6) only takes effect at %8==0, so the adjacent %8==7
+        // reload is SKIPPED and the shifters serial-in a run of '1's (the white line the test's
+        // sprite-0 hit detects). Zero-delay S1 restores rendering instantly -> that reload happens
+        // -> no line -> err 2. Shim (Gemini-consulted, a_bgserial_lever_20260717): when a $2001
+        // ENABLE write completes at hpos%8 in [4,7] (the only phases where the hardware delay
+        // crosses the reload point), InstClampLow the reload gate for 16hc (2 dots). Force-LOW
+        // only; phase-orthogonal to the dot-339 (339%8==3) and even_odd (vpos261) shims.
+        public static bool BgSerialReloadShim = false;
+        private static int _bgrGate = EmptyNode, _bgrHold;
+        private static int[] _bgrHp3 = System.Array.Empty<int>();
+        private static bool _bgrInWr; private static int _bgrDb;
+        private static long _bgrFires;
+
+        /// <summary>Resolve nodes and arm. Call after LoadSystem (test mode only).</summary>
+        public static void EnableBgSerialReloadShim()
+        {
+            _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
+            if (_bgrGate == EmptyNode) _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[2:0]", hp, quiet: true); _bgrHp3 = hp.Count == 3 ? hp.ToArray() : System.Array.Empty<int>();
+            if (_bgrGate == EmptyNode || _bgrHp3.Length != 3)
+            { Console.Error.WriteLine("# [shim] bg-serial reload delay: nodes unresolved -- disabled"); BgSerialReloadShim = false; return; }
+            _bgrHold = 0; _bgrInWr = false; _bgrFires = 0; BgSerialReloadShim = true;
+        }
+
+        internal static void BgSerialReloadShimStep()
+        {
+            // release path first: the clamp outlives the write by design
+            if (_bgrHold > 0 && --_bgrHold == 0) InstRelease(_bgrGate);
+            int ab = ReadReg(R_CpuAb);
+            bool wr = (ab & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
+            if (wr) { _bgrInWr = true; _bgrDb = ReadReg(R_CpuDb); return; }
+            if (!_bgrInWr) return;
+            _bgrInWr = false;                              // write just ENDED this hc
+            if ((_bgrDb & 0x18) == 0) return;              // not an enable (neither BG nor sprites on)
+            int phase = ReadBits(_bgrHp3);                 // hpos % 8 at the write's effect instant
+            if (phase < 4) return;                         // effect lands before the reload point -> hardware agrees with zero-delay
+            if (_bgrHold == 0) InstClampLow(_bgrGate);     // suppress the imminent %8==7 reload
+            _bgrHold = 16; _bgrFires++;
+        }
+
         // [syn] sync-routine decision probe fields: $4015 reads (SLO get/put detector) + $4017 writes
         private static int _synN; private static bool _synIn4015R, _synIn4017W; private static int _syn4017Db, _syn4015Db;
         // [pc] probe window (PC_WIN=lo,hi env override; defaults = the original IDR-forensics window)

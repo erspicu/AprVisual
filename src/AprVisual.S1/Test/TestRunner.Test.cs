@@ -170,6 +170,7 @@ namespace AprVisual.Test
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (see System.cs)
+                    if (Environment.GetEnvironmentVariable("NO_BGS_SHIM") == null) WireCore.EnableBgSerialReloadShim();   // $2001-enable reload-delay at the dot%8==7 shifter-load boundary (BGSerialIn; M6 family, see System.cs)
                     if (WireCore.AleReadMuxShim) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux + node-split (M6; resolves nodes + arms; the cut already happened in LoadSystem)
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.

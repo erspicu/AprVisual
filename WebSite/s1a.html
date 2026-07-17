@@ -172,29 +172,30 @@
     <p class="zh"><b>分段走,步步驗證。</b>這是刻意的長線工作,不是大爆炸。每組工作包的節奏:解析程式 → 專文 →(使用者發令後)S1A 引擎機制 → 拔 shim → <b>每一次都過完整驗證閘</b>:機制關 = 金 checksum 不變;機制開 = AC 141/141 + 147 回歸不退步。拔了 shim 沒驗證 = 沒發生。工作總帳:<code>MD/S1a/02_解析工具箱_網站專文_shim退役_長期TODOLIST.md</code>。</p>
   </div>
   <table>
-    <tr><th></th><th>Python</th><th><span class="en">Article</span><span class="zh">專文</span></th><th><span class="en">Detects / computes</span><span class="zh">偵測 / 計算</span></th><th><span class="en">Shims targeted</span><span class="zh">瞄準的 shim</span></th><th><span class="en">Status</span><span class="zh">狀態</span></th></tr>
+    <tr><th></th><th>Python</th><th><span class="en">Article</span><span class="zh">專文</span></th><th><span class="en">Detects / computes</span><span class="zh">偵測 / 計算</span></th><th><span class="en">Shims targeted</span><span class="zh">瞄準的 shim</span></th><th><span class="en">Shim retired @</span><span class="zh">shim 拔除 commit</span></th><th><span class="en">Status</span><span class="zh">狀態</span></th></tr>
     <tr><td><b>M2</b></td><td><a href="s1a/py/m2_charge_wins.py">m2_charge_wins.py</a></td><td><a href="s1a/m2-charge-wins.html"><span class="en">Who wins when nothing is driving?</span><span class="zh">電容誰輸誰贏?</span></a></td>
         <td><span class="en">per-node physical capacitance from die polygons + gate W×L; re-runs every floating-pair election vs the engine's connection-count proxy — <b>10.3% flip, 12.5% are walk-order lotteries</b> (9,682 pairs, both dies)</span><span class="zh">從晶粒多邊形 + 閘極 W×L 算每節點物理電容;把每場浮接對選舉對引擎連接數代理重投 —— <b>10.3% 翻盤、12.5% 是走訪順序抽籤</b>(兩晶粒 9,682 對)</span></td>
-        <td>OpenBus · OamBlankEdge · DL</td><td><span class="pill">live</span></td></tr>
+        <td>OpenBus · OamBlankEdge · DL</td><td class="mut">—</td><td><span class="pill">live</span></td></tr>
     <tr><td><b>M1</b></td><td>m1_device_census.py</td><td><span class="en">Strength from geometry</span><span class="zh">從幾何算強度</span></td>
         <td><span class="en">transdefs W/L → drive-strength classes, pull-up:pull-down ratio audit (the 4:1 cookbook check) → strength-LUT parameters</span><span class="zh">transdefs W/L → 驅動強度分類、上拉:下拉比稽核(教科書 4:1 檢查)→ 強度 LUT 參數</span></td>
-        <td>LxaMagic · AluLatch</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td>LxaMagic · AluLatch</td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
     <tr><td><b>M3</b></td><td>m3_elmore_binner.py</td><td><span class="en">The die knows its own delays, executed</span><span class="zh">晶粒延遲,實際算出來</span></td>
         <td><span class="en">per-net Elmore τ from R(sheet-Ω×squares)+C(M2)+drive(M1); five measured anchors regress the scale; 16/18 rise-fall parity audit</span><span class="zh">per-net Elmore τ:R(sheet-Ω×squares)+C(M2)+驅動(M1);五個實測錨點回歸尺度;16/18 rise-fall 奇偶稽核</span></td>
-        <td>dot-339 · even_odd · AleReadMux · BgSerialReload</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td>dot-339 · even_odd · AleReadMux · BgSerialReload</td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
     <tr><td><b>M4</b></td><td>m4_latch_scan.py</td><td><span class="en">Every latch on two dies</span><span class="zh">兩顆晶粒上的每一個閂鎖</span></td>
         <td><span class="en">P1 static scan: enumerate pass-gate latches, intersect enable-cone with data-cone (closing-edge race fingerprint); P6 glitch candidates</span><span class="zh">P1 靜態掃描:列舉 pass-gate 閂鎖、enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選</span></td>
-        <td>DL · DmcLatch · Dmc4015Abort · FrameIrq · Dbl2007 · OamDmaPpuBus</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td>DL · DmcLatch · Dmc4015Abort · FrameIrq · Dbl2007 · OamDmaPpuBus</td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
     <tr><td><b>M5</b></td><td>m5_board_inventory.py</td><td><span class="en">The board as a circuit</span><span class="zh">把主機板當電路</span></td>
         <td><span class="en">cross-die connection census (nes-001), board-part pin semantics ('373/'139/4021), automatic "structurally undrivable" classification</span><span class="zh">跨晶粒連線普查(nes-001)、板級零件 pin 語意('373/'139/4021)、「結構性不可驅動」自動判定</span></td>
-        <td>BoardOctalLatch · <span class="en">behavioural joypad</span><span class="zh">行為層手把</span></td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td>BoardOctalLatch · <span class="en">behavioural joypad</span><span class="zh">行為層手把</span></td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
     <tr><td><b>M6</b></td><td>m6_interface_census.py</td><td><span class="en">Where phase can hurt</span><span class="zh">相位會咬人的地方</span></td>
         <td><span class="en">P2 scan: cross-chip nets → BFS into counter-comparator cones → the complete delay-sensitive interface list; power-on phase parameter survey</span><span class="zh">P2 掃描:跨晶片網 → BFS 找計數器比較器錐 → 延遲敏感介面全清單;上電相位參數盤點</span></td>
-        <td>reset-hold · power_up_palette · registers</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td>reset-hold · power_up_palette · registers</td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
     <tr><td><b>M7</b></td><td>m7_canonical_key.py</td><td><span class="en">Ending the lottery</span><span class="zh">終結抽籤</span></td>
         <td><span class="en">canonical key (class, layeredArea, structHash, degree); twin detection (u7/u8, joy channels) + same-fate consistency report — M2's 1,214 lottery pairs are its ready-made target list</span><span class="zh">正準鍵 (class, layeredArea, structHash, degree);孿生偵測(u7/u8、joy 通道)+ 同命一致性報告 —— M2 找到的 1,214 對抽籤就是現成目標清單</span></td>
-        <td><span class="en">(D-class lottery root)</span><span class="zh">(D 類樂透根源)</span></td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+        <td><span class="en">(D-class lottery root)</span><span class="zh">(D 類樂透根源)</span></td><td class="mut">—</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
   </table>
+  <p class="mut" style="font-size:13px"><span class="en"><b>The "shim retired @" column is this ledger's proof-of-work.</b> It stays "—" until the corresponding S1A mechanism has landed and the shim is <i>actually removed</i>; only then does it record the commit — and a commit only qualifies after passing the full gates: golden checksum unchanged with the mechanism off, AC 141/141 + the 147-ROM regression not regressing with it on.</span><span class="zh"><b>「shim 拔除 commit」欄是這本帳的存證欄。</b>在對應的 S1A 機制落地、shim <i>真正拔掉</i>之前,一律是「—」;拔掉後才記下那個 commit —— 而且 commit 要先過完整驗證閘才算數:機制關 = 金 checksum 不變;機制開 = AC 141/141 + 147 顆回歸不退步。</span></p>
 </section>
 
 <section id="education">

@@ -48,15 +48,19 @@ MD/S1a/02_...TODOLIST.md         本檔(進度總帳)
 
 ## 四、七組工作包(M1–M7)
 
-| # | Python(WebSite/s1a/py/) | 專文 | 解析內容(偵測/參數) | 將退役的 shim | 依賴 | 狀態 |
-|---|---|---|---|---|---|---|
-| **M2** | `m2_charge_wins.py` | `m2-charge-wins.html` | **電容誰輸誰贏**:segdefs 分層多邊形面積 + transdefs gate 面積 → 每節點物理電容代理 C_phys;pass-gate 節點對的「浮接裁決」census —— 引擎連接數代理 vs 物理電容,誰翻盤、平手樂透在哪 | OpenBusShim、OamBlankEdgeShim(地基);浮接裁決升級(S1A) | — | **✅ 本階段(2026-07-17)** |
-| M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | 排隊 |
-| M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | M1+M2 | 排隊 |
-| M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆) | — | 排隊 |
-| M5 | `m5_board_inventory.py` | `m5-board.html` | 板級盤點:nes-001 connections 全清單(跨晶片網)、板級元件 pin 語意表('373/'139/4021)、閘級模組「結構性不可驅動」自動判定 | BoardOctalLatch 殘餘 hack、行為層手把的元件化 | — | 排隊 |
-| M6 | `m6_interface_census.py` | `m6-phase.html` | P2 掃描:跨晶片網 → 下游 BFS 找「計數器比較器錐」(hpos/vpos 位元支撐)→ 延遲敏感介面全清單;4 相位參數盤點 | reset-hold-extra、power_up_palette、registers 上電注入 | M5 清單 | 排隊 |
-| M7 | `m7_canonical_key.py` | `m7-canonical.html` | 正準鍵 (class, layeredArea, structHash, degree) 計算;孿生偵測(u7/u8、joy 通道、db 位元)+ 同構同命一致性報告 | (D 類樂透根源;非單一 shim) | M2 面積 | 排隊 |
+| # | Python(WebSite/s1a/py/) | 專文 | 解析內容(偵測/參數) | 將退役的 shim | 拔除 commit | 依賴 | 狀態 |
+|---|---|---|---|---|---|---|---|
+| **M2** | `m2_charge_wins.py` | `m2-charge-wins.html` | **電容誰輸誰贏**:segdefs 分層多邊形面積 + transdefs gate 面積 → 每節點物理電容代理 C_phys;pass-gate 節點對的「浮接裁決」census —— 引擎連接數代理 vs 物理電容,誰翻盤、平手樂透在哪 | OpenBusShim、OamBlankEdgeShim(地基);浮接裁決升級(S1A) | — | — | **✅ 本階段(2026-07-17)** |
+| M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | — | 排隊 |
+| M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | — | M1+M2 | 排隊 |
+| M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆) | — | — | 排隊 |
+| M5 | `m5_board_inventory.py` | `m5-board.html` | 板級盤點:nes-001 connections 全清單(跨晶片網)、板級元件 pin 語意表('373/'139/4021)、閘級模組「結構性不可驅動」自動判定 | BoardOctalLatch 殘餘 hack、行為層手把的元件化 | — | — | 排隊 |
+| M6 | `m6_interface_census.py` | `m6-phase.html` | P2 掃描:跨晶片網 → 下游 BFS 找「計數器比較器錐」(hpos/vpos 位元支撐)→ 延遲敏感介面全清單;4 相位參數盤點 | reset-hold-extra、power_up_palette、registers 上電注入 | — | M5 清單 | 排隊 |
+| M7 | `m7_canonical_key.py` | `m7-canonical.html` | 正準鍵 (class, layeredArea, structHash, degree) 計算;孿生偵測(u7/u8、joy 通道、db 位元)+ 同構同命一致性報告 | (D 類樂透根源;非單一 shim) | — | M2 面積 | 排隊 |
+
+**「拔除 commit」欄 = 存證欄**(2026-07-17 使用者新增):S1A 機制落地、shim 真正拔掉、
+且通過完整驗證閘(§三步驟 5)之後,才把那個 commit hash 填進來;之前一律「—」。
+網站工具箱表(s1a.html #toolbox)同欄同規則,兩處同步更新。
 
 **順序原則**:工具箱(分析面)按**資料可靠度**排 —— M2(使用者指定起點)→ M1(同資料家族,純算術)
 → M3(吃 M1+M2 輸出)→ M4/M5/M6(圖演算法)→ M7。引擎機制(工程面)照 `00_總綱 §6` 的

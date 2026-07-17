@@ -505,6 +505,9 @@ namespace AprVisual.Sim
                             flags |= PairSupplyFlagsInline(pay + n2, gp1, opay + on2, gp2, nodeStates);
                             byte v = flags != 0 ? FlagsToState[flags]
                                    : (NodeConnections[o] > NodeConnections[nn] ? nodeStates[o] : nodeStates[nn]);
+#if DEBUG
+                            if (M2Census && flags == 0) M2CensusPairTally(nn, o);   // pre-writeback (M2_CENSUS)
+#endif
                             SetNodeState(nn, v);
                             SetNodeState(o, v);
 #if DEBUG

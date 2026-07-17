@@ -189,6 +189,9 @@ namespace AprVisual.Sim
                 int conn = NodeConnections[nn];
                 if (conn > maxConn) { maxState = NodeStates[nn]; maxConn = conn; }
             }
+#if DEBUG
+            if (M2Census) M2CensusGroupTally();   // score this resolve under both keys (M2_CENSUS)
+#endif
             return maxState;
         }
     }

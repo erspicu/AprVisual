@@ -97,6 +97,7 @@ namespace AprVisual.Sim
         // Census evidence: WebSite/s1a/m2-charge-wins.html — 10.3% of pass-gate pair verdicts
         // flip under physics; 12.5% were connection-count ties settled by walk order.
         public static bool M2CapArbitration;      // set from env M2_CAP at LoadSystem (S1A only)
+        public static bool M2Census;              // env M2_CENSUS: DEBUG-build firing census (needs M2_CAP)
         internal const double M2CapScale = 16.0;  // fixed-point quantization: 1 die-unit² → 16
         internal const int M2ConnUnit = 60 * 16;  // geometry-less fallback: 1 connection ≈ one median gate (W×L ≈ 60 unit²)
         internal static double M2LayerWeight(int layer) => layer switch { 0 => 0.03, 5 => 0.04, _ => 0.10 };
@@ -110,6 +111,69 @@ namespace AprVisual.Sim
                 return (int)Math.Min(int.MaxValue, (long)node.CapacityOverride * M2ConnUnit);
             return (node.C1c2s.Count + node.Gates.Count) * M2ConnUnit;
         }
+
+#if DEBUG
+        // ── M2 dynamic firing census (env M2_CENSUS, DEBUG builds only — rides the DEBUG-profiler
+        //    convention so the Release hot path stays byte-identical). With M2_CAP live, a legacy
+        //    connection-count shadow array lets every floating resolution be scored under BOTH keys:
+        //    did the physical verdict pick a different winner than the old proxy would have, and did
+        //    that winner hold a different remembered state (= observable behavioral divergence)?
+        private static int[]? M2LegacyConn;
+        private static long M2CenGroupFires, M2CenPairFires, M2CenFlips, M2CenStateFlips;
+        private static readonly System.Collections.Generic.Dictionary<long, long[]> M2CenSites = new();   // (m2W<<32|legW) -> [fires, stateDiff]
+
+        private static void M2CensusTally(int m2W, int legW, bool pair)
+        {
+            if (pair) M2CenPairFires++; else M2CenGroupFires++;
+            if (m2W == legW) return;
+            M2CenFlips++;
+            bool sd = NodeStates[m2W] != NodeStates[legW];
+            if (sd) M2CenStateFlips++;
+            long key = ((long)m2W << 32) | (uint)legW;
+            if (!M2CenSites.TryGetValue(key, out var rec)) M2CenSites[key] = rec = new long[2];
+            rec[0]++;
+            if (sd) rec[1]++;
+        }
+
+        /// <summary>Pair-path floating resolve (Recalc.cs): score {nn,o} under both keys, pre-writeback.</summary>
+        internal static void M2CensusPairTally(int nn, int o)
+        {
+            if (M2LegacyConn == null) return;
+            int m2W = NodeConnections[o] > NodeConnections[nn] ? o : nn;
+            int legW = M2LegacyConn[o] > M2LegacyConn[nn] ? o : nn;
+            M2CensusTally(m2W, legW, pair: true);
+        }
+
+        /// <summary>General BFS floating branch (Group.cs): re-walk _groupBuf under both keys.</summary>
+        internal static void M2CensusGroupTally()
+        {
+            if (M2LegacyConn == null) return;
+            int m2W = -1, legW = -1, m2K = -1, legK = -1;
+            for (int i = 0; i < _groupCount; i++)
+            {
+                int nn = _groupBuf[i];
+                if (NodeConnections[nn] > m2K) { m2K = NodeConnections[nn]; m2W = nn; }
+                if (M2LegacyConn[nn] > legK) { legK = M2LegacyConn[nn]; legW = nn; }
+            }
+            if (m2W >= 0) M2CensusTally(m2W, legW, pair: false);
+        }
+
+        public static void DumpM2Census()
+        {
+            if (!M2Census || M2LegacyConn == null) return;
+            long fires = M2CenGroupFires + M2CenPairFires;
+            Console.Error.WriteLine($"[m2-census] floating resolves: {fires:N0} (pair {M2CenPairFires:N0} + group {M2CenGroupFires:N0}); " +
+                                    $"verdict flips: {M2CenFlips:N0}; state-differing flips: {M2CenStateFlips:N0}; distinct flip sites: {M2CenSites.Count}");
+            var list = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<long, long[]>>(M2CenSites);
+            list.Sort((x, y) => y.Value[0].CompareTo(x.Value[0]));
+            for (int i = 0; i < list.Count && i < 20; i++)
+            {
+                int m2W = (int)(list[i].Key >> 32), legW = (int)(uint)list[i].Key;
+                Console.Error.WriteLine($"[m2-census]   {list[i].Value[0],10:N0} fires ({list[i].Value[1],8:N0} state-diff)  " +
+                                        $"m2-winner {GetNodeName(m2W)}  vs  legacy-winner {GetNodeName(legW)}");
+            }
+        }
+#endif
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -184,6 +248,15 @@ namespace AprVisual.Sim
             RecalcListCount = RecalcListNextCount = 0;
             Time = 0;
 
+#if DEBUG
+            if (M2Census && M2CapArbitration)
+            {   // shadow legacy keys for the firing census — built here because ClearPostLoadBuildState
+                // frees the C1c2s/Gates lists right after LoadSystem
+                M2LegacyConn = new int[NodeCount];
+                M2CenGroupFires = M2CenPairFires = M2CenFlips = M2CenStateFlips = 0;
+                M2CenSites.Clear();
+            }
+#endif
             // ── per-node power-on state ──
             for (int nn = 0; nn < NodeCount; nn++)
             {
@@ -193,6 +266,10 @@ namespace AprVisual.Sim
                 NodeConnections[nn] = M2CapArbitration
                     ? M2ArbKey(node)
                     : node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
+#if DEBUG
+                if (M2LegacyConn != null)
+                    M2LegacyConn[nn] = node.CapacityOverride >= 0 ? node.CapacityOverride : node.C1c2s.Count + node.Gates.Count;
+#endif
                 ns.Flags = NodeFlags.None;
                 if (node.Pullups > 0) { ns.Flags |= NodeFlags.PullUp; NodeStates[nn] = 1; }
                 if (node.Callback != null) ns.Flags |= NodeFlags.HasCallback;

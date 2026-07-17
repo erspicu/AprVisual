@@ -500,6 +500,9 @@ namespace AprVisual.Test
                 Console.WriteLine($"{label} | {Path.GetFileName(path)} | {name}");
                 if (resultText.Length > 0) Console.WriteLine(resultText);
                 Console.WriteLine($"# frames={frames} simSec={frames / 60.0988:F1} wallSec={wallSecs:F0} hc={hcRun:N0} detection={detection} resets={resetCount} load={loadSecs:F0}s");
+#if DEBUG
+                WireCore.DumpM2Census();   // M2_CENSUS firing census (no-op unless enabled)
+#endif
                 if (WireCore.PpuAleReadFeedbackShim)
                     Console.WriteLine($"# [shim] PPU ALE/read feedback holds={WireCore.PpuAleReadFeedbackHoldCount:N0}");
                 WireCore.DumpPpuMemoryTrace();

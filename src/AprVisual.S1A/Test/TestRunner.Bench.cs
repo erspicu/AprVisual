@@ -121,6 +121,9 @@ namespace AprVisual.Test
                 Console.WriteLine($"# engine: csharp  version: {bv} ({bd})");
                 Console.WriteLine($"# NodeStates checksum @ t={WireCore.Time}: 0x{stateHash:X16}  (A/B equivalence: must match the baseline run)");
 #if DEBUG
+                WireCore.DumpM2Census();   // M2_CENSUS firing census (no-op unless enabled)
+#endif
+#if DEBUG
                 {
                     // wasted-pop profiler (DEBUG only; counts identical to Release). See WireCore.Recalc.cs.
                     double W(long x) => WireCore.DiagNoChange == 0 ? 0 : 100.0 * x / WireCore.DiagNoChange;

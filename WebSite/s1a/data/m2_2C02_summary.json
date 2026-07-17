@@ -1,0 +1,491 @@
+{
+ "label": "2C02",
+ "nodes_seen": 8765,
+ "transistors": 16872,
+ "always_on_gate_pwr": 38,
+ "always_off_gate_gnd": 46,
+ "pullup_nodes": 2718,
+ "pass_gate_pairs": 6820,
+ "verdicts": {
+  "agree": 5693,
+  "flip": 517,
+  "tie_engine": 601,
+  "both_tie": 9
+ },
+ "flip_rate_pct": 7.58,
+ "lottery_rate_pct": 8.81,
+ "spearman_log_conn_vs_log_cphys": 0.5615,
+ "layer_weights": {
+  "metal": 0.03,
+  "sw-diff": 0.1,
+  "in-diode": 0.1,
+  "gnd-diff": 0.1,
+  "pwr-diff": 0.1,
+  "poly": 0.04
+ },
+ "gate_weight": 1.0,
+ "top_flips": [
+  {
+   "a": 1177,
+   "a_names": "/bkg_pat_out",
+   "b": 10718,
+   "b_names": "_if_fetching_sprites_else_/bkg_pat_out",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    1175.5,
+    63.9
+   ],
+   "decisiveness": 0.897,
+   "parallel_gates": 1
+  },
+  {
+   "a": 4557,
+   "a_names": "n4557",
+   "b": 10649,
+   "b_names": "n10649",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    224.0,
+    22.6
+   ],
+   "decisiveness": 0.817,
+   "parallel_gates": 1
+  },
+  {
+   "a": 4556,
+   "a_names": "n4556",
+   "b": 10648,
+   "b_names": "n10648",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    224.0,
+    22.6
+   ],
+   "decisiveness": 0.817,
+   "parallel_gates": 1
+  },
+  {
+   "a": 4555,
+   "a_names": "n4555",
+   "b": 10647,
+   "b_names": "n10647",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    224.0,
+    22.6
+   ],
+   "decisiveness": 0.817,
+   "parallel_gates": 1
+  },
+  {
+   "a": 4554,
+   "a_names": "n4554",
+   "b": 10646,
+   "b_names": "n10646",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    224.0,
+    22.6
+   ],
+   "decisiveness": 0.817,
+   "parallel_gates": 1
+  },
+  {
+   "a": 4553,
+   "a_names": "n4553",
+   "b": 10645,
+   "b_names": "n10645",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    224.0,
+    22.6
+   ],
+   "decisiveness": 0.817,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3170,
+   "a_names": "n3170",
+   "b": 10638,
+   "b_names": "n10638",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3169,
+   "a_names": "n3169",
+   "b": 10637,
+   "b_names": "n10637",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3168,
+   "a_names": "n3168",
+   "b": 10636,
+   "b_names": "n10636",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3167,
+   "a_names": "n3167",
+   "b": 10635,
+   "b_names": "n10635",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3166,
+   "a_names": "n3166",
+   "b": 10634,
+   "b_names": "n10634",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3165,
+   "a_names": "n3165",
+   "b": 10633,
+   "b_names": "n10633",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3164,
+   "a_names": "n3164",
+   "b": 10632,
+   "b_names": "n10632",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 3163,
+   "a_names": "n3163",
+   "b": 10631,
+   "b_names": "n10631",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    219.0,
+    24.9
+   ],
+   "decisiveness": 0.796,
+   "parallel_gates": 1
+  },
+  {
+   "a": 1182,
+   "a_names": "/spr_pat_out",
+   "b": 8735,
+   "b_names": "/spr_d0_buf_if_8x16_else_/spr_pat_out",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    1059.9,
+    139.4
+   ],
+   "decisiveness": 0.768,
+   "parallel_gates": 1
+  },
+  {
+   "a": 10550,
+   "a_names": "n10550",
+   "b": 10840,
+   "b_names": "n10840",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    205.6,
+    30.0
+   ],
+   "decisiveness": 0.745,
+   "parallel_gates": 1
+  },
+  {
+   "a": 10444,
+   "a_names": "n10444",
+   "b": 10832,
+   "b_names": "n10832",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    205.6,
+    30.0
+   ],
+   "decisiveness": 0.745,
+   "parallel_gates": 1
+  },
+  {
+   "a": 10331,
+   "a_names": "n10331",
+   "b": 10824,
+   "b_names": "n10824",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    205.6,
+    30.0
+   ],
+   "decisiveness": 0.745,
+   "parallel_gates": 1
+  },
+  {
+   "a": 10232,
+   "a_names": "n10232",
+   "b": 10808,
+   "b_names": "n10808",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    205.6,
+    30.0
+   ],
+   "decisiveness": 0.745,
+   "parallel_gates": 1
+  },
+  {
+   "a": 10141,
+   "a_names": "n10141",
+   "b": 10800,
+   "b_names": "n10800",
+   "conn": [
+    2,
+    3
+   ],
+   "c_phys": [
+    205.6,
+    30.0
+   ],
+   "decisiveness": 0.745,
+   "parallel_gates": 1
+  }
+ ],
+ "top_engine_ties": [
+  {
+   "a": 10084,
+   "a_names": "/attrib_buf4",
+   "b": 10816,
+   "b_names": "n10816",
+   "decisiveness": 0.879
+  },
+  {
+   "a": 10080,
+   "a_names": "/attrib_buf5",
+   "b": 10815,
+   "b_names": "n10815",
+   "decisiveness": 0.855
+  },
+  {
+   "a": 1037,
+   "a_names": "+vpos_minus_spr_d2",
+   "b": 8752,
+   "b_names": "++vpos_minus_spr_d2",
+   "decisiveness": 0.834
+  },
+  {
+   "a": 1038,
+   "a_names": "+vpos_minus_spr_d1",
+   "b": 8753,
+   "b_names": "++vpos_minus_spr_d1",
+   "decisiveness": 0.834
+  },
+  {
+   "a": 1039,
+   "a_names": "+vpos_minus_spr_d0",
+   "b": 8754,
+   "b_names": "++vpos_minus_spr_d0",
+   "decisiveness": 0.831
+  },
+  {
+   "a": 10079,
+   "a_names": "/attrib_buf7",
+   "b": 10812,
+   "b_names": "n10812",
+   "decisiveness": 0.814
+  },
+  {
+   "a": 1540,
+   "a_names": "_or_/vramaddr_v4",
+   "b": 10700,
+   "b_names": "_or_/vramaddr_v4",
+   "decisiveness": 0.813
+  },
+  {
+   "a": 1096,
+   "a_names": "++hpos_eq_339_and_rendering",
+   "b": 8704,
+   "b_names": "+++hpos_eq_339_and_rendering",
+   "decisiveness": 0.811
+  },
+  {
+   "a": 2687,
+   "a_names": "/spr0_p1",
+   "b": 10832,
+   "b_names": "n10832",
+   "decisiveness": 0.81
+  },
+  {
+   "a": 2658,
+   "a_names": "/spr0_p2",
+   "b": 10824,
+   "b_names": "n10824",
+   "decisiveness": 0.81
+  },
+  {
+   "a": 2572,
+   "a_names": "/spr0_p4",
+   "b": 10800,
+   "b_names": "n10800",
+   "decisiveness": 0.81
+  },
+  {
+   "a": 2720,
+   "a_names": "/spr0_p0",
+   "b": 10840,
+   "b_names": "n10840",
+   "decisiveness": 0.808
+  },
+  {
+   "a": 2617,
+   "a_names": "/spr0_p3",
+   "b": 10808,
+   "b_names": "n10808",
+   "decisiveness": 0.808
+  },
+  {
+   "a": 2520,
+   "a_names": "/spr0_p6",
+   "b": 10784,
+   "b_names": "n10784",
+   "decisiveness": 0.808
+  },
+  {
+   "a": 2486,
+   "a_names": "/spr0_p7",
+   "b": 10776,
+   "b_names": "n10776",
+   "decisiveness": 0.808
+  },
+  {
+   "a": 2550,
+   "a_names": "/spr0_p5",
+   "b": 10792,
+   "b_names": "n10792",
+   "decisiveness": 0.808
+  },
+  {
+   "a": 2684,
+   "a_names": "n2684",
+   "b": 10827,
+   "b_names": "n10827",
+   "decisiveness": 0.806
+  },
+  {
+   "a": 2683,
+   "a_names": "n2683",
+   "b": 10825,
+   "b_names": "n10825",
+   "decisiveness": 0.806
+  },
+  {
+   "a": 2655,
+   "a_names": "n2655",
+   "b": 10821,
+   "b_names": "n10821",
+   "decisiveness": 0.806
+  },
+  {
+   "a": 2653,
+   "a_names": "n2653",
+   "b": 10819,
+   "b_names": "n10819",
+   "decisiveness": 0.806
+  }
+ ]
+}

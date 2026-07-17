@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M2 · Who wins when nothing is driving? — capacitance vs the connection-count proxy</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  header.hero{padding:56px 24px 34px; text-align:center;
+    background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px); margin:0 0 10px; color:#e8dcff; letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut); max-width:820px; margin:0 auto; font-size:15px;}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0;
+        border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+  main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:30px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:22px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc);
+           font-weight:700; margin-bottom:2px;}
+  h3{font-size:16.5px; margin:1.3em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px;
+      overflow-x:auto; font-size:12.5px; line-height:1.55;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+  td.n{text-align:right; font-family:Consolas,monospace;}
+  .flip{color:var(--bad); font-weight:700;} .lot{color:var(--warn); font-weight:700;}
+  .ok{color:var(--good); font-weight:700;}
+  figure{margin:20px 0; text-align:center;}
+  figure img, figure svg{max-width:100%; border:1px solid var(--bd); border-radius:10px; background:var(--bg);}
+  figure figcaption{color:var(--mut); font-size:13px; margin-top:8px; max-width:760px; margin-left:auto; margin-right:auto;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px;
+        border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut);
+         font-size:13px; max-width:max(920px, 50vw); margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Who wins when nothing is driving?</span><span class="zh">沒有人在驅動的時候,誰輸誰贏?</span></h1>
+  <p class="tag en">Toolbox study #1 (mechanism M2). A switch-level engine settles a floating transistor group by letting "the biggest capacitance win" — but it measures bigness by <i>counting wires</i>. The die's own polygons know the real answer. One Python script, two dies, 9,682 elections re-run under physics: <b>1,000 verdicts flip.</b></p>
+  <p class="tag zh">工具箱研究 #1(機制 M2)。開關級引擎裁決浮接電晶體群的規則是「電容最大者勝」—— 但它量「大」的方式是<i>數線頭</i>。晶粒自己的多邊形知道真正的答案。一隻 Python、兩顆晶粒、9,682 場選舉用物理重投:<b>1,000 場判決翻盤。</b></p>
+  <p style="margin-top:14px">
+    <span class="pill">M2 · charge storage</span>
+    <span class="pill"><a href="py/m2_charge_wins.py">m2_charge_wins.py</a></span>
+    <span class="pill"><a href="data/m2_2A03_summary.json">2A03 JSON</a></span>
+    <span class="pill"><a href="data/m2_2C02_summary.json">2C02 JSON</a></span>
+    <span class="pill">2026-07-17</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">The engine's quietest rule</span><span class="zh">引擎裡最安靜的一條規則</span></h2>
+  <p class="en">A switch-level simulator spends its life resolving <i>groups</i>: sets of nodes joined by conducting transistors. Each group takes one value, picked by a strict priority — a path to GND wins; else VCC or a pull-up wins; else an external driver; else… nothing is driving at all. That last case is a <b>floating group</b>: a puddle of charge cut off from every supply, remembering whatever it held last.</p>
+  <p class="zh">開關級模擬器一輩子都在解<i>群</i>:被導通電晶體連在一起的一坨節點。每群取一個值,按嚴格優先序 —— 有到 GND 的路就 GND 勝;不然 VCC / 上拉勝;不然外部驅動;再不然⋯⋯根本沒有人在驅動。最後這種就是<b>浮接群</b>:一灘被所有電源切斷的電荷,記著它最後的值。</p>
+  <p class="en">Our engine (following Visual6502 → MetalNES) resolves it with one line of intent: <i>“purely floating: largest-cap node wins.”</i> But no engine in this family ever had capacitance. The stand-in, from <code>WireCore.cs</code>:</p>
+  <p class="zh">我們的引擎(承 Visual6502 → MetalNES)用一句話裁決它:<i>「純浮接:電容最大的節點勝。」</i>但這一族引擎從來沒有真的電容。頂替上場的,是 <code>WireCore.cs</code> 裡的:</p>
+  <pre><code>NodeConnections[nn] = node.C1c2s.Count + node.Gates.Count;   // the "capacitance" proxy
+// GetNodeValue(), floating branch: the group takes the state of its max-connection node;
+// ties fall through to graph-walk order — a structural accident, not physics.</code></pre>
+  <p class="en">Counting wire attachments is not a crazy proxy — more terminals usually means more metal. But it is a <i>proxy</i>, and this study asks the obvious question nobody in the lineage ever checked: <b>how often does it get the election wrong?</b></p>
+  <p class="zh">數線頭不是亂來的代理 —— 接點多通常銅線也多。但它終究是<i>代理</i>,而這份研究問一個這一族從來沒人查過的問題:<b>它把選舉判錯的頻率,到底是多少?</b></p>
+  <div class="card">
+    <p class="en"><b>Why it matters here.</b> The M2 shim family — open-bus <i>last transferred byte</i>, OAM dynamic cells destroyed by a rendering-disable edge, the DL data latch — are all charge-storage behaviours patched around this exact abstraction. Before S1a replaces those shims with a real charge mechanism, we need to know how much of the floor is load-bearing.</p>
+    <p class="zh"><b>為什麼重要。</b>M2 shim 家族 —— open bus 的<i>最後傳輸位元組</i>、被關渲染邊沿毀掉的 OAM 動態 cell、DL 資料閂鎖 —— 全是繞著這個抽象打的電荷儲存補丁。S1a 要用真的電荷機制取代它們之前,得先知道這塊地板有多少是承重的。</p>
+  </div>
+</section>
+
+<section id="physics">
+  <h2><span class="kick"><span class="en">The physics</span><span class="zh">物理</span></span>
+      <span class="en">Charge sharing: the biggest tank sets the level</span><span class="zh">電荷分享:最大的水缸決定水位</span></h2>
+  <p class="en">When a pass gate closes between two floating nodes, their charge redistributes: the final voltage is the capacitance-weighted average <code>V = (C₁V₁ + C₂V₂) / (C₁ + C₂)</code>. In a binary world that has a clean reading: <b>the bigger capacitance drags the pair to its own remembered state.</b> A 10:1 capacitance ratio is a landslide; 1.05:1 is a coin toss (and real silicon would settle mid-rail and let the next stage's threshold decide).</p>
+  <p class="zh">當 pass gate 在兩個浮接節點之間關合,電荷重新分配:最終電壓是電容加權平均 <code>V = (C₁V₁ + C₂V₂) / (C₁ + C₂)</code>。翻成二值世界就是一句話:<b>電容大的一方,把整對拖向自己記住的值。</b>電容比 10:1 是壓倒性勝利;1.05:1 是擲銅板(真矽會停在中間電位,讓下一級的門檻決定)。</p>
+  <p class="en">And real node capacitance is not "number of wires". In this NMOS process it is dominated by <b>thin gate oxide</b>: every transistor gate hanging on a node contributes ~1.0 fF/µm² of its W×L, an order of magnitude above the wiring itself (metal ≈ 0.03, poly ≈ 0.04, diffusion ≈ 0.10 fF/µm² — Mead &amp; Conway era priors). A short stub driving three gates can out-weigh a long lonely trace; a long bus with no listeners can out-weigh a busy little junction. Connection count sees none of this structure.</p>
+  <p class="zh">而真實的節點電容,不是「線的數量」。這個 NMOS 製程裡它由<b>薄閘氧化層</b>主導:掛在節點上的每一顆電晶體閘極,以它的 W×L 貢獻 ~1.0 fF/µm² —— 比佈線本身高一個數量級(metal ≈ 0.03、poly ≈ 0.04、diffusion ≈ 0.10 fF/µm²,Mead &amp; Conway 時代的先驗)。一根驅動三個閘極的短樁,可以比一條孤單的長線更重;一條沒有聽眾的長匯流排,可以比一個熱鬧的小接點更重。連接數看不見這些結構。</p>
+
+  <figure>
+    <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif" style="max-width:760px">
+      <rect width="760" height="340" fill="#100f15"/>
+      <text x="380" y="28" fill="#dcd7e3" font-size="15" font-weight="700" text-anchor="middle">A real election from the 2C02 die  ·  2C02 晶粒上一場真實的選舉</text>
+      <!-- node A: long line + gates -->
+      <rect x="60" y="90" width="300" height="12" fill="#c792ea" fill-opacity=".85" rx="3"/>
+      <text x="60" y="78" fill="#e8dcff" font-size="13" font-weight="700">A = /bkg_pat_out</text>
+      <text x="60" y="126" fill="#968ba1" font-size="12">long poly/metal run + many listener gates</text>
+      <rect x="100" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="160" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="220" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="280" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <text x="305" y="55" fill="#968ba1" font-size="11">gates (W×L × Cox — the heavy part)</text>
+      <text x="60" y="150" fill="#7ee0a8" font-size="13" font-weight="700">C_phys ≈ 1176   ·   conn = 2</text>
+      <!-- pass gate -->
+      <rect x="380" y="88" width="52" height="16" fill="#1a1721" stroke="#ffb454" rx="4"/>
+      <line x1="406" y1="70" x2="406" y2="88" stroke="#ffb454" stroke-width="2"/>
+      <text x="406" y="62" fill="#ffb454" font-size="11.5" text-anchor="middle">pass gate closes</text>
+      <!-- node B -->
+      <rect x="452" y="90" width="60" height="12" fill="#c792ea" fill-opacity=".45" rx="3"/>
+      <text x="452" y="78" fill="#e8dcff" font-size="13" font-weight="700">B = sprite-fetch mux node</text>
+      <text x="452" y="126" fill="#968ba1" font-size="12">tiny internal junction, 3 attachments</text>
+      <text x="452" y="150" fill="#ffb454" font-size="13" font-weight="700">C_phys ≈ 64   ·   conn = 3</text>
+      <!-- verdicts -->
+      <line x1="60" y1="185" x2="700" y2="185" stroke="#2e2634"/>
+      <text x="70" y="215" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#ff6b6b">Engine:</tspan>  conn 3 &gt; 2  →  the tiny mux node wins the pair</text>
+      <text x="70" y="245" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#7ee0a8">Physics:</tspan>  C 1176 vs 64  →  the big line wins, 18:1 — decisiveness d = 0.90</text>
+      <text x="70" y="285" fill="#968ba1" font-size="12.5">V = (C_A·V_A + C_B·V_B)/(C_A+C_B) ≈ 0.95·V_A + 0.05·V_B   —   B barely dents A's charge.</text>
+      <text x="70" y="312" fill="#968ba1" font-size="12.5">引擎:數線頭 3 &gt; 2,小節點勝。物理:1176 對 64,大線 18:1 壓倒性勝出 —— 判決相反。</text>
+    </svg>
+    <figcaption><span class="en">The single most decisive flip found on the 2C02: the background pattern shifter output vs the sprite-fetch multiplexer node beside it. The engine hands the election to the wrong side.</span><span class="zh">2C02 上最一面倒的翻盤:背景 pattern 移位器輸出 vs 旁邊的精靈取圖多工節點。引擎把選舉判給了錯的一邊。</span></figcaption>
+  </figure>
+</section>
+
+<section id="data">
+  <h2><span class="kick"><span class="en">The data</span><span class="zh">資料</span></span>
+      <span class="en">The die already carries its own answer</span><span class="zh">晶粒身上本來就帶著答案</span></h2>
+  <p class="en">Everything needed is in the netlist files we already parse — and, until now, partly threw away:</p>
+  <p class="zh">需要的一切都在我們本來就解析的網表檔裡 —— 只是至今有一部分解析完就丟掉:</p>
+  <ul>
+    <li class="en"><b><code>segdefs</code></b> — every silicon polygon: node id, layer, vertex list. Shoelace formula → area per node per layer. This is the wiring capacitance.</li>
+    <li class="zh"><b><code>segdefs</code></b> —— 每一塊矽多邊形:節點編號、層別、頂點序列。鞋帶公式 → 每節點每層面積。這是佈線電容。</li>
+    <li class="en"><b><code>transdefs</code></b> — every transistor: gate/c1/c2 node ids plus a geometry record <code>[w, w, L, segs, W×L]</code>. The W×L gate area, times ~1.0 fF/µm², is the dominant capacitance a node carries for every gate hanging on it. (Verified real data, e.g. <code>t11891</code>: W=54, L=6.)</li>
+    <li class="zh"><b><code>transdefs</code></b> —— 每一顆電晶體:gate/c1/c2 節點編號,外加幾何紀錄 <code>[w, w, L, segs, W×L]</code>。W×L 閘極面積 × ~1.0 fF/µm²,就是節點上每顆閘極貢獻的主力電容。(實測是真值,例如 <code>t11891</code>:W=54、L=6。)</li>
+    <li class="en"><b><code>nodenames</code></b> — so the flipped elections come back with names (<code>/bkg_pat_out</code>, <code>sq1_len0</code>…), not just numbers.</li>
+    <li class="zh"><b><code>nodenames</code></b> —— 讓翻盤的選舉帶著名字回來(<code>/bkg_pat_out</code>、<code>sq1_len0</code>⋯),不只是編號。</li>
+  </ul>
+  <table>
+    <tr><th><span class="en">Layer</span><span class="zh">層別</span></th><th>metal</th><th>poly</th><th>diffusion (sw / diode / rail)</th><th><span class="en">gate oxide (per gate W×L)</span><span class="zh">閘氧化層(每閘 W×L)</span></th></tr>
+    <tr><td><span class="en">weight, relative fF/unit²</span><span class="zh">權重(相對 fF/unit²)</span></td><td class="n">0.03</td><td class="n">0.04</td><td class="n">0.10</td><td class="n">1.00</td></tr>
+  </table>
+  <p class="mut" style="font-size:13px"><span class="en">Units are relative — a verdict needs only <i>ratios</i>, so die coordinates never need converting to microns, and the priors only need to be right in proportion. The netlist data itself is CC-BY-NC-SA (Visual6502 project); the script takes paths to your own copies and nothing is vendored here.</span><span class="zh">單位是相對的 —— 判決只需要<i>比值</i>,所以晶粒座標不必換算成微米,先驗只要比例正確。網表資料本身是 CC-BY-NC-SA(Visual6502 計畫);程式吃你自備檔案的路徑,本站不隨附資料。</span></p>
+</section>
+
+<section id="script">
+  <h2><span class="kick"><span class="en">The script</span><span class="zh">程式</span></span>
+      <span class="en">m2_charge_wins.py — re-running 9,682 elections</span><span class="zh">m2_charge_wins.py —— 重投 9,682 場選舉</span></h2>
+  <p class="en">One file, stdlib only (<a href="py/m2_charge_wins.py">download</a>). The recipe:</p>
+  <p class="zh">一個檔案,只用標準函式庫(<a href="py/m2_charge_wins.py">下載</a>)。配方:</p>
+  <ul>
+    <li class="en"><b>C_phys(node)</b> = Σ polygon-area × layer-weight&nbsp;+&nbsp;Σ gate-area × 1.0 over every transistor gated by the node.</li>
+    <li class="zh"><b>C_phys(節點)</b> = Σ 多邊形面積 × 層權重&nbsp;+&nbsp;Σ 該節點當閘極的每顆電晶體閘面積 × 1.0。</li>
+    <li class="en"><b>conn(node)</b> = the engine's exact proxy, reproduced: c1/c2 attachments + gate attachments.</li>
+    <li class="zh"><b>conn(節點)</b> = 原樣重現引擎代理:c1/c2 接點數 + 閘極接點數。</li>
+    <li class="en"><b>The electorate</b>: every <i>pass-gate pair</i> — a transistor whose two channel terminals are both signal nodes. These are precisely the 2-node floating groups the engine's floating branch exists for (measured mean group size ≈ 1.4 nodes, so pairs are the dominant class).</li>
+    <li class="zh"><b>選民名冊</b>:每一個 <i>pass-gate 節點對</i> —— 兩個通道端都是訊號節點的電晶體。這正是引擎浮接分支要處理的 2 節點浮接群(實測群平均 ≈ 1.4 節點,節點對就是最大宗)。</li>
+    <li class="en"><b>The election</b>: for each pair, compare the engine's winner (more connections; equal = walk-order lottery) with the physics winner (bigger C_phys; decisiveness d = |C₁−C₂|/(C₁+C₂)).</li>
+    <li class="zh"><b>開票</b>:每一對,比較引擎的贏家(連接數多者;相等 = 走訪順序抽籤)與物理的贏家(C_phys 大者;決定性 d = |C₁−C₂|/(C₁+C₂))。</li>
+  </ul>
+  <pre><code>python m2_charge_wins.py --segdefs visual2a03-segdefs.js --transdefs visual2a03-transdefs.js \
+                         --nodenames visual2a03-nodenames.js --label 2A03 --outdir out/
+# → console report + m2_2A03_summary.json + 3 SVG figures</code></pre>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">A thousand flipped verdicts, twelve hundred coin tosses</span><span class="zh">一千場翻盤,一千二百次擲銅板</span></h2>
+  <table>
+    <tr><th></th><th><span class="en">transistors</span><span class="zh">電晶體</span></th>
+        <th><span class="en">pass-gate pairs</span><span class="zh">pass-gate 對</span></th>
+        <th><span class="en">agree</span><span class="zh">一致</span></th>
+        <th><span class="en">FLIP</span><span class="zh">翻盤</span></th>
+        <th><span class="en">engine tie (lottery)</span><span class="zh">引擎平手(抽籤)</span></th>
+        <th>Spearman ρ</th></tr>
+    <tr><td><b>2A03</b> (CPU+APU)</td><td class="n">10,916</td><td class="n">2,862</td>
+        <td class="n ok">1,765 · 61.7%</td><td class="n flip">483 · 16.9%</td><td class="n lot">613 · 21.4%</td><td class="n">0.68</td></tr>
+    <tr><td><b>2C02</b> (PPU)</td><td class="n">16,872</td><td class="n">6,820</td>
+        <td class="n ok">5,693 · 83.5%</td><td class="n flip">517 · 7.6%</td><td class="n lot">601 · 8.8%</td><td class="n">0.56</td></tr>
+    <tr><td><b><span class="en">both dies</span><span class="zh">兩晶粒合計</span></b></td><td class="n">27,788</td><td class="n">9,682</td>
+        <td class="n ok">7,458 · 77.0%</td><td class="n flip">1,000 · 10.3%</td><td class="n lot">1,214 · 12.5%</td><td class="n">—</td></tr>
+  </table>
+  <p class="en">Read that middle column honestly: <b>one in ten elections comes out backwards under physics</b>, and another one in eight is a tie the engine settles by the order a graph walk happened to visit nodes — the same "structural lottery" family (D-class) that made instrument-probing and netlist patches so hazardous in the accuracy campaigns.</p>
+  <p class="zh">誠實地讀中間那欄:<b>每十場選舉就有一場在物理下是反的</b>,另外每八場有一場是平手 —— 由圖走訪剛好先碰到誰來裁決,正是精度戰役裡讓探針與網表補丁如此危險的那個「結構樂透」家族(D 類)。</p>
+
+  <div class="grid2">
+    <figure><img src="img/m2_2A03_scatter.svg" alt="2A03 scatter">
+      <figcaption><span class="en"><b>2A03:</b> connection count vs C_phys, one dot per node (log-log). Correlated (ρ=0.68) but wide — a full decade of capacitance hides inside each connection count. Purple: nodes involved in flipped pairs.</span><span class="zh"><b>2A03:</b>連接數 vs C_phys,一點一節點(log-log)。有相關(ρ=0.68)但很散 —— 同一個連接數底下藏著整整一個數量級的電容差。紫點:翻盤對的成員。</span></figcaption></figure>
+    <figure><img src="img/m2_2C02_scatter.svg" alt="2C02 scatter">
+      <figcaption><span class="en"><b>2C02:</b> same picture, ρ=0.56 — the PPU's proxy is even looser, though its pair verdicts agree more often (its pass-gate fabric is more uniform).</span><span class="zh"><b>2C02:</b>同一張圖,ρ=0.56 —— PPU 的代理更鬆,不過它的節點對判決一致率反而較高(pass-gate 結構較均勻)。</span></figcaption></figure>
+    <figure><img src="img/m2_2A03_verdicts.svg" alt="2A03 verdicts">
+      <figcaption><span class="en"><b>2A03 verdicts.</b> Only 61.7% of floating-pair elections stand on solid ground.</span><span class="zh"><b>2A03 開票。</b>只有 61.7% 的浮接對選舉站在實地上。</span></figcaption></figure>
+    <figure><img src="img/m2_2C02_verdicts.svg" alt="2C02 verdicts">
+      <figcaption><span class="en"><b>2C02 verdicts.</b> Fewer flips, but 601 lotteries remain.</span><span class="zh"><b>2C02 開票。</b>翻盤較少,但仍有 601 場抽籤。</span></figcaption></figure>
+  </div>
+  <figure><img src="img/m2_2C02_decisive.svg" alt="2C02 decisiveness">
+    <figcaption><span class="en"><b>How decisive is physics where it disagrees?</b> Flipped pairs (red) are not marginal calls — the distribution reaches d≈0.9, i.e. 18:1 capacitance landslides that the engine calls for the other side. (Green: agreeing pairs, for comparison.)</span><span class="zh"><b>物理翻盤的地方,它有多篤定?</b>翻盤對(紅)不是邊緣判例 —— 分佈一路延伸到 d≈0.9,也就是 18:1 的電容壓倒性差距,引擎卻判給另一邊。(綠:一致的對,對照用。)</span></figcaption></figure>
+
+  <h3><span class="en">Named casualties</span><span class="zh">有名有姓的受害者</span></h3>
+  <ul>
+    <li class="en"><b>2C02 · <code>/bkg_pat_out</code> vs its sprite-fetch mux twin</b> (d=0.90) and <b><code>/spr_pat_out</code> vs the 8×16 buffer mux</b> (d=0.77) — the background/sprite pattern data paths, one circuit away from the BGSerialIn battlefield.</li>
+    <li class="zh"><b>2C02 ·<code>/bkg_pat_out</code> vs 它的精靈取圖 mux 鄰居</b>(d=0.90)、<b><code>/spr_pat_out</code> vs 8×16 緩衝 mux</b>(d=0.77)—— 背景/精靈 pattern 資料路徑,離 BGSerialIn 戰場只有一個電路的距離。</li>
+    <li class="en"><b>2A03 · <code>sq0/sq1/tri/noi_len0</code></b> — all four APU length-counter LSBs lose their elections to the shared load bus (d=0.72), a structured, repeating flip across an entire register file.</li>
+    <li class="zh"><b>2A03 ·<code>sq0/sq1/tri/noi_len0</code></b> —— 四個 APU 長度計數器 LSB 全部把選舉輸給共用載入匯流排(d=0.72),整排暫存器檔案結構性、重複性地翻盤。</li>
+    <li class="en"><b>Lotteries with a right answer</b>: <code>/attrib_buf4</code> vs an unnamed junction (physics 88% decisive), the sprite comparator twins <code>+vpos_minus_spr_d2</code> vs <code>++vpos_minus_spr_d2</code> (83%) — the engine flips a coin where the die has a firm opinion.</li>
+    <li class="zh"><b>其實有正解的抽籤</b>:<code>/attrib_buf4</code> vs 無名接點(物理 88% 篤定)、精靈比較器孿生 <code>+vpos_minus_spr_d2</code> vs <code>++vpos_minus_spr_d2</code>(83%)—— 晶粒有明確意見的地方,引擎在擲銅板。</li>
+  </ul>
+</section>
+
+<section id="retire">
+  <h2><span class="kick"><span class="en">So what</span><span class="zh">所以呢</span></span>
+      <span class="en">The staged road from census to shim retirement</span><span class="zh">從普查到 shim 退役的分段路</span></h2>
+  <p class="en">This census is <b>evidence and parameters, not yet a mechanism</b>. The road it opens is deliberately staged — each step banked and verified before the next (the project's standing rule: <i>a shim removed without full verification didn't happen</i>):</p>
+  <p class="zh">這份普查是<b>證據與參數,還不是機制</b>。它打開的路刻意分段 —— 每一步入帳並驗證過,才走下一步(專案鐵律:<i>拔了 shim 沒驗證 = 沒發生</i>):</p>
+  <ul>
+    <li class="en"><b>1 · (done, this page)</b> Static census: where the arbitration rule is physically wrong, with parameters (C_phys per node) as a by-product.</li>
+    <li class="zh"><b>1 ·(本頁,已完成)</b>靜態普查:仲裁規則物理上錯在哪,順帶產出參數(每節點 C_phys)。</li>
+    <li class="en"><b>2 ·</b> Dynamic firing count: instrument a real run, count how often each flipped/lottery pair actually floats together. A flip that never fires is a curiosity; one that fires every frame is a bug in waiting.</li>
+    <li class="zh"><b>2 ·</b>動態開火統計:儀器化跑真 ROM,數每個翻盤/抽籤對實際一起浮接的頻率。從不開火的翻盤是趣聞;每幀都開火的是待爆的雷。</li>
+    <li class="en"><b>3 ·</b> S1A engine: a load-time <code>NodeCapacitance</code> table (this script's formula) behind a switch; the floating branch compares C_phys instead of connection count. S1's golden checksum is untouched; S1A re-baselines its own (an arbitration change is a checksum change by design).</li>
+    <li class="zh"><b>3 ·</b>S1A 引擎:載入期 <code>NodeCapacitance</code> 表(本程式的公式)藏在開關後;浮接分支改比 C_phys 而非連接數。S1 金 checksum 不動;S1A 重定自己的基準(改仲裁本來就會改 checksum)。</li>
+    <li class="en"><b>4 ·</b> Then, and only then, re-audit the M2 shim family (open-bus last-byte, OAM blank-edge, DL window): whatever the mechanism now reproduces naturally, retire — one shim at a time, each behind the full gate: golden checksum with the mechanism off, AC 141/141 and the 147-ROM regression with it on.</li>
+    <li class="zh"><b>4 ·</b>然後才重審 M2 shim 家族(open-bus last-byte、OAM 關渲染邊沿、DL 窗):機制自然重現的部分,一顆一顆退役 —— 每顆都過完整驗證閘:機制關 = 金 checksum 不變;機制開 = AC 141/141 + 147 回歸不退步。</li>
+  </ul>
+  <div class="note">
+    <span class="en"><b>Bonus, for M7:</b> the 1,214 lottery pairs double as the target list for canonical renumbering — every one is a place where determinism currently rests on file order. Physics (this page's C_phys) is exactly the tie-break key M7 wants.</span>
+    <span class="zh"><b>順帶給 M7 的紅利:</b>那 1,214 對抽籤,同時就是正準重編號的目標清單 —— 每一對都是決定論目前壓在檔案順序上的地方。物理(本頁的 C_phys)正是 M7 想要的平手裁決鍵。</span>
+  </div>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this census cannot say</span><span class="zh">這份普查說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Pairs only.</b> Groups larger than two (chained pass gates) are enumerated but not adjudicated here; the mean group is ≈1.4 nodes, so pairs cover the dominant class — the tail comes later.</li>
+    <li class="zh"><b>只裁節點對。</b>大於兩節點的群(pass gate 串鏈)這裡只列舉不開票;群平均 ≈1.4 節點,節點對已涵蓋最大宗 —— 尾巴之後處理。</li>
+    <li class="en"><b>Relative priors.</b> Layer weights are era-typical, not fab data; verdicts are robust to them (most flips have d&gt;0.3, and gate-oxide dominance is an order-of-magnitude fact), but individual near-ties could swap.</li>
+    <li class="zh"><b>先驗是相對值。</b>層權重是時代典型值,不是晶圓廠資料;判決對權重相當穩健(多數翻盤 d&gt;0.3,閘氧化層主導是數量級事實),但個別接近平手的對可能互換。</li>
+    <li class="en"><b>Static ≠ fired.</b> A flipped pair matters only when that pair actually floats together at runtime with different remembered states. Step 2 (dynamic counting) exists precisely to rank this.</li>
+    <li class="zh"><b>靜態 ≠ 開火。</b>翻盤對要在執行期真的一起浮接、而且兩邊記的值不同,才有實際影響。第 2 步(動態統計)就是為了排這個序。</li>
+    <li class="en"><b>2D extraction.</b> No fringe, no coupling, no contact resistance — irrelevant at verdict granularity, fatal if you wanted picoseconds (we don't; that's M3's carefully-bounded problem).</li>
+    <li class="zh"><b>2D 萃取。</b>沒有 fringe、耦合、接觸電阻 —— 在判決粒度無關緊要,要算皮秒才致命(我們不算;那是 M3 小心圈界的問題)。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #1 · script: <a href="py/m2_charge_wins.py">m2_charge_wins.py</a> · data: <a href="data/m2_2A03_summary.json">2A03</a> / <a href="data/m2_2C02_summary.json">2C02</a> · back to <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span>
+     <span class="zh">S1a 工具箱研究 #1 · 程式:<a href="py/m2_charge_wins.py">m2_charge_wins.py</a> · 數據:<a href="data/m2_2A03_summary.json">2A03</a> / <a href="data/m2_2C02_summary.json">2C02</a> · 回 <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the die knows who should win; now the engine can too.</span><span class="zh">晶粒知道誰該贏;現在引擎也可以知道。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

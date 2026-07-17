@@ -80,6 +80,7 @@
   <a class="sec" href="#gap"><span class="en">The gap</span><span class="zh">那道縫</span></a>
   <a class="sec" href="#evidence"><span class="en">Evidence</span><span class="zh">證據</span></a>
   <a class="sec" href="#plan"><span class="en">Mechanisms</span><span class="zh">機制</span></a>
+  <a class="sec" href="#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
   <a class="sec" href="#education"><span class="en">Education</span><span class="zh">教育</span></a>
   <a class="sec" href="#archaeology"><span class="en">Foundations</span><span class="zh">考古文庫</span></a>
   <a class="sec" href="#status"><span class="en">Status</span><span class="zh">現況</span></a>
@@ -162,6 +163,40 @@
   <p class="zh">任何機制之前:<b>Phase 0,偵測 pass</b> —— 六個可程式化的結構掃描器(閂鎖賽跑、跨晶片取樣、中途廢止、回授迴圈、幾何排名、毛刺捕捉),先列舉物理<i>在哪裡</i>要緊,讓機制為量測過的目標而蓋、不是為猜測而蓋。目標指標不是「零 shim」—— 是<b>零手寫特例</b>。</p>
 </section>
 
+<section id="toolbox">
+  <h2><span class="kick"><span class="en">The toolbox</span><span class="zh">解析工具箱</span></span><span class="en">One Python per mechanism, one article per Python</span><span class="zh">一個機制一隻 Python,一隻 Python 一篇專文</span></h2>
+  <p class="en">Each mechanism M1–M7 gets an analysis program (in <code>s1a/py/</code>, stdlib-only, bring-your-own netlist files): it either <b>detects structure</b> in the netlist or <b>computes physical reference parameters</b> from <code>transdefs</code>/<code>segdefs</code> geometry. Each program is paired with a standalone deep-dive article — principles first, SVG figures from real runs, and an explicit account of <b>which shims the mechanism will let us retire</b>.</p>
+  <p class="zh">M1–M7 每個機制配一隻解析程式(放在 <code>s1a/py/</code>,只用標準函式庫、自備網表檔):它要嘛<b>偵測網表結構</b>,要嘛從 <code>transdefs</code>/<code>segdefs</code> 幾何<b>算出物理參考參數</b>。每隻程式配一篇獨立深入專文 —— 先講原理,配真實跑出來的 SVG 圖,並明說<b>這個機制將讓哪些 shim 退役</b>。</p>
+  <div class="card">
+    <p class="en"><b>Staged, always verified.</b> This is deliberately long-running work, not a big bang. The ritual per package: analysis script → article → (on the user's go) S1A engine mechanism → retire the shim → <b>full gates every single time</b>: golden checksum with the mechanism off, AC 141/141 + the 147-ROM regression with it on. A shim removed without verification didn't happen. Working ledger: <code>MD/S1a/02_解析工具箱_網站專文_shim退役_長期TODOLIST.md</code>.</p>
+    <p class="zh"><b>分段走,步步驗證。</b>這是刻意的長線工作,不是大爆炸。每組工作包的節奏:解析程式 → 專文 →(使用者發令後)S1A 引擎機制 → 拔 shim → <b>每一次都過完整驗證閘</b>:機制關 = 金 checksum 不變;機制開 = AC 141/141 + 147 回歸不退步。拔了 shim 沒驗證 = 沒發生。工作總帳:<code>MD/S1a/02_解析工具箱_網站專文_shim退役_長期TODOLIST.md</code>。</p>
+  </div>
+  <table>
+    <tr><th></th><th>Python</th><th><span class="en">Article</span><span class="zh">專文</span></th><th><span class="en">Detects / computes</span><span class="zh">偵測 / 計算</span></th><th><span class="en">Shims targeted</span><span class="zh">瞄準的 shim</span></th><th><span class="en">Status</span><span class="zh">狀態</span></th></tr>
+    <tr><td><b>M2</b></td><td><a href="s1a/py/m2_charge_wins.py">m2_charge_wins.py</a></td><td><a href="s1a/m2-charge-wins.html"><span class="en">Who wins when nothing is driving?</span><span class="zh">電容誰輸誰贏?</span></a></td>
+        <td><span class="en">per-node physical capacitance from die polygons + gate W×L; re-runs every floating-pair election vs the engine's connection-count proxy — <b>10.3% flip, 12.5% are walk-order lotteries</b> (9,682 pairs, both dies)</span><span class="zh">從晶粒多邊形 + 閘極 W×L 算每節點物理電容;把每場浮接對選舉對引擎連接數代理重投 —— <b>10.3% 翻盤、12.5% 是走訪順序抽籤</b>(兩晶粒 9,682 對)</span></td>
+        <td>OpenBus · OamBlankEdge · DL</td><td><span class="pill">live</span></td></tr>
+    <tr><td><b>M1</b></td><td>m1_device_census.py</td><td><span class="en">Strength from geometry</span><span class="zh">從幾何算強度</span></td>
+        <td><span class="en">transdefs W/L → drive-strength classes, pull-up:pull-down ratio audit (the 4:1 cookbook check) → strength-LUT parameters</span><span class="zh">transdefs W/L → 驅動強度分類、上拉:下拉比稽核(教科書 4:1 檢查)→ 強度 LUT 參數</span></td>
+        <td>LxaMagic · AluLatch</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+    <tr><td><b>M3</b></td><td>m3_elmore_binner.py</td><td><span class="en">The die knows its own delays, executed</span><span class="zh">晶粒延遲,實際算出來</span></td>
+        <td><span class="en">per-net Elmore τ from R(sheet-Ω×squares)+C(M2)+drive(M1); five measured anchors regress the scale; 16/18 rise-fall parity audit</span><span class="zh">per-net Elmore τ:R(sheet-Ω×squares)+C(M2)+驅動(M1);五個實測錨點回歸尺度;16/18 rise-fall 奇偶稽核</span></td>
+        <td>dot-339 · even_odd · AleReadMux · BgSerialReload</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+    <tr><td><b>M4</b></td><td>m4_latch_scan.py</td><td><span class="en">Every latch on two dies</span><span class="zh">兩顆晶粒上的每一個閂鎖</span></td>
+        <td><span class="en">P1 static scan: enumerate pass-gate latches, intersect enable-cone with data-cone (closing-edge race fingerprint); P6 glitch candidates</span><span class="zh">P1 靜態掃描:列舉 pass-gate 閂鎖、enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選</span></td>
+        <td>DL · DmcLatch · Dmc4015Abort · FrameIrq · Dbl2007 · OamDmaPpuBus</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+    <tr><td><b>M5</b></td><td>m5_board_inventory.py</td><td><span class="en">The board as a circuit</span><span class="zh">把主機板當電路</span></td>
+        <td><span class="en">cross-die connection census (nes-001), board-part pin semantics ('373/'139/4021), automatic "structurally undrivable" classification</span><span class="zh">跨晶粒連線普查(nes-001)、板級零件 pin 語意('373/'139/4021)、「結構性不可驅動」自動判定</span></td>
+        <td>BoardOctalLatch · <span class="en">behavioural joypad</span><span class="zh">行為層手把</span></td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+    <tr><td><b>M6</b></td><td>m6_interface_census.py</td><td><span class="en">Where phase can hurt</span><span class="zh">相位會咬人的地方</span></td>
+        <td><span class="en">P2 scan: cross-chip nets → BFS into counter-comparator cones → the complete delay-sensitive interface list; power-on phase parameter survey</span><span class="zh">P2 掃描:跨晶片網 → BFS 找計數器比較器錐 → 延遲敏感介面全清單;上電相位參數盤點</span></td>
+        <td>reset-hold · power_up_palette · registers</td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+    <tr><td><b>M7</b></td><td>m7_canonical_key.py</td><td><span class="en">Ending the lottery</span><span class="zh">終結抽籤</span></td>
+        <td><span class="en">canonical key (class, layeredArea, structHash, degree); twin detection (u7/u8, joy channels) + same-fate consistency report — M2's 1,214 lottery pairs are its ready-made target list</span><span class="zh">正準鍵 (class, layeredArea, structHash, degree);孿生偵測(u7/u8、joy 通道)+ 同命一致性報告 —— M2 找到的 1,214 對抽籤就是現成目標清單</span></td>
+        <td><span class="en">(D-class lottery root)</span><span class="zh">(D 類樂透根源)</span></td><td><span class="pill"><span class="en">queued</span><span class="zh">排隊</span></span></td></tr>
+  </table>
+</section>
+
 <section id="education">
   <h2><span class="kick"><span class="en">The other half</span><span class="zh">另一半</span></span><span class="en">Built in public, taught as it goes</span><span class="zh">公開地蓋,邊蓋邊教</span></h2>
   <p class="en">S1a develops on two legs. One is engineering: the fork, the mechanisms, the regressions. The other is <b>education</b>: this site will accumulate technical and semi-academic articles that document the process honestly — the physics primers, the dead ends, the falsified hypotheses, the measurements with error bars. The campaign already showed the format works: a negative result rigorously written up (<i>the last test</i>) later produced its own refutation (<i>breaking the ceiling</i>) — and both articles stayed up, because the correction <b>is</b> the lesson.</p>
@@ -192,6 +227,8 @@
   <ul>
     <li class="en"><b>2026-07-17</b> — dual green achieved (AccuracyCoin 141/141 banked; 147-ROM baseline replicated). The S1a fork is scaffolded and verified as a bit-exact clone of S1 (golden checksum identical). <span class="pill">done</span></li>
     <li class="zh"><b>2026-07-17</b> —— 雙綠達成(AccuracyCoin 141/141 入帳;147 顆基線復刻)。S1a 分支鷹架完成,驗證為 S1 的 bit-exact 克隆(金 checksum 相同)。<span class="pill">完成</span></li>
+    <li class="en"><b>2026-07-17</b> — the toolbox opens: M2's capacitance census (<a href="s1a/m2-charge-wins.html">who wins when nothing is driving?</a>) goes live — 9,682 floating-pair elections re-run under physics, 10.3% flip. First package of seven. <span class="pill">live</span></li>
+    <li class="zh"><b>2026-07-17</b> —— 工具箱開張:M2 電容普查(<a href="s1a/m2-charge-wins.html">電容誰輸誰贏?</a>)上線 —— 9,682 場浮接對選舉用物理重投,10.3% 翻盤。七組工作包的第一組。<span class="pill">live</span></li>
     <li class="en"><b>Next</b> — Phase 0 detection pass: the six scanners + the geometry τ binner produce the first annotated map of where physics matters on the two dies. <span class="pill">queued</span></li>
     <li class="zh"><b>接下來</b> —— Phase 0 偵測 pass:六個掃描器 + 幾何 τ 分級器,產出兩顆晶粒上「物理在哪裡要緊」的第一張標註地圖。<span class="pill">排隊中</span></li>
     <li class="en"><b>Then</b> — mechanisms land one at a time, each behind a switch, each with its article. <span class="pill">study</span></li>

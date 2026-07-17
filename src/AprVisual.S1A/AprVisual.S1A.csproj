@@ -1,0 +1,110 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    AprVisual.S1A - the "advance & analogy" research fork (a = advance & analogy).
+
+    Full copy of src/AprVisual.S1 (the golden binary switch-level engine, 141/141
+    AccuracyCoin + 146/147 nes-test-roms) taken 2026-07-17 at main b01a1c3.
+    Purpose: implement the S1a mixed-signal mechanisms (M1-M7) per
+    MD/S1a/00 (master plan) and MD/S1a/01 (timing-annotated netlist + detection
+    patterns). S1 stays the untouched golden speed engine; S1A trades speed for
+    principled physics (analog islands on a fast binary core). Namespace stays
+    `AprVisual` (S2 precedent); only AssemblyName/folder differ.
+
+    Inherited S1 heritage notes below.
+  -->
+  <!--
+    AprVisual.S1 - clean S1 production fork.
+
+    Distilled from src/AprVisual/ after the L3-layout + inline cascade + P0 fixes series
+    (2026-05-26 .. 2026-05-28). Includes ONLY the changes that empirically gave a positive
+    or bit-identical-zero-cost result. Drops all post-S1 branches (IR, Codegen, PruneMerge,
+    Levelize, Oblivious, RCM, SIMD-queue, LUT-TTL) and experiment-graveyard knobs.
+
+    Included:
+      L3 layout (byte _inGroup, ushort _groupBuf, ushort TransistorList, byte RecalcHash),
+      NodeInfo SoA split (hot struct + NodeConnections + NodeTlistGates),
+      [AggressiveInlining] cascade on hot methods,
+      Iterative AddNodeToGroup,
+      SetHigh/Low/Float no-op skip + WriteBits batch settle,
+      Fast-path (RecalcNodeFast for pure-logic-gnd) ALWAYS on,
+      Diag CLI flags retained: no-lower only (fast-path accepted no-op for compat).
+
+    Removed (per session-end measurements):
+      prune-merge        (negative 5 pct in both C# and Rust post-inline-cascade),
+      lut-ttl variants   (negative 2 pct in C# post-inline-cascade),
+      simd-queue, levelize, oblivious, rcm (marginal or experimental),
+      All IR / Codegen / Dispatcher / Partition machinery,
+      dead-end-skip (broke CPU bus state).
+
+    NB on "rcm removed" above (2026-06-11): the OLD rcm flag was bandwidth-oriented graph renumbering
+    and stayed dead. S1 NOW ships a DIFFERENT renumbering: the automatic class-major permutation
+    (Sim/WireCore.Renumber.cs, always on) whose purpose is to turn the prune masks into id RANGE
+    compares in SetNodeState (range-prune, +3.6 pct). Same word, different objective; don't confuse
+    the two.
+  -->
+
+  <!-- 2026-05-30: converted from WinExe/WinForms to a pure console app. The live
+       256x240 window (MainForm + Render/NativeGDI) was removed; the S1 fork is
+       headless-only (benchmark / test / frame-dump). PNG output now goes through
+       Render/PngWriter.cs (ZLibStream, BCL-only) instead of System.Drawing, so the
+       target drops from net10.0-windows to portable net10.0 with no desktop deps. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- 2026-06-09: bumped net10.0 → net11.0 — measured ~+1% (JIT/runtime only, bit-exact, 34/50
+         interleaved-paired) on this engine. Releases now build self-contained net11. -->
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AprVisual</RootNamespace>
+    <AssemblyName>AprVisual.S1A</AssemblyName>
+
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Optimize>true</Optimize>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
+  </PropertyGroup>
+
+  <!-- Embed a benchmark version (short git commit + commit date, "-dirty" if this project's tracked
+       sources have uncommitted changes) as assembly metadata, read at runtime by TestRunner. Baked in
+       at build time so the distributed benchmark binary reports its version with no git available.
+       git failures fall back to "unknown" (ContinueOnError); %25cd = MSBuild-escaped %cd. -->
+  <Target Name="SetGitVersion" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short=7 HEAD"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gc" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; log -1 --date=short --format=%25%25cd"
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gd" />
+    </Exec>
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; status --porcelain ."
+          ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_Gs" />
+    </Exec>
+    <PropertyGroup>
+      <_GitCommit>@(_Gc)</_GitCommit>
+      <_GitCommit Condition="'$(_GitCommit)' == ''">unknown</_GitCommit>
+      <_GitDate>@(_Gd)</_GitDate>
+      <_GitDate Condition="'$(_GitDate)' == ''">unknown</_GitDate>
+      <_AprVersion>$(_GitCommit)</_AprVersion>
+      <_AprVersion Condition="'@(_Gs)' != ''">$(_GitCommit)-dirty</_AprVersion>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>GitVersion</_Parameter1>
+        <_Parameter2>$(_AprVersion)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>CommitDate</_Parameter1>
+        <_Parameter2>$(_GitDate)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
+</Project>

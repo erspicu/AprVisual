@@ -51,7 +51,7 @@ MD/S1a/02_...TODOLIST.md         本檔(進度總帳)
 | # | Python(WebSite/s1a/py/) | 專文 | 解析內容(偵測/參數) | 將退役的 shim | 拔除 commit | 依賴 | 狀態 |
 |---|---|---|---|---|---|---|---|
 | **M2** | `m2_charge_wins.py` | `m2-charge-wins.html` | **電容誰輸誰贏**:segdefs 分層多邊形面積 + transdefs gate 面積 → 每節點物理電容代理 C_phys;pass-gate 節點對的「浮接裁決」census —— 引擎連接數代理 vs 物理電容,誰翻盤、平手樂透在哪 | OpenBusShim、OamBlankEdgeShim(地基);浮接裁決升級(S1A) | — | — | **✅ 本階段(2026-07-17)** |
-| M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | — | 排隊 |
+| M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | — | **✅ 普查+專文 live(2026-07-17)** |
 | M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | — | M1+M2 | 排隊 |
 | M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆) | — | — | 排隊 |
 | M5 | `m5_board_inventory.py` | `m5-board.html` | 板級盤點:nes-001 connections 全清單(跨晶片網)、板級元件 pin 語意表('373/'139/4021)、閘級模組「結構性不可驅動」自動判定 | BoardOctalLatch 殘餘 hack、行為層手把的元件化 | — | — | 排隊 |
@@ -72,6 +72,19 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
 - **2026-07-17(本階段)**:本 TODOLIST 建檔;工具箱目錄 `WebSite/s1a/{py,img,data}/` 建立;
   **M2 第一組落地**:`m2_charge_wins.py` + 實測數字 + SVG + 專文 `m2-charge-wins.html`;
   s1a.html 增工具箱區(七組狀態表)。→ 詳見 commit。
+- **2026-07-17 深夜**:**M2 引擎機制落地(S1A,env `M2_CAP`)** —— 換表設計(NodeConnections
+  填量化物理電容);Gate A 過(機制關 = 金 `0x794A...` bit-exact);幾何覆蓋 14,249/14,727(96.8%);
+  Lower.cs 重建漏帶 CapWeighted 的 bug 修正(合併類並聯相加);金配方 300k 機制開 checksum 竟同
+  (浮接分支 <1% × 77% 一致,未踩差異點);Gate B = 孤立 ROM 集(使用者指定驗證法)釘實體核
+  6/8/10/12/14 平行跑(OpenBus/OAMCorruption/StaleSpriteShiftRegs/InternalDataBus/2007Stress ×
+  關/開 + ppu_open_bus/oam_read)。
+- **2026-07-17 深夜**:**M1 第二組落地(普查+專文)**:`m1_device_census.py` + `m1-strength.html`。
+  重點數字:27,788 顆全分類(下拉 7,147+9,265 / pass 2,869+6,825 / 接VCC 767+698);
+  **半八度強度格 19/16 級、前 8 級 >93%**(MOSSIM II 小格架成立);4:1 稽核:帶載下拉中位 4.33/4.00
+  vs pass 2.00/1.40(分離 2.17×/2.86×),**反推負載 S ≈ 0.58/0.95**(M1 唯一自由常數的晶粒先驗,
+  終錨 = LXA $FF);**打架點 538、2× 內 194** —— 2A03=db/ab/nmi/irq/joy pad(7上/9下 S≈13 推挽),
+  2C02=io_db(open-bus 老家)/ale(ALERead 訊號)/wr/ext。限制:一跳普查,LXA 的 pass 中介戰
+  要動態步驟才抓得到。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

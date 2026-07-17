@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M1 · The die's strength vocabulary — W/L census, the 4:1 audit, and where fights live</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  header.hero{padding:56px 24px 34px; text-align:center;
+    background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px); margin:0 0 10px; color:#e8dcff; letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut); max-width:840px; margin:0 auto; font-size:15px;}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0;
+        border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+  main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:30px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:22px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc);
+           font-weight:700; margin-bottom:2px;}
+  h3{font-size:16.5px; margin:1.3em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px;
+      overflow-x:auto; font-size:12.5px; line-height:1.55;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+  td.n{text-align:right; font-family:Consolas,monospace;}
+  .hot{color:var(--bad); font-weight:700;} .ok{color:var(--good); font-weight:700;}
+  figure{margin:20px 0; text-align:center;}
+  figure img, figure svg{max-width:100%; border:1px solid var(--bd); border-radius:10px; background:var(--bg);}
+  figure figcaption{color:var(--mut); font-size:13px; margin-top:8px; max-width:780px; margin-left:auto; margin-right:auto;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px;
+        border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut);
+         font-size:13px; max-width:max(920px, 50vw); margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m2-charge-wins.html"><span class="en">Prev: M2 census</span><span class="zh">上一篇:M2 普查</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The die's strength vocabulary</span><span class="zh">晶粒的強度詞彙</span></h1>
+  <p class="tag en">Toolbox study #2 (mechanism M1). A switch-level engine rules every contested node by fiat: <i>a path to GND always wins.</i> Real NMOS rules by <b>conductance</b> — and conductance is geometry, printed in the netlist column everyone skips: W/L. One Python script reads it for 27,788 transistors, audits the textbook 4:1 design law against the silicon, and maps the <b>538 sites where two drivers can actually fight</b>.</p>
+  <p class="tag zh">工具箱研究 #2(機制 M1)。開關級引擎用一條霸王條款裁決所有爭端:<i>有到 GND 的路,一律勝訴。</i>真實的 NMOS 用<b>電導</b>裁決 —— 而電導就是幾何,印在網表裡人人跳過的那一欄:W/L。一隻 Python 讀完 27,788 顆電晶體,拿教科書的 4:1 設計律對矽對帳,並畫出<b>538 個兩個驅動器真的會打起來的地點</b>。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M1 · drive strength</span>
+    <span class="pill"><a href="py/m1_device_census.py">m1_device_census.py</a></span>
+    <span class="pill"><a href="data/m1_2A03_summary.json">2A03 JSON</a></span>
+    <span class="pill"><a href="data/m1_2C02_summary.json">2C02 JSON</a></span>
+    <span class="pill">2026-07-17</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">GND wins by fiat, not by physics</span><span class="zh">GND 靠霸王條款贏,不是靠物理</span></h2>
+  <p class="en">In the engine's group resolution, priority is absolute: GND path &gt; VCC/pull-up &gt; external drive &gt; hold. It never asks <i>how strong</i> the GND path is. On the die, that question decides real behaviour: the infamous <b>LXA $AB "magic constant"</b> exists because a weak driver and a data latch fight over the merged SB/IDB bus, and the outcome ($FF on this silicon) is a <i>ratioed</i> outcome — a fight between W/L values. Our engine can't express "almost wins", so the accuracy campaign patched it with <code>LxaMagicShim</code>, a hardcoded constant. Same story for the ALU input latches (<code>AluLatchShim</code>). The shims are honest — but they are answers copied from the back of the book.</p>
+  <p class="zh">引擎的群解析優先序是絕對的:GND 路徑 &gt; VCC/上拉 &gt; 外部驅動 &gt; 保持。它從不問那條 GND 路徑<i>有多壯</i>。在晶粒上,這個問題決定真實行為:惡名昭彰的 <b>LXA $AB「magic 常數」</b>,就是一個弱驅動器和一個資料閂鎖在合併的 SB/IDB 匯流排上打架,而結果(這批矽上是 $FF)是一個<i>比例式</i>結果 —— W/L 之間的勝負。我們的引擎表達不了「差一點就贏」,所以精度戰役用 <code>LxaMagicShim</code> 硬寫常數打補丁,ALU 輸入閂鎖(<code>AluLatchShim</code>)同一個故事。這些 shim 很誠實 —— 但它們是抄書後解答的答案。</p>
+  <div class="card">
+    <p class="en"><b>M1's bet:</b> give every transistor its real strength (from geometry), resolve the rare both-sides-conducting groups by comparing strengths, and the magic constants should <i>fall out of the die</i> instead of being written in. This census is the parameter harvest and the target map for that mechanism.</p>
+    <p class="zh"><b>M1 的賭注:</b>把每顆電晶體的真實強度(從幾何)還給它,罕見的「兩邊同時導通」群改用強度比較裁決,那些 magic 常數就該<i>從晶粒裡自己掉出來</i>,而不是被寫進去。這份普查,就是那個機制的參數收割與目標地圖。</p>
+  </div>
+</section>
+
+<section id="physics">
+  <h2><span class="kick"><span class="en">The physics</span><span class="zh">物理</span></span>
+      <span class="en">Ratioed logic: W/L is the whole game</span><span class="zh">比例式邏輯:W/L 就是整場比賽</span></h2>
+  <p class="en">An NMOS transistor is a resistor when on, and its conductance scales as <b>S = W/L</b> — channel width over length. All of ratioed-NMOS design is arithmetic on S: an inverter works because its pull-down (S≈2–4) out-drives its depletion load (S≈0.5–1) by the cookbook factor of <b>~4:1</b>, leaving a solid logic low. Two <i>drivers</i> of similar S fighting over one node end mid-rail — the next stage's threshold, not a priority list, decides. And strengths compose: devices in series are weaker than their weakest member (the reason a strong driver behind a narrow pass gate loses fights it "should" win — and the reason mechanism M1 will need MOSSIM-II-style strength classes, not exact resistances).</p>
+  <p class="zh">NMOS 電晶體導通時就是一顆電阻,電導正比於 <b>S = W/L</b> —— 通道寬除以長。整個比例式 NMOS 設計就是 S 的算術:反相器能動,是因為下拉管(S≈2–4)以教科書的 <b>~4:1</b> 壓過 depletion 負載(S≈0.5–1),拉出紮實的低電位。兩個 S 相近的<i>驅動器</i>搶同一個節點,會停在中間電位 —— 由下一級的門檻決定,不是由優先序清單決定。而且強度會複合:串聯器件比最弱的成員更弱(壯驅動器接在窄 pass gate 後面會輸掉「照理該贏」的仗 —— 也是 M1 機制需要 MOSSIM II 式強度分級、而非精確電阻的原因)。</p>
+
+  <figure>
+    <svg viewBox="0 0 900 460" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif" style="max-width:900px; width:100%">
+      <rect width="900" height="460" fill="#100f15"/>
+      <text class="en" x="450" y="30" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">A pad driver from the census: the fight the LUT cannot see</text>
+      <text class="zh" x="450" y="30" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">普查裡的一個 pad 驅動級:LUT 看不見的那場架</text>
+      <!-- rails -->
+      <line x1="140" y1="80" x2="460" y2="80" stroke="#ffb454" stroke-width="3"/>
+      <text x="130" y="85" fill="#ffb454" font-size="13" font-weight="700" text-anchor="end">VCC</text>
+      <line x1="140" y1="360" x2="460" y2="360" stroke="#968ba1" stroke-width="3"/>
+      <text x="130" y="365" fill="#968ba1" font-size="13" font-weight="700" text-anchor="end">GND</text>
+      <!-- up devices -->
+      <rect x="270" y="106" width="60" height="70" fill="#1a1721" stroke="#ffb454" stroke-width="1.5" rx="6"/>
+      <line x1="300" y1="80" x2="300" y2="106" stroke="#ffb454" stroke-width="2.5"/>
+      <line x1="300" y1="176" x2="300" y2="212" stroke="#c792ea" stroke-width="3"/>
+      <line x1="242" y1="141" x2="270" y2="141" stroke="#7ee0a8" stroke-width="2"/>
+      <text class="en" x="234" y="132" fill="#7ee0a8" font-size="11.5" text-anchor="end">gate: "drive 1"</text>
+      <text class="zh" x="234" y="132" fill="#7ee0a8" font-size="11.5" text-anchor="end">閘極:「輸出 1」</text>
+      <text x="340" y="134" fill="#dcd7e3" font-size="12.5">7 devices to VCC</text>
+      <text x="340" y="152" fill="#ffb454" font-size="13" font-weight="700">S_up ≈ 13</text>
+      <!-- node -->
+      <circle cx="300" cy="222" r="7" fill="#c792ea"/>
+      <text x="318" y="227" fill="#e8dcff" font-size="14" font-weight="700">db0</text>
+      <line x1="300" y1="232" x2="300" y2="268" stroke="#c792ea" stroke-width="3"/>
+      <!-- down devices -->
+      <rect x="270" y="268" width="60" height="70" fill="#1a1721" stroke="#968ba1" stroke-width="1.5" rx="6"/>
+      <line x1="300" y1="338" x2="300" y2="360" stroke="#968ba1" stroke-width="2.5"/>
+      <line x1="242" y1="303" x2="270" y2="303" stroke="#7ee0a8" stroke-width="2"/>
+      <text class="en" x="234" y="294" fill="#7ee0a8" font-size="11.5" text-anchor="end">gate: "drive 0"</text>
+      <text class="zh" x="234" y="294" fill="#7ee0a8" font-size="11.5" text-anchor="end">閘極:「輸出 0」</text>
+      <text x="340" y="296" fill="#dcd7e3" font-size="12.5">9 devices to GND</text>
+      <text x="340" y="314" fill="#968ba1" font-size="13" font-weight="700">S_dn ≈ 13</text>
+      <!-- verdicts -->
+      <line x1="520" y1="70" x2="520" y2="380" stroke="#2e2634"/>
+      <text class="en" x="545" y="120" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#ff6b6b">Engine:</tspan> both paths conduct →</text>
+      <text class="zh" x="545" y="120" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#ff6b6b">引擎:</tspan>兩條路都導通 →</text>
+      <text class="en" x="545" y="144" fill="#dcd7e3" font-size="13.5">GND wins, <i>by rule</i>, at any strength.</text>
+      <text class="zh" x="545" y="144" fill="#dcd7e3" font-size="13.5">GND 勝訴,<i>依規則</i>,無論強度。</text>
+      <text class="en" x="545" y="196" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#7ee0a8">Physics:</tspan> S 13 vs 13 — a dead heat.</text>
+      <text class="zh" x="545" y="196" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#7ee0a8">物理:</tspan>S 13 對 13 —— 勢均力敵。</text>
+      <text class="en" x="545" y="220" fill="#968ba1" font-size="12.5">Node sits mid-rail; the receiver's threshold</text>
+      <text class="zh" x="545" y="220" fill="#968ba1" font-size="12.5">節點停在中間電位;接收端的門檻</text>
+      <text class="en" x="545" y="240" fill="#968ba1" font-size="12.5">(and temperature, and process) decides.</text>
+      <text class="zh" x="545" y="240" fill="#968ba1" font-size="12.5">(還有溫度、還有製程)決定勝負。</text>
+      <text class="en" x="545" y="290" fill="#dcd7e3" font-size="13">In a working design the two gates are never</text>
+      <text class="zh" x="545" y="290" fill="#dcd7e3" font-size="13">正常設計裡兩個閘極不會同時為 1 ——</text>
+      <text class="en" x="545" y="311" fill="#dcd7e3" font-size="13">1 together — <b>except</b> in the bus overlaps and</text>
+      <text class="zh" x="545" y="311" fill="#dcd7e3" font-size="13"><b>除了</b>匯流排交疊與閂鎖賽跑的瞬間 ——</text>
+      <text class="en" x="545" y="332" fill="#dcd7e3" font-size="13">latch races where the LXA family lives.</text>
+      <text class="zh" x="545" y="332" fill="#dcd7e3" font-size="13">LXA 家族就住在那裡。</text>
+      <text class="en" x="450" y="424" fill="#968ba1" font-size="12.5" text-anchor="middle">Numbers from the census: the db0 pad driver on the 2A03 — 7 up-devices vs 9 down-devices, S_up : S_dn = 1.00.</text>
+      <text class="zh" x="450" y="424" fill="#968ba1" font-size="12.5" text-anchor="middle">數字來自普查:2A03 的 db0 pad 驅動級 —— 上側 7 管、下側 9 管,S_up : S_dn = 1.00。</text>
+    </svg>
+    <figcaption><span class="en">A totem/pad output stage found by the fight census. The engine's LUT would hand any overlap to GND; the die calls it 1:1.</span><span class="zh">打架普查找到的推挽/pad 輸出級。任何交疊,引擎的 LUT 都判給 GND;晶粒說這是 1:1。</span></figcaption>
+  </figure>
+</section>
+
+<section id="data">
+  <h2><span class="kick"><span class="en">The data</span><span class="zh">資料</span></span>
+      <span class="en">The column everyone skipped — and the hole nobody can fill</span><span class="zh">人人跳過的那一欄 —— 和一個沒人能補的洞</span></h2>
+  <p class="en">Every transdefs row carries a geometry record: <code>['t11891', gate, c1, c2, bbox, [54, 54, 6, 1, 324], false]</code> — width 54, length 6, gate area 324. That last array is real, per-device data (S = W/L = 9 for this one; its neighbour <code>t12798</code> is a puny 10/6 ≈ 1.7), and the Visual6502 → MetalNES → S1 lineage never read it. The census computes <b>S = area / L²</b> (robust for bent gates) for all 27,788 devices.</p>
+  <p class="zh">每一列 transdefs 都帶著幾何紀錄:<code>['t11891', gate, c1, c2, bbox, [54, 54, 6, 1, 324], false]</code> —— 寬 54、長 6、閘面積 324。最後那個陣列是真實的逐器件資料(這顆 S = W/L = 9;鄰居 <code>t12798</code> 是瘦小的 10/6 ≈ 1.7),而 Visual6502 → MetalNES → S1 這一脈從來沒讀過它。普查對全部 27,788 顆器件算 <b>S = 面積 / L²</b>(對彎折閘極較穩健)。</p>
+  <div class="note">
+    <span class="en"><b>The hole:</b> the depletion pull-up loads are <i>not in transdefs</i> — the extraction folded them into segdefs <code>'+'</code> node flags, so their W/L is lost. Every pull-up-vs-pull-down ratio has data on one side only. The census turns this around: instead of reading the load strength, it <b>derives</b> it from the die's own design discipline (next section) — the one constant M1 must otherwise calibrate by test.</span>
+    <span class="zh"><b>那個洞:</b>depletion 上拉負載<i>不在 transdefs 裡</i> —— 抽取時被摺進 segdefs 的 <code>'+'</code> 節點旗標,W/L 就此遺失。所有「上拉 vs 下拉」的比例戰都只有單邊資料。普查把這件事反過來用:不去讀負載強度,而是從晶粒自己的設計紀律<b>反推</b>它(下一節)—— 這正是 M1 原本得靠測試校準的那一個常數。</span>
+  </div>
+</section>
+
+<section id="script">
+  <h2><span class="kick"><span class="en">The script</span><span class="zh">程式</span></span>
+      <span class="en">m1_device_census.py — four questions</span><span class="zh">m1_device_census.py —— 四個問題</span></h2>
+  <ul>
+    <li class="en"><b>Classes</b> — every device sorted by role: pull-down (a channel end on GND) / to-VCC / pass gate (both ends signals) / always-on tie (gate on VCC) / dead (gate on GND).</li>
+    <li class="zh"><b>分類</b> —— 每顆器件按角色歸位:下拉(通道端接 GND)/ 接 VCC / pass gate(兩端皆訊號)/ 恆通 tie(閘極接 VCC)/ 死管(閘極接 GND)。</li>
+    <li class="en"><b>Vocabulary</b> — distinct S values, then the half-octave <i>lattice</i> view: how few discrete strength classes cover the die?</li>
+    <li class="zh"><b>詞彙</b> —— 相異 S 值數量,再用半八度<i>強度格</i>看:幾個離散強度級就能涵蓋整顆晶粒?</li>
+    <li class="en"><b>The 4:1 audit</b> — on every <code>'+'</code>-flagged node with a direct pull-down: are those pull-downs systematically stronger than pass gates (they must overpower a load)? Their modal S ÷ 4 = the die's own estimate of the missing load strength.</li>
+    <li class="zh"><b>4:1 稽核</b> —— 每個帶 <code>'+'</code> 旗標且有直接下拉的節點:那些下拉管是否系統性強過 pass gate(它們得壓過負載)?其眾數 S ÷ 4 = 晶粒自己給出的「遺失負載強度」估計。</li>
+    <li class="en"><b>Fight sites</b> — nodes with both a signal-gated to-VCC device and a signal-gated to-GND device: the places a ratioed fight can physically occur, ranked by how close (S_up : S_dn near 1 = the calls GND-wins gets wrong by fiat).</li>
+    <li class="zh"><b>打架地點</b> —— 同時掛著訊號閘控「接 VCC」器件與「接 GND」器件的節點:比例戰物理上可能發生的地方,按勢均程度排序(S_up : S_dn 接近 1 = GND-必勝條款亂判的案子)。</li>
+  </ul>
+  <pre><code>python m1_device_census.py --transdefs visual2a03-transdefs.js --segdefs visual2a03-segdefs.js \
+                           --nodenames visual2a03-nodenames.js --label 2A03 --outdir out/
+# → console report + m1_2A03_summary.json + 3 SVG figures</code></pre>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">Small lattice, honest 4:1, and 194 close fights</span><span class="zh">小格架、誠實的 4:1、以及 194 場勢均力敵</span></h2>
+  <table>
+    <tr><th></th><th>2A03 (CPU+APU)</th><th>2C02 (PPU)</th></tr>
+    <tr><td><span class="en">transistors</span><span class="zh">電晶體</span></td><td class="n">10,916</td><td class="n">16,872</td></tr>
+    <tr><td><span class="en">pull-down / pass / to-VCC</span><span class="zh">下拉 / pass / 接 VCC</span></td><td class="n">7,147 / 2,869 / 767</td><td class="n">9,265 / 6,825 / 698</td></tr>
+    <tr><td><span class="en">always-on ties / dead</span><span class="zh">恆通 tie / 死管</span></td><td class="n">66 / 67</td><td class="n">38 / 46</td></tr>
+    <tr><td><span class="en">distinct S values</span><span class="zh">相異 S 值</span></td><td class="n">1,268</td><td class="n">204</td></tr>
+    <tr><td><span class="en">half-octave lattice</span><span class="zh">半八度強度格</span></td><td class="n ok">19 classes · top-8 = 93.3%</td><td class="n ok">16 classes · top-8 = 95.6%</td></tr>
+    <tr><td><span class="en">'+' nodes with direct pull-downs</span><span class="zh">帶 '+' 且有直接下拉的節點</span></td><td class="n">3,216</td><td class="n">2,675</td></tr>
+    <tr><td><span class="en">median S: loaded pull-downs vs pass gates</span><span class="zh">中位 S:帶載下拉 vs pass gate</span></td><td class="n">4.33 vs 2.00 <span class="ok">(2.17×)</span></td><td class="n">4.00 vs 1.40 <span class="ok">(2.86×)</span></td></tr>
+    <tr><td><span class="en">implied depletion-load S (modal ÷ 4)</span><span class="zh">反推負載強度(眾數 ÷ 4)</span></td><td class="n">0.58</td><td class="n">0.95</td></tr>
+    <tr><td><span class="en">fight sites (within 2×)</span><span class="zh">打架地點(2× 以內)</span></td><td class="n"><span class="hot">288 (80)</span></td><td class="n"><span class="hot">250 (114)</span></td></tr>
+  </table>
+
+  <h3><span class="en">What the numbers say</span><span class="zh">數字在說什麼</span></h3>
+  <ul>
+    <li class="en"><b>A small lattice is enough.</b> 19 (CPU) / 16 (PPU) half-octave strength classes cover the dies, with the top 8 covering &gt;93%. Mechanism M1 does not need resistances — a MOSSIM-II-style discrete strength LUT, precomputed at load, is faithful to how the die was actually drawn. (Side find: the PPU uses only 204 distinct geometries vs the CPU's 1,268 — the 2C02 is far more standard-cell-like; the 2A03 is visibly hand-drawn.)</li>
+    <li class="zh"><b>小格架就夠。</b>19(CPU)/ 16(PPU)個半八度強度級蓋住整顆晶粒,前 8 級涵蓋 &gt;93%。M1 機制不需要電阻 —— MOSSIM II 式的離散強度 LUT、載入期算好,就忠於晶粒實際的畫法。(順帶發現:PPU 只用 204 種相異幾何,CPU 用 1,268 種 —— 2C02 標準元件化得多,2A03 明顯是手工畫的。)</li>
+    <li class="en"><b>The 4:1 law shows up — from the pull-down side.</b> Pull-downs that must overpower a load are systematically ~2.2–2.9× stronger than pass gates, with medians almost exactly at the cookbook "pull-down ≈ 4". Dividing the modal loaded pull-down by 4 gives the missing depletion-load strength: <b>S ≈ 0.58 (CPU) / 0.95 (PPU)</b> — order-1 values, exactly where Mead &amp; Conway put them. That's M1's one free constant, now with a die-derived prior (final calibration anchor: LXA's measured $FF).</li>
+    <li class="zh"><b>4:1 定律現身 —— 從下拉側。</b>必須壓過負載的下拉管,系統性比 pass gate 強 ~2.2–2.9×,中位數幾乎正落在教科書的「下拉 ≈ 4」。把帶載下拉的眾數除以 4,得到遺失的負載強度:<b>S ≈ 0.58(CPU)/ 0.95(PPU)</b> —— 都是 1 的量級,恰是 Mead &amp; Conway 擺的位置。M1 唯一的自由常數,現在有了晶粒自產的先驗(最終校準錨:LXA 實測 $FF)。</li>
+    <li class="en"><b>The fights have addresses.</b> 538 driver-vs-driver sites, 194 within 2×. On the 2A03: the <b>db0–7 / ab0–15 bus pads, nmi, irq, joy1/joy2</b> — all the same 7-up/9-down totem idiom at S≈13 : 13, a dead heat by construction. On the 2C02: <b>io_db0–7</b> (the open-bus family's home node!), <b>ale</b> (the ALERead boss's signal), <b>wr, ext0–3</b>. The census independently rediscovered, from pure geometry, the exact neighbourhoods where the accuracy campaigns spent their hardest months.</li>
+    <li class="zh"><b>打架的地方有名有姓。</b>538 個驅動對驅動地點,194 個在 2× 以內。2A03 上:<b>db0–7 / ab0–15 匯流排 pad、nmi、irq、joy1/joy2</b> —— 全是同一個 7 上管/9 下管的推挽慣用手法,S≈13 : 13,天生勢均力敵。2C02 上:<b>io_db0–7</b>(open-bus 家族的老家!)、<b>ale</b>(ALERead 魔王的訊號)、<b>wr、ext0–3</b>。這份普查只靠幾何,就獨立重新發現了精度戰役耗掉最多個月的那幾個街區。</li>
+  </ul>
+
+  <div class="grid2">
+    <figure><img src="img/m1_2A03_classes.svg" alt="2A03 strength by class">
+      <figcaption><span class="en"><b>2A03:</b> S = W/L distributions by device class. Pull-downs sit right of pass gates — drive discipline made visible.</span><span class="zh"><b>2A03:</b>各器件類的 S = W/L 分佈。下拉管整體坐在 pass gate 右邊 —— 驅動紀律看得見。</span></figcaption></figure>
+    <figure><img src="img/m1_2C02_classes.svg" alt="2C02 strength by class">
+      <figcaption><span class="en"><b>2C02:</b> same picture; tighter, more regular — the standard-cell character of the PPU.</span><span class="zh"><b>2C02:</b>同一張圖;更緊、更規則 —— PPU 的標準元件性格。</span></figcaption></figure>
+    <figure><img src="img/m1_2A03_vocab.svg" alt="2A03 vocabulary">
+      <figcaption><span class="en"><b>2A03 vocabulary:</b> top W/L values and cumulative coverage.</span><span class="zh"><b>2A03 詞彙:</b>最常用的 W/L 值與累積涵蓋率。</span></figcaption></figure>
+    <figure><img src="img/m1_2C02_vocab.svg" alt="2C02 vocabulary">
+      <figcaption><span class="en"><b>2C02 vocabulary:</b> five values nearly halfway cover the die.</span><span class="zh"><b>2C02 詞彙:</b>五個值就快蓋掉半顆晶粒。</span></figcaption></figure>
+    <figure><img src="img/m1_2A03_fights.svg" alt="2A03 fights">
+      <figcaption><span class="en"><b>2A03 fight sites:</b> S_up : S_dn ratios; red = within 2×, where GND-wins is a coin-toss call.</span><span class="zh"><b>2A03 打架地點:</b>S_up : S_dn 比值;紅 = 2× 以內,GND-必勝在這裡等於擲銅板。</span></figcaption></figure>
+    <figure><img src="img/m1_2C02_fights.svg" alt="2C02 fights">
+      <figcaption><span class="en"><b>2C02 fight sites:</b> the io_db pads cluster exactly at 1:1.</span><span class="zh"><b>2C02 打架地點:</b>io_db pad 群恰好聚在 1:1。</span></figcaption></figure>
+  </div>
+</section>
+
+<section id="mechanism">
+  <h2><span class="kick"><span class="en">So what</span><span class="zh">所以呢</span></span>
+      <span class="en">What M1 the mechanism now knows in advance</span><span class="zh">M1 機制現在能預先知道的事</span></h2>
+  <ul>
+    <li class="en"><b>All parameters precompute.</b> Per-device strength classes (a byte each) come straight from geometry at load time — like M2, the data is a load-time table; unlike M2, there is no prior-mixing: like-for-like W/L needs no assumptions.</li>
+    <li class="zh"><b>參數全數前置。</b>每器件強度級(一個 byte)載入期直接從幾何來 —— 和 M2 一樣是載入期表;和 M2 不一樣的是不用混先驗:同類比 W/L 不需要任何假設。</li>
+    <li class="en"><b>Fight detection is free.</b> "Both sides conducting" is a specific set of flag combinations — specific entries of the existing 256-entry LUT. Mark those entries as escape-to-strength-resolution; groups that never fight (the overwhelming majority) never pay a cycle.</li>
+    <li class="zh"><b>打架偵測免費。</b>「兩邊同時導通」就是特定的旗標組合 —— 現有 256 格 LUT 的特定幾格。把那幾格標成「逃逸到強度裁決」;從不打架的群(壓倒性多數)一個 cycle 都不用付。</li>
+    <li class="en"><b>The slow path has a spec.</b> Series chains weaken: resolution inside a fighting group is Bryant's strength-lattice propagation (MOSSIM II, 1984) over the ~19-class vocabulary this census measured — a walk with min/max updates, not a matrix solve.</li>
+    <li class="zh"><b>慢路徑有規格可抄。</b>串聯會變弱:打架群內的裁決 = Bryant 強度格傳播(MOSSIM II,1984),跑在本普查量出的 ~19 級詞彙上 —— 一趟帶 min/max 更新的走訪,不是解矩陣。</li>
+    <li class="en"><b>One constant, now bounded.</b> The depletion-load strength (S ≈ 0.6–1.0 from the audit) is the only number not in the netlist; LXA's hardware-measured $FF is its calibration anchor — and the retirement test for <code>LxaMagicShim</code> and <code>AluLatchShim</code>: mechanism on, shim out, isolated ROMs + golden gates green, then the ledger's "retired @" column gets its first commit hash.</li>
+    <li class="zh"><b>唯一的常數,現在有界。</b>負載強度(稽核給出 S ≈ 0.6–1.0)是唯一不在網表裡的數字;LXA 實測 $FF 是它的校準錨 —— 也是 <code>LxaMagicShim</code> 與 <code>AluLatchShim</code> 的退役考題:機制開、shim 拔、孤立 ROM + 金閘全綠,總帳的「拔除 commit」欄才寫下第一個 hash。</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this census cannot say</span><span class="zh">這份普查說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>One hop only.</b> The fight census sees direct to-VCC / to-GND devices on a node. LXA's actual fight is <i>pass-gate-mediated</i> (drive arriving through the SB/IDB switch network) — finding those needs conduction-aware path analysis, which is the dynamic step (instrumented runs), not this static pass.</li>
+    <li class="zh"><b>只看一跳。</b>打架普查看的是節點上的直接接 VCC / 接 GND 器件。LXA 真正的架是<i>經 pass gate 傳來的</i>(驅動穿過 SB/IDB 開關網抵達)—— 要抓這種,需要導通感知的路徑分析,那是動態步驟(儀器化跑),不是這趟靜態掃。</li>
+    <li class="en"><b>Candidates, not bugs.</b> The 1:1 pad totems are <i>designed</i> so both gates are never 1 together; a fight site matters only when overlap actually happens (bus turnaround, latch races). The census maps where to look — firing frequency is the dynamic census's job.</li>
+    <li class="zh"><b>是候選,不是 bug。</b>1:1 的 pad 推挽是<i>設計好</i>兩閘極永不同時為 1;打架地點要真的發生交疊(匯流排換手、閂鎖賽跑)才要緊。普查畫的是「該往哪看」的地圖 —— 開火頻率是動態普查的工作。</li>
+    <li class="en"><b>S = area/L² is an approximation</b> for bent/segmented gates (exact for straight ones); and the audit derives the load constant through a design-law assumption (4:1), not measurement — which is why LXA stays the final calibration anchor.</li>
+    <li class="zh"><b>S = 面積/L² 是近似</b>(直閘極精確、彎折閘極近似);稽核反推負載常數用的是設計律假設(4:1)、不是量測 —— 所以 LXA 仍是最終校準錨。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #2 · script: <a href="py/m1_device_census.py">m1_device_census.py</a> · data: <a href="data/m1_2A03_summary.json">2A03</a> / <a href="data/m1_2C02_summary.json">2C02</a> · prev: <a href="m2-charge-wins.html">M2 census</a> · back to <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span>
+     <span class="zh">S1a 工具箱研究 #2 · 程式:<a href="py/m1_device_census.py">m1_device_census.py</a> · 數據:<a href="data/m1_2A03_summary.json">2A03</a> / <a href="data/m1_2C02_summary.json">2C02</a> · 上一篇:<a href="m2-charge-wins.html">M2 普查</a> · 回 <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the magic constants were geometry all along.</span><span class="zh">那些 magic 常數,從頭到尾都是幾何。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

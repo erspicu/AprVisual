@@ -1,0 +1,299 @@
+{
+ "label": "2A03",
+ "transistors": 10916,
+ "classes": {
+  "pulldown": 7147,
+  "pass": 2869,
+  "to-vcc": 767,
+  "always-off": 67,
+  "always-on": 66
+ },
+ "signal_gated": 10783,
+ "distinct_strengths": 1268,
+ "vocab_top": [
+  {
+   "S": 1.67,
+   "count": 1579
+  },
+  {
+   "S": 2.33,
+   "count": 1426
+  },
+  {
+   "S": 4.33,
+   "count": 530
+  },
+  {
+   "S": 3.0,
+   "count": 339
+  },
+  {
+   "S": 5.67,
+   "count": 314
+  },
+  {
+   "S": 4.0,
+   "count": 305
+  },
+  {
+   "S": 2.0,
+   "count": 278
+  },
+  {
+   "S": 12.86,
+   "count": 275
+  },
+  {
+   "S": 1.4,
+   "count": 263
+  },
+  {
+   "S": 4.67,
+   "count": 250
+  },
+  {
+   "S": 13.0,
+   "count": 248
+  },
+  {
+   "S": 5.33,
+   "count": 200
+  },
+  {
+   "S": 2.67,
+   "count": 134
+  },
+  {
+   "S": 5.0,
+   "count": 94
+  }
+ ],
+ "vocab_coverage_pct": {
+  "5": 38.8,
+  "10": 51.6,
+  "14": 57.8
+ },
+ "halfoctave_lattice": {
+  "classes": 19,
+  "coverage_pct": {
+   "4": 64.4,
+   "6": 83.9,
+   "8": 93.3
+  }
+ },
+ "strength_stats": {
+  "pulldown": {
+   "n": 7147,
+   "median": 4.0,
+   "min": 0.5,
+   "max": 94.11
+  },
+  "pass": {
+   "n": 2869,
+   "median": 2.0,
+   "min": 0.65,
+   "max": 33.64
+  },
+  "to-vcc": {
+   "n": 767,
+   "median": 11.0,
+   "min": 0.27,
+   "max": 145.17
+  }
+ },
+ "audit_4to1": {
+  "pullup_nodes_with_direct_pulldown": 3216,
+  "modal_pulldown_S": 2.33,
+  "modal_count": 460,
+  "median_pulldown_on_pullup_S": 4.33,
+  "median_pass_S": 2.0,
+  "separation_x": 2.17,
+  "implied_depletion_load_S": 0.583
+ },
+ "fight_sites": {
+  "total": 288,
+  "within_2x": 80,
+  "top_closest": [
+   {
+    "node": 11817,
+    "names": "ab9",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 11819,
+    "names": "db0",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10331,
+    "names": "nmi",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10335,
+    "names": "ab4",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 11453,
+    "names": "spr_a15",
+    "S_up": 2.33,
+    "S_dn": 2.33,
+    "ratio": 1.0,
+    "n_up": 1,
+    "n_dn": 1
+   },
+   {
+    "node": 11965,
+    "names": "ab10",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 11966,
+    "names": "db1",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 15054,
+    "names": "pcm_a14",
+    "S_up": 1.67,
+    "S_dn": 1.67,
+    "ratio": 1.0,
+    "n_up": 1,
+    "n_dn": 1
+   },
+   {
+    "node": 10019,
+    "names": "ab1",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10020,
+    "names": "ab0",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10488,
+    "names": "irq",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10489,
+    "names": "ab5",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 11521,
+    "names": "ab7",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10005,
+    "names": "out2",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10006,
+    "names": "joy1",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 12055,
+    "names": "ab11",
+    "S_up": 12.86,
+    "S_dn": 12.86,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10007,
+    "names": "out0",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 12056,
+    "names": "db2",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10008,
+    "names": "out1",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10029,
+    "names": "joy2",
+    "S_up": 13.0,
+    "S_dn": 13.0,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   }
+  ]
+ }
+}

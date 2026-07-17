@@ -1,0 +1,299 @@
+{
+ "label": "2C02",
+ "transistors": 16872,
+ "classes": {
+  "to-vcc": 698,
+  "pulldown": 9265,
+  "pass": 6825,
+  "always-off": 46,
+  "always-on": 38
+ },
+ "signal_gated": 16788,
+ "distinct_strengths": 204,
+ "vocab_top": [
+  {
+   "S": 1.4,
+   "count": 4228
+  },
+  {
+   "S": 1.0,
+   "count": 973
+  },
+  {
+   "S": 5.28,
+   "count": 972
+  },
+  {
+   "S": 1.8,
+   "count": 961
+  },
+  {
+   "S": 5.48,
+   "count": 892
+  },
+  {
+   "S": 1.29,
+   "count": 790
+  },
+  {
+   "S": 5.08,
+   "count": 646
+  },
+  {
+   "S": 3.8,
+   "count": 601
+  },
+  {
+   "S": 3.6,
+   "count": 505
+  },
+  {
+   "S": 5.68,
+   "count": 492
+  },
+  {
+   "S": 1.6,
+   "count": 458
+  },
+  {
+   "S": 14.78,
+   "count": 336
+  },
+  {
+   "S": 4.0,
+   "count": 258
+  },
+  {
+   "S": 5.12,
+   "count": 252
+  }
+ ],
+ "vocab_coverage_pct": {
+  "5": 47.8,
+  "10": 65.9,
+  "14": 73.6
+ },
+ "halfoctave_lattice": {
+  "classes": 16,
+  "coverage_pct": {
+   "4": 76.7,
+   "6": 87.5,
+   "8": 95.6
+  }
+ },
+ "strength_stats": {
+  "to-vcc": {
+   "n": 698,
+   "median": 2.86,
+   "min": 0.47,
+   "max": 24.2
+  },
+  "pulldown": {
+   "n": 9265,
+   "median": 5.28,
+   "min": 0.0,
+   "max": 89.29
+  },
+  "pass": {
+   "n": 6825,
+   "median": 1.4,
+   "min": 1.0,
+   "max": 39.2
+  }
+ },
+ "audit_4to1": {
+  "pullup_nodes_with_direct_pulldown": 2675,
+  "modal_pulldown_S": 3.8,
+  "modal_count": 352,
+  "median_pulldown_on_pullup_S": 4.0,
+  "median_pass_S": 1.4,
+  "separation_x": 2.86,
+  "implied_depletion_load_S": 0.95
+ },
+ "fight_sites": {
+  "total": 250,
+  "within_2x": 114,
+  "top_closest": [
+   {
+    "node": 3,
+    "names": "ext1",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 4,
+    "names": "ext0",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 8,
+    "names": "io_db7",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 9,
+    "names": "io_db6",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 10,
+    "names": "io_db5/address",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 11,
+    "names": "io_db4",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2087,
+    "names": "wr",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 1102,
+    "names": "n1102",
+    "S_up": 4.14,
+    "S_dn": 4.14,
+    "ratio": 1.0,
+    "n_up": 2,
+    "n_dn": 1
+   },
+   {
+    "node": 1611,
+    "names": "ale",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 86,
+    "names": "ext2",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 87,
+    "names": "io_db3",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2649,
+    "names": "ab13",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2650,
+    "names": "ab2/db2",
+    "S_up": 14.89,
+    "S_dn": 14.89,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 1201,
+    "names": "n1201",
+    "S_up": 4.14,
+    "S_dn": 4.14,
+    "ratio": 1.0,
+    "n_up": 2,
+    "n_dn": 1
+   },
+   {
+    "node": 695,
+    "names": "n695",
+    "S_up": 4.14,
+    "S_dn": 4.14,
+    "ratio": 1.0,
+    "n_up": 2,
+    "n_dn": 1
+   },
+   {
+    "node": 2767,
+    "names": "ab12",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2768,
+    "names": "ab11",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2769,
+    "names": "ab10",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2770,
+    "names": "ab9",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   },
+   {
+    "node": 2771,
+    "names": "ab8",
+    "S_up": 14.78,
+    "S_dn": 14.78,
+    "ratio": 1.0,
+    "n_up": 7,
+    "n_dn": 9
+   }
+  ]
+ }
+}

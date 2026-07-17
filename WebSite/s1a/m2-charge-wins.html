@@ -119,34 +119,56 @@
   <p class="zh">而真實的節點電容,不是「線的數量」。這個 NMOS 製程裡它由<b>薄閘氧化層</b>主導:掛在節點上的每一顆電晶體閘極,以它的 W×L 貢獻 ~1.0 fF/µm² —— 比佈線本身高一個數量級(metal ≈ 0.03、poly ≈ 0.04、diffusion ≈ 0.10 fF/µm²,Mead &amp; Conway 時代的先驗)。一根驅動三個閘極的短樁,可以比一條孤單的長線更重;一條沒有聽眾的長匯流排,可以比一個熱鬧的小接點更重。連接數看不見這些結構。</p>
 
   <figure>
-    <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif" style="max-width:760px">
-      <rect width="760" height="340" fill="#100f15"/>
-      <text x="380" y="28" fill="#dcd7e3" font-size="15" font-weight="700" text-anchor="middle">A real election from the 2C02 die  ·  2C02 晶粒上一場真實的選舉</text>
-      <!-- node A: long line + gates -->
-      <rect x="60" y="90" width="300" height="12" fill="#c792ea" fill-opacity=".85" rx="3"/>
-      <text x="60" y="78" fill="#e8dcff" font-size="13" font-weight="700">A = /bkg_pat_out</text>
-      <text x="60" y="126" fill="#968ba1" font-size="12">long poly/metal run + many listener gates</text>
-      <rect x="100" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
-      <rect x="160" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
-      <rect x="220" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
-      <rect x="280" y="60" width="16" height="22" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
-      <text x="305" y="55" fill="#968ba1" font-size="11">gates (W×L × Cox — the heavy part)</text>
-      <text x="60" y="150" fill="#7ee0a8" font-size="13" font-weight="700">C_phys ≈ 1176   ·   conn = 2</text>
-      <!-- pass gate -->
-      <rect x="380" y="88" width="52" height="16" fill="#1a1721" stroke="#ffb454" rx="4"/>
-      <line x1="406" y1="70" x2="406" y2="88" stroke="#ffb454" stroke-width="2"/>
-      <text x="406" y="62" fill="#ffb454" font-size="11.5" text-anchor="middle">pass gate closes</text>
-      <!-- node B -->
-      <rect x="452" y="90" width="60" height="12" fill="#c792ea" fill-opacity=".45" rx="3"/>
-      <text x="452" y="78" fill="#e8dcff" font-size="13" font-weight="700">B = sprite-fetch mux node</text>
-      <text x="452" y="126" fill="#968ba1" font-size="12">tiny internal junction, 3 attachments</text>
-      <text x="452" y="150" fill="#ffb454" font-size="13" font-weight="700">C_phys ≈ 64   ·   conn = 3</text>
+    <svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif" style="max-width:900px; width:100%">
+      <rect width="900" height="520" fill="#100f15"/>
+      <text class="en" x="450" y="32" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">A real election from the 2C02 die</text>
+      <text class="zh" x="450" y="32" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">2C02 晶粒上一場真實的選舉</text>
+
+      <!-- node A: long run with listener gates hanging below -->
+      <text x="70" y="88" fill="#e8dcff" font-size="14" font-weight="700">A = /bkg_pat_out</text>
+      <text class="en" x="70" y="112" fill="#968ba1" font-size="12">long poly/metal run + a row of listener gates</text>
+      <text class="zh" x="70" y="112" fill="#968ba1" font-size="12">長長的 poly/metal 走線 + 一排聽眾閘極</text>
+      <rect x="70" y="150" width="360" height="14" fill="#c792ea" fill-opacity=".85" rx="3"/>
+      <line x1="100" y1="164" x2="100" y2="186" stroke="#7ee0a8" stroke-width="2"/>
+      <line x1="170" y1="164" x2="170" y2="186" stroke="#7ee0a8" stroke-width="2"/>
+      <line x1="240" y1="164" x2="240" y2="186" stroke="#7ee0a8" stroke-width="2"/>
+      <line x1="310" y1="164" x2="310" y2="186" stroke="#7ee0a8" stroke-width="2"/>
+      <line x1="380" y1="164" x2="380" y2="186" stroke="#7ee0a8" stroke-width="2"/>
+      <rect x="90" y="186" width="20" height="26" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="160" y="186" width="20" height="26" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="230" y="186" width="20" height="26" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="300" y="186" width="20" height="26" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <rect x="370" y="186" width="20" height="26" fill="#7ee0a8" fill-opacity=".8" rx="2"/>
+      <text class="en" x="70" y="245" fill="#7ee0a8" font-size="12">gates: W×L × Cox — the heavy part of C_phys</text>
+      <text class="zh" x="70" y="245" fill="#7ee0a8" font-size="12">閘極:W×L × Cox —— C_phys 的主力</text>
+      <text x="70" y="285" fill="#7ee0a8" font-size="15" font-weight="700">C_phys ≈ 1176   ·   conn = 2</text>
+
+      <!-- pass gate joining A and B -->
+      <line x1="430" y1="157" x2="470" y2="157" stroke="#c792ea" stroke-width="3"/>
+      <rect x="470" y="143" width="70" height="28" fill="#1a1721" stroke="#ffb454" stroke-width="1.5" rx="6"/>
+      <line x1="505" y1="108" x2="505" y2="143" stroke="#ffb454" stroke-width="2"/>
+      <text class="en" x="505" y="100" fill="#ffb454" font-size="12.5" text-anchor="middle">pass gate closes</text>
+      <text class="zh" x="505" y="100" fill="#ffb454" font-size="12.5" text-anchor="middle">pass gate 關合</text>
+
+      <!-- node B: tiny junction with 3 attachments -->
+      <line x1="540" y1="157" x2="570" y2="157" stroke="#c792ea" stroke-width="3"/>
+      <rect x="570" y="150" width="90" height="14" fill="#c792ea" fill-opacity=".5" rx="3"/>
+      <line x1="660" y1="153" x2="712" y2="128" stroke="#c792ea" stroke-width="2" stroke-opacity=".5"/>
+      <line x1="660" y1="161" x2="712" y2="188" stroke="#c792ea" stroke-width="2" stroke-opacity=".5"/>
+      <text x="570" y="88" fill="#e8dcff" font-size="14" font-weight="700">B = sprite-fetch mux node</text>
+      <text class="en" x="570" y="112" fill="#968ba1" font-size="12">tiny internal junction, 3 attachments</text>
+      <text class="zh" x="570" y="112" fill="#968ba1" font-size="12">內部小接點,只有 3 個接腳</text>
+      <text x="570" y="285" fill="#ffb454" font-size="15" font-weight="700">C_phys ≈ 64   ·   conn = 3</text>
+
       <!-- verdicts -->
-      <line x1="60" y1="185" x2="700" y2="185" stroke="#2e2634"/>
-      <text x="70" y="215" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#ff6b6b">Engine:</tspan>  conn 3 &gt; 2  →  the tiny mux node wins the pair</text>
-      <text x="70" y="245" fill="#dcd7e3" font-size="13.5"><tspan font-weight="700" fill="#7ee0a8">Physics:</tspan>  C 1176 vs 64  →  the big line wins, 18:1 — decisiveness d = 0.90</text>
-      <text x="70" y="285" fill="#968ba1" font-size="12.5">V = (C_A·V_A + C_B·V_B)/(C_A+C_B) ≈ 0.95·V_A + 0.05·V_B   —   B barely dents A's charge.</text>
-      <text x="70" y="312" fill="#968ba1" font-size="12.5">引擎:數線頭 3 &gt; 2,小節點勝。物理:1176 對 64,大線 18:1 壓倒性勝出 —— 判決相反。</text>
+      <line x1="70" y1="320" x2="830" y2="320" stroke="#2e2634"/>
+      <text class="en" x="70" y="358" fill="#dcd7e3" font-size="14"><tspan font-weight="700" fill="#ff6b6b">Engine:</tspan>  conn 3 &gt; 2  →  the tiny mux node wins the pair</text>
+      <text class="zh" x="70" y="358" fill="#dcd7e3" font-size="14"><tspan font-weight="700" fill="#ff6b6b">引擎:</tspan>數線頭 3 &gt; 2 → 小節點勝出 —— 判給了錯的一邊</text>
+      <text class="en" x="70" y="398" fill="#dcd7e3" font-size="14"><tspan font-weight="700" fill="#7ee0a8">Physics:</tspan>  C 1176 vs 64  →  the big line wins, 18:1 — decisiveness d = 0.90</text>
+      <text class="zh" x="70" y="398" fill="#dcd7e3" font-size="14"><tspan font-weight="700" fill="#7ee0a8">物理:</tspan>電容 1176 對 64 → 大線 18:1 壓倒性勝出(決定性 d = 0.90)</text>
+      <text x="70" y="448" fill="#968ba1" font-size="13">V = (C_A·V_A + C_B·V_B) / (C_A + C_B) ≈ 0.95·V_A + 0.05·V_B</text>
+      <text class="en" x="70" y="482" fill="#968ba1" font-size="12.5">After charge sharing the pair sits at A's remembered value — B dilutes it by only 5%.</text>
+      <text class="zh" x="70" y="482" fill="#968ba1" font-size="12.5">電荷分享之後,整對停在 A 記住的值 —— B 只稀釋了 5%。</text>
     </svg>
     <figcaption><span class="en">The single most decisive flip found on the 2C02: the background pattern shifter output vs the sprite-fetch multiplexer node beside it. The engine hands the election to the wrong side.</span><span class="zh">2C02 上最一面倒的翻盤:背景 pattern 移位器輸出 vs 旁邊的精靈取圖多工節點。引擎把選舉判給了錯的一邊。</span></figcaption>
   </figure>

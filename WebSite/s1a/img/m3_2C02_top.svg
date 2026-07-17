@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 534" font-family="Segoe UI,Roboto,sans-serif">
+<rect width="780" height="534" fill="#100f15"/>
+<text x="390.0" y="26" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">2C02: slowest driven nets (fall, gate units)</text>
+<rect x="250.0" y="56.0" width="468.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="70.0" fill="#dcd7e3" font-size="12" text-anchor="end">pclk0</text>
+<text x="724.0" y="70.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">7749.5</text>
+<rect x="250.0" y="82.0" width="361.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="96.0" fill="#dcd7e3" font-size="12" text-anchor="end">pclk1</text>
+<text x="617.6" y="96.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">5956.7</text>
+<rect x="250.0" y="108.0" width="22.8" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="122.0" fill="#dcd7e3" font-size="12" text-anchor="end">_rd</text>
+<text x="278.8" y="122.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">250.0</text>
+<rect x="250.0" y="134.0" width="20.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="148.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_ce</text>
+<text x="276.5" y="148.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">210.4</text>
+<rect x="250.0" y="160.0" width="19.3" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="174.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_rw_buf</text>
+<text x="275.3" y="174.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">190.6</text>
+<rect x="250.0" y="186.0" width="19.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="200.0" fill="#dcd7e3" font-size="12" text-anchor="end">++/in_visible_frame_and_render</text>
+<text x="275.0" y="200.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">185.6</text>
+<rect x="250.0" y="212.0" width="14.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="226.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db0</text>
+<text x="270.5" y="226.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">109.6</text>
+<rect x="250.0" y="238.0" width="14.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="252.0" fill="#dcd7e3" font-size="12" text-anchor="end">spr_d0</text>
+<text x="270.5" y="252.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">109.3</text>
+<rect x="250.0" y="264.0" width="14.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="278.0" fill="#dcd7e3" font-size="12" text-anchor="end">not_rendering_2</text>
+<text x="270.5" y="278.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">109.0</text>
+<rect x="250.0" y="290.0" width="14.3" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="304.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db1</text>
+<text x="270.3" y="304.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">106.6</text>
+<rect x="250.0" y="316.0" width="14.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="330.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db2</text>
+<text x="270.0" y="330.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">101.8</text>
+<rect x="250.0" y="342.0" width="13.9" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="356.0" fill="#dcd7e3" font-size="12" text-anchor="end">spr_d1</text>
+<text x="269.9" y="356.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">100.2</text>
+<rect x="250.0" y="368.0" width="13.9" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="382.0" fill="#dcd7e3" font-size="12" text-anchor="end">_res2</text>
+<text x="269.9" y="382.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">98.6</text>
+<rect x="250.0" y="394.0" width="13.7" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="408.0" fill="#dcd7e3" font-size="12" text-anchor="end">_res</text>
+<text x="269.7" y="408.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">95.9</text>
+<rect x="250.0" y="420.0" width="13.7" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="434.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db7</text>
+<text x="269.7" y="434.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">95.7</text>
+<rect x="250.0" y="446.0" width="13.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="460.0" fill="#dcd7e3" font-size="12" text-anchor="end">slave_mode</text>
+<text x="269.6" y="460.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">94.9</text>
+<rect x="250.0" y="472.0" width="13.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="486.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db5</text>
+<text x="269.6" y="486.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">94.7</text>
+<rect x="250.0" y="498.0" width="13.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="512.0" fill="#dcd7e3" font-size="12" text-anchor="end">_io_db3</text>
+<text x="269.6" y="512.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">94.0</text>
+</svg>

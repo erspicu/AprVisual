@@ -1,0 +1,189 @@
+{
+ "label": "2C02",
+ "driven_nets": 7246,
+ "priors": {
+  "sheet_R": {
+   "0": 0.05,
+   "1": 15.0,
+   "2": 15.0,
+   "3": 15.0,
+   "4": 15.0,
+   "5": 25.0
+  },
+  "layer_C": {
+   "0": 0.03,
+   "1": 0.1,
+   "2": 0.1,
+   "3": 0.1,
+   "4": 0.1,
+   "5": 0.04
+  },
+  "Ron_over_S": 20000.0,
+  "load_S": 0.95
+ },
+ "gate_unit_note": "tau normalized: median driven net = 1.0",
+ "bins": {
+  "edges_gate_units": [
+   0.5,
+   2.0,
+   8.0
+  ],
+  "counts": {
+   "negligible_lt0.5": 383,
+   "ordinary_0.5-2": 5478,
+   "slow_2-8": 1023,
+   "island_gt8": 362
+  },
+  "island_pct": 5.0
+ },
+ "asymmetry": {
+  "nets_with_both_paths": 2925,
+  "median_rise_over_fall": 3.89,
+  "near_symmetric_0.66-1.5": 124,
+  "anchor_dot339_rise_over_fall": 0.889,
+  "nets_at_or_below_anchor": 12
+ },
+ "pass_chain": {
+  "nets_depth_ge2": 178,
+  "note": "chain nets need N(N+1)/2 correction — flagged, not solved (v1)"
+ },
+ "top_slowest_fall": [
+  {
+   "tau": 7749.5,
+   "node": 106,
+   "names": "pclk0"
+  },
+  {
+   "tau": 5956.7,
+   "node": 58,
+   "names": "pclk1"
+  },
+  {
+   "tau": 250.0,
+   "node": 1960,
+   "names": "_rd"
+  },
+  {
+   "tau": 210.4,
+   "node": 77,
+   "names": "_io_ce"
+  },
+  {
+   "tau": 190.6,
+   "node": 31,
+   "names": "_io_rw_buf"
+  },
+  {
+   "tau": 185.6,
+   "node": 283,
+   "names": "++/in_visible_frame_and_rendering"
+  },
+  {
+   "tau": 109.6,
+   "node": 105,
+   "names": "_io_db0"
+  },
+  {
+   "tau": 109.3,
+   "node": 818,
+   "names": "spr_d0"
+  },
+  {
+   "tau": 109.0,
+   "node": 203,
+   "names": "not_rendering_2"
+  },
+  {
+   "tau": 106.6,
+   "node": 100,
+   "names": "_io_db1"
+  },
+  {
+   "tau": 101.8,
+   "node": 97,
+   "names": "_io_db2"
+  },
+  {
+   "tau": 100.2,
+   "node": 856,
+   "names": "spr_d1"
+  },
+  {
+   "tau": 98.6,
+   "node": 128,
+   "names": "_res2"
+  },
+  {
+   "tau": 95.9,
+   "node": 170,
+   "names": "_res"
+  },
+  {
+   "tau": 95.7,
+   "node": 27,
+   "names": "_io_db7"
+  },
+  {
+   "tau": 94.9,
+   "node": 23,
+   "names": "slave_mode"
+  },
+  {
+   "tau": 94.7,
+   "node": 29,
+   "names": "_io_db5"
+  },
+  {
+   "tau": 94.0,
+   "node": 95,
+   "names": "_io_db3"
+  }
+ ],
+ "watch": [
+  {
+   "name": "bkg_enable",
+   "found": true,
+   "tau_fall": 2.75,
+   "tau_rise": 5.13,
+   "depth": 0,
+   "C": 188.2,
+   "R_wire": 753.4
+  },
+  {
+   "name": "rendering_1",
+   "found": true,
+   "tau_fall": 5.7,
+   "tau_rise": 19.58,
+   "depth": 0,
+   "C": 691.0,
+   "R_wire": 2434.8
+  },
+  {
+   "name": "hpos_eq_339_and_rendering",
+   "found": true,
+   "tau_fall": 8.4,
+   "tau_rise": 15.54,
+   "depth": 0,
+   "C": 564.3,
+   "R_wire": 1176.4
+  },
+  {
+   "name": "ale",
+   "found": true,
+   "tau_fall": 13.82,
+   "tau_rise": 13.82,
+   "depth": 0,
+   "C": 6761.9,
+   "R_wire": 505.9
+  },
+  {
+   "name": "io_db0",
+   "found": true,
+   "tau_fall": 30.96,
+   "tau_rise": 30.96,
+   "depth": 0,
+   "C": 11090.2,
+   "R_wire": 1680.7
+  }
+ ]
+}

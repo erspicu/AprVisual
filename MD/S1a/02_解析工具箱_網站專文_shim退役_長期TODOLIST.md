@@ -52,7 +52,7 @@ MD/S1a/02_...TODOLIST.md         本檔(進度總帳)
 |---|---|---|---|---|---|---|---|
 | **M2** | `m2_charge_wins.py` | `m2-charge-wins.html` | **電容誰輸誰贏**:segdefs 分層多邊形面積 + transdefs gate 面積 → 每節點物理電容代理 C_phys;pass-gate 節點對的「浮接裁決」census —— 引擎連接數代理 vs 物理電容,誰翻盤、平手樂透在哪 | OpenBusShim、OamBlankEdgeShim(地基);浮接裁決升級(S1A) | — | — | **✅ 本階段(2026-07-17)** |
 | M1 | `m1_device_census.py` | `m1-strength.html` | transdefs geom → W/L 強度分佈、器件分類(下拉/pass/上電軌)、'+' 上拉 vs 下拉強度比(教科書 4:1 檢查)→ 強度 LUT 參數表 | LxaMagicShim、AluLatchShim(A1 部分) | — | — | **✅ 普查+專文 live(2026-07-17)** |
-| M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | — | M1+M2 | 排隊 |
+| M3 | `m3_elmore_binner.py` | `m3-delay.html` | per-net Elmore τ 分級器:R(層別 sheet-Ω × squares)+ C(M2 輸出)+ 驅動強度(M1 輸出)→ {<0.5hc/1-2hc/2-4hc/pad>4hc};五錨點回歸;16/18 rise-fall 奇偶(inversion parity)稽核 | dot-339、even_odd、AleReadMux、BgSerialReload 的**數字來源**(shim 機制 → 資料檔) | — | M1+M2 | **✅ 分級器+專文 live(2026-07-18)** |
 | M4 | `m4_latch_scan.py` | `m4-latch.html` | P1 靜態掃描:pass-gate 閂鎖全列舉 + enable 錐 ∩ data 錐(關門賽跑指紋);P6 毛刺候選清單 | DL、DmcLatch、Dmc4015Abort、FrameIrq、Dbl2007、OamDmaPpuBus(最大宗 6 顆) | — | — | 排隊 |
 | M5 | `m5_board_inventory.py` | `m5-board.html` | 板級盤點:nes-001 connections 全清單(跨晶片網)、板級元件 pin 語意表('373/'139/4021)、閘級模組「結構性不可驅動」自動判定 | BoardOctalLatch 殘餘 hack、行為層手把的元件化 | — | — | 排隊 |
 | M6 | `m6_interface_census.py` | `m6-phase.html` | P2 掃描:跨晶片網 → 下游 BFS 找「計數器比較器錐」(hpos/vpos 位元支撐)→ 延遲敏感介面全清單;4 相位參數盤點 | reset-hold-extra、power_up_palette、registers 上電注入 | — | M5 清單 | 排隊 |
@@ -85,6 +85,16 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   終錨 = LXA $FF);**打架點 538、2× 內 194** —— 2A03=db/ab/nmi/irq/joy pad(7上/9下 S≈13 推挽),
   2C02=io_db(open-bus 老家)/ale(ALERead 訊號)/wr/ext。限制:一跳普查,LXA 的 pass 中介戰
   要動態步驟才抓得到。
+- **2026-07-18**:**M3 第三組落地(分級器+專文)**:`m3_elmore_binner.py` + `m3-delay.html`。
+  刻意站下游:R 吃 M1 的 W/L(20kΩ/S;rise 側用稽核反推負載 0.58/0.95)、C 吃 M2 面積公式、
+  線阻 = sheet-Ω × 矩形等效方塊數(面積+周長解二次式);τ 以 gate 單位(中位受驅動網=1)。
+  重點數字:**11,343 張網分級,島候選 238+362=600(~5.3%)**;最慢榜 = 2C02 的
+  pclk0/1、`_rd`/`_io_ce`/`_io_rw_buf`/`_io_db*`(**純幾何把 CPU↔PPU 介面排最慢** = 24hc 家族
+  物理背書)、2A03 的 apu_clk1/_res/cclk/RnWstretched/_db*;`res` 無下拉 rise 303 = 外部 RC 重置
+  敘事自現;**中位 rise/fall 6.43×/3.89×**(教科書 4:1 第二條獨立路徑);**16/18 不可能錨點量化:
+  6,424 雙路網僅 29(0.45%)做得到** → 奇偶反相/super-buffer 預言;`ale` 13.8/13.8 完美對稱
+  (M1 推挽 13:13 呼應)、io_db0=31 最慢。pass 串鏈 401 網旗標未解。下一隻:ren_en 路徑反相
+  計數走訪(可證偽測試)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

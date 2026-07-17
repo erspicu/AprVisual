@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 534" font-family="Segoe UI,Roboto,sans-serif">
+<rect width="780" height="534" fill="#100f15"/>
+<text x="390.0" y="26" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">2A03: slowest driven nets (fall, gate units)</text>
+<rect x="250.0" y="56.0" width="468.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="70.0" fill="#dcd7e3" font-size="12" text-anchor="end">apu_clk1</text>
+<text x="724.0" y="70.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">2902.1</text>
+<rect x="250.0" y="82.0" width="365.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="96.0" fill="#dcd7e3" font-size="12" text-anchor="end">_res</text>
+<text x="621.0" y="96.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">2252.2</text>
+<rect x="250.0" y="108.0" width="131.2" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="122.0" fill="#dcd7e3" font-size="12" text-anchor="end">cclk</text>
+<text x="387.2" y="122.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">777.5</text>
+<rect x="250.0" y="134.0" width="63.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="148.0" fill="#dcd7e3" font-size="12" text-anchor="end">cp1</text>
+<text x="319.0" y="148.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">346.7</text>
+<rect x="250.0" y="160.0" width="40.9" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="174.0" fill="#dcd7e3" font-size="12" text-anchor="end">RnWstretched</text>
+<text x="296.9" y="174.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">207.8</text>
+<rect x="250.0" y="186.0" width="34.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="200.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db0</text>
+<text x="290.6" y="200.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">168.0</text>
+<rect x="250.0" y="212.0" width="34.2" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="226.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db1</text>
+<text x="290.2" y="226.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">165.0</text>
+<rect x="250.0" y="238.0" width="31.9" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="252.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db2</text>
+<text x="287.9" y="252.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">151.1</text>
+<rect x="250.0" y="264.0" width="30.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="278.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db3</text>
+<text x="286.6" y="278.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">142.6</text>
+<rect x="250.0" y="290.0" width="29.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="304.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db4</text>
+<text x="285.5" y="304.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">135.9</text>
+<rect x="250.0" y="316.0" width="28.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="330.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db5</text>
+<text x="284.6" y="330.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">130.2</text>
+<rect x="250.0" y="342.0" width="26.8" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="356.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db7</text>
+<text x="282.8" y="356.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">118.3</text>
+<rect x="250.0" y="368.0" width="26.4" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="382.0" fill="#dcd7e3" font-size="12" text-anchor="end">_db6</text>
+<text x="282.4" y="382.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">116.3</text>
+<rect x="250.0" y="394.0" width="21.6" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="408.0" fill="#dcd7e3" font-size="12" text-anchor="end">rw_buf</text>
+<text x="277.6" y="408.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">85.7</text>
+<rect x="250.0" y="420.0" width="20.1" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="434.0" fill="#dcd7e3" font-size="12" text-anchor="end">n10811</text>
+<text x="276.1" y="434.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">76.4</text>
+<rect x="250.0" y="446.0" width="18.5" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="460.0" fill="#dcd7e3" font-size="12" text-anchor="end">notRdy0</text>
+<text x="274.5" y="460.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">66.5</text>
+<rect x="250.0" y="472.0" width="17.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="486.0" fill="#dcd7e3" font-size="12" text-anchor="end">/r4015</text>
+<text x="273.0" y="486.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">56.9</text>
+<rect x="250.0" y="498.0" width="15.2" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
+<text x="242.0" y="512.0" fill="#dcd7e3" font-size="12" text-anchor="end">apu_/clk2</text>
+<text x="271.2" y="512.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">45.7</text>
+</svg>

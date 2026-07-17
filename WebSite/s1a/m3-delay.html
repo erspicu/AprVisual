@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 · Every net gets a clock — Elmore binning the die's delays from geometry</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  header.hero{padding:56px 24px 34px; text-align:center;
+    background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px); margin:0 0 10px; color:#e8dcff; letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut); max-width:860px; margin:0 auto; font-size:15px;}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0;
+        border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+  main{max-width:max(920px, 50vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:30px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:22px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc);
+           font-weight:700; margin-bottom:2px;}
+  h3{font-size:16.5px; margin:1.3em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px;
+       font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px;
+      overflow-x:auto; font-size:12.5px; line-height:1.55;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+  td.n{text-align:right; font-family:Consolas,monospace;}
+  .hot{color:var(--bad); font-weight:700;} .ok{color:var(--good); font-weight:700;}
+  .wa{color:var(--warn); font-weight:700;}
+  figure{margin:20px 0; text-align:center;}
+  figure img, figure svg{max-width:100%; border:1px solid var(--bd); border-radius:10px; background:var(--bg);}
+  figure figcaption{color:var(--mut); font-size:13px; margin-top:8px; max-width:780px; margin-left:auto; margin-right:auto;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px;
+        border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut);
+         font-size:13px; max-width:max(920px, 50vw); margin:0 auto;}
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m1-strength.html"><span class="en">Prev: M1 census</span><span class="zh">上一篇:M1 普查</span></a>
+  <a class="sec" href="../die-timing.html"><span class="en">Theory: die-timing</span><span class="zh">理論篇:晶粒延遲</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Every net gets a clock</span><span class="zh">每張網都有自己的時鐘</span></h1>
+  <p class="tag en">Toolbox study #3 (mechanism M3). The engine settles instantly; the die takes time — and five hardware anchors from the campaigns measured how much. This script runs first-order Elmore delay over the geometry the first two studies harvested (<b>R from M1's W/L, C from M2's areas</b>), puts a delay on all <b>11,343 driven nets</b>, and finds: ~5% are delay-island candidates, the slowest nets on both dies are <i>exactly the campaign's cast of characters</i>, and only <b>0.45%</b> of nets can physically do what the dot-339 anchor measured — turning "16/18" into a falsifiable inversion-parity prediction.</p>
+  <p class="tag zh">工具箱研究 #3(機制 M3)。引擎瞬間收斂;晶粒要花時間 —— 戰役的五個硬體錨點量過差多少。這隻程式把一階 Elmore 延遲跑在前兩份普查收割的幾何上(<b>R 來自 M1 的 W/L、C 來自 M2 的面積</b>),給全部 <b>11,343 張受驅動網</b>各配一個延遲,發現:~5% 是延遲島候選、兩顆晶粒的最慢網<i>恰好就是戰役的全體演員表</i>、而只有 <b>0.45%</b> 的網物理上做得到 dot-339 錨點量到的事 —— 把「16/18」變成可證偽的反相奇偶預言。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M3 · RC propagation delay</span>
+    <span class="pill"><a href="py/m3_elmore_binner.py">m3_elmore_binner.py</a></span>
+    <span class="pill"><a href="data/m3_2A03_summary.json">2A03 JSON</a></span>
+    <span class="pill"><a href="data/m3_2C02_summary.json">2C02 JSON</a></span>
+    <span class="pill">2026-07-18</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">Zero-delay settling, and the four shims it cost</span><span class="zh">零延遲收斂,和它欠下的四顆 shim</span></h2>
+  <p class="en">Settle-to-quiescence propagates every change to its fixed point <i>within</i> one half-cycle — 23.3 ns of real time compressed to zero. Four accuracy-campaign bosses were exactly this abstraction leaking: <b>dot-339</b> (rendering-enable arrives 16/18 hc late, rise/fall), <b>even_odd</b> (16 hc), <b>ALERead</b> (a $2007 access lands one CPU cycle early without its 24 hc), <b>BGSerialIn</b> (16 hc at the shifter-reload boundary). Each got a shim with a hand-measured constant. The constants are correct — but they were <i>measured</i>, one test at a time. The question of this study: can the die itself <b>predict</b> them, so tests go back to verifying instead of calibrating?</p>
+  <p class="zh">settle-to-quiescence 在一個半週期<i>之內</i>把所有變化傳到不動點 —— 23.3 ns 的真實時間被壓成零。精度戰役的四個魔王正是這個抽象在漏:<b>dot-339</b>(渲染致能晚到 16/18 hc,rise/fall)、<b>even_odd</b>(16 hc)、<b>ALERead</b>(少了 24 hc,$2007 存取早一個 CPU cycle 落地)、<b>BGSerialIn</b>(shifter-reload 邊界 16 hc)。每顆都配了一個手工量測常數的 shim。常數是對的 —— 但它們是<i>量出來</i>的,一顆測試一顆測試地量。本研究的問題:晶粒自己能不能<b>預測</b>它們,讓測試回到驗證、不再校準?</p>
+  <div class="note">
+    <span class="en"><b>The IRSIM discipline (standing rule).</b> IRSIM proved in the 1980s that tracking RC on every net murders a fast event-driven core. M3 therefore lives entirely at load time: this binner <i>ranks and bins</i>; the engine will only ever schedule the few hundred annotated islands, event-style, like the shims already do — never a per-net timing wheel.</span>
+    <span class="zh"><b>IRSIM 紀律(既定鐵律)。</b>IRSIM 在 1980 年代證明了逐網追蹤 RC 會謀殺快速事件驅動核心。所以 M3 完全活在載入期:這個分級器只做<i>排名與分級</i>;引擎永遠只對那幾百個被標註的島做事件級排程 —— 跟現有 shim 同款 —— 絕不做 per-net timing wheel。</span>
+  </div>
+</section>
+
+<section id="recipe">
+  <h2><span class="kick"><span class="en">The recipe</span><span class="zh">配方</span></span>
+      <span class="en">One formula, fed by the first two studies</span><span class="zh">一條公式,吃前兩份普查的輸出</span></h2>
+  <pre><code>tau(net) ≈ ( R_driver + R_wire/2 ) × C_net
+
+C_net    = Σ polygon-area × layer-weight + Σ gate W×L      ← study #1 (M2)
+R_driver = 20 kΩ / S,  S = W/L of the strongest pull-down   ← study #2 (M1)
+           (rise side: S = the audit-derived depletion load: 0.58 / 0.95)
+R_wire   = Σ sheet-R × squares;  squares from each polygon's
+           rectangle-equivalent L/W  (area + perimeter → quadratic)</code></pre>
+  <p class="en">Era priors (Mead &amp; Conway, ~3–6 µm NMOS): sheet resistance poly ≈ 25 Ω/sq (the delay killer), diffusion ≈ 15, metal ≈ 0.05; R<sub>on</sub> ≈ 20 kΩ/S. Absolute farads are unknowable from polygons, so every τ is reported in <b>gate units</b> — the median driven net ≡ 1.0. Ranking and binning are scale-free; the five measured anchors are what pin gate-units to nanoseconds (era cross-check: one gate unit should land at 2–5 ns, i.e. ~0.1–0.2 hc — which makes an 8-unit island ≈ 1–2 hc, exactly the annotation-worthy range).</p>
+  <p class="zh">時代先驗(Mead &amp; Conway,~3–6 µm NMOS):片電阻 poly ≈ 25 Ω/sq(延遲殺手)、diffusion ≈ 15、metal ≈ 0.05;R<sub>on</sub> ≈ 20 kΩ/S。多邊形算不出絕對法拉,所以所有 τ 都以「<b>gate 單位</b>」呈報 —— 受驅動網的中位數 ≡ 1.0。排名與分級與尺度無關;五個實測錨點負責把 gate 單位釘到奈秒(時代交叉檢核:一個 gate 單位應落在 2–5 ns,即 ~0.1–0.2 hc —— 那 8 單位的島就 ≈ 1–2 hc,恰好是值得標註的量級)。</p>
+
+  <figure>
+    <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif" style="max-width:900px; width:100%">
+      <rect width="900" height="300" fill="#100f15"/>
+      <text class="en" x="450" y="30" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">The toolbox pipeline: two censuses feed the binner</text>
+      <text class="zh" x="450" y="30" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">工具箱管線:兩份普查餵一個分級器</text>
+      <rect x="60" y="70" width="220" height="70" fill="#1a1721" stroke="#7ee0a8" rx="10"/>
+      <text x="170" y="99" fill="#7ee0a8" font-size="14" font-weight="700" text-anchor="middle">M1 census</text>
+      <text class="en" x="170" y="121" fill="#968ba1" font-size="12" text-anchor="middle">S = W/L per device → R = 20k/S</text>
+      <text class="zh" x="170" y="121" fill="#968ba1" font-size="12" text-anchor="middle">每器件 S = W/L → R = 20k/S</text>
+      <rect x="60" y="170" width="220" height="70" fill="#1a1721" stroke="#c792ea" rx="10"/>
+      <text x="170" y="199" fill="#c792ea" font-size="14" font-weight="700" text-anchor="middle">M2 census</text>
+      <text class="en" x="170" y="221" fill="#968ba1" font-size="12" text-anchor="middle">areas × layer weights → C_net</text>
+      <text class="zh" x="170" y="221" fill="#968ba1" font-size="12" text-anchor="middle">面積 × 層權重 → C_net</text>
+      <line x1="280" y1="105" x2="380" y2="140" stroke="#7ee0a8" stroke-width="2.5"/>
+      <line x1="280" y1="205" x2="380" y2="170" stroke="#c792ea" stroke-width="2.5"/>
+      <rect x="380" y="120" width="230" height="70" fill="#221a2e" stroke="#ffb454" stroke-width="1.5" rx="10"/>
+      <text x="495" y="149" fill="#ffb454" font-size="14" font-weight="700" text-anchor="middle">M3 · Elmore binner</text>
+      <text x="495" y="171" fill="#dcd7e3" font-size="12.5" text-anchor="middle">tau = (R_drv + R_wire/2) × C</text>
+      <line x1="610" y1="155" x2="700" y2="155" stroke="#ffb454" stroke-width="2.5"/>
+      <rect x="700" y="90" width="150" height="130" fill="#1a1721" stroke="#2e2634" rx="10"/>
+      <text class="en" x="775" y="118" fill="#e8dcff" font-size="13" font-weight="700" text-anchor="middle">delay map</text>
+      <text class="zh" x="775" y="118" fill="#e8dcff" font-size="13" font-weight="700" text-anchor="middle">延遲地圖</text>
+      <text x="775" y="142" fill="#968ba1" font-size="12" text-anchor="middle">&lt;0.5 · 0.5–2 · 2–8</text>
+      <text class="en" x="775" y="164" fill="#ff6b6b" font-size="12.5" text-anchor="middle" font-weight="700">&gt;8 = islands (~5%)</text>
+      <text class="zh" x="775" y="164" fill="#ff6b6b" font-size="12.5" text-anchor="middle" font-weight="700">&gt;8 = 島(~5%)</text>
+      <text class="en" x="775" y="190" fill="#968ba1" font-size="11.5" text-anchor="middle">→ sidecar annotations</text>
+      <text class="zh" x="775" y="190" fill="#968ba1" font-size="11.5" text-anchor="middle">→ sidecar 標註檔</text>
+      <text class="en" x="450" y="278" fill="#968ba1" font-size="12.5" text-anchor="middle">Five measured anchors (24 / 16 / 16-18 / 16 / ~24 hc) regress the one global scale — tests verify, they no longer calibrate.</text>
+      <text class="zh" x="450" y="278" fill="#968ba1" font-size="12.5" text-anchor="middle">五個實測錨點(24 / 16 / 16-18 / 16 / ~24 hc)回歸唯一的全域尺度 —— 測試回到驗證,不再校準。</text>
+    </svg>
+    <figcaption><span class="en">M3 is deliberately downstream: it computes nothing the first two studies didn't already harvest — it only composes them.</span><span class="zh">M3 刻意站在下游:它不算前兩份普查沒收割過的東西 —— 只負責把它們組起來。</span></figcaption>
+  </figure>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">The slowest nets confess: it was the interface all along</span><span class="zh">最慢的網自己招供:從頭到尾都是介面</span></h2>
+  <table>
+    <tr><th></th><th>2A03 (CPU+APU)</th><th>2C02 (PPU)</th></tr>
+    <tr><td><span class="en">driven nets binned</span><span class="zh">分級的受驅動網</span></td><td class="n">4,097</td><td class="n">7,246</td></tr>
+    <tr><td><span class="en">negligible / ordinary / slow</span><span class="zh">可忽略 / 普通 / 慢</span></td><td class="n">1,084 / 2,059 / 716</td><td class="n">383 / 5,478 / 1,023</td></tr>
+    <tr><td><span class="en">delay-island candidates (&gt;8 units)</span><span class="zh">延遲島候選(&gt;8 單位)</span></td><td class="n hot">238 (5.8%)</td><td class="n hot">362 (5.0%)</td></tr>
+    <tr><td><span class="en">median rise/fall asymmetry</span><span class="zh">中位 rise/fall 不對稱</span></td><td class="n">6.43×</td><td class="n">3.89×</td></tr>
+    <tr><td><span class="en">near-symmetric nets (totem band)</span><span class="zh">近對稱網(推挽帶)</span></td><td class="n">97</td><td class="n">124</td></tr>
+    <tr><td><span class="en">nets that rise faster than fall (≤16/18)</span><span class="zh">rise 快過 fall 的網(≤16/18)</span></td><td class="n wa">17 / 3,499</td><td class="n wa">12 / 2,925</td></tr>
+    <tr><td><span class="en">pass-chain nets (depth ≥ 2, N²-risk)</span><span class="zh">pass 串鏈網(深度 ≥ 2,N² 風險)</span></td><td class="n">223</td><td class="n">178</td></tr>
+  </table>
+
+  <h3><span class="en">Read the leaderboards</span><span class="zh">讀排行榜</span></h3>
+  <ul>
+    <li class="en"><b>2C02's slowest driven nets</b>: the pixel clocks (<code>pclk0/pclk1</code> — fanout monsters, known super-buffer overestimates), then <b><code>_rd</code>, <code>_io_ce</code>, <code>_io_rw_buf</code>, <code>_io_db0–2</code></b> — the CPU↔PPU interface, ranked slowest on the die <i>by pure geometry</i>. The 24 hc cross-chip family (ALERead, dot-339, even_odd, BGSerialIn) just received its physical background check.</li>
+    <li class="zh"><b>2C02 最慢受驅動網</b>:像素時鐘(<code>pclk0/pclk1</code> —— 扇出怪物,已知的 super-buffer 高估案)之後,就是 <b><code>_rd</code>、<code>_io_ce</code>、<code>_io_rw_buf</code>、<code>_io_db0–2</code></b> —— CPU↔PPU 介面,<i>被純幾何</i>排成全晶粒最慢。24 hc 跨晶片家族(ALERead、dot-339、even_odd、BGSerialIn)剛拿到它的物理身家調查。</li>
+    <li class="en"><b>2A03's</b>: <code>apu_clk1</code> (the very clock whose closing edge races the DMC latch shim), <code>_res</code>, <code>cclk/cp1</code>, <b><code>RnWstretched</code></b>, and the <code>_db0–7</code> pad drivers. Watch-list bonus: <code>res</code> has <i>no pull-down at all</i> and a rise of ~303 units — the external-RC reset story, rediscovered by the binner.</li>
+    <li class="zh"><b>2A03 的</b>:<code>apu_clk1</code>(DMC latch shim 賽跑的正是它的關門沿)、<code>_res</code>、<code>cclk/cp1</code>、<b><code>RnWstretched</code></b>、以及 <code>_db0–7</code> pad 驅動級。watch 名單彩蛋:<code>res</code> <i>根本沒有下拉</i>,rise ~303 單位 —— 重置腳的外部 RC 故事,被分級器自己重新發現。</li>
+    <li class="en"><b>The M6 anchors, individually</b>: <code>ale</code> = 13.8 / 13.8 — perfectly symmetric (it is the 7-up/9-down pad totem M1 found at S 13:13) and slow; <code>io_db0</code> = 31 units, the slowest of the open-bus family; <code>rendering_1</code> = rise 19.6 / fall 5.7 — asymmetric the <i>normal</i> NMOS way.</li>
+    <li class="zh"><b>M6 錨點逐顆看</b>:<code>ale</code> = 13.8 / 13.8 —— 完美對稱(正是 M1 找到的 7 上/9 下 pad 推挽,S 13:13)而且慢;<code>io_db0</code> = 31 單位,open-bus 家族裡最慢;<code>rendering_1</code> = rise 19.6 / fall 5.7 —— 以<i>正常</i>NMOS 的方式不對稱。</li>
+  </ul>
+
+  <div class="grid2">
+    <figure><img src="img/m3_2A03_tau.svg" alt="2A03 tau histogram">
+      <figcaption><span class="en"><b>2A03:</b> fall-delay distribution; red = island candidates beyond 8 gate units.</span><span class="zh"><b>2A03:</b>fall 延遲分佈;紅 = 超過 8 gate 單位的島候選。</span></figcaption></figure>
+    <figure><img src="img/m3_2C02_tau.svg" alt="2C02 tau histogram">
+      <figcaption><span class="en"><b>2C02:</b> same picture — a tight ordinary bulk and a long annotatable tail.</span><span class="zh"><b>2C02:</b>同一張圖 —— 緊湊的普通主體 + 一條可標註的長尾。</span></figcaption></figure>
+    <figure><img src="img/m3_2A03_asym.svg" alt="2A03 asymmetry">
+      <figcaption><span class="en"><b>2A03 rise/fall:</b> the bulk sits at 4–8× (ratioed NMOS nature); the red line marks dot-339's measured 16/18 — almost nothing lives there.</span><span class="zh"><b>2A03 rise/fall:</b>主體坐在 4–8×(比例式 NMOS 天性);紅線是 dot-339 實測的 16/18 —— 幾乎沒有網住在那裡。</span></figcaption></figure>
+    <figure><img src="img/m3_2C02_asym.svg" alt="2C02 asymmetry">
+      <figcaption><span class="en"><b>2C02 rise/fall:</b> median 3.89× — the textbook 4:1, arrived at from Elmore, independently of M1's strength audit.</span><span class="zh"><b>2C02 rise/fall:</b>中位 3.89× —— 教科書的 4:1,由 Elmore 這條路獨立於 M1 強度稽核抵達。</span></figcaption></figure>
+    <figure><img src="img/m3_2A03_top.svg" alt="2A03 top slowest">
+      <figcaption><span class="en"><b>2A03 slowest nets.</b></span><span class="zh"><b>2A03 最慢網。</b></span></figcaption></figure>
+    <figure><img src="img/m3_2C02_top.svg" alt="2C02 top slowest">
+      <figcaption><span class="en"><b>2C02 slowest nets.</b></span><span class="zh"><b>2C02 最慢網。</b></span></figcaption></figure>
+  </div>
+</section>
+
+<section id="anchor">
+  <h2><span class="kick"><span class="en">The impossible anchor</span><span class="zh">不可能的錨點</span></span>
+      <span class="en">16/18: now a quantified contradiction</span><span class="zh">16/18:現在是一個量化的矛盾</span></h2>
+  <p class="en">The dot-339 campaign measured rendering-enable propagation at <b>16 hc rise / 18 hc fall</b> — rise <i>faster</i>. Ratioed NMOS says that's backwards: the weak depletion load charges slowly, so plain nets rise 4–7× <i>slower</i> (both dies' medians confirm: 6.43× and 3.89×). The census makes the contradiction precise: of 6,424 nets with both paths, only <b>29 (0.45%)</b> can rise at least as fast as they fall — and they are totem/super-buffer stages, not ordinary logic. So the measured "16/18" cannot be the raw behaviour of the annotated node. Two candidate explanations, both checkable: the observation point sits an <b>odd number of inversions</b> from the switching source (parity flip: its rise is the source's fall), or the path runs through a <b>super-buffer</b> (one of the 221 near-symmetric stages). Next tool in the queue does the inversion-count walk on the actual <code>ren_en</code> path — a clean falsifiable test of the whole geometric framework.</p>
+  <p class="zh">dot-339 戰役量到渲染致能的傳播是 <b>rise 16 hc / fall 18 hc</b> —— rise 比較<i>快</i>。比例式 NMOS 說這是反的:弱 depletion 負載充電慢,普通網的 rise 應該慢 4–7×(兩顆晶粒的中位數作證:6.43× 與 3.89×)。普查把矛盾變精確:6,424 張雙路網裡,只有 <b>29 張(0.45%)</b>能 rise 不慢於 fall —— 而且它們全是推挽/super-buffer 級,不是普通邏輯。所以實測的「16/18」不可能是被標註節點的原始行為。兩個候選解釋,都可檢驗:量測點離切換源隔了<b>奇數次反相</b>(奇偶翻轉:它的 rise 是源頭的 fall),或路徑經過 <b>super-buffer</b>(221 張近對稱級之一)。佇列裡的下一隻工具,就是對真實 <code>ren_en</code> 路徑做反相計數走訪 —— 整個幾何框架的一次乾淨可證偽測試。</p>
+</section>
+
+<section id="road">
+  <h2><span class="kick"><span class="en">So what</span><span class="zh">所以呢</span></span>
+      <span class="en">From four hand constants to one data file</span><span class="zh">從四個手工常數,到一個資料檔</span></h2>
+  <ul>
+    <li class="en"><b>The map is small enough to own.</b> ~600 island candidates across both dies (5.3%) is an annotatable list, not a simulation regime. The sidecar plan stands: bins → draft annotations → the five anchors regress the single global scale → tests verify.</li>
+    <li class="zh"><b>地圖小到可以擁有。</b>兩顆晶粒共 ~600 個島候選(5.3%),是一張可標註的清單,不是一種模擬型態。sidecar 計畫成立:分級 → 標註初稿 → 五錨點回歸唯一全域尺度 → 測試只驗不校。</li>
+    <li class="en"><b>What retires here is numbers, not shims.</b> dot-339 / even_odd / AleReadMux / BgSerialReload keep their event-level mechanism (that architecture is proven); M3's deliverable is their <i>constants</i> moving from hand-measured magic into a physics-derived data file — plus the ranked list of which un-shimmed nets to watch next.</li>
+    <li class="zh"><b>這裡退役的是數字,不是 shim。</b>dot-339 / even_odd / AleReadMux / BgSerialReload 保留事件級機制(那個架構已被證明);M3 交付的是它們的<i>常數</i>從手工量測的魔法,搬進物理推導的資料檔 —— 外加一張排序清單:下一批該盯的未修網。</li>
+    <li class="en"><b>Engine cost: still zero.</b> Everything here is load-time (or offline). The event queue stays the shim-chain pattern the hot path already tolerates at 0 measurable cost.</li>
+    <li class="zh"><b>引擎成本:仍然零。</b>這裡的一切都在載入期(或離線)。事件佇列維持 shim 鏈模式 —— 熱路徑已實測零感的那款。</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this binner cannot say</span><span class="zh">這個分級器說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Gate units, not nanoseconds.</b> Absolute scale needs the anchor regression; until then, bins are relative. The era cross-check (1 unit ≈ 2–5 ns) is a sanity band, not a measurement.</li>
+    <li class="zh"><b>gate 單位,不是奈秒。</b>絕對尺度要靠錨點回歸;在那之前分級是相對的。時代交叉檢核(1 單位 ≈ 2–5 ns)是理智帶,不是量測。</li>
+    <li class="en"><b>Clock trees and super-buffers are overestimated</b> — the model assumes the strongest <i>direct</i> pull-down is the driver; staged buffers drive far harder (pclk0's 7,750 units is an upper bound, not a claim).</li>
+    <li class="zh"><b>時鐘樹與 super-buffer 被高估</b> —— 模型假設最壯的<i>直接</i>下拉就是驅動者;多級緩衝實際壯得多(pclk0 的 7,750 單位是上界,不是主張)。</li>
+    <li class="en"><b>Pass chains flagged, not solved</b> (401 nets at depth ≥ 2 need the N(N+1)/2 correction); bootstrap nodes overestimate; 2D extraction as before.</li>
+    <li class="zh"><b>pass 串鏈只旗標、未解算</b>(401 張深度 ≥ 2 的網需要 N(N+1)/2 修正);bootstrap 節點會高估;2D 萃取限制同前兩篇。</li>
+    <li class="en"><b>Rise-side strength is the M1 audit's derived constant</b> (0.58 / 0.95), not netlist data — the pull-up hole travels downstream with us.</li>
+    <li class="zh"><b>rise 側強度是 M1 稽核的反推常數</b>(0.58 / 0.95),不是網表資料 —— 上拉洞跟著我們往下游走。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #3 · script: <a href="py/m3_elmore_binner.py">m3_elmore_binner.py</a> · data: <a href="data/m3_2A03_summary.json">2A03</a> / <a href="data/m3_2C02_summary.json">2C02</a> · prev: <a href="m1-strength.html">M1</a> / <a href="m2-charge-wins.html">M2</a> · theory: <a href="../die-timing.html">the die knows its own delays</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a 工具箱研究 #3 · 程式:<a href="py/m3_elmore_binner.py">m3_elmore_binner.py</a> · 數據:<a href="data/m3_2A03_summary.json">2A03</a> / <a href="data/m3_2C02_summary.json">2C02</a> · 前篇:<a href="m1-strength.html">M1</a> / <a href="m2-charge-wins.html">M2</a> · 理論:<a href="../die-timing.html">晶粒知道自己的延遲</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the interface was always the slowest thing on the die; now it's written in polygons.</span><span class="zh">介面從來就是晶粒上最慢的東西;現在這句話用多邊形寫成了。</span></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

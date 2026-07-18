@@ -196,8 +196,8 @@
 <img src="img/accuracycoin-s1.png" alt="AccuracyCoin results table as rendered by AprVisual.S1" style="image-rendering:pixelated;width:100%;max-width:512px;border:1px solid var(--bd);border-radius:6px">
 <figcaption style="color:var(--mut);font-size:.9rem;margin-top:.6rem"><span class="en">The final screen, rendered by the switch-level engine itself. Evidence, not the measurement — the score above comes from CPU RAM.</span><span class="zh">結束畫面,由開關級引擎自己畫出來。它是證據,不是量測本身 —— 上面的分數來自 CPU RAM。</span></figcaption>
 </figure>
-<p class="en"><b>Run configuration</b>, because it changes what the number means: <code>cart-extraram</code> is <b>not</b> mounted — several AccuracyCoin tests measure the <i>open bus</i> at <code>$6000-$7FFF</code>, and mapping RAM there would answer those reads with RAM and corrupt them silently; the same global test-mode shims as the 147-ROM sweep are enabled; power-on CPU/PPU alignment is pinned (K=1); one pinned core, no clock lock.</p>
-<p class="zh"><b>執行配置</b>,因為它決定了這個數字的意義:<b>沒有</b>掛載 <code>cart-extraram</code> —— AccuracyCoin 有數個測試在量 <code>$6000-$7FFF</code> 的 <i>open bus</i>,把 RAM 映射上去會讓那些讀取讀到 RAM,測試照跑照給結果,但結果是錯的;其餘沿用與 147 顆回歸相同的全域測試模式 shim;開機時 CPU/PPU 相位對齊固定(K=1);單一綁定核心,不鎖頻。</p>
+<p class="en"><b>Run configuration</b>, because it changes what the number means: <code>cart-extraram</code> is <b>not</b> mounted — several AccuracyCoin tests measure the <i>open bus</i> at <code>$6000-$7FFF</code>, and mapping RAM there would answer those reads with RAM and corrupt them silently; the same default test-mode shims as the 147-ROM sweep are enabled, <b>plus two AccuracyCoin-specific settings the 147 sweep does not use</b> — the ALERead phase mux (env <code>ALEREAD_MUX</code> / <code>MUX_HC</code>, the node-split that re-times the <code>$2007</code> read past the &rsquo;373 latch window; the final-boss fix of chapters&nbsp;11&ndash;13) and the behavioural controller (<code>--joypad</code>, for the two controller tests); power-on CPU/PPU alignment is pinned (K=1); one pinned core, no clock lock.</p>
+<p class="zh"><b>執行配置</b>,因為它決定了這個數字的意義:<b>沒有</b>掛載 <code>cart-extraram</code> —— AccuracyCoin 有數個測試在量 <code>$6000-$7FFF</code> 的 <i>open bus</i>,把 RAM 映射上去會讓那些讀取讀到 RAM,測試照跑照給結果,但結果是錯的;沿用與 147 顆回歸相同的預設測試模式 shim,<b>再加上兩個 AccuracyCoin 專屬、147 沒用的設定</b> —— ALERead 相位 mux(env <code>ALEREAD_MUX</code> / <code>MUX_HC</code>,把 <code>$2007</code> 讀取重新定時、越過 &rsquo;373 閂鎖窗的 node-split;第&nbsp;11&ndash;13 章的最終魔王解法)與行為層手把(<code>--joypad</code>,兩顆手把測試需要);開機時 CPU/PPU 相位對齊固定(K=1);單一綁定核心,不鎖頻。</p>
 <!-- AC-PANEL:END -->
 
 <h2><span class="en">0 · Glossary — the words this page keeps using</span><span class="zh">0 · 術語速查 —— 本頁反覆出現的行話</span></h2>
@@ -437,10 +437,12 @@
 <ul>
   <li class="en"><code>--ac-verdict</code>: poll the CPU-RAM completion block; <b>no cartridge work RAM</b> at $6000-$7FFF (open-bus tests stay honest).</li>
   <li class="zh"><code>--ac-verdict</code>:輪詢 CPU RAM 完成區塊;$6000-$7FFF <b>不掛卡帶工作 RAM</b>(open bus 測試才誠實)。</li>
-  <li class="en">Global test-mode shims identical to the 147-ROM sweep; the benchmark path is bit-identical with or without them.</li>
-  <li class="zh">全域測試模式 shim 與 147 顆回歸完全相同;benchmark 路徑掛不掛 shim 都逐位元相同。</li>
-  <li class="en">Power-on CPU/PPU alignment pinned (K=1); one pinned core; no clock lock; <code>--callback-drain-limit 2000</code> armed.</li>
-  <li class="zh">開機 CPU/PPU 相位對齊固定(K=1);單一綁定核心;不鎖頻;<code>--callback-drain-limit 2000</code> 上膛。</li>
+  <li class="en">Default test-mode shims identical to the 147-ROM sweep; the benchmark path is bit-identical with or without them.</li>
+  <li class="zh">預設測試模式 shim 與 147 顆回歸完全相同;benchmark 路徑掛不掛 shim 都逐位元相同。</li>
+  <li class="en"><b>Two AccuracyCoin-specific settings the 147 sweep does not use:</b> the ALERead phase mux (env <code>ALEREAD_MUX</code> + <code>MUX_HC=13,13,25,44,52</code>) — required for the ALERead test, without it the score is 140/141 — and the behavioural controller (<code>--joypad</code>).</li>
+  <li class="zh"><b>兩個 AccuracyCoin 專屬、147 沒用的設定:</b>ALERead 相位 mux(env <code>ALEREAD_MUX</code> + <code>MUX_HC=13,13,25,44,52</code>)—— ALERead 測試必需,沒有它就是 140/141 —— 以及行為層手把(<code>--joypad</code>)。</li>
+  <li class="en">Power-on CPU/PPU alignment pinned (K=1); one pinned core; no clock lock; <code>--callback-drain-limit 2000</code> and <code>--max-frames 12000</code> armed.</li>
+  <li class="zh">開機 CPU/PPU 相位對齊固定(K=1);單一綁定核心;不鎖頻;<code>--callback-drain-limit 2000</code> 與 <code>--max-frames 12000</code> 上膛。</li>
 </ul>
 
 <h2><span class="en">6 · Source &amp; further reading</span><span class="zh">6 · 原始碼與延伸閱讀</span></h2>

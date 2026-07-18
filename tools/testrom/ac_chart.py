@@ -226,12 +226,18 @@ def panel(cps, res, shot_rel):
     a('<p class="en"><b>Run configuration</b>, because it changes what the number means: '
       '<code>cart-extraram</code> is <b>not</b> mounted — several AccuracyCoin tests measure the <i>open bus</i> at '
       '<code>$6000-$7FFF</code>, and mapping RAM there would answer those reads with RAM and corrupt them silently; '
-      'the same global test-mode shims as the 147-ROM sweep are enabled; power-on CPU/PPU alignment is pinned (K=1); '
-      'one pinned core, no clock lock.</p>')
+      'the same default test-mode shims as the 147-ROM sweep are enabled, <b>plus two AccuracyCoin-specific settings the '
+      '147 sweep does not use</b> — the ALERead phase mux (env <code>ALEREAD_MUX</code> / <code>MUX_HC</code>, the '
+      'node-split that re-times the <code>$2007</code> read past the &rsquo;373 latch window; the final-boss fix of '
+      'chapters&nbsp;11&ndash;13) and the behavioural controller (<code>--joypad</code>, for the two controller tests); '
+      'power-on CPU/PPU alignment is pinned (K=1); one pinned core, no clock lock.</p>')
     a('<p class="zh"><b>執行配置</b>,因為它決定了這個數字的意義:<b>沒有</b>掛載 <code>cart-extraram</code> —— '
       'AccuracyCoin 有數個測試在量 <code>$6000-$7FFF</code> 的 <i>open bus</i>,'
       '把 RAM 映射上去會讓那些讀取讀到 RAM,測試照跑照給結果,但結果是錯的;'
-      '其餘沿用與 147 顆回歸相同的全域測試模式 shim;開機時 CPU/PPU 相位對齊固定(K=1);單一綁定核心,不鎖頻。</p>')
+      '沿用與 147 顆回歸相同的預設測試模式 shim,<b>再加上兩個 AccuracyCoin 專屬、147 沒用的設定</b> —— '
+      'ALERead 相位 mux(env <code>ALEREAD_MUX</code> / <code>MUX_HC</code>,把 <code>$2007</code> 讀取重新定時、'
+      '越過 &rsquo;373 閂鎖窗的 node-split;第&nbsp;11&ndash;13 章的最終魔王解法)與行為層手把(<code>--joypad</code>,'
+      '兩顆手把測試需要);開機時 CPU/PPU 相位對齊固定(K=1);單一綁定核心,不鎖頻。</p>')
     a(END)
     return "\n".join(L)
 

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M6 · Where phase can hurt — enumerating the cross-chip counter-comparator sites</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:860px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;} pre code{background:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;} .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;} .wa{color:var(--warn);font-weight:700;}
+  figure{margin:20px 0;text-align:center;} figure img{max-width:100%;border:1px solid var(--bd);border-radius:10px;background:var(--bg);}
+  figure figcaption{color:var(--mut);font-size:13px;margin-top:8px;max-width:780px;margin-left:auto;margin-right:auto;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;} @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m5-board.html"><span class="en">Prev: M5 board</span><span class="zh">上一篇:M5 板級</span></a>
+  <a class="sec" href="m3-delay.html"><span class="en">See also: M3 delay</span><span class="zh">另見:M3 延遲</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Where phase can hurt</span><span class="zh">相位會咬人的地方</span></h1>
+  <p class="tag en">Toolbox study #6 (mechanism M6). The whole cross-chip timing family — dot-339, even_odd, ALERead, BGSerialIn — is one shape: a CPU write, delayed on the die by ~24 hc, meets a 2C02 comparison against a <b>position counter</b>, and the zero-delay engine compares it one dot early. This census walks the interface downstream and enumerates <b>every counter-comparator site</b>: 66 phase-sensitive interfaces, and the four campaign bosses re-found by pure structure.</p>
+  <p class="tag zh">工具箱研究 #6(機制 M6)。整個跨晶片時序家族 —— dot-339、even_odd、ALERead、BGSerialIn —— 是同一個形狀:一個 CPU 寫入,在晶粒上被延遲 ~24 hc,撞上 2C02 對<b>位置計數器</b>的比較,而零延遲引擎早一個 dot 就比了。這份普查沿著介面往下游走,列舉<b>每一個計數器比較器站點</b>:66 個相位敏感介面,四個戰役魔王被純結構重新找到。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M6 · power-on state &amp; phase</span>
+    <span class="pill"><a href="py/m6_interface_census.py">m6_interface_census.py</a></span>
+    <span class="pill"><a href="data/m6_summary.json">JSON</a></span>
+    <span class="pill">2026-07-18</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">One dot early, four times over</span><span class="zh">早一個 dot,發生四次</span></h2>
+  <p class="en">A CPU write to $2001 (rendering on/off) or $2007 (VRAM access) does not take effect on the PPU instantly: the signal crosses the package, the board trace, and the receiver's synchronizer — about <b>24 hc, three dots</b> (M3 ranked these the slowest nets on the die). The 2C02 then compares the current state against a <b>position counter</b> — "are we at dot 339 yet? at hpos%8==7? in the visible frame?" — and acts on the answer. When the engine erases the 24 hc, the write's effect lands one comparison too early, and a per-dot decision flips. The campaigns hit this four times (dot-339, even_odd, ALERead, BGSerialIn) and fixed each with a delay shim. M6 asks: <b>where else could this happen?</b> Enumerate every site where an interface-controlled signal meets a position counter.</p>
+  <p class="zh">CPU 寫入 $2001(渲染開關)或 $2007(VRAM 存取)不會立刻在 PPU 生效:訊號要穿過封裝、板線、接收端的同步器 —— 大約 <b>24 hc、三個 dot</b>(M3 把這些排成晶粒上最慢的網)。2C02 接著把當前狀態拿去和<b>位置計數器</b>比 —— 「到 dot 339 了嗎?到 hpos%8==7 了嗎?在可見幀內嗎?」—— 然後根據答案行動。當引擎把 24 hc 抹掉,寫入效果早一次比較就落地,一個 per-dot 決策就翻了。戰役撞過這個四次(dot-339、even_odd、ALERead、BGSerialIn),每次用延遲 shim 修。M6 問:<b>還有哪裡會發生?</b>列舉每一個介面控制訊號撞上位置計數器的站點。</p>
+</section>
+
+<section id="method">
+  <h2><span class="kick"><span class="en">The method</span><span class="zh">方法</span></span>
+      <span class="en">The P2 funnel</span><span class="zh">P2 漏斗</span></h2>
+  <ul>
+    <li class="en"><b>Interface entry</b> — the cross-chip nets (<code>io_ce</code>, <code>io_ab</code>, <code>io_db</code>, <code>io_rw</code>) plus the write-latched enables a $2001/$2007 write sets (<code>rendering</code>, <code>bkg/spr_enable</code>): the signals whose <i>arrival timing</i> the delay island governs. <b>173 nodes.</b></li>
+    <li class="zh"><b>介面入口</b> —— 跨晶片網(<code>io_ce</code>、<code>io_ab</code>、<code>io_db</code>、<code>io_rw</code>)加上 $2001/$2007 寫入設定的閂鎖致能(<code>rendering</code>、<code>bkg/spr_enable</code>):它們的<i>抵達時機</i>由延遲島掌管。<b>173 個節點。</b></li>
+    <li class="en"><b>Bounded BFS downstream</b> — follow the influence graph from the interface (depth 6). <b>8,092 nodes reached.</b></li>
+    <li class="zh"><b>有界下游 BFS</b> —— 從介面沿影響圖走(深度 6)。<b>抵達 8,092 個節點。</b></li>
+    <li class="en"><b>Counter-comparator cone</b> — any node whose 1–2 hop fan-in support includes a position-counter bit (<code>hpos*</code>/<code>vpos*</code>): the places the die asks "are we there yet?". <b>203 comparators.</b></li>
+    <li class="zh"><b>計數器比較器錐</b> —— 任何 1–2 跳 fan-in 支撐含位置計數器位元(<code>hpos*</code>/<code>vpos*</code>)的節點:晶粒問「到了嗎?」的地方。<b>203 個比較器。</b></li>
+    <li class="en"><b>Phase-sensitive = the intersection</b> — comparators that are also interface-fed: <b>66 sites</b> where an early/late arrival changes a per-dot decision.</li>
+    <li class="zh"><b>相位敏感 = 交集</b> —— 同時被介面餵到的比較器:<b>66 個站點</b>,抵達早/晚會改變 per-dot 決策的地方。</li>
+  </ul>
+  <figure><img src="img/m6_funnel.svg" alt="P2 funnel">
+    <figcaption><span class="en">173 interface nodes → 8,092 reached → 203 counter-comparators → 66 phase-sensitive. The funnel narrows to an annotatable list.</span><span class="zh">173 介面節點 → 8,092 抵達 → 203 計數器比較器 → 66 相位敏感。漏斗收窄成一張可標註清單。</span></figcaption></figure>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">The bosses re-find themselves</span><span class="zh">魔王自己現身</span></h2>
+  <p class="en">Ranked by fan-in cone (how many decisions each gates), the top phase-sensitive interfaces read like the campaign's diary:</p>
+  <p class="zh">按 fan-in 錐排序(每個閘控多少決策),最頂端的相位敏感介面讀起來像戰役日記:</p>
+  <table>
+    <tr><th><span class="en">Node</span><span class="zh">節點</span></th><th>fan-in</th><th><span class="en">What it decides</span><span class="zh">它決定什麼</span></th></tr>
+    <tr><td><code>hpos_eq_65_and_rendering</code></td><td class="n">32</td><td><span class="en">sprite evaluation start</span><span class="zh">精靈評估起點</span></td></tr>
+    <tr><td class="hot"><code>hpos_eq_339_and_rendering</code></td><td class="n">29</td><td><span class="en"><b>dot-339</b> — the StaleSprite boss</span><span class="zh"><b>dot-339</b> —— StaleSprite 魔王</span></td></tr>
+    <tr><td><code>hpos_eq_320_to_335_and_rendering</code></td><td class="n">17</td><td><span class="en">sprite fetch window</span><span class="zh">精靈取圖窗</span></td></tr>
+    <tr><td class="hot"><code>hpos_mod_8_eq_0_or_1_and_rendering</code></td><td class="n">13</td><td><span class="en"><b>BGSerialIn</b> — the shifter-reload boundary</span><span class="zh"><b>BGSerialIn</b> —— 移位器 reload 邊界</span></td></tr>
+    <tr><td><code>in_visible_frame_and_rendering</code></td><td class="n">12</td><td><span class="en">the master render gate</span><span class="zh">主渲染閘</span></td></tr>
+  </table>
+  <p class="en"><b>The scan re-found three of the four bosses from pure structure</b> — dot-339, BGSerialIn (the hpos%8 reload boundary), and ALERead (the io_ce interface) all fall out of "interface-fed ∩ counter-comparator", with no hand-list. The fourth, even_odd, is named (<code>skip_dot</code>) but is the family's edge case: it mixes a <i>frame-parity</i> toggle rather than a $2001 enable, so it sits just outside the pure enable×counter intersection — correctly, since it is the one M6 boss whose trigger is not an interface arrival but a frame counter's least significant bit.</p>
+  <p class="zh"><b>掃描只靠純結構就重新找到四個魔王的三個</b> —— dot-339、BGSerialIn(hpos%8 reload 邊界)、ALERead(io_ce 介面)全都從「介面餵到 ∩ 計數器比較器」掉出來,沒有手寫清單。第四個 even_odd 有名字(<code>skip_dot</code>)但是家族的邊緣案例:它混的是<i>幀奇偶</i>翻轉而非 $2001 致能,所以它剛好落在純 致能×計數器 交集之外 —— 這是對的,因為它是唯一一個觸發不是介面抵達、而是幀計數器最低位元的 M6 魔王。</p>
+  <figure><img src="img/m6_anchors.svg" alt="anchor validation">
+    <figcaption><span class="en">Validation against the four bosses: three re-found structurally, the fourth (even_odd) correctly outside the enable×counter shape.</span><span class="zh">對四個魔王驗證:三個結構重找,第四個(even_odd)正確地落在 致能×計數器 形狀之外。</span></figcaption></figure>
+</section>
+
+<section id="road">
+  <h2><span class="kick"><span class="en">So what</span><span class="zh">所以呢</span></span>
+      <span class="en">The delay island's exact perimeter</span><span class="zh">延遲島的精確周界</span></h2>
+  <ul>
+    <li class="en"><b>66 sites is the watch-list, not a bug count.</b> The campaigns fixed 4; the other 62 either aren't exercised by any test, self-agree once real traffic arrives (like dma_4016_read did), or would need the same ~24 hc delay if they were. M6's list is where to look before a future test surprises us.</li>
+    <li class="zh"><b>66 個站點是監視名單,不是 bug 數。</b>戰役修了 4 個;其餘 62 個要嘛沒被任何測試踩到、要嘛真實流量到位就自己對了(像 dma_4016_read),要嘛真被踩到就需要同樣的 ~24 hc 延遲。M6 的清單是「未來測試給我們驚喜之前該往哪看」。</li>
+    <li class="en"><b>M6 × M3 is the unified fix.</b> Each site's delay is the arrival τ of its interface signal (M3's Elmore binner ranked these buses slowest independently); its verdict is which side of the counter comparison it must land on. The pipeline closes: M5 (the interface exists on the board) → M3 (how long it takes) → M6 (which comparisons care) → one cross-chip access-delay annotation table, the three shims (dot-339/even_odd/AleReadMux) collapsing into rows of data.</li>
+    <li class="zh"><b>M6 × M3 是統一解。</b>每個站點的延遲是它介面訊號的抵達 τ(M3 的 Elmore 分級器獨立把這些匯流排排最慢);它的判決是它必須落在計數器比較的哪一側。管線閉合:M5(介面在板上存在)→ M3(要多久)→ M6(哪些比較在意)→ 一張跨晶片存取延遲標註表,三顆 shim(dot-339/even_odd/AleReadMux)塌縮成幾列資料。</li>
+    <li class="en"><b>The other half of M6 is power-on phase</b> — not a scan target but a parameter dimension (the 4 CPU/PPU divider alignments, the boot-lottery initial state). That is the reset-hold / power_up_palette family, retired by M6's phase selector, and it is orthogonal to this cross-chip census.</li>
+    <li class="zh"><b>M6 的另一半是上電相位</b> —— 不是掃描目標而是參數維度(4 種 CPU/PPU 除頻對齊、開機抽籤初態)。那是 reset-hold / power_up_palette 家族,由 M6 的相位選擇器退役,與這份跨晶片普查正交。</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this census cannot say</span><span class="zh">這份普查說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Candidates, not confirmed bugs.</b> A site being phase-sensitive means an early arrival <i>could</i> flip its decision; whether a test exercises it, and whether hardware actually differs, needs the dynamic step and an oracle — the same "candidate ≠ bug" rule as every scan.</li>
+    <li class="zh"><b>是候選,不是確認的 bug。</b>一個站點相位敏感,意思是早抵達<i>可能</i>翻它的決策;測試有沒有踩、硬體是不是真的不同,要動態步驟和 oracle —— 跟每個掃描一樣的「候選 ≠ bug」規則。</li>
+    <li class="en"><b>Name-assisted validation.</b> The bosses are confirmed by the 2C02's own comparator names; the phase-sensitive set itself is structural (support ∩ counters), but the boss labels lean on the netlist's naming.</li>
+    <li class="zh"><b>名稱輔助驗證。</b>魔王靠 2C02 自己的比較器名字確認;相位敏感集合本身是結構的(支撐 ∩ 計數器),但魔王標籤借了網表的命名。</li>
+    <li class="en"><b>even_odd sits outside by design.</b> Its trigger is frame parity, not an interface arrival — a correct exclusion, but a reminder the "M6 family" has a member the enable×counter shape doesn't cover.</li>
+    <li class="zh"><b>even_odd 依設計落在外面。</b>它的觸發是幀奇偶、不是介面抵達 —— 正確的排除,但提醒「M6 家族」有一個成員不在 致能×計數器 形狀裡。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #6 · script: <a href="py/m6_interface_census.py">m6_interface_census.py</a> · data: <a href="data/m6_summary.json">JSON</a> · prev: <a href="m5-board.html">M5</a> · see also <a href="m3-delay.html">M3</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a 工具箱研究 #6 · 程式:<a href="py/m6_interface_census.py">m6_interface_census.py</a> · 數據:<a href="data/m6_summary.json">JSON</a> · 上一篇:<a href="m5-board.html">M5</a> · 另見 <a href="m3-delay.html">M3</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the die keeps asking "are we there yet?" — M6 lists every place it asks.</span><span class="zh">晶粒一直問「到了嗎?」—— M6 把它問的每個地方列出來。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

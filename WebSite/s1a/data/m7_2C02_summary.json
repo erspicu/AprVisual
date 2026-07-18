@@ -1,0 +1,199 @@
+{
+ "label": "2C02",
+ "nodes": 8765,
+ "tie_collisions": {
+  "degree": 8723,
+  "struct": 7267,
+  "area": 7123
+ },
+ "tie_reduction_pct": 18.3,
+ "structural_twins": {
+  "nodes_with_a_twin": 7123,
+  "structurally_unique": 1642,
+  "canonical_groups": 497
+ },
+ "symmetric_name_families": 188,
+ "name_vs_structure": {
+  "name_and_key_agree": 15,
+  "name_symmetric_but_key_splits": 173
+ },
+ "split_examples": [
+  {
+   "family": "ext_in#",
+   "members": 4,
+   "distinct_keys": 3
+  },
+  {
+   "family": "ext_out#",
+   "members": 4,
+   "distinct_keys": 4
+  },
+  {
+   "family": "pclk#",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "pclk#_en",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "ab#",
+   "members": 14,
+   "distinct_keys": 2
+  },
+  {
+   "family": "_db#",
+   "members": 31,
+   "distinct_keys": 9
+  },
+  {
+   "family": "_io_db#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "_io_ab#",
+   "members": 6,
+   "distinct_keys": 6
+  },
+  {
+   "family": "vpos#",
+   "members": 18,
+   "distinct_keys": 18
+  },
+  {
+   "family": "vpos_eq_#",
+   "members": 10,
+   "distinct_keys": 10
+  },
+  {
+   "family": "vpos_eq_#_#",
+   "members": 12,
+   "distinct_keys": 12
+  },
+  {
+   "family": "rendering_#",
+   "members": 4,
+   "distinct_keys": 4
+  },
+  {
+   "family": "hpos#",
+   "members": 45,
+   "distinct_keys": 42
+  },
+  {
+   "family": "hpos_eq_#",
+   "members": 16,
+   "distinct_keys": 16
+  },
+  {
+   "family": "hpos_eq_#_and_rendering",
+   "members": 28,
+   "distinct_keys": 28
+  },
+  {
+   "family": "hpos_eq_#_to_#_or_#_to_#",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "in_visible_frame_outside_clip_area_#",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "hpos_eq_#_#_or_#_and_rendering",
+   "members": 4,
+   "distinct_keys": 4
+  },
+  {
+   "family": "hpos_lt_#_and_rendering",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "hpos_eq_#_to_#_and_rendering",
+   "members": 7,
+   "distinct_keys": 7
+  }
+ ],
+ "biggest_canonical_groups": [
+  [
+   590,
+   "n3000",
+   "n3002"
+  ],
+  [
+   582,
+   "n3004",
+   "n3008"
+  ],
+  [
+   360,
+   "n5167",
+   "n5171"
+  ],
+  [
+   360,
+   "n5163",
+   "n5165"
+  ],
+  [
+   298,
+   "n2998",
+   "n2999"
+  ],
+  [
+   288,
+   "n3012",
+   "n3020"
+  ],
+  [
+   198,
+   "n3439",
+   "n3443"
+  ],
+  [
+   197,
+   "n3435",
+   "n3437"
+  ],
+  [
+   180,
+   "n5175",
+   "n5183"
+  ],
+  [
+   180,
+   "n5161",
+   "n5162"
+  ],
+  [
+   100,
+   "n3674",
+   "n3678"
+  ],
+  [
+   100,
+   "n3670",
+   "n3672"
+  ],
+  [
+   100,
+   "n3447",
+   "n3455"
+  ],
+  [
+   99,
+   "n3433",
+   "n3434"
+  ],
+  [
+   96,
+   "n7905",
+   "n7906"
+  ]
+ ]
+}

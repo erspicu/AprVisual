@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 300" font-family="Segoe UI,Roboto,sans-serif">
+<rect width="780" height="300" fill="#100f15"/>
+<text x="390.0" y="26" fill="#dcd7e3" font-size="16" font-weight="700" text-anchor="middle">P2 funnel: interface -&gt; counter cone -&gt; phase-sensitive</text>
+<rect x="320.0" y="62.0" width="239.3" height="34.0" fill="#7ee0a8" fill-opacity="0.85" rx="3"/>
+<text x="312.0" y="84.0" fill="#dcd7e3" font-size="12" text-anchor="end">cross-chip interface entry nodes</text>
+<text x="565.3" y="84.0" fill="#dcd7e3" font-size="13" font-weight="700" text-anchor="start">173</text>
+<rect x="320.0" y="118.0" width="410.0" height="34.0" fill="#968ba1" fill-opacity="0.85" rx="3"/>
+<text x="312.0" y="140.0" fill="#dcd7e3" font-size="12" text-anchor="end">nodes reached downstream (bounded BFS)</text>
+<text x="736.0" y="140.0" fill="#dcd7e3" font-size="13" font-weight="700" text-anchor="start">8092</text>
+<rect x="320.0" y="174.0" width="246.4" height="34.0" fill="#ffb454" fill-opacity="0.85" rx="3"/>
+<text x="312.0" y="196.0" fill="#dcd7e3" font-size="12" text-anchor="end">counter-comparator nodes (touch hpos/vpos)</text>
+<text x="572.4" y="196.0" fill="#dcd7e3" font-size="13" font-weight="700" text-anchor="start">203</text>
+<rect x="320.0" y="230.0" width="196.9" height="34.0" fill="#ff6b6b" fill-opacity="0.85" rx="3"/>
+<text x="312.0" y="252.0" fill="#dcd7e3" font-size="12" text-anchor="end">phase-sensitive (interface-fed + counter)</text>
+<text x="522.9" y="252.0" fill="#dcd7e3" font-size="13" font-weight="700" text-anchor="start">66</text>
+</svg>

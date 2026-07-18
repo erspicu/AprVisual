@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M5 · The board as a circuit — inventory, the bus map, and the undrivable controller</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:860px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;} pre code{background:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;} .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;} .wa{color:var(--warn);font-weight:700;}
+  figure{margin:20px 0;text-align:center;} figure img{max-width:100%;border:1px solid var(--bd);border-radius:10px;background:var(--bg);}
+  figure figcaption{color:var(--mut);font-size:13px;margin-top:8px;max-width:780px;margin-left:auto;margin-right:auto;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;} @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m4-latch.html"><span class="en">Prev: M4 scan</span><span class="zh">上一篇:M4 掃描</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The board as a circuit</span><span class="zh">把主機板當電路</span></h1>
+  <p class="tag en">Toolbox study #5 (mechanism M5). The S1 graph is not just two dies — it is two dies plus the parts between them: an octal latch, an address decoder, hex inverters, a lockout chip, two controllers, a cartridge. This census reads the system definition and maps the board: <b>13 modules, 82 connections</b>, the <b>4-bus die-to-die interface</b> every timing campaign fought, and the one component that is <b>structurally undrivable</b> — the reason a controller must be behavioral, known from the schematic alone.</p>
+  <p class="tag zh">工具箱研究 #5(機制 M5)。S1 的圖不只是兩顆晶粒 —— 是兩顆晶粒加上它們之間的零件:一個八位閂鎖、一個位址解碼器、幾個反相器、一顆防拷晶片、兩個手把、一張卡帶。這份普查讀系統定義、把主機板畫出來:<b>13 個模組、82 條連線</b>、每場時序戰役都在打的<b>4 條匯流排的晶粒對晶粒介面</b>,以及那一個<b>結構性不可驅動</b>的零件 —— 手把之所以必須行為層化的原因,光看電路圖就知道。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M5 · board component library</span>
+    <span class="pill"><a href="py/m5_board_inventory.py">m5_board_inventory.py</a></span>
+    <span class="pill"><a href="data/m5_summary.json">JSON</a></span>
+    <span class="pill">2026-07-18</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">Silicon does not run alone</span><span class="zh">矽電路不是單獨運轉的</span></h2>
+  <p class="en">A running NES is two Visual6502-derived dies wired to a handful of 7400-series parts. Some of those parts are load-bearing for accuracy: the <b>74LS373 octal latch</b> (u2) multiplexes the PPU's address/data pins — it is the boss of the ALERead campaign — and the address decoder (u3) gates every $2xxx access. In the S1 engine these are switch-level modules like the dies; in a lesser emulator they would be behavioral guesses. But two of them cannot be switch-level at all, and knowing <i>which</i>, and <i>why</i>, is what M5 formalizes. The goal: a board-level component library where each part is a first-class device with real pin semantics, not a hack buried in a callback.</p>
+  <p class="zh">一台運轉的 NES,是兩顆 Visual6502 衍生晶粒接上一小把 7400 系列零件。其中有些零件對精度是承重的:<b>74LS373 八位閂鎖</b>(u2)多工 PPU 的位址/資料腳 —— 它是 ALERead 戰役的大魔王 —— 而位址解碼器(u3)閘控每一次 $2xxx 存取。在 S1 引擎裡這些是跟晶粒一樣的開關級模組;在較差的模擬器裡它們會是行為層的猜測。但其中有兩個根本不能是開關級,知道<i>是哪個</i>、<i>為什麼</i>,正是 M5 要形式化的。目標:一個板級元件庫,每個零件都是有真實 pin 語意的一級元件,而不是埋在回呼裡的 hack。</p>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">The inventory</span><span class="zh">清單</span></span>
+      <span class="en">Thirteen parts, and their real sizes</span><span class="zh">十三個零件,以及它們真實的大小</span></h2>
+  <table>
+    <tr><th><span class="en">Part</span><span class="zh">零件</span></th><th><span class="en">Type</span><span class="zh">型號</span></th><th><span class="en">Transistors</span><span class="zh">電晶體</span></th><th><span class="en">Role</span><span class="zh">角色</span></th></tr>
+    <tr><td>port0 / port1</td><td>nes-pad</td><td class="n hot">168 ×2</td><td><span class="en">controller — <b>undrivable</b></span><span class="zh">手把 —— <b>不可驅動</b></span></td></tr>
+    <tr><td><b>u2</b></td><td>74LS373</td><td class="n">82</td><td><span class="en">octal latch (the ALERead boss)</span><span class="zh">八位閂鎖(ALERead 魔王)</span></td></tr>
+    <tr><td>u3</td><td>74LS139</td><td class="n">38</td><td><span class="en">address decoder ($2xxx gate)</span><span class="zh">位址解碼器($2xxx 閘)</span></td></tr>
+    <tr><td>u7 / u8</td><td>74LS368</td><td class="n">14 ×2</td><td><span class="en">hex buffer (the u7/u8 twins)</span><span class="zh">六路緩衝(u7/u8 孿生)</span></td></tr>
+    <tr><td>u1 / u4</td><td>SRAM2K</td><td class="n">9 ×2</td><td><span class="en">work / video RAM</span><span class="zh">工作 / 影像 RAM</span></td></tr>
+    <tr><td>u9</td><td>74HC04</td><td class="n">6</td><td><span class="en">CMOS inverter</span><span class="zh">CMOS 反相器</span></td></tr>
+    <tr><td>u10</td><td>nes-cic1</td><td class="n">1</td><td><span class="en">lockout CIC</span><span class="zh">防拷 CIC</span></td></tr>
+    <tr><td>ppu / cpu</td><td>2c02 / 2a03</td><td class="n mut">external</td><td><span class="en">the dies (netlist in separate files)</span><span class="zh">晶粒(網表在外部檔)</span></td></tr>
+  </table>
+  <p class="mut" style="font-size:13px"><span class="en">The two dies carry their ~28,000 transistors in external <code>transdefs</code> files (M1's territory); the counts here are the board glue — and it is a real switch-level circuit, not a stub. The 74LS373's 82 transistors are exactly the octal transparent latch M1/M4 dissected; that it is <i>modeled</i>, not hacked, is why the ALERead fix could be a phase mux rather than a fabricated byte.</span><span class="zh">兩顆晶粒的 ~28,000 顆電晶體在外部 <code>transdefs</code> 檔裡(M1 的地盤);這裡的數字是板級膠合邏輯 —— 而且是真的開關級電路,不是空殼。74LS373 的 82 顆電晶體,正是 M1/M4 解剖過的八位透明閂鎖;它是被<i>建模</i>而非 hack,正是 ALERead 的修法能是相位 mux 而不是捏造位元組的原因。</span></p>
+
+  <figure><img src="img/m5_inventory.svg" alt="board inventory">
+    <figcaption><span class="en">Board parts by transistor count. The controllers dominate — and they are the undrivable ones.</span><span class="zh">板級零件按電晶體數。手把最大 —— 而且它們就是不可驅動的那個。</span></figcaption></figure>
+</section>
+
+<section id="busmap">
+  <h2><span class="kick"><span class="en">The bus map</span><span class="zh">匯流排地圖</span></span>
+      <span class="en">Where the wires cross — and why it matters</span><span class="zh">線在哪裡交越 —— 以及為什麼要緊</span></h2>
+  <p class="en">Classifying all 82 connections by the boundary they cross draws the system's nervous system:</p>
+  <p class="zh">把 82 條連線按它們跨越的邊界分類,畫出系統的神經系統:</p>
+  <table>
+    <tr><th><span class="en">Boundary</span><span class="zh">邊界</span></th><th><span class="en">Nets</span><span class="zh">連線</span></th><th><span class="en">What lives there</span><span class="zh">住著什麼</span></th></tr>
+    <tr><td class="hot"><span class="en">die ↔ die</span><span class="zh">晶粒 ↔ 晶粒</span></td><td class="n hot">4</td><td><span class="en"><code>io_ab[2:0]</code>, <code>io_db[7:0]</code>, <code>nmi</code>, <code>rw</code> — the entire CPU/PPU interface (~13 signal bits). This is the M3/M6 delay island; every cross-chip timing boss lives on these four buses.</span><span class="zh"><code>io_ab[2:0]</code>、<code>io_db[7:0]</code>、<code>nmi</code>、<code>rw</code> —— 整個 CPU/PPU 介面(~13 個訊號位元)。這就是 M3/M6 的延遲島;每個跨晶片時序魔王都住在這四條匯流排上。</span></td></tr>
+    <tr><td class="wa"><span class="en">die ↔ board</span><span class="zh">晶粒 ↔ 板</span></td><td class="n">41</td><td><span class="en">address decode, chip selects, the '373 latch, RAM/cart buses</span><span class="zh">位址解碼、晶片選擇、'373 閂鎖、RAM/卡帶匯流排</span></td></tr>
+    <tr><td class="ok"><span class="en">board ↔ board</span><span class="zh">板 ↔ 板</span></td><td class="n">21</td><td><span class="en">decoder → latch → RAM glue, controller chains</span><span class="zh">解碼器 → 閂鎖 → RAM 膠合、手把鏈</span></td></tr>
+    <tr><td class="mut"><span class="en">power / clock</span><span class="zh">電源 / 時脈</span></td><td class="n">16</td><td><span class="en">vcc/vss/clk fan-out to all parts</span><span class="zh">vcc/vss/clk 扇出到所有零件</span></td></tr>
+  </table>
+  <p class="en"><b>The die↔die number is the punchline.</b> The entire interface between the two most complex chips in the system is <i>four wires</i> (buses). Everything the accuracy campaigns fought over cross-chip timing — dot-339, even_odd, ALERead, BGSerialIn — happens on these four connections. M3's Elmore binner independently ranked them the slowest nets on the dies; M6 (next) enumerates exactly which of their downstream cones are phase-sensitive. M5 draws the boundary they cross.</p>
+  <p class="zh"><b>晶粒↔晶粒那個數字就是重點。</b>系統裡兩顆最複雜晶片之間的整個介面,是<i>四條線</i>(匯流排)。精度戰役所有跨晶片時序的爭執 —— dot-339、even_odd、ALERead、BGSerialIn —— 全發生在這四條連線上。M3 的 Elmore 分級器獨立把它們排成晶粒上最慢的網;M6(下一篇)列舉它們下游哪些錐是相位敏感的。M5 畫出它們跨越的那道邊界。</p>
+  <figure><img src="img/m5_boundaries.svg" alt="boundary census">
+    <figcaption><span class="en">Every net by boundary. Four die-to-die buses carry the whole inter-chip conversation.</span><span class="zh">每條連線按邊界。四條晶粒對晶粒匯流排承載整段晶片間對話。</span></figcaption></figure>
+</section>
+
+<section id="undrivable">
+  <h2><span class="kick"><span class="en">The undrivable part</span><span class="zh">不可驅動的零件</span></span>
+      <span class="en">Why a controller cannot be switch-level</span><span class="zh">為什麼手把不能是開關級</span></h2>
+  <p class="en">The controller (nes-pad → a CD4021 shift register → pslatch cells) is 168 switch-level transistors — and it is <b>structurally undrivable</b>. The pslatch is a gate-level pass-gate latch whose storage node feeds back to reverse-drive its own input path. Under the engine's <i>GND-always-wins</i> resolution, once such a node is pulled low it can never be pulled back up from outside: a released button can be written as "pressed" but a pressed button can never be released. This is not a bug and not a missed optimization — it is <b>known by construction</b>, visible in the schematic without running anything. The correct response is the one S1 takes: model the controller <i>behaviorally</i> (the <code>nes-pad-behavioral</code> shadow module), because the switch-level vocabulary structurally cannot express it.</p>
+  <p class="zh">手把(nes-pad → 一個 CD4021 移位暫存器 → pslatch cell)是 168 顆開關級電晶體 —— 而它<b>結構性不可驅動</b>。pslatch 是一個閘級 pass-gate 閂鎖,它的儲存節點回授去反向驅動自己的輸入路徑。在引擎的 <i>GND 恆勝</i> 解析下,這種節點一旦被拉低,就永遠無法從外部拉回:放開的按鍵可以被寫成「按下」,但按下的按鍵永遠放不開。這不是 bug、不是漏掉的優化 —— 它是<b>結構上就知道</b>,不跑任何東西、看電路圖就看得出來。正確的回應正是 S1 採取的:把手把<i>行為層化</i>(<code>nes-pad-behavioral</code> 影子模組),因為開關級的語彙結構上就表達不了它。</p>
+  <div class="note">
+    <span class="en"><b>The census flags it automatically.</b> Any module whose sub-module tree contains a reverse-driven pass-gate latch cell (4021 / pslatch) is marked undrivable — a load-time structural check, zero discovery cost, exactly the "known-by-construction" class the accuracy knowledge base identified. M5 turns "we happen to know the controller must be behavioral" into a derived fact.</span>
+    <span class="zh"><b>普查自動標記它。</b>任何子模組樹裡含反向驅動 pass-gate 閂鎖 cell(4021 / pslatch)的模組都被標為不可驅動 —— 一個載入期結構檢查、零 discovery 成本,正是精度知識庫指認的「known-by-construction」類。M5 把「我們剛好知道手把必須行為層」變成一個推導出來的事實。</span>
+  </div>
+</section>
+
+<section id="twins">
+  <h2><span class="kick"><span class="en">Bonus for M7</span><span class="zh">給 M7 的紅利</span></span>
+      <span class="en">The twins, enumerated</span><span class="zh">孿生,列舉出來</span></h2>
+  <p class="en">Three module types appear more than once: <b>SRAM2K</b> (u1/u4), <b>74LS368</b> (u7/u8), <b>nes-pad</b> (port0/port1). Identical circuits instantiated twice are the D-class lottery's cleanest targets — the engine currently distinguishes u7 from u8 by load order alone, and the accuracy campaigns saw exactly that (one twin green, one broken, on the same test). This list is M7's ready-made input: canonical renumbering must give identical circuits identical fates.</p>
+  <p class="zh">三種模組型號出現不只一次:<b>SRAM2K</b>(u1/u4)、<b>74LS368</b>(u7/u8)、<b>nes-pad</b>(port0/port1)。同一個電路被實例化兩次,是 D 類樂透最乾淨的目標 —— 引擎目前只靠載入順序區分 u7 和 u8,而精度戰役正好看過這個(同一測試上一個孿生綠、一個壞)。這份清單就是 M7 的現成輸入:正準重編號必須讓同構電路同命。</p>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this census cannot say</span><span class="zh">這份普查說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Connections, not signal bits.</b> The die↔die "4" counts bus <i>connections</i>; expanded, <code>io_db[7:0]</code> alone is 8 signals. The point is the number of distinct inter-die <i>channels</i>, not wire count.</li>
+    <li class="zh"><b>算的是連線,不是訊號位元。</b>晶粒↔晶粒的「4」數的是匯流排<i>連線</i>;展開來 <code>io_db[7:0]</code> 自己就 8 個訊號。重點是不同的晶粒間<i>通道</i>數量,不是線數。</li>
+    <li class="en"><b>Undrivable = known cell types.</b> The check recognizes the 4021/pslatch pattern by construction; a novel reverse-driven latch would need the structural pass-gate-feedback test (M4's machinery) to be flagged automatically.</li>
+    <li class="zh"><b>不可驅動 = 已知 cell 型號。</b>檢查靠 construction 認出 4021/pslatch pattern;一個新的反向驅動閂鎖要靠結構性 pass-gate 回授測試(M4 的機器)才會被自動標記。</li>
+    <li class="en"><b>Inventory, not a mechanism yet.</b> M5's engine deliverable is making each board part a first-class device with datasheet pin semantics; this census is the parts list and the boundary map that it is built from.</li>
+    <li class="zh"><b>是清單,還不是機制。</b>M5 的引擎交付是把每個板級零件做成有 datasheet pin 語意的一級元件;這份普查是它據以打造的零件表與邊界地圖。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #5 · script: <a href="py/m5_board_inventory.py">m5_board_inventory.py</a> · data: <a href="data/m5_summary.json">JSON</a> · prev: <a href="m4-latch.html">M4</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a 工具箱研究 #5 · 程式:<a href="py/m5_board_inventory.py">m5_board_inventory.py</a> · 數據:<a href="data/m5_summary.json">JSON</a> · 上一篇:<a href="m4-latch.html">M4</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the board was a circuit all along.</span><span class="zh">主機板從頭到尾都是一個電路。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

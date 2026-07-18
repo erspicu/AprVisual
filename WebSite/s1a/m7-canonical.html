@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M7 · Ending the lottery — a canonical key so identical circuits share a fate</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:860px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;} pre code{background:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;} .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;} .wa{color:var(--warn);font-weight:700;}
+  figure{margin:20px 0;text-align:center;} figure img{max-width:100%;border:1px solid var(--bd);border-radius:10px;background:var(--bg);}
+  figure figcaption{color:var(--mut);font-size:13px;margin-top:8px;max-width:780px;margin-left:auto;margin-right:auto;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;} @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="m6-phase.html"><span class="en">Prev: M6 phase</span><span class="zh">上一篇:M6 相位</span></a>
+  <a class="sec" href="m2-charge-wins.html"><span class="en">See also: M2</span><span class="zh">另見:M2</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Ending the lottery</span><span class="zh">終結抽籤</span></h1>
+  <p class="tag en">Toolbox study #7 (mechanism M7). The engine breaks ties by node <i>number</i>, and node numbers are load order — a file-order accident. When identical twin circuits behave differently on the same test, that is the D-class lottery. M7 builds a canonical key from physics and structure so identical circuits get identical keys, hence identical fates. The audit: the key resolves <b>18% of ties on the PPU, 52% on the CPU</b>, and unifies the die's big replicated cell arrays — the lottery's true home.</p>
+  <p class="tag zh">工具箱研究 #7(機制 M7)。引擎用節點<i>編號</i>裁決平手,而節點編號就是載入順序 —— 一個檔案順序的偶然。當同構的孿生電路在同一測試上表現不同,那就是 D 類樂透。M7 用物理與結構造一把正準鍵,讓同構電路拿到同鍵、因此同命。稽核:這把鍵在 PPU 解掉 <b>18% 的平手、在 CPU 解掉 52%</b>,並統一晶粒上的大型複製 cell 陣列 —— 樂透真正的老家。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M7 · canonical renumbering</span>
+    <span class="pill"><a href="py/m7_canonical_key.py">m7_canonical_key.py</a></span>
+    <span class="pill"><a href="data/m7_2C02_summary.json">2C02 JSON</a></span>
+    <span class="pill"><a href="data/m7_2A03_summary.json">2A03 JSON</a></span>
+    <span class="pill">2026-07-18</span>
+  </p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span>
+      <span class="en">A tie broken by an accident</span><span class="zh">用偶然裁決的平手</span></h2>
+  <p class="en">When the engine must order two events in the same settle wave, or pick a winner in a floating group that is a dead heat, it uses the node number. The number is the order the node was loaded from a file — physically meaningless. Real silicon resolves the same tie by continuous-time physics; the engine resolves it by an alphabet. The accuracy campaigns met this as the <b>D-class lottery</b>: the twins u7/u8 (two instances of the same 74LS368) where one passed and the other broke on one test, open-bus bytes that flipped, and the nastiest property of all — an instrument probe or a netlist patch, by shifting ids, could re-roll the <i>entire</i> outcome. That last one made every graph change hazardous.</p>
+  <p class="zh">當引擎必須為同一 settle 波裡的兩個事件排序、或在勢均力敵的浮接群裡挑贏家,它用節點編號。那個編號是節點從檔案被載入的順序 —— 物理上毫無意義。真實矽用連續時間物理裁決同一個平手;引擎用字母順序裁決。精度戰役遇到它的形式是 <b>D 類樂透</b>:孿生 u7/u8(同一顆 74LS368 的兩個實例)在一個測試上一個過一個壞、open-bus 位元組翻轉,以及最麻煩的性質 —— 一個儀器探針或一個網表補丁,靠移動 id,就能重擲<i>整個</i>結果。最後這點讓每一次圖變更都變得危險。</p>
+  <div class="card">
+    <p class="en"><b>M7's mechanism</b> is a load-time canonical renumbering: replace "id = load order" with a deterministic key from physics + structure. Two independent wins: identical circuits get identical keys (twins share a fate — the lottery is gone); and a graph change no longer re-rolls the global order, because ids follow structure, not file position (so future netlist patches and instruments become safe operations). Cost: near zero — one load-time sort, the hot path unchanged.</p>
+    <p class="zh"><b>M7 的機制</b>是載入期正準重編號:把「id = 載入順序」換成一把來自物理 + 結構的確定性鍵。兩個獨立收益:同構電路拿到同鍵(孿生同命 —— 樂透消失);而圖變更不再重擲全域順序,因為 id 跟著結構、不跟檔案位置(所以未來的網表補丁與儀器變成安全操作)。成本:近乎零 —— 一次載入期排序,熱路徑不變。</p>
+  </div>
+</section>
+
+<section id="key">
+  <h2><span class="kick"><span class="en">The key</span><span class="zh">那把鍵</span></span>
+      <span class="en">Four fields, physics first</span><span class="zh">四個欄位,物理優先</span></h2>
+  <pre><code>key(node) = ( class , layeredArea , structHash , degree )</code></pre>
+  <ul>
+    <li class="en"><b>class</b> — the prune/locality class, kept first so the +3.56% class-major locality win is preserved; the canonical order only reorders <i>within</i> a class.</li>
+    <li class="zh"><b>class</b> —— prune/locality 類,放第一以保留 +3.56% 的 class-major locality win;正準排序只在<i>類內</i>重排。</li>
+    <li class="en"><b>layeredArea</b> — the M2 capacitance proxy (polygon area × layer weight): a physical, load-order-independent magnitude.</li>
+    <li class="zh"><b>layeredArea</b> —— M2 電容代理(多邊形面積 × 層權重):一個物理的、與載入順序無關的量。</li>
+    <li class="en"><b>structHash</b> — a Weisfeiler-Lehman refinement of local topology: a node's neighborhood signature, so structurally identical nodes collide and different ones separate.</li>
+    <li class="zh"><b>structHash</b> —— 局部拓撲的 Weisfeiler-Lehman 精煉:節點的鄰域指紋,讓結構相同的節點碰撞、不同的分開。</li>
+    <li class="en"><b>degree</b> — transistor fan-in/out, the final cheap tiebreak.</li>
+    <li class="zh"><b>degree</b> —— 電晶體 fan-in/out,最後的便宜裁決。</li>
+  </ul>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">Results</span><span class="zh">結果</span></span>
+      <span class="en">The key resolves ties — and the two dies have different characters</span><span class="zh">鍵解掉平手 —— 而兩顆晶粒性格不同</span></h2>
+  <table>
+    <tr><th><span class="en">Nodes still tied (need id-order tiebreak)</span><span class="zh">仍平手的節點(需 id 順序裁決)</span></th><th>2C02 (PPU)</th><th>2A03 (CPU)</th></tr>
+    <tr><td><span class="en">degree only</span><span class="zh">只有 degree</span></td><td class="n">8,723</td><td class="n">5,514</td></tr>
+    <tr><td><span class="en">+ structHash (topology)</span><span class="zh">+ structHash(拓撲)</span></td><td class="n">7,267</td><td class="n">2,784</td></tr>
+    <tr><td><span class="en">+ layeredArea (M2 capacitance)</span><span class="zh">+ layeredArea(M2 電容)</span></td><td class="n ok">7,123 <span class="mut">(−18%)</span></td><td class="n ok">2,643 <span class="mut">(−52%)</span></td></tr>
+  </table>
+  <p class="en"><b>The PPU/CPU contrast echoes M1.</b> The CPU's ties collapse by half once structure and area enter, because the 2A03 is irregular — hand-drawn logic, few exact repeats. The PPU resists: 7,123 nodes still share a key. That is <i>not</i> a weak key — it is the die telling the truth. The 2C02 is built from big <b>replicated cell arrays</b> (the biggest canonical groups are 590, 582, 360… nodes — the OAM, the palette, the shift registers), and those cells <i>are</i> structurally interchangeable. For them, sharing a key is exactly right: the canonical rule gives every copy in an array one fate, which is what the lottery was silently denying them.</p>
+  <p class="zh"><b>PPU/CPU 的對比呼應 M1。</b>CPU 的平手在結構與面積進場後砍半,因為 2A03 不規則 —— 手工畫的邏輯、少有精確重複。PPU 頑抗:7,123 個節點仍共享一鍵。那<i>不是</i>鍵太弱 —— 是晶粒在說實話。2C02 由大型<b>複製 cell 陣列</b>組成(最大的正準群是 590、582、360⋯ 節點 —— OAM、palette、移位暫存器),而那些 cell <i>本來就</i>結構可互換。對它們,共享一鍵正是對的:正準規則給陣列裡每個副本一個命運,而那正是樂透默默剝奪它們的。</p>
+
+  <div class="grid2">
+    <figure><img src="img/m7_2C02_keyreduction.svg" alt="2C02 tie reduction">
+      <figcaption><span class="en"><b>2C02:</b> ties removed as the key gains structHash then area.</span><span class="zh"><b>2C02:</b>鍵加上 structHash、再加面積時被解掉的平手。</span></figcaption></figure>
+    <figure><img src="img/m7_2A03_keyreduction.svg" alt="2A03 tie reduction">
+      <figcaption><span class="en"><b>2A03:</b> the CPU's irregular logic collapses to half the ties.</span><span class="zh"><b>2A03:</b>CPU 不規則邏輯砍到一半平手。</span></figcaption></figure>
+    <figure><img src="img/m7_2C02_twins.svg" alt="2C02 structural twins">
+      <figcaption><span class="en"><b>2C02:</b> 7,123 nodes have a structural twin — the arrays the canonical key unifies.</span><span class="zh"><b>2C02:</b>7,123 個節點有結構孿生 —— 正準鍵統一的那些陣列。</span></figcaption></figure>
+    <figure><img src="img/m7_2A03_twins.svg" alt="2A03 structural twins">
+      <figcaption><span class="en"><b>2A03:</b> more structurally-unique nodes — the hand-drawn CPU.</span><span class="zh"><b>2A03:</b>更多結構獨特節點 —— 手工畫的 CPU。</span></figcaption></figure>
+  </div>
+</section>
+
+<section id="namevsstruct">
+  <h2><span class="kick"><span class="en">A subtle finding</span><span class="zh">一個微妙的發現</span></span>
+      <span class="en">Name symmetry is not structural symmetry</span><span class="zh">名稱對稱不是結構對稱</span></h2>
+  <p class="en">One might expect a data bus — <code>_db0</code>…<code>_db7</code> — to be eight identical twins. The census says otherwise: of 188 name-symmetric families on the 2C02, only 15 have a single canonical key; <code>_db#</code> splits into <b>9</b> keys, <code>_io_db#</code> into 8. This is correct, not a failure. Bit 0 of a bus is wired to different neighbors than bit 7 (carry chains, boundary logic, address decode), so the bits are <i>not</i> structurally interchangeable, and a canonical key must distinguish them — otherwise it would wrongly force db0 and db7 to share a fate. The genuine twins are the module-instance replicas (u7/u8, from <a href="m5-board.html">M5</a>) and the intra-array cells, which the key <i>does</i> unify. Name symmetry was a tempting shortcut; the structure refused it, and the structure is right.</p>
+  <p class="zh">有人會以為資料匯流排 —— <code>_db0</code>⋯<code>_db7</code> —— 是八個相同的孿生。普查說不是:2C02 上 188 個名稱對稱家族,只有 15 個有單一正準鍵;<code>_db#</code> 裂成 <b>9</b> 個鍵、<code>_io_db#</code> 裂成 8 個。這是對的、不是失敗。匯流排的第 0 位元接的鄰居和第 7 位元不同(進位鏈、邊界邏輯、位址解碼),所以位元<i>不是</i>結構可互換,正準鍵必須區分它們 —— 否則它會錯誤地強迫 db0 和 db7 同命。真正的孿生是模組實例複製(u7/u8,來自 <a href="m5-board.html">M5</a>)與陣列內 cell,那些鍵<i>確實</i>統一了。名稱對稱是個誘人的捷徑;結構拒絕了它,而結構是對的。</p>
+</section>
+
+<section id="limits">
+  <h2><span class="kick"><span class="en">Honest limits</span><span class="zh">誠實極限</span></span>
+      <span class="en">What this key cannot say</span><span class="zh">這把鍵說不了的事</span></h2>
+  <ul>
+    <li class="en"><b>Consistent ≠ correct.</b> A canonical key removes the <i>lottery</i> (identical inputs → identical fate); whether that shared fate matches silicon depends on whether the key's fields correlate with the physics that actually breaks the tie. Area is a proxy; it misses path resistance and drive.</li>
+    <li class="zh"><b>一致 ≠ 正確。</b>正準鍵移除<i>樂透</i>(相同輸入 → 相同命運);那個共享命運是否符合矽,取決於鍵的欄位是否與真正裁決平手的物理相關。面積是代理;它漏掉路徑電阻與驅動。</li>
+    <li class="en"><b>Intra-array cells still tie.</b> Two identical OAM cells get the same key by design — so between <i>them</i> the tiebreak still needs one more field (position), which the key omits. For truly interchangeable cells that is harmless (they behave identically); for the rare array with a boundary asymmetry it is a residue.</li>
+    <li class="zh"><b>陣列內 cell 仍平手。</b>兩個相同的 OAM cell 依設計拿到同鍵 —— 所以<i>它們之間</i>的裁決還需要多一個欄位(位置),而鍵省略了它。對真正可互換的 cell 這無害(它們行為相同);對罕見有邊界不對稱的陣列則是殘留。</li>
+    <li class="en"><b>Checksum changes by design.</b> Re-keying the arbitration changes the golden checksum — which is why M7 lives in the S1a fork, re-baselining, not on the golden S1 engine.</li>
+    <li class="zh"><b>checksum 依設計會變。</b>把仲裁重新編鍵會改金 checksum —— 這正是 M7 活在 S1a 分支、重定基準,而不在黃金 S1 引擎上的原因。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a toolbox study #7 · script: <a href="py/m7_canonical_key.py">m7_canonical_key.py</a> · data: <a href="data/m7_2C02_summary.json">2C02</a> / <a href="data/m7_2A03_summary.json">2A03</a> · prev: <a href="m6-phase.html">M6</a> · see also <a href="m2-charge-wins.html">M2</a> / <a href="m5-board.html">M5</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a 工具箱研究 #7 · 程式:<a href="py/m7_canonical_key.py">m7_canonical_key.py</a> · 數據:<a href="data/m7_2C02_summary.json">2C02</a> / <a href="data/m7_2A03_summary.json">2A03</a> · 上一篇:<a href="m6-phase.html">M6</a> · 另見 <a href="m2-charge-wins.html">M2</a> / <a href="m5-board.html">M5</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">identical circuits, identical fate — by physics, not by filename.</span><span class="zh">同構電路,同一命運 —— 靠物理,不靠檔名。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

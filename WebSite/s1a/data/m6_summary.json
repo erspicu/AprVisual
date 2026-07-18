@@ -1,0 +1,159 @@
+{
+ "counters": 56,
+ "interface_entry": 173,
+ "reached_downstream": 8092,
+ "counter_comparators": 203,
+ "phase_sensitive": 66,
+ "top_phase_sensitive": [
+  {
+   "node": 829,
+   "names": "hpos_eq_65_and_rendering",
+   "fanin": 32
+  },
+  {
+   "node": 789,
+   "names": "hpos_eq_339_and_rendering",
+   "fanin": 29
+  },
+  {
+   "node": 832,
+   "names": "hpos_eq_63_and_rendering",
+   "fanin": 28
+  },
+  {
+   "node": 854,
+   "names": "hpos_eq_255_and_rendering",
+   "fanin": 22
+  },
+  {
+   "node": 790,
+   "names": "/move_to_next_line",
+   "fanin": 18
+  },
+  {
+   "node": 839,
+   "names": "hpos_eq_320_to_335_and_rendering",
+   "fanin": 17
+  },
+  {
+   "node": 833,
+   "names": "hpos_lt_64_and_rendering",
+   "fanin": 16
+  },
+  {
+   "node": 1052,
+   "names": "sprite_in_range",
+   "fanin": 15
+  },
+  {
+   "node": 834,
+   "names": "hpos_eq_256_to_319_and_rendering",
+   "fanin": 15
+  },
+  {
+   "node": 836,
+   "names": "hpos_mod_8_eq_0_or_1_and_rendering",
+   "fanin": 13
+  },
+  {
+   "node": 781,
+   "names": "/hpos_eq_339_and_rendering",
+   "fanin": 12
+  },
+  {
+   "node": 835,
+   "names": "in_visible_frame_and_rendering",
+   "fanin": 12
+  },
+  {
+   "node": 929,
+   "names": "n929",
+   "fanin": 10
+  },
+  {
+   "node": 931,
+   "names": "n931",
+   "fanin": 10
+  },
+  {
+   "node": 933,
+   "names": "n933",
+   "fanin": 10
+  },
+  {
+   "node": 822,
+   "names": "hpos_lt_256_and_rendering",
+   "fanin": 10
+  },
+  {
+   "node": 902,
+   "names": "+spr_d7_gt_vpos7",
+   "fanin": 7
+  },
+  {
+   "node": 903,
+   "names": "+spr_d2_gt_vpos2",
+   "fanin": 7
+  },
+  {
+   "node": 905,
+   "names": "+spr_d6_gt_vpos6",
+   "fanin": 7
+  },
+  {
+   "node": 906,
+   "names": "+spr_d5_gt_vpos5",
+   "fanin": 7
+  },
+  {
+   "node": 907,
+   "names": "+spr_d4_gt_vpos4",
+   "fanin": 7
+  },
+  {
+   "node": 908,
+   "names": "+spr_d3_gt_vpos3",
+   "fanin": 7
+  },
+  {
+   "node": 909,
+   "names": "+spr_d1_gt_vpos1",
+   "fanin": 7
+  },
+  {
+   "node": 910,
+   "names": "+spr_d0_gt_vpos0",
+   "fanin": 7
+  },
+  {
+   "node": 10653,
+   "names": "n10653",
+   "fanin": 7
+  }
+ ],
+ "validation": [
+  {
+   "boss": "dot-339 (hpos_eq_339_and_rendering)",
+   "found": true,
+   "detail": "18 named; 2 phase-sensitive"
+  },
+  {
+   "boss": "even_odd (skip_dot on odd frames)",
+   "found": false,
+   "detail": "1 named; 0 phase-sensitive"
+  },
+  {
+   "boss": "BGSerialIn (hpos%8 reload boundary)",
+   "found": true,
+   "detail": "45 named; 1 phase-sensitive"
+  },
+  {
+   "boss": "ALERead ($2007 io_ce interface)",
+   "found": true,
+   "detail": "2 named; 0 phase-sensitive"
+  }
+ ],
+ "params": {
+  "bfs_depth": 6
+ }
+}

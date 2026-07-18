@@ -1,0 +1,199 @@
+{
+ "label": "2A03",
+ "nodes": 5570,
+ "tie_collisions": {
+  "degree": 5514,
+  "struct": 2784,
+  "area": 2643
+ },
+ "tie_reduction_pct": 52.1,
+ "structural_twins": {
+  "nodes_with_a_twin": 2643,
+  "structurally_unique": 2927,
+  "canonical_groups": 622
+ },
+ "symmetric_name_families": 200,
+ "name_vs_structure": {
+  "name_and_key_agree": 14,
+  "name_symmetric_but_key_splits": 186
+ },
+ "split_examples": [
+  {
+   "family": "snd#",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "clk#out",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "c_db#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "c_ab#",
+   "members": 16,
+   "distinct_keys": 8
+  },
+  {
+   "family": "c_clk#out",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "a#",
+   "members": 8,
+   "distinct_keys": 7
+  },
+  {
+   "family": "y#",
+   "members": 8,
+   "distinct_keys": 7
+  },
+  {
+   "family": "x#",
+   "members": 8,
+   "distinct_keys": 7
+  },
+  {
+   "family": "pcl#",
+   "members": 8,
+   "distinct_keys": 7
+  },
+  {
+   "family": "pclp#",
+   "members": 16,
+   "distinct_keys": 16
+  },
+  {
+   "family": "pch#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "pchp#",
+   "members": 16,
+   "distinct_keys": 13
+  },
+  {
+   "family": "p#",
+   "members": 7,
+   "distinct_keys": 7
+  },
+  {
+   "family": "Pout#",
+   "members": 4,
+   "distinct_keys": 4
+  },
+  {
+   "family": "s#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "ir#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "notir#",
+   "members": 8,
+   "distinct_keys": 8
+  },
+  {
+   "family": "clock#",
+   "members": 2,
+   "distinct_keys": 2
+  },
+  {
+   "family": "t#",
+   "members": 4,
+   "distinct_keys": 4
+  },
+  {
+   "family": "noty#",
+   "members": 8,
+   "distinct_keys": 6
+  }
+ ],
+ "biggest_canonical_groups": [
+  [
+   102,
+   "n12158",
+   "n12159"
+  ],
+  [
+   63,
+   "n12286",
+   "n12287"
+  ],
+  [
+   51,
+   "n10199",
+   "n10200"
+  ],
+  [
+   33,
+   "n15289",
+   "n15290"
+  ],
+  [
+   32,
+   "n12166",
+   "n12167"
+  ],
+  [
+   32,
+   "n12160",
+   "n12161"
+  ],
+  [
+   28,
+   "n15288",
+   "n15291"
+  ],
+  [
+   25,
+   "n14753",
+   "n14754"
+  ],
+  [
+   22,
+   "n10155",
+   "n10156"
+  ],
+  [
+   20,
+   "n12280",
+   "n12281"
+  ],
+  [
+   19,
+   "n11456",
+   "n12148"
+  ],
+  [
+   18,
+   "n15342",
+   "n15347"
+  ],
+  [
+   18,
+   "n15338",
+   "n15339"
+  ],
+  [
+   18,
+   "n15320",
+   "n15323"
+  ],
+  [
+   18,
+   "n12358",
+   "n12359"
+  ]
+ ]
+}

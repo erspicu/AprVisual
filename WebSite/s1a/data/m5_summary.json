@@ -1,0 +1,153 @@
+{
+ "top": "nes-001",
+ "modules": 13,
+ "connections": 82,
+ "roles": {
+  "die (PPU)": 1,
+  "die (CPU)": 1,
+  "memory": 2,
+  "board TTL (octal latch)": 1,
+  "board TTL (decoder)": 1,
+  "board TTL (hex buffer)": 2,
+  "board CMOS (inverter)": 1,
+  "board (lockout CIC)": 1,
+  "controller": 2,
+  "other": 1
+ },
+ "boundary_census": {
+  "power": 16,
+  "die-die": 4,
+  "die-board": 41,
+  "board-board": 21
+ },
+ "cross_die_interface_nets": [
+  {
+   "a": "ppu.io_ab[2:0]",
+   "b": "cpu.ab[2:0]"
+  },
+  {
+   "a": "ppu.io_db[7:0]",
+   "b": "cpu.db[7:0]"
+  },
+  {
+   "a": "cpu.nmi",
+   "b": "ppu.int"
+  },
+  {
+   "a": "cpu.rw",
+   "b": "ppu.io_rw"
+  }
+ ],
+ "cross_die_width": 4,
+ "parts": [
+  {
+   "prefix": "ppu",
+   "type": "2c02",
+   "transistors": 12,
+   "role": "die (PPU)",
+   "drivable": true
+  },
+  {
+   "prefix": "cpu",
+   "type": "2a03",
+   "transistors": 0,
+   "role": "die (CPU)",
+   "drivable": true
+  },
+  {
+   "prefix": "u1",
+   "type": "SRAM2K",
+   "transistors": 9,
+   "role": "memory",
+   "drivable": true
+  },
+  {
+   "prefix": "u2",
+   "type": "74LS373",
+   "transistors": 82,
+   "role": "board TTL (octal latch)",
+   "drivable": true
+  },
+  {
+   "prefix": "u3",
+   "type": "74LS139",
+   "transistors": 38,
+   "role": "board TTL (decoder)",
+   "drivable": true
+  },
+  {
+   "prefix": "u4",
+   "type": "SRAM2K",
+   "transistors": 9,
+   "role": "memory",
+   "drivable": true
+  },
+  {
+   "prefix": "u7",
+   "type": "74LS368",
+   "transistors": 14,
+   "role": "board TTL (hex buffer)",
+   "drivable": true
+  },
+  {
+   "prefix": "u8",
+   "type": "74LS368",
+   "transistors": 14,
+   "role": "board TTL (hex buffer)",
+   "drivable": true
+  },
+  {
+   "prefix": "u9",
+   "type": "74HC04",
+   "transistors": 6,
+   "role": "board CMOS (inverter)",
+   "drivable": true
+  },
+  {
+   "prefix": "u10",
+   "type": "nes-cic1",
+   "transistors": 1,
+   "role": "board (lockout CIC)",
+   "drivable": true
+  },
+  {
+   "prefix": "port0",
+   "type": "nes-pad",
+   "transistors": 168,
+   "role": "controller",
+   "drivable": false
+  },
+  {
+   "prefix": "port1",
+   "type": "nes-pad",
+   "transistors": 168,
+   "role": "controller",
+   "drivable": false
+  },
+  {
+   "prefix": "cart.edge",
+   "type": "nes-cart72",
+   "transistors": 0,
+   "role": "other",
+   "drivable": true
+  }
+ ],
+ "structurally_undrivable": [
+  "port0 (nes-pad)",
+  "port1 (nes-pad)"
+ ],
+ "twins": {
+  "SRAM2K": [
+   "u1",
+   "u4"
+  ],
+  "74LS368": [
+   "u7",
+   "u8"
+  ],
+  "nes-pad": [
+   "port0",
+   "port1"
+  ]
+ }
+}

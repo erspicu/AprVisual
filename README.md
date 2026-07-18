@@ -8,7 +8,7 @@
 
 ---
 
-AprVisual takes **Visual6502-style transistor netlists** of the NES CPU (**2A03**) and PPU (**2C02**) and turns them into analyzable, verifiable, executable logic models. It simulates the chip at the level of **individual transistors and wires — not opcodes** — and lets the CPU's behavior *emerge* from the physics. The result is bit-for-bit faithful to the real silicon, and (necessarily) far slower than real time.
+AprVisual takes **Visual6502-style transistor netlists** of the NES CPU (**2A03**) and PPU (**2C02**) and turns them into analyzable, verifiable, executable logic models. It simulates the chip at the level of **individual transistors and wires — not opcodes** — and lets the CPU's behavior *emerge* from the physics. The result is bit-for-bit faithful to the real silicon, and (necessarily) far slower than real time. It is validated against **288 hardware accuracy tests** — the full 147-ROM `nes-test-roms` battery (**146/1**) and the 141-test AccuracyCoin suite (**141/141**) — with the handful of genuinely-analog edge cases supplied by documented, test-mode-only shims (the default benchmark path is bit-identical with or without them).
 
 The real value here is the **translation pipeline** — silicon connectivity → graph → logic/sequencing → verifiable backends — and the **honest record of which optimizations actually work on real hardware**, not any single backend.
 
@@ -68,6 +68,16 @@ The **single remaining FAIL is the opposite case** — a failure *of faithfulnes
 
 Infrastructure in `tools/testrom/`: catalog-driven parallel runner (`run_tests.py`, resume-aware, LPT-ordered, per-test timing fields), the AprNes calibration oracle (`calibrate_ref.py`), and the self-contained report generator (`build_report.py`).
 
+### AccuracyCoin — the aggressive battery (141/141)
+
+The 147-ROM suite is the standard bar; **[AccuracyCoin](https://github.com/100thCoin/AccuracyCoin)** (by 100thCoin) is the aggressive one — **141 tests written specifically for the RP2A03G + RP2C02G** revision pair our dies are traced from, deliberately targeting the analog/timing edge cases most emulators skip. We run it **unattended** via a small fork ([`AprAccuracyCoinUnattended/`](AprAccuracyCoinUnattended/README.md)) that auto-runs the whole suite without a controller and writes a completion block to CPU RAM (`$07F0`: magic `DE B0 61` + passed/total/skipped) for a headless verdict — the test code itself is untouched, so per-test behavior stays byte-for-byte upstream.
+
+**Result: 141/141, 0 skipped** (~4,925 frames, ~8 h single-process) — and the result table is **byte-identical to the AprNes behavioral oracle**, including the accepted-variant success codes for the unstable undocumented opcodes (SHA/SHS score a *different but equally valid* hardware variant). Because it stress-tests the *simulator*, not just the console, it exposed real engine defects the 147 ROMs never touched — each fixed with the same discipline (a documented test-mode shim; benchmark path bit-identical with or without). The families: same-half-cycle **latch races** (DMC / ALU input latch), **cross-chip phase delays** (dot-339, even/odd, BG serial reload), an **open-bus / OAM-DMA bus-hold** detail, and the final boss — **ALERead**, where a `$2007` read's address latch lands one CPU cycle early relative to the board's **74LS373 octal latch** (fully modeled at switch level); the fix is a node-split phase mux that re-times the access with the golden checksum unchanged. **[AccuracyCoin report →](https://erspicu.github.io/AprVisual/ReportAC/)**.
+
+### S1a — studying the analog boundary
+
+The shims work, but each is a black box: it says *what* to override, not *why the silicon behaves so*. **[S1a](https://erspicu.github.io/AprVisual/s1a.html)** ("advance & analogy") is a research fork (`src/AprVisual.S1A/`) that studies the ~1.1% genuinely-analog residue and replaces shims, one at a time, with **physically-grounded mechanisms** — charge storage & decay, drive-strength arbitration, RC propagation delay, transparent latches, board-level parts — each derived from the die geometry the engine already parses, and each held to the same three anchors (golden checksum with the mechanism off, AC 141 + the 147 regression with it on). It is a **study in progress**: the honest map of which shims a mechanism can retire, which are undecidable in isolation, and which hit a genuine ceiling (e.g. open-bus last-byte lives in the *board's* bus capacitance, off either die) is itself the deliverable. Write-ups land on the site as each mechanism is built.
+
 ## Run the benchmark
 
 The easiest path is the prebuilt, self-contained package (no .NET install needed; Windows + macOS, both engines):
@@ -91,12 +101,14 @@ The optimized switch-level engine lives in `src/AprVisual.S1/` (C#, headless con
 
 | Path | What |
 |---|---|
-| `src/AprVisual.S1/` | The S1 switch-level engine — C#, the golden/canonical artifact and focus of optimization. |
+| `src/AprVisual.S1/` | The S1 switch-level engine — C#, the golden/canonical artifact and focus of optimization; validated to AC 141/141 + 147/146 via test-mode shims. |
 | `experiment/rust-s1/` | The Rust port of the S1 engine (bit-identical). |
+| `src/AprVisual.S1A/` | The **S1a** research fork — replaces test-mode shims with physically-grounded mechanisms (charge/strength/delay/latch/board); a study of the netlist's analog boundary. See `WebSite/s1a.html`. |
+| `AprAccuracyCoinUnattended/` | An unattended fork of AccuracyCoin (141 tests) that auto-runs headless and writes a CPU-RAM completion block; per-test code untouched. |
 | `src/AprVisual.S2/` | The Escape-1 investigation engine (automatic logic extraction; `--miter`/`--compile`/`--cones`) — concluded; the negative-result record. |
 | `src/AprVisual.etc/` | An S1 fork for validating **other** CPUs: a raw Visual 6502 netlist loader + pin-level NOP-sled bench for the 6502 / 6800 / Z80 (`--cpu-bench`), plus a faithful C# port of the reference chipsim.js algorithm (`--naive`) for the language-vs-algorithm split. See `cross-cpu.html`. |
 | `src/AprVisual.Deprecated/` | The original WinForms engine + tooling (rendering, ROM parsing) + the S2/S3/S4 IR/codegen/GPU experiments — reference only. |
-| `WebSite/` | The GitHub Pages project site (served at the link above) — incl. `Report/`, the generated test-ROM report. |
+| `WebSite/` | The GitHub Pages project site (served at the link above) — incl. `Report/` (the 147-ROM report), `ReportAC/` (the AccuracyCoin 141 report), and `s1a.html` + `s1a/` (the analog-boundary study). |
 | `tools/testrom/` | Test-ROM validation: catalog + parallel core-pinned runner + AprNes calibration oracle + report generator. |
 | `MD/` | Design & analysis docs (Traditional Chinese). |
 | `tools/` | Helper scripts (benchmark packaging, mail, knowledge-base query) — incl. `visual6502-node/` (headless Node.js baseline running the original Visual 6502 JS sim) and `cpp-naive/` + `cpp-ours/` (C++ ports of the reference and the full engine, for the language-vs-algorithm split). |

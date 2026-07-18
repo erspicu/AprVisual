@@ -260,8 +260,15 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
      **無防守者困在合併 ROM**。joint:03-immediate=AluLatch+LXA、#67=Dbl2007+OamDmaPpuBus。
   **第一結果:DmcLatch K=1 三臂乾淨成立** —— base PASS / ctrl(NO_DMC_SHIM)**FAIL #19** / mech
   (M4_EDGE)PASS,與 K=0「PROVEN」一致(此測非 K 敏感)。**方針(使用者)**:避開 8h 全套,
-  一律孤立 ROM/快照;全套 141/147 只在階段驗收才跑。綜合批次(29 臂,涵蓋 M6X + 全 control +
-  AC 子測試)已備妥待發。
+  一律孤立 ROM/快照;全套 141/147 只在階段驗收才跑。
+  **綜合批次(28 臂)已發射**(bd8zzmuaa,核 2/4/6/10/12/14 各 1,~2.7h,#67 是瓶頸)。
+  **過夜自動駕駛(使用者休息中)**:① 批次跑完 → 判讀 28 臂、更新 shim 總帳/decidability/本表
+  (#11/#12/#13)。② **M6X 閘門守望**(bg barc4dfi4)等 eo09/eo10/dot339/bgs 的 mech 臂全 PASS
+  → GO → 發射 **milestone 全 141 退役證明**(`tools/testrom/run_ac_s1a_retire.bat`,核 8,
+  M4_EDGE=1 M6X=1,~8h;auto-retire DmcLatch/AluLatch/even_odd/dot-339/BGSerialIn 五顆)+ ac_watch。
+  141/141 = 五顆可退役;掉分 = per-sub-test 表點名不足機制。**「階段驗收」全套,使用者許可。**
+  ③ milestone 綠 → 五顆預設翻轉(機制轉 default、移除 shim)+ commit;非綠 → 保留 + 記錄邊界。
+  ⚠️ 教訓:長背景批次**絕不接 `| head`**(SIGPIPE 殺 worker;本夜踩過、已乾淨重發)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

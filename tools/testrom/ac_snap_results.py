@@ -85,7 +85,11 @@ def main():
     filled = [(addr, ram[addr]) for addr in range(0x400, 0x500) if ram[addr] != 0]
 
     print(f"snapshot : {os.path.basename(snap)}  (frame {frame:,}, t={time:,})")
-    print(f"progress : {len(filled)} / 147 result bytes filled")
+    # AccuracyCoin grades 141 tests (the completion block $07F4 / PostAllTestTally counts them;
+    # "141/141" is that number). The result table $0400-$0492 also carries slots for the 5 DRAW
+    # info tests, so `filled` can run a little past 141 late in the run -- that's expected, the
+    # denominator here is the graded total. (147 = the *blargg* suite count, unrelated to AC.)
+    print(f"progress : {len(filled)} / 141 result bytes filled")
     ec = ram[0x0EC]
     magic = ram[0x7F0:0x7F3].hex().upper()
     print(f"Debug_EC : ${ec:02X}   completion magic @$07F0: {magic}{'  <-- DONE' if magic=='DEB061' else ''}")

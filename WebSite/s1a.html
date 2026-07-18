@@ -81,6 +81,7 @@
   <a class="sec" href="#evidence"><span class="en">Evidence</span><span class="zh">證據</span></a>
   <a class="sec" href="#plan"><span class="en">Mechanisms</span><span class="zh">機制</span></a>
   <a class="sec" href="#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
+  <a class="sec" href="#dielayout"><span class="en">On the die</span><span class="zh">晶粒上</span></a>
   <a class="sec" href="#shimlist"><span class="en">Shim ledger</span><span class="zh">shim 總帳</span></a>
   <a class="sec" href="#education"><span class="en">Education</span><span class="zh">教育</span></a>
   <a class="sec" href="#archaeology"><span class="en">Foundations</span><span class="zh">考古文庫</span></a>
@@ -203,6 +204,27 @@
         <td><span class="en">(D-class lottery root)</span><span class="zh">(D 類樂透根源)</span></td><td class="mut">—</td><td><span class="pill">live</span></td></tr>
   </table>
   <p class="mut" style="font-size:13px"><span class="en"><b>The "shim retired @" column is this ledger's proof-of-work.</b> It stays "—" until the corresponding S1A mechanism has landed and the shim is <i>actually removed</i>; only then does it record the commit — and a commit only qualifies after passing the full gates: golden checksum unchanged with the mechanism off, AC 141/141 + the 147-ROM regression not regressing with it on.</span><span class="zh"><b>「shim 拔除 commit」欄是這本帳的存證欄。</b>在對應的 S1A 機制落地、shim <i>真正拔掉</i>之前,一律是「—」;拔掉後才記下那個 commit —— 而且 commit 要先過完整驗證閘才算數:機制關 = 金 checksum 不變;機制開 = AC 141/141 + 147 顆回歸不退步。</span></p>
+</section>
+
+<section id="dielayout">
+  <h2><span class="kick"><span class="en">On the die</span><span class="zh">在晶粒上</span></span><span class="en">The Mx structures, lit up on the real silicon</span><span class="zh">Mx 結構,點亮在真實矽上</span></h2>
+  <p class="en">Every toolbox census above is a <i>number</i> — 2,114 OAM cells, 538 fight sites, 66 phase interfaces. This is where those numbers become <b>places</b>. Each page renders the <b>real 2A03/2C02 layout</b> (the segment polygons the switch-level engine simulates) <b>live in your browser</b> — drag to pan, wheel to zoom, hover any cell — and highlights the nodes that mechanism's detector flags, by category. One shared viewer (adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s renderer); each page differs only in which detector's output it overlays.</p>
+  <p class="zh">上面每一份工具箱普查都是一個<i>數字</i> —— 2,114 個 OAM cell、538 個打架點、66 個相位介面。這裡就是那些數字變成<b>位置</b>的地方。每頁把<b>真實的 2A03/2C02 佈局</b>(開關級引擎模擬的 segment 多邊形)<b>在你瀏覽器裡即時渲染</b> —— 拖曳平移、滾輪縮放、停在任一 cell 上 —— 並依類別標出該機制偵測器點名的節點。一個共用檢視器(改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的渲染器);每頁只差在疊哪個偵測器的輸出。</p>
+  <div class="grid2" style="margin-top:12px">
+    <a class="card" href="s1a/m4-layout.html" style="display:block; border-color:var(--acc);">
+      <p style="margin:.3em 0"><span class="pill" style="background:#221a2e;border-color:var(--acc);color:var(--acc)">LIVE</span> <b>M4 · <span class="en">Every latch, lit up</span><span class="zh">每個閂鎖點亮</span></b></p>
+      <p class="mut" style="font-size:13px; margin:.2em 0"><span class="en">The 2C02's latch structures by pure topology — watch the OAM sprite memory draw its own outline (4,228 no-pull-up cells) from connectivity alone. Four graph fingerprints, explained.</span><span class="zh">2C02 的閂鎖結構,純拓撲 —— 看 OAM 精靈記憶體只靠連接性畫出自己的輪廓(4,228 個無上拉 cell)。四種圖指紋,附解說。</span></p>
+    </a>
+    <div class="card" style="display:block; opacity:.62;">
+      <p style="margin:.3em 0"><span class="pill" style="background:#171a21;border-color:var(--bd);color:var(--mut)"><span class="en">PLANNED</span><span class="zh">規劃中</span></span> <b>M5 · M6 · M7 <span class="en">(structural)</span><span class="zh">(結構性)</span></b></p>
+      <p class="mut" style="font-size:13px; margin:.2em 0"><span class="en">M5 board boundary &amp; the undrivable controller · M6 the 66 phase-sensitive counter-comparators · M7 the twins a canonical key unifies. Same viewer, different detector.</span><span class="zh">M5 板界與不可驅動手把 · M6 那 66 個相位敏感計數器比較器 · M7 正準鍵統一的孿生。同一檢視器,不同偵測器。</span></p>
+    </div>
+    <div class="card" style="display:block; opacity:.62;">
+      <p style="margin:.3em 0"><span class="pill" style="background:#171a21;border-color:var(--bd);color:var(--mut)"><span class="en">PLANNED</span><span class="zh">規劃中</span></span> <b>M1 · M2 · M3 <span class="en">(physical heatmap)</span><span class="zh">(物理熱度圖)</span></b></p>
+      <p class="mut" style="font-size:13px; margin:.2em 0"><span class="en">Not discrete structures but a gradient: M1 drive-strength fights, M2 capacitance flips, M3 the delay islands — the viewer shades by a physical quantity instead of tagging a pattern.</span><span class="zh">不是離散結構而是漸層:M1 驅動強度打架、M2 電容翻盤、M3 延遲島 —— 檢視器用物理量著色,而非標記 pattern。</span></p>
+    </div>
+  </div>
+  <p class="mut" style="font-size:12.5px"><span class="en">Layout data is derived from the Visual&nbsp;2A03/2C02 netlist (CC-BY-NC-SA); generated by <code>WebSite/s1a/layout/gen_layout.py</code>, detectors by the toolbox scripts' <code>--dump-nodes</code>.</span><span class="zh">佈局資料衍生自 Visual&nbsp;2A03/2C02 網表(CC-BY-NC-SA);由 <code>WebSite/s1a/layout/gen_layout.py</code> 生成,偵測器來自工具箱腳本的 <code>--dump-nodes</code>。</span></p>
 </section>
 
 <section id="shimlist">

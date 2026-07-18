@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M4 on the die — every latch, lit up on the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-stack{position:absolute; top:0; left:0; transform-origin:0 0;}
+  .dv-canvas{position:absolute; top:0; left:0; image-rendering:pixelated;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m4-latch.html"><span class="en">M4 study</span><span class="zh">M4 專文</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M4 · latch structures on the die</span><span class="zh">M4 · 晶粒上的閂鎖結構</span></p>
+  <h1><span class="en">Every latch, lit up</span><span class="zh">每一個閂鎖,點亮</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, the nodes that <a href="m4-latch.html">M4's pure-topology latch scan</a> flags are highlighted by category. Drag to pan, wheel to zoom, hover any cell for its name and which structure it belongs to. The census numbers (2,114 no-pull-up OAM cells, 819 tight races…) stop being numbers and become <i>places</i>.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面疊著 <a href="m4-latch.html">M4 純拓撲閂鎖掃描</a>標記的節點,依類別著色。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字與所屬結構。那些普查數字(2,114 個無上拉 OAM cell、819 場緊湊賽跑⋯)不再是數字,而是<i>位置</i>。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Bright fills = M4-flagged nodes. A flagged node with no polygon (pure-logic, no silicon area) simply isn't drawn.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。亮色填充 = M4 標記的節點。被標記但沒有多邊形的節點(純邏輯、無矽面積)就不畫。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">M4 is the clearest <b>structural pattern</b> in the toolbox: latches are <b>pure topology</b>, so the scan needs zero physical priors — only four graph fingerprints over the transistor connectivity the netlist states exactly. This is what <code>m4_latch_scan.py</code> computes; the highlights above are its output projected onto the layout.</span>
+       <span class="zh">M4 是工具箱裡最乾淨的<b>結構性 pattern</b>:閂鎖是<b>純拓撲</b>,掃描不需要任何物理先驗 —— 只要在網表明確描述的電晶體連接性上找四種圖指紋。這就是 <code>m4_latch_scan.py</code> 算的東西;上面的亮點就是它的輸出投影到佈局上。</span></p>
+
+    <table>
+      <tr><th><span class="en">Fingerprint</span><span class="zh">指紋</span></th><th><span class="en">The graph rule</span><span class="zh">圖規則</span></th><th><span class="en">What it catches</span><span class="zh">抓到什麼</span></th></tr>
+      <tr><td><b><span class="en">1 · pass-fed storage</span><span class="zh">1 · pass 饋入儲存</span></b></td><td><span class="en">a node whose only channel connections are signal↔signal pass devices (no direct rail driver), and that gates something</span><span class="zh">節點的通道連接只有訊號↔訊號的 pass 器件(無直接電軌驅動),且它閘控某些東西</span></td><td><span class="en">the dynamic latch cell — holds by charge alone. 1 feed = classic latch, ≥2 = mux-fed (register-file)</span><span class="zh">動態閂鎖 cell —— 靠電荷保持。1 饋入 = 經典閂鎖,≥2 = mux 饋入(暫存器檔)</span></td></tr>
+      <tr><td><b><span class="en">2 · cross-coupled pair</span><span class="zh">2 · 交叉耦合對</span></b></td><td><span class="en">node <i>a</i> gates a pull-down of node <i>b</i> and <i>b</i> gates a pull-down of <i>a</i></span><span class="zh">節點 <i>a</i> 閘控 <i>b</i> 的下拉,<i>b</i> 閘控 <i>a</i> 的下拉</span></td><td><span class="en">the SR / regenerative pair. With a pull-up = static; <b>without</b> = dynamic (the 2C02's no-pull-up OAM cells)</span><span class="zh">SR / 再生對。有上拉 = 靜態;<b>沒有</b> = 動態(2C02 無上拉 OAM cell)</span></td></tr>
+      <tr><td><b><span class="en">3 · closing-edge race</span><span class="zh">3 · 關門沿賽跑</span></b></td><td><span class="en">for each cell, does the enable's fan-in cone (depth ≤2) intersect the data's fan-in cone? shared support = one trigger can close the gate <i>and</i> move the data in the same settle wave</span><span class="zh">每個 cell,enable 的扇入錐(深度 ≤2)是否與 data 的扇入錐相交?共同支撐 = 同一觸發可在同一 settle 波裡關閘<i>又</i>改資料</span></td><td><span class="en">the exact race the campaigns kept hitting (DL, DmcLatch, FrameIrq…)</span><span class="zh">戰役一再踩到的那個賽跑(DL、DmcLatch、FrameIrq⋯)</span></td></tr>
+      <tr><td><b><span class="en">4 · pass-feedback</span><span class="zh">4 · pass 回授</span></b></td><td><span class="en">the cell's own value re-enters its data cone through the pass network</span><span class="zh">cell 自己的值經 pass 網路回到它的 data 錐</span></td><td><span class="en">regenerative loops</span><span class="zh">再生環</span></td></tr>
+    </table>
+
+    <div class="note">
+      <span class="en"><b>The scanner has no concept of "OAM".</b> It was handed connectivity, nothing else — yet fingerprint&nbsp;2 draws the outline of the PPU's sprite memory (the red cluster: 4,228 no-pull-up cells = 64 sprites × 4 bytes × 8 bits + secondary OAM). Structure alone found the exact cells the <code>OamBlankEdge</code> shim defends. That is the whole thesis of a structural pattern: the pattern <i>is</i> the physics.</span>
+      <span class="zh"><b>掃描器根本不知道什麼是「OAM」。</b>它只拿到連接性、別無其他 —— 指紋&nbsp;2 卻畫出了 PPU 精靈記憶體的輪廓(那團紅色:4,228 個無上拉 cell = 64 精靈 × 4 byte × 8 bit + 次要 OAM)。純結構就找到了 <code>OamBlankEdge</code> shim 防守的那批 cell。這正是結構性 pattern 的全部命題:pattern <i>就是</i>物理。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up with the class counts and the self-validation: <a href="m4-latch.html">M4 · Every latch on two dies →</a></span><span class="zh">完整分類數字與自我驗證:<a href="m4-latch.html">M4 · 兩顆晶粒上的每一個閂鎖 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m4_latch_scan.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m4_latch_scan.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m4_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

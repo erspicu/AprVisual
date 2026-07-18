@@ -85,6 +85,7 @@
   <a class="sec" href="#probes"><span class="en">Probes</span><span class="zh">探針</span></a>
   <a class="sec" href="#screen"><span class="en">Screen</span><span class="zh">畫面</span></a>
   <a class="sec" href="#recipes"><span class="en">Recipes</span><span class="zh">配方</span></a>
+  <a class="sec" href="#testrom"><span class="en">Test ROMs</span><span class="zh">測試 ROM</span></a>
   <a class="sec" href="s1a-cli.html" style="color:var(--acc2)"><span class="en">S1a CLI →</span><span class="zh">S1a CLI →</span></a>
   <span class="spacer"></span>
   <button id="btn-en" class="active" onclick="setLang('en')">English</button>
@@ -309,6 +310,60 @@ NO_OB_SHIM=1 NO_DL_SHIM=1 NO_ABORT_SHIM=1 NO_OAMEDGE_SHIM=1 NO_BGS_SHIM=1 \
   <div class="note">
     <span class="en"><b>One-runner rule:</b> run only one simulation instance at a time (co-scheduled instances starve each other's cores); do not build during a benchmark (the DLL is locked).</span>
     <span class="zh"><b>單 runner 鐵律:</b>同一時間只跑一個模擬實例(同時跑會互相餓死核心);benchmark 期間不 build(DLL 鎖)。</span>
+  </div>
+</section>
+
+<section id="testrom">
+  <h2><span class="kick"><span class="en">11 · The 147-ROM test battery</span><span class="zh">11 · 147 測試 ROM 實戰</span></span><span class="en">Four verdict paths, a controller, and a budget</span><span class="zh">四種判定、手把、與預算</span></h2>
+  <p><span class="en">The <code>nes-test-roms</code> battery (blargg's suites &amp; friends — 147 NROM/CNROM NTSC ROMs) is judged <b>once per simulated frame</b>, headless. Each ROM belongs to one of four <b>verdict classes</b>; the batch runner <code>tools/testrom/run_tests.py</code> picks the right flags per-ROM from <code>catalog.json</code>, but this is how to drive any single one by hand. Unlike <code>--ac-verdict</code>, these all keep cart work-RAM mounted (test mode auto-sets <code>ForceExtraRam</code> — blargg's protocol lives at <code>$6000</code>).</span><span class="zh"><code>nes-test-roms</code> 電池(blargg 系列 + 友軍 —— 147 顆 NROM/CNROM NTSC ROM),<b>逐幀</b>無畫面判定。每顆屬於四種<b>判定類別</b>之一;批次 runner <code>tools/testrom/run_tests.py</code> 依 <code>catalog.json</code> 為每顆挑對旗標,以下是手動跑單顆的方式。與 <code>--ac-verdict</code> 不同,這些一律掛卡帶工作 RAM(test 模式自動設 <code>ForceExtraRam</code> —— blargg 協定住在 <code>$6000</code>)。</span></p>
+
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Class</span><span class="zh">類別</span></th><th><span class="en">How it judges</span><span class="zh">怎麼判</span></th><th><span class="en">Extra flag</span><span class="zh">額外旗標</span></th><th><code>detection=</code></th></tr>
+    <tr><td><b>A</b></td><td><span class="en">blargg <code>$6000</code> protocol: reads a status byte at <code>$6000</code> each frame (signature <code>DE B0 61</code> at <code>$6001-3</code>); status <code>&lt;$80</code> = done, code <code>0</code> = pass. Most ROMs.</span><span class="zh">blargg <code>$6000</code> 協定:每幀讀 <code>$6000</code> 狀態位元組(<code>$6001-3</code> 簽名 <code>DE B0 61</code>);狀態 <code>&lt;$80</code> = 完成、碼 <code>0</code> = 通過。多數 ROM。</span></td><td class="arg"><span class="en">none (default)</span><span class="zh">無(預設)</span></td><td><code>6000</code></td></tr>
+    <tr><td><b>A-r</b></td><td><span class="en">Same, but the ROM asks for a soft reset (status <code>$81</code>): the engine pulses the console reset line and continues, up to 10 times.</span><span class="zh">同上,但 ROM 要求軟重設(狀態 <code>$81</code>):引擎拉主機重設線後續跑,最多 10 次。</span></td><td class="arg"><span class="en">none (automatic)</span><span class="zh">無(自動)</span></td><td><code>6000+reset</code></td></tr>
+    <tr><td><b>B</b></td><td><span class="en">Screen text: decode nametable 0 (tile = ASCII) each frame for a terminal <code>Passed</code>/<code>Failed</code>; 2-frame confirm.</span><span class="zh">畫面文字:逐幀解 nametable 0(tile=ASCII)找 terminal <code>Passed</code>/<code>Failed</code>;連 2 幀確認。</span></td><td class="arg"><code>--screen-verdict</code></td><td><code>screen</code></td></tr>
+    <tr><td><b>C</b></td><td><span class="en">Screen CRC: find an isolated on-screen 8-hex CRC, match it against an accept set; 2-frame confirm.</span><span class="zh">畫面 CRC:找畫面上孤立的 8-hex CRC,比對接受集;連 2 幀確認。</span></td><td class="arg"><code>--expected-crc &lt;A,B,…&gt;</code></td><td><code>crc</code></td></tr>
+  </table></div>
+
+  <h3><span class="en">Class A / A-r — the <code>$6000</code> protocol (most ROMs)</span><span class="zh">A / A-r 類 —— <code>$6000</code> 協定(多數 ROM)</span></h3>
+  <pre><code>dotnet AprVisual.S1.dll --test tools/testrom/roms/instr_test-v5/rom_singles/03-immediate.nes \
+  --reset-hold-extra 1 --system-def-dir AprVisualBenchMark/data/system-def --max-frames 300
+# exit 0 = PASS.  A-r (soft-reset) ROMs need no extra flag — the reset is automatic.</code></pre>
+
+  <h3><span class="en">Class B — screen text (<code>--screen-verdict</code>)</span><span class="zh">B 類 —— 畫面文字(<code>--screen-verdict</code>)</span></h3>
+  <pre><code>dotnet AprVisual.S1.dll --test tools/testrom/roms/other/palette_ram.nes --screen-verdict \
+  --reset-hold-extra 1 --system-def-dir AprVisualBenchMark/data/system-def --max-frames 200
+# for ROMs that print a custom tally instead of "Passed", add e.g. --pass-marker "Conflicts:"</code></pre>
+
+  <h3><span class="en">Class C — screen CRC (<code>--expected-crc</code>)</span><span class="zh">C 類 —— 畫面 CRC(<code>--expected-crc</code>)</span></h3>
+  <pre><code>dotnet AprVisual.S1.dll --test tools/testrom/roms/dmc_dma_during_read4/double_2007_read.nes \
+  --expected-crc 3D8B4C6A,7F2E10A9 --reset-hold-extra 1 \
+  --system-def-dir AprVisualBenchMark/data/system-def --max-frames 200
+# PASS iff the on-screen CRC is in the comma-separated accept set (case-insensitive).</code></pre>
+
+  <h3><span class="en">Controller simulation (<code>--joypad</code> + <code>--input</code>)</span><span class="zh">手把模擬(<code>--joypad</code> + <code>--input</code>)</span></h3>
+  <p><span class="en"><code>--joypad</code> attaches a behavioral controller that drives the board's <b>real CD4021 shift-register path through the LS368 buffer</b> (the 2A03/2C02 netlists stay untouched); <code>--input</code> scripts button presses as <code>Button:sec[:holdSec]</code> at 60.0988&nbsp;fps.</span><span class="zh"><code>--joypad</code> 掛上行為層手把,驅動板上<b>真實的 CD4021 移位暫存器路徑、經 LS368 緩衝</b>(2A03/2C02 網表不動);<code>--input</code> 以 <code>Button:秒[:holdSec]</code>(60.0988&nbsp;fps)腳本化按鍵。</span></p>
+  <pre><code>dotnet AprVisual.S1.dll --test tools/testrom/roms/read_joy3/test_buttons.nes --joypad \
+  --input "A:2,B:2.5,Select:3,Start:3.5,Up:4,Down:4.5,Left:5,Right:5.5" --pass-marker "Errors:" \
+  --reset-hold-extra 1 --system-def-dir AprVisualBenchMark/data/system-def --max-frames 500
+# --joypad is a load-time graph change (u7/u8 tie-rewire) → scope it per-ROM, never globally.</code></pre>
+
+  <h3><span class="en">Budget &amp; timeout — how a run is bounded</span><span class="zh">預算與 timeout —— 一次跑怎麼設界</span></h3>
+  <ul>
+    <li><span class="en"><code>--max-frames N</code> is the <b>primary</b> budget (simulated frames; default 900 ≈ 15&nbsp;sim-seconds). Exhaust it and the verdict is <b>timeout, exit code 3</b>. A too-small budget looks exactly like a hang — get the true frame count from the AprNes oracle first (<code>tools/estimate_frames.py</code>), don't just raise it blindly.</span><span class="zh"><code>--max-frames N</code> 是<b>主要</b>預算(模擬幀;預設 900 ≈ 15 模擬秒)。耗盡即判 <b>timeout、exit code 3</b>。預算太小看起來就跟卡死一模一樣 —— 先用 AprNes oracle(<code>tools/estimate_frames.py</code>)拿真幀數,別盲目調高。</span></li>
+    <li><span class="en"><code>--max-wait N</code> is a <b>wall-clock safety</b> cap in seconds (0 = off); it is secondary to <code>--max-frames</code>.</span><span class="zh"><code>--max-wait N</code> 是 <b>wall-clock 安全</b>上限(秒;0 = 關);次於 <code>--max-frames</code>。</span></li>
+    <li><span class="en">The batch runner adds two more guards on top: it caps each ROM at <code>min(maxFrames, 1.5×typicalFrames+5)</code> (a hung/regressed test is killed at ~1.5× its known verdict frame) and a subprocess wall-guard of <code>maxFrames×10+600</code> s.</span><span class="zh">批次 runner 再加兩道保險:每顆封頂 <code>min(maxFrames, 1.5×typicalFrames+5)</code>(卡死/退化的測試約 1.5 倍就砍),另有子行程 wall-guard <code>maxFrames×10+600</code> 秒。</span></li>
+  </ul>
+
+  <h3><span class="en">Exit codes &amp; the batch sweep</span><span class="zh">Exit code 與批次全跑</span></h3>
+  <p><span class="en">Exit code: <b>0</b> = pass · <b>1–125</b> = fail (the ROM's fail code) · <b>2</b> = load error · <b>3</b> = timeout. Judge from the <code>--test-json</code> <code>status</code> field, not the exit code alone. To run the whole battery (build → canary → 7-lane parallel sweep → report):</span><span class="zh">Exit code:<b>0</b> = 通過 · <b>1–125</b> = 失敗(ROM 的失敗碼)· <b>2</b> = 載入錯 · <b>3</b> = timeout。判定以 <code>--test-json</code> 的 <code>status</code> 為準,別只看 exit code。跑整組電池(build → canary → 7 lane 平行 → 報告):</span></p>
+  <pre><code>python tools/testrom/run_tests.py               # full 147 sweep, resume-aware (~6.2 h, 7 cores)
+python tools/testrom/run_tests.py --filter apu  # only ROMs whose suite/name contains "apu"
+python tools/testrom/run_tests.py --rerun       # ignore existing results, redo everything
+dotnet AprVisual.S1.dll --test-dir tools/testrom/roms/instr_test-v5/  # or a raw directory batch</code></pre>
+  <div class="note">
+    <span class="en"><b>The <code>detection=none</code> trap.</b> If a class-A ROM reports <code>detection=none</code> / "budget exhausted, no <code>$6000</code> signature", the engine never saw the blargg signature — almost always the <code>$6000</code> work RAM wasn't mounted, <b>not</b> a frame-budget problem (raising <code>--max-frames</code> just runs the failure longer). Test mode mounts it automatically; only suspect this if you modified the engine.</span>
+    <span class="zh"><b><code>detection=none</code> 陷阱。</b>若某 A 類 ROM 報 <code>detection=none</code> /「budget exhausted, no <code>$6000</code> signature」,代表引擎沒看到 blargg 簽名 —— 幾乎都是 <code>$6000</code> 工作 RAM 沒掛,<b>不是</b>幀預算問題(調高 <code>--max-frames</code> 只會讓錯誤跑更久)。test 模式會自動掛;只有你改過引擎才需懷疑這點。</span>
   </div>
 </section>
 

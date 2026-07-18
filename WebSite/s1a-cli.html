@@ -87,6 +87,7 @@
   <a class="sec" href="#shims"><span class="en">Shims &amp; env</span><span class="zh">Shim/環境</span></a>
   <a class="sec" href="#probes"><span class="en">Probes</span><span class="zh">探針</span></a>
   <a class="sec" href="#recipes"><span class="en">Recipes</span><span class="zh">配方</span></a>
+  <a class="sec" href="#testrom"><span class="en">Test ROMs</span><span class="zh">測試 ROM</span></a>
   <a class="sec" href="s1-cli.html" style="color:var(--acc2)"><span class="en">← S1 CLI</span><span class="zh">← S1 CLI</span></a>
   <span class="spacer"></span>
   <button id="btn-en" class="active" onclick="setLang('en')">English</button>
@@ -369,6 +370,15 @@ NO_DMC_SHIM=1 NO_ALU_SHIM=1 NO_LXA_SHIM=1 NO_FRAMEIRQ_SHIM=1 \
   <div class="note">
     <span class="en"><b>One-runner rule:</b> run only one simulation instance at a time; do not build during a benchmark (the DLL is locked). Every mechanism must keep the golden checksum unchanged while OFF and hold AC 141/141 + the 147-ROM regression while ON.</span>
     <span class="zh"><b>單 runner 鐵律:</b>同一時間只跑一個模擬實例;benchmark 期間不 build(DLL 鎖)。每個機制關閉時金 checksum 須不變,開啟時須守住 AC 141/141 + 147 顆回歸。</span>
+  </div>
+</section>
+
+<section id="testrom">
+  <h2><span class="kick"><span class="en">11 · The 147-ROM test battery</span><span class="zh">11 · 147 測試 ROM 實戰</span></span><span class="en">Four verdict paths, a controller, and a budget</span><span class="zh">四種判定、手把、與預算</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <p><span class="en">Running the <code>nes-test-roms</code> battery is <b>identical to S1</b> — the four verdict classes (blargg <code>$6000</code> protocol, screen text, screen CRC), the controller simulation (<code>--joypad</code> + <code>--input</code>), and the budget/timeout flags are the same 71-flag surface. The full cookbook — one copy-paste command per verdict class, controller scripting, and the exit-code / <code>detection=none</code> notes — lives on the S1 page: <a href="s1-cli.html#testrom"><b>S1 CLI &sect;11 · The 147-ROM test battery</b></a>. Just swap <code>AprVisual.S1.dll</code> → <code>AprVisual.S1A.dll</code>.</span><span class="zh">跑 <code>nes-test-roms</code> 電池與 <b>S1 完全相同</b> —— 四種判定(blargg <code>$6000</code> 協定、畫面文字、畫面 CRC)、手把模擬(<code>--joypad</code> + <code>--input</code>)、預算/timeout 旗標,都是同一組 71 旗標面。完整 cookbook(每種判定一行可貼上指令、手把腳本、exit code / <code>detection=none</code> 說明)在 S1 頁:<a href="s1-cli.html#testrom"><b>S1 CLI &sect;11 · 147 測試 ROM 實戰</b></a>。只要把 <code>AprVisual.S1.dll</code> → <code>AprVisual.S1A.dll</code>。</span></p>
+  <div class="note">
+    <span class="en"><b>Why it matters for S1a.</b> The 147-ROM regression is one of the <b>three verification anchors</b> every S1a mechanism must clear — the golden checksum with the mechanism OFF, then AC 141/141 <i>and</i> the 147 sweep with it ON. A mechanism that breaks even one blargg ROM does not ship.</span>
+    <span class="zh"><b>為什麼對 S1a 重要。</b>147 顆回歸是每個 S1a 機制必過的<b>三個驗證錨</b>之一 —— 機制關時金 checksum,機制開時 AC 141/141 <i>和</i> 147 全跑。弄壞任一顆 blargg ROM 的機制不能出貨。</span>
   </div>
 </section>
 

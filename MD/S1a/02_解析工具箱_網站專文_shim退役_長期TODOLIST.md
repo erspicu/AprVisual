@@ -255,3 +255,12 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
 - **候選 ≠ 真雷**:掃描器出候選與排序;真雷判定靠 oracle(AprNes lockstep / Dynamic Miter)。
 - **探針效應**:任何載入期圖變更(含未來儀器)都重擲 D 類彩票 → M7 正準化是操作面解藥。
 - **S1 金 checksum 永遠不動**;所有會動裁決的機制只進 S1A,S1A 逐 phase 重定自己基準。
+
+- **2026-07-18 晚:使用者裁示 —— S1a 判決全部要在 S1 基礎重驗後重新確認**。理由:S1a 的退役
+  判決多在 Fable 失憶期做,可能像 AC 漏 ALEREAD_MUX、孤立臂跑 K=0 一樣「參數沒開完整」就下結論。
+  **順序硬性**:先 S1 基礎重驗(AC 141 + 147 全量重跑,進行中)→ 後逐一重驗 S1a 判決。
+  **關鍵區分**:工具箱 M1–M7 普查數字(確定性、只吃修正版網表)**不用重驗**;所有「退役/可判定」
+  判決(test 跑出來的,吃 K/env/shim-arm 參數)**全要重驗**。清單:io_db RETIRED、DmcLatch/
+  AluLatch PROVEN、6 顆 UNDECIDABLE 對照臂(全 K=0)、FrameIrq/LXA 可判定、M6X/M4/M2_CAP bit-safe
+  + Gate A。重驗前先讀 runner 原始碼確認配方。詳見 `MD/memory/04_s1a-verdicts-need-reverification.md`。
+  s1a.html shim 總帳已加「暫定,待重新驗證」註記。

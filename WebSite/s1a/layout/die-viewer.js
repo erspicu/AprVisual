@@ -31,7 +31,8 @@
   function raf2(fn) { requestAnimationFrame(function () { requestAnimationFrame(fn); }); }
   function loadScript(src, cb) {
     var s = document.createElement("script"); s.src = src;
-    s.onload = cb; s.onerror = function () { cb(new Error("failed: " + src)); };
+    s.onload = function () { cb(); };   // call with NO arg on success (onload passes an Event)
+    s.onerror = function () { cb(new Error("failed: " + src)); };
     document.head.appendChild(s);
   }
 
@@ -73,9 +74,9 @@
   DieViewer.prototype._buildShell = function () {
     this.host.classList.add("dv-host");
     this.hud = el("div", "dv-hud");
-    this.chipLabel = el("span", "dv-chip");
-    this.hud.appendChild(this.chipLabel);
+    this.chipLabel = el("span", "dv-chip");   // kept as a property (_boot writes to it); only shown when there's no switcher
     if (this.chips.length > 1) {
+      // switcher only — the buttons already name the chip, so no redundant label
       this.chipBtns = {};
       var wrap = el("span", "dv-chips"), self = this;
       this.chips.forEach(function (c) {
@@ -85,6 +86,8 @@
         self.chipBtns[c] = b; wrap.appendChild(b);
       });
       this.hud.appendChild(wrap);
+    } else {
+      this.hud.appendChild(this.chipLabel);   // single chip: show the plain label
     }
     var hint = el("span", "dv-hint");
     hint.setAttribute("data-en", "drag to pan · wheel to zoom · hover a cell");

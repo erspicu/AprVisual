@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M5 on the die — the whole CPU↔PPU interface is four buses</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;}
+  nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  main{max-width:max(960px,82vw);margin:0 auto;padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px);margin:.2em 0 .1em;letter-spacing:-.5px;background:linear-gradient(90deg,#e8dcff,#c792ea);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .kick{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;}
+  h2{font-size:22px;color:#e8dcff;margin:1.4em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;} th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  /* die-viewer */
+  .dv-host{position:relative;margin:14px 0 6px;}
+  .dv-hud{display:flex;align-items:center;gap:12px;padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700;color:var(--acc2);border:1px solid var(--bd);border-radius:20px;padding:2px 12px;font-size:13px;background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut);font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto;background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc);color:var(--acc);}
+  .dv-viewport{position:relative;width:100%;height:min(74vh,760px);overflow:hidden;cursor:grab;border:1px solid var(--bd);border-radius:10px;background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute;top:0;left:0;}
+  .dv-tip{position:absolute;z-index:10;pointer-events:none;max-width:320px;background:rgba(16,15,21,.96);border:1px solid var(--bd);border-radius:7px;padding:6px 10px;font-size:12.5px;color:var(--fg);box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut);font-size:11px;} .dv-tip .dv-tip-cat{display:block;font-size:12px;font-weight:600;margin-top:2px;} .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:10px 0 4px;}
+  .dv-legend-head{width:100%;font-size:12.5px;color:var(--mut);margin-bottom:2px;} .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--bd);border-radius:20px;padding:3px 11px 3px 6px;cursor:pointer;font-size:12.5px;color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);} .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px;height:13px;border-radius:4px;display:inline-block;} .dv-leg-n{color:var(--mut);font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body class="lang-en">
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m5-board.html"><span class="en">M5 study</span><span class="zh">M5 專文</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+<main>
+  <p class="kick"><span class="en">M5 · the board as a circuit</span><span class="zh">M5 · 把主機板當電路</span></p>
+  <h1><span class="en">The interface is four buses</span><span class="zh">介面就是四條匯流排</span></h1>
+  <p><span class="en">M5 is a <b>board-level</b> mechanism — it inventories the 7400-series glue between the two dies, not structures inside them. But its headline finding <i>is</i> visible on the die: the entire conversation between the NES's two most complex chips crosses just <b>four die-die buses</b> (~13 signals). Highlighted in red here on the 2C02 are exactly those — <code>io_db[7:0]</code>, <code>io_ab[2:0]</code>, <code>io_rw</code>, <code>int</code> — the whole CPU↔PPU interface. A separate, larger bus (blue) faces the board's VRAM; the control lines (orange) are what the <code>74LS373</code> latch and address decoders gate. Drag to pan, wheel to zoom, hover any node.</span>
+     <span class="zh">M5 是<b>板級</b>機制 —— 它盤點兩顆晶粒之間的 7400 系列膠合邏輯,不是晶粒<i>內</i>的結構。但它的頭條發現<i>看得到</i>在晶粒上:NES 兩顆最複雜晶片之間的全部對話,只跨過<b>四條晶粒間匯流排</b>(約 13 條訊號)。這裡在 2C02 上以紅色標出的正是它們 —— <code>io_db[7:0]</code>、<code>io_ab[2:0]</code>、<code>io_rw</code>、<code>int</code> —— 整個 CPU↔PPU 介面。另一條較大的匯流排(藍色)面向主機板的 VRAM;控制線(橘色)則是 <code>74LS373</code> 閂鎖與位址解碼器所閘控的。拖曳平移、滾輪縮放、停在任一節點上。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the 2C02's layers. Bright fills = the interface signals M5's board census identifies. Board parts (the '373, decoders, controllers) live off-die and aren't drawn here — see the M5 study for the board map.</span><span class="zh">暗色背景 = 2C02 各層。亮色填充 = M5 板級普查點名的介面訊號。板上零件('373、解碼器、手把)在晶粒外、這裡不畫 —— 板圖見 M5 專文。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">M5's board census reads the whole system definition (<code>nes-001</code> + cart), enumerates every module and connection, and classifies each connection by the boundary it crosses. The die↔die class comes out at just <b>four buses</b> — and every cross-chip timing boss the campaigns fought (dot-339, even_odd, ALERead, BGSerialIn) lives on them. This page resolves those interface signal names to their 2C02 node ids and lights them up; the point is how <i>small</i> the interface is relative to the ~16,000-node die around it.</span>
+       <span class="zh">M5 板級普查讀整個系統定義(<code>nes-001</code> + 卡帶),列舉每個模組與連線,並依「跨越哪個邊界」分類每條連線。晶粒↔晶粒那一類算出來只有<b>四條匯流排</b> —— 而戰役打過的每個跨晶片時序魔王(dot-339、even_odd、ALERead、BGSerialIn)都住在上面。本頁把這些介面訊號名解析成 2C02 節點 id 並點亮;重點是這個介面相對於周圍那顆約 16,000 節點的晶粒有多<i>小</i>。</span></p>
+    <table>
+      <tr><th><span class="en">Boundary</span><span class="zh">邊界</span></th><th><span class="en">What crosses it</span><span class="zh">跨越什麼</span></th></tr>
+      <tr><td><b><span class="en">die ↔ die (4)</span><span class="zh">晶粒 ↔ 晶粒(4)</span></b></td><td><span class="en"><code>io_ab[2:0]</code> (register select) · <code>io_db[7:0]</code> (data) · <code>int</code> (NMI) · <code>io_rw</code> — the whole CPU↔PPU interface, and the M3/M6 delay island</span><span class="zh"><code>io_ab[2:0]</code>(暫存器選擇)· <code>io_db[7:0]</code>(資料)· <code>int</code>(NMI)· <code>io_rw</code> —— 整個 CPU↔PPU 介面,也是 M3/M6 的延遲島</span></td></tr>
+      <tr><td><b><span class="en">die ↔ board</span><span class="zh">晶粒 ↔ 板</span></b></td><td><span class="en">the PPU↔VRAM address/data bus + chip selects + the '373 latch path</span><span class="zh">PPU↔VRAM 位址/資料匯流排 + 晶片選擇 + '373 閂鎖路徑</span></td></tr>
+      <tr><td><b><span class="en">board ↔ board</span><span class="zh">板 ↔ 板</span></b></td><td><span class="en">decoder → latch → RAM glue, the controller chains</span><span class="zh">解碼器 → 閂鎖 → RAM 膠合、手把鏈</span></td></tr>
+    </table>
+    <div class="note">
+      <span class="en"><b>Why this is M5's die-view.</b> The other structural pages light up thousands of on-die cells; M5's story is the opposite — how <i>few</i> wires carry the entire cross-chip conversation. That tiny interface is exactly why a 24-hc delay on it (M3) can desync a whole family of tests (M6). The board parts that make it work — the fully-modelled <code>74LS373</code>, the undrivable controller — are off-die; the <a href="m5-board.html">M5 study</a> maps them.</span>
+      <span class="zh"><b>為什麼這是 M5 的晶粒視角。</b>其他結構頁點亮成千上萬的晶粒內 cell;M5 的故事相反 —— 承載整個跨晶片對話的線有多<i>少</i>。正因介面這麼小,它上面 24hc 的延遲(M3)才能讓一整個測試家族失步(M6)。讓它運作的板上零件 —— 完整建模的 <code>74LS373</code>、不可驅動的手把 —— 在晶粒外;<a href="m5-board.html">M5 專文</a>畫了它們。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full board inventory: <a href="m5-board.html">M5 · The board as a circuit →</a></span><span class="zh">完整板級盤點:<a href="m5-board.html">M5 · 把主機板當電路 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px;border-top:1px solid var(--bd);padding-top:16px;margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (MIT). Layout data from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA). Interface resolution: <code>WebSite/s1a/layout/gen_m5_interface.py</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(MIT)。佈局資料來自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)。介面解析:<code>WebSite/s1a/layout/gen_m5_interface.py</code>。</span></p>
+</main>
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m5_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

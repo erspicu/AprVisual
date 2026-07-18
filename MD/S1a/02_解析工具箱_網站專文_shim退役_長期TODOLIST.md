@@ -186,6 +186,18 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   關鍵洞見:**可判性是「測試」的性質、不是 shim 的**;不可判 shim 的機制全建好+bit-safe,缺的是會失敗的
   測試 = 套內全跑。孤立協定天花板已找到:4 顆退役/證明、5 顆 bit-safe 但不可證。→ 驗證前線移到套內 141。
   寫成 `WebSite/s1a/decidability.html`(方法論深入專文,三臂協定+九 shim 對照資料+規律)+ shim 總帳連結。
+- **2026-07-18 深夜:自主推進(使用者「一步一步、聰明省時」）**。當前步 = io_db 套內驗證(核 6,
+  單變數 M2_DECAY,~10-15h,113+ 快照)。**快照設定指紋查證**:header 記 PowerUpState/DmcLatch/
+  AluLatch/LxaMagic/FrameIrq/Dbl2007/OamDmaPpuBus/PpuAleReadFeedback/even_odd/joypad/reset,改這些
+  LoadState 拒;**但 M2_DECAY/M4_EDGE/M6X/dot-339/BGSerialIn/DL/OAM/abort 不在指紋**→跨機制 resume
+  不會被拒但**全域 shim 狀態已烤進快照=不乾淨**。**可靠省時法=各機制配置從零跑但跑到防守測試登記判決
+  就早停(每 shim 對應哪測試已知),快照供同配置當機續跑。**
+  **shim 全清單 17 顆**(前漏 2:ALERead mux=自有機制已入帳、PpuAleReadFeedback=CHR 回授 guard);
+  E 類 t13032b 是網表補丁非 shim。
+  **趁 in-suite 佔 exe 不能重建的空檔:M6X 補 even_odd DelayTransition**(bkg/spr_enable 在
+  vpos261/hpos338-339 窗轉態→clamp 舊值側 16hc;M6X 現涵蓋 dot-339+BGSerialIn+even_odd=3 相位 shim;
+  TestRunner 加 !M6xEnabled gate 讓 M6X 取代 even_odd shim)。**側目錄編譯乾淨(0 錯誤);Gate A +
+  bit-safe 執行驗證待 in-suite 跑完正式 build。程式碼未 commit(等 Gate A 驗過)。**
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

@@ -246,6 +246,22 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   **基準重述(user 口述確認)**:S1 於分支上以 shim 機制達成 AC 無人版 141/141 + 147 套
   146/147(唯一 FAIL=忠實偏差)後合併回 main;S1A 才是拆 shim 的研究 fork。S1 最新 build
   全量重跑(AC@核8 + 147@6 lane,TASK #1/#2)進行中再認證。
+- **2026-07-19 凌晨:S1 基礎重驗完成 → S1a 判決 K=1 重驗開工(使用者發令「進入 s1a 處理階段」)**。
+  前置達成:**AC 141/141 + 147 146/1**(最新 S1 build eff4534)逐項符掛牌,K=0 假警報徹底結案
+  (見 MD/memory/00 快照)。重驗基礎建設:
+  ① **S1A 從當前原始碼重建**(舊 DLL 落後 Recalc/System/TestRunner);未 commit 的 TestRunner
+     改動(加 NO_LXA_SHIM / NO_FRAMEIRQ_SHIM 個別關閉閘 + even_odd 收進 !M6xEnabled)Gate-A 驗過
+     (機制關 = 金 0x794A43ABDF169ADA)後 commit → **release build 現已 honors NO_LXA/NO_FRAMEIRQ**
+     (原本只有 side build 有,代理查到的「假 control」風險由重建解除)。
+  ② **可重用三臂 harness `tools/testrom/s1a_arms.py`**:直呼 S1A DLL(run_tests.py 寫死 S1、不吃
+     M4_EDGE/M6X),照抄 catalog per-ROM 旗標 + K=1,注入每臂 env,6 核平行,讀 --test-json 判決。
+  ③ **防守 ROM 全定位**(代理 map,存 temp/s1a_reverify/mapping.md):14 顆 shim 全有孤立 ROM,
+     AC 子測試 = 獨立 `AprAccuracyCoinUnattended/AccuracyCoin_*.nes`(--ac-verdict --max-frames 400),
+     **無防守者困在合併 ROM**。joint:03-immediate=AluLatch+LXA、#67=Dbl2007+OamDmaPpuBus。
+  **第一結果:DmcLatch K=1 三臂乾淨成立** —— base PASS / ctrl(NO_DMC_SHIM)**FAIL #19** / mech
+  (M4_EDGE)PASS,與 K=0「PROVEN」一致(此測非 K 敏感)。**方針(使用者)**:避開 8h 全套,
+  一律孤立 ROM/快照;全套 141/147 只在階段驗收才跑。綜合批次(29 臂,涵蓋 M6X + 全 control +
+  AC 子測試)已備妥待發。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

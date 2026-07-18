@@ -28,6 +28,8 @@ TIMEOUT_RE = re.compile(r"[Tt]imeout at frame (\d+)")
 
 def run_aprnes(exe, rom, max_wait):
     exe = os.path.abspath(exe); rom = os.path.abspath(rom)
+    import time
+    t0 = time.monotonic()
     try:
         p = subprocess.run([exe, "--rom", rom, "--wait-result", "--pass-on-stable",
                             "--max-wait", str(max_wait)],
@@ -35,6 +37,7 @@ def run_aprnes(exe, rom, max_wait):
                            timeout=max_wait + 30)
     except subprocess.TimeoutExpired:
         return None, "aprnes-wallclock-timeout", ""
+    elapsed = time.monotonic() - t0
     out = (p.stdout or "") + (p.stderr or "")
     verdict = "?"
     m = re.search(r"^(PASS|FAIL\(\d+\))", out, re.M)
@@ -46,6 +49,11 @@ def run_aprnes(exe, rom, max_wait):
     tm = TIMEOUT_RE.search(out)
     if tm:
         return int(tm.group(1)), verdict + " (ran to max-wait -- no stable verdict; raise --max-wait)", out
+    if verdict != "?":
+        # $6000-protocol early exit prints no frame line, but AprNes validation mode is
+        # realtime-throttled at ~60 fps, so elapsed wall time gives the completion frame.
+        est = int(max(0.0, elapsed - 0.7) * 60.0988)
+        return est, verdict + " (~timed)", out
     return None, verdict + " (no frame reported)", out
 
 

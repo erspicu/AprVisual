@@ -171,6 +171,13 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   timeout ×1.5 保險;AC 測試回報畫面穩定幀=安全上界)。**147 快照確認可用**(實測 01-basics:
   --snapshot-frames 存 f5/10/15 → --resume from f15 → 同 PASS@f19,只跑 4 幀;與 141 同一套引擎快照,
   共用測試迴圈)。⚠️ 快照對設定敏感:換機制/旗標則節點重編、舊快照失效(LoadState 拒絕)。
+- **2026-07-18:可判定性邊界 —— 系統性發現 + 深入專文(decidability.html)**。DMA-abort 可判定性掃描
+  (NO_ABORT_SHIM × Explicit/ImplicitAbort)**兩對照皆 PASS → Dmc4015Abort 亦孤立不可判**。至此規律清楚:
+  **可判(對照 FAIL)= io_db衰減/DmcLatch/AluLatch/OpenBus(自足場景,孤立 ROM 自己就踩到);
+  不可判(對照 PASS)= DL/OAM/dot-339/BGSerialIn/Dmc4015Abort(套內時序互動場景,單測試包裝重現不了)。**
+  關鍵洞見:**可判性是「測試」的性質、不是 shim 的**;不可判 shim 的機制全建好+bit-safe,缺的是會失敗的
+  測試 = 套內全跑。孤立協定天花板已找到:4 顆退役/證明、5 顆 bit-safe 但不可證。→ 驗證前線移到套內 141。
+  寫成 `WebSite/s1a/decidability.html`(方法論深入專文,三臂協定+九 shim 對照資料+規律)+ shim 總帳連結。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

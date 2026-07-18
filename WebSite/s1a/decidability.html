@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The decidability boundary — when can you retire a shim by testing it alone?</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:860px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;} pre code{background:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;} .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;} .wa{color:var(--warn);font-weight:700;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  figure{margin:20px 0;text-align:center;} figure svg{max-width:100%;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#shimlist"><span class="en">Shim ledger</span><span class="zh">shim 總帳</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The decidability boundary</span><span class="zh">可判定性的邊界</span></h1>
+  <p class="tag en">A study in what verification can and cannot reach. To retire a shim you must prove it was doing something — run the test without it and watch it fail. But for many shims, the test <i>passes</i> without them. That is not a licence to delete: it means the isolated test does not exercise what the shim defends. This is the honest map of which shims can be judged alone, which cannot, and why.</p>
+  <p class="tag zh">一篇關於「驗證能碰到什麼、碰不到什麼」的研究。要退役一個 shim,你必須證明它有在做事 —— 拔掉它跑測試、看它失敗。但對很多 shim,拔掉它測試<i>照樣過</i>。那不是可以刪的許可:它代表這顆孤立測試根本沒有踩到那個 shim 防守的東西。這是一張誠實的地圖:哪些 shim 能單獨判、哪些不能、以及為什麼。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · methodology study</span><span class="pill">2026-07-18</span></p>
+</header>
+
+<main>
+
+<section id="claim">
+  <h2><span class="kick"><span class="en">The retirement test</span><span class="zh">退役測試</span></span>
+      <span class="en">Three arms, and the one that must fail</span><span class="zh">三臂,以及那個必須失敗的</span></h2>
+  <p class="en">The protocol for retiring a shim onto a mechanism is a three-arm experiment:</p>
+  <p class="zh">把 shim 退役到機制的協定是一個三臂實驗:</p>
+  <table>
+    <tr><th><span class="en">Arm</span><span class="zh">臂</span></th><th><span class="en">Config</span><span class="zh">設定</span></th><th><span class="en">Expected</span><span class="zh">預期</span></th><th><span class="en">Proves</span><span class="zh">證明</span></th></tr>
+    <tr><td>baseline</td><td><span class="en">shim on</span><span class="zh">shim 開</span></td><td class="ok">PASS</td><td><span class="en">the known-good reference</span><span class="zh">已知良好基準</span></td></tr>
+    <tr><td><b>control</b></td><td><span class="en">shim <b>off</b>, no mechanism</span><span class="zh">shim <b>關</b>、無機制</span></td><td class="hot">FAIL</td><td><span class="en"><b>the shim was load-bearing</b></span><span class="zh"><b>shim 是承重的</b></span></td></tr>
+    <tr><td>mechanism</td><td><span class="en">shim off, mechanism on</span><span class="zh">shim 關、機制開</span></td><td class="ok">PASS</td><td><span class="en">the mechanism does its job</span><span class="zh">機制做到了它的工作</span></td></tr>
+  </table>
+  <p class="en">The <b>control arm is the whole game</b>. If it fails, the shim mattered, and a passing mechanism arm is a genuine retirement (this is how <a href="../s1a.html#shimlist">io_db decay, DmcLatch, and AluLatch</a> were retired — their controls fail on <code>ppu_open_bus</code>, <code>7-dmc_basics&nbsp;#19</code>, and <code>03-immediate</code>). But if the control <i>passes</i> — if the test is green with the shim removed — the experiment is inconclusive. You cannot prove a mechanism replaced something that, on this test, was doing nothing.</p>
+  <p class="zh"><b>對照臂就是全部關鍵</b>。它失敗,shim 就有意義,而機制臂通過就是真正的退役(<a href="../s1a.html#shimlist">io_db 衰減、DmcLatch、AluLatch</a> 就是這樣退役的 —— 它們的對照在 <code>ppu_open_bus</code>、<code>7-dmc_basics&nbsp;#19</code>、<code>03-immediate</code> 上失敗)。但如果對照<i>通過</i> —— 拔掉 shim 測試還是綠的 —— 實驗就無結論。你沒辦法證明機制取代了一個「在這顆測試上根本沒做事」的東西。</p>
+</section>
+
+<section id="data">
+  <h2><span class="kick"><span class="en">The data</span><span class="zh">資料</span></span>
+      <span class="en">Which controls actually fail</span><span class="zh">哪些對照真的失敗</span></h2>
+  <p class="en">Every shim with a kill switch, run against its isolated test with the shim removed:</p>
+  <p class="zh">每個有 kill switch 的 shim,在它的孤立測試上拔掉 shim 跑一次:</p>
+  <table>
+    <tr><th><span class="en">Shim</span><span class="zh">shim</span></th><th><span class="en">Isolated test</span><span class="zh">孤立測試</span></th><th><span class="en">Control</span><span class="zh">對照</span></th><th><span class="en">Decidable?</span><span class="zh">可判?</span></th></tr>
+    <tr><td>io_db decay</td><td>ppu_open_bus (blargg)</td><td class="hot">FAIL(3)</td><td class="ok"><span class="en">yes → RETIRED</span><span class="zh">是 → 已退役</span></td></tr>
+    <tr><td>DmcLatch</td><td>7-dmc_basics (blargg)</td><td class="hot">FAIL(#19)</td><td class="ok"><span class="en">yes → PROVEN</span><span class="zh">是 → 已證</span></td></tr>
+    <tr><td>AluLatch</td><td>03-immediate (blargg)</td><td class="hot">FAIL(1)</td><td class="ok"><span class="en">yes → PROVEN</span><span class="zh">是 → 已證</span></td></tr>
+    <tr><td>OpenBus last-byte</td><td>AC OpenBus</td><td class="hot">FAIL(1)</td><td class="wa"><span class="en">yes → but CEILING</span><span class="zh">是 → 但天花板</span></td></tr>
+    <tr><td>DL</td><td>AC OpenBus / ppu_open_bus</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+    <tr><td>OamBlankEdge</td><td>AC OAMCorruption / StaleSprite</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+    <tr><td>dot-339</td><td>AC StaleSpriteShiftRegs</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+    <tr><td>BGSerialIn</td><td>AC BGSerialIn</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+    <tr><td>Dmc4015Abort</td><td>AC Explicit/ImplicitAbort</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+  </table>
+</section>
+
+<section id="pattern">
+  <h2><span class="kick"><span class="en">The pattern</span><span class="zh">規律</span></span>
+      <span class="en">It is not blargg vs AccuracyCoin</span><span class="zh">不是 blargg vs AccuracyCoin</span></h2>
+  <p class="en">The tempting reading is "blargg tests are decidable, AccuracyCoin's aren't." That is <i>almost</i> right but wrong in an instructive way: <b>AC OpenBus is decidable</b> (its control fails). The real distinction is deeper — <b>does the isolated test actually exercise the scenario the shim defends?</b></p>
+  <p class="zh">誘人的讀法是「blargg 測試可判、AccuracyCoin 的不可判」。那<i>差不多</i>對,但錯得很有教育意義:<b>AC OpenBus 可判</b>(它的對照失敗)。真正的區別更深 —— <b>孤立測試有沒有真的踩到那個 shim 防守的場景?</b></p>
+  <ul>
+    <li class="en"><b>Decidable shims</b> defend a scenario the isolated ROM runs on its own: a DMC channel plays (7-dmc), an immediate op executes (03-immediate), the open bus is read after a known write (AC OpenBus). Remove the shim and that single ROM breaks — clean signal.</li>
+    <li class="zh"><b>可判的 shim</b> 防守的是孤立 ROM 自己就會跑的場景:一個 DMC 聲道播放(7-dmc)、一個立即定址指令執行(03-immediate)、已知寫入後讀 open bus(AC OpenBus)。拔掉 shim,那一顆 ROM 就壞 —— 乾淨訊號。</li>
+    <li class="en"><b>Undecidable shims</b> defend a scenario that only arises from <i>timing interaction across the suite</i>. dot-339, even_odd, ALERead, BGSerialIn — the whole cross-chip phase family — were diagnosed and fixed <i>in-suite</i>, where one test's rendering state, another's sprite setup, and a precise scanline phase line up. The single-test wrapper boots, runs its own sub-test, and passes: it never reconstructs the fragile alignment. The DMA-abort family is the same — the abort only bites when a specific DMA is in flight at a specific moment the isolated wrapper doesn't stage.</li>
+    <li class="zh"><b>不可判的 shim</b> 防守的場景只在<i>套件內的時序互動</i>下出現。dot-339、even_odd、ALERead、BGSerialIn —— 整個跨晶片相位家族 —— 都是在<i>套內</i>被診斷和修好的,那時一個測試的渲染狀態、另一個的精靈設定、和精確的掃描線相位剛好對上。單測試包裝開機、跑自己的子測試、然後通過:它從來沒有重建那個脆弱的對齊。DMA-abort 家族一樣 —— 廢止只在特定 DMA 在特定時刻進行中才咬,而孤立包裝不會擺出那個場景。</li>
+  </ul>
+  <div class="note">
+    <span class="en"><b>The key insight for the project.</b> A shim's decidability is a property of the <i>test</i>, not the shim. The mechanisms for the undecidable shims are all built and all <i>bit-safe</i> (they pass every arm, break no neighbour) — the M6×M3 phase table, the M4 transparent latch, the M4 hold. What is missing is a test that fails without them. That test exists: it is the full 141-suite run, in-suite, where these scenarios were found in the first place. Isolation was the right tool for the self-contained shims and the wrong tool for the interaction shims — and knowing which is which is itself the result.</span>
+    <span class="zh"><b>對專案的關鍵洞見。</b>一個 shim 的可判性是<i>測試</i>的性質,不是 shim 的。那些不可判 shim 的機制全都建好了、全都 <i>bit-safe</i>(每一臂都過、不壞鄰居)—— M6×M3 相位表、M4 透明閂鎖、M4 hold。缺的是一個「拔掉它們就失敗」的測試。那個測試存在:就是跑滿 141 顆的套內全跑,那些場景本來就是在那裡被找到的。孤立協定對自足的 shim 是對的工具、對互動的 shim 是錯的工具 —— 而知道哪個是哪個,本身就是結果。</span>
+  </div>
+</section>
+
+<section id="road">
+  <h2><span class="kick"><span class="en">What this means</span><span class="zh">這代表什麼</span></span>
+      <span class="en">The verification frontier moves in-suite</span><span class="zh">驗證前線移到套內</span></h2>
+  <ul>
+    <li class="en"><b>The isolated protocol has a ceiling, and we found it.</b> Four shims retired or proven through it; five more are bit-safe under it but unprovable by it. That is not a wall in the mechanisms — it is a limit of the measuring instrument.</li>
+    <li class="zh"><b>孤立協定有天花板,而我們找到了。</b>四顆 shim 透過它退役或證明;另外五顆在它底下 bit-safe 但無法被它證明。那不是機制的牆 —— 是量測儀器的極限。</li>
+    <li class="en"><b>The next instrument is the in-suite run.</b> The full 141-test AccuracyCoin suite, with the mechanisms on and the shims removed, is the experiment that can discriminate the interaction shims. It is expensive (~8 hours of switch-level simulation), which is why the toolbox now includes an <a href="../../tools/estimate_frames.py">AprNes frame estimator</a> and a verified <a href="../s1a.html#shimlist">snapshot/resume</a> path — the machinery for running and re-running an 8-hour verification without waste.</li>
+    <li class="zh"><b>下一個儀器是套內全跑。</b>跑滿 141 顆 AccuracyCoin 套件、機制開、shim 拔,就是能鑑別互動 shim 的實驗。它很貴(~8 小時開關級模擬),這正是工具箱現在有 <a href="../../tools/estimate_frames.py">AprNes 幀估算器</a>和一條驗證過的<a href="../s1a.html#shimlist">快照/resume</a>路徑的原因 —— 讓一個 8 小時驗證能跑、能重跑而不浪費的機器。</li>
+    <li class="en"><b>Honesty is the deliverable.</b> Five shims stay, clearly labelled "undecidable, mechanism ready", not quietly deleted or falsely claimed retired. When the in-suite run happens, each will resolve to a genuine retirement or a documented residue. Until then, the map is the result.</li>
+    <li class="zh"><b>誠實就是交付物。</b>五顆 shim 留著、清楚標成「不可判、機制就緒」,不是悄悄刪掉或謊稱退役。等套內全跑發生,每一顆會解析成真正的退役或有文件的殘留。在那之前,這張地圖就是結果。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a methodology study · back to the <a href="../s1a.html#shimlist">shim ledger</a> · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span>
+     <span class="zh">S1a 方法論研究 · 回<a href="../s1a.html#shimlist">shim 總帳</a> · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">a shim you cannot prove wrong is not a shim you may delete.</span><span class="zh">一個你證明不了它錯的 shim,不是一個你可以刪的 shim。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

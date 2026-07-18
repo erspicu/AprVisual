@@ -1,7 +1,7 @@
 {
  "label": "2A03",
  "nodes_seen": 5567,
- "transistors": 10916,
+ "transistors": 10918,
  "always_on_gate_pwr": 66,
  "always_off_gate_gnd": 67,
  "pullup_nodes": 3373,
@@ -14,7 +14,7 @@
  },
  "flip_rate_pct": 16.88,
  "lottery_rate_pct": 21.42,
- "spearman_log_conn_vs_log_cphys": 0.6768,
+ "spearman_log_conn_vs_log_cphys": 0.6769,
  "layer_weights": {
   "metal": 0.03,
   "sw-diff": 0.1,

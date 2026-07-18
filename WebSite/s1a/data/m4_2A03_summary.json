@@ -1,6 +1,6 @@
 {
  "label": "2A03",
- "transistors": 10951,
+ "transistors": 10953,
  "cells": {
   "pass_fed_total": 1247,
   "single_feed": 557,
@@ -94,43 +94,7 @@
    "names": "DC78.phi2"
   }
  ],
- "validation": [
-  {
-   "name": "idl0",
-   "status": "found",
-   "detail": "gated-drive latch (1 pass feed + 3 driver + pull-up)"
-  },
-  {
-   "name": "idl7",
-   "status": "found",
-   "detail": "gated-drive latch (1 pass feed + 3 driver + pull-up)"
-  },
-  {
-   "name": "dor0",
-   "status": "missed",
-   "detail": "drive=1 pass=0 obs=3"
-  },
-  {
-   "name": "dor4",
-   "status": "missed",
-   "detail": "drive=1 pass=0 obs=3"
-  },
-  {
-   "name": "alua0",
-   "status": "found",
-   "detail": "gated-drive latch (1 pass feed + 1 driver)"
-  },
-  {
-   "name": "alub0",
-   "status": "found",
-   "detail": "pure pass-fed cell (3 feed); shared support 8"
-  },
-  {
-   "name": "_pcm_out4",
-   "status": "missed",
-   "detail": "drive=1 pass=0 obs=8"
-  }
- ],
+ "validation": [],
  "params": {
   "cone_depth": 2,
   "cone_cap": 500,

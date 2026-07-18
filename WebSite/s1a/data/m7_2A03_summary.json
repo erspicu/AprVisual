@@ -12,10 +12,10 @@
   "structurally_unique": 2927,
   "canonical_groups": 622
  },
- "symmetric_name_families": 200,
+ "symmetric_name_families": 198,
  "name_vs_structure": {
   "name_and_key_agree": 14,
-  "name_symmetric_but_key_splits": 186
+  "name_symmetric_but_key_splits": 184
  },
  "split_examples": [
   {

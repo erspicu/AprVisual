@@ -12,19 +12,19 @@
   "structurally_unique": 1642,
   "canonical_groups": 497
  },
- "symmetric_name_families": 188,
+ "symmetric_name_families": 193,
  "name_vs_structure": {
-  "name_and_key_agree": 15,
-  "name_symmetric_but_key_splits": 173
+  "name_and_key_agree": 16,
+  "name_symmetric_but_key_splits": 177
  },
  "split_examples": [
   {
-   "family": "ext_in#",
+   "family": "exp_in#",
    "members": 4,
    "distinct_keys": 3
   },
   {
-   "family": "ext_out#",
+   "family": "exp_out#",
    "members": 4,
    "distinct_keys": 4
   },
@@ -80,8 +80,8 @@
   },
   {
    "family": "hpos#",
-   "members": 45,
-   "distinct_keys": 42
+   "members": 42,
+   "distinct_keys": 40
   },
   {
    "family": "hpos_eq_#",

@@ -139,51 +139,5 @@
    "names": "_io_db3"
   }
  ],
- "watch": [
-  {
-   "name": "bkg_enable",
-   "found": true,
-   "tau_fall": 2.75,
-   "tau_rise": 5.13,
-   "depth": 0,
-   "C": 188.2,
-   "R_wire": 753.4
-  },
-  {
-   "name": "rendering_1",
-   "found": true,
-   "tau_fall": 5.7,
-   "tau_rise": 19.58,
-   "depth": 0,
-   "C": 691.0,
-   "R_wire": 2434.8
-  },
-  {
-   "name": "hpos_eq_339_and_rendering",
-   "found": true,
-   "tau_fall": 8.4,
-   "tau_rise": 15.54,
-   "depth": 0,
-   "C": 564.3,
-   "R_wire": 1176.4
-  },
-  {
-   "name": "ale",
-   "found": true,
-   "tau_fall": 13.82,
-   "tau_rise": 13.82,
-   "depth": 0,
-   "C": 6761.9,
-   "R_wire": 505.9
-  },
-  {
-   "name": "io_db0",
-   "found": true,
-   "tau_fall": 30.96,
-   "tau_rise": 30.96,
-   "depth": 0,
-   "C": 11090.2,
-   "R_wire": 1680.7
-  }
- ]
+ "watch": []
 }

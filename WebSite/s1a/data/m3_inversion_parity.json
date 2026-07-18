@@ -1,0 +1,138 @@
+{
+ "source": "rendering_1",
+ "observe": "hpos_eq_339_and_rendering",
+ "inversions": 13,
+ "parity": "ODD",
+ "prediction_16_18_needs_odd": true,
+ "confirmed": true,
+ "path": [
+  {
+   "node": "rendering_1",
+   "edge": null
+  },
+  {
+   "node": "/rendering_or_v11_carry_out",
+   "edge": "inv"
+  },
+  {
+   "node": "fine_y_eq_7_and_rendering",
+   "edge": "inv"
+  },
+  {
+   "node": "/inc_vramaddr_v_by_32",
+   "edge": "inv"
+  },
+  {
+   "node": "vramaddr_v5_carry_in",
+   "edge": "inv"
+  },
+  {
+   "node": "/vramaddr_v5_carry_in_2",
+   "edge": "inv"
+  },
+  {
+   "node": "vramaddr_v_vpos_29_to_30_transition_and_rendering",
+   "edge": "inv"
+  },
+  {
+   "node": "n9782",
+   "edge": "pass"
+  },
+  {
+   "node": "n2348",
+   "edge": "inv"
+  },
+  {
+   "node": "+/vramaddr_v_vpos_29_to_30_transition_and_rendering",
+   "edge": "pass"
+  },
+  {
+   "node": "clr_vramaddr_vtile",
+   "edge": "inv"
+  },
+  {
+   "node": "vramaddr_v9_out",
+   "edge": "inv"
+  },
+  {
+   "node": "ab5_out",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db5",
+   "edge": "pass"
+  },
+  {
+   "node": "_vramaddr_t2",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db2",
+   "edge": "pass"
+  },
+  {
+   "node": "_vramaddr_t10",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db0",
+   "edge": "pass"
+  },
+  {
+   "node": "_vramaddr_t12",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db4",
+   "edge": "pass"
+  },
+  {
+   "node": "_vramaddr_t1",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db1",
+   "edge": "pass"
+  },
+  {
+   "node": "_vramaddr_t11",
+   "edge": "pass"
+  },
+  {
+   "node": "_io_db3",
+   "edge": "pass"
+  },
+  {
+   "node": "n6253",
+   "edge": "pass"
+  },
+  {
+   "node": "bkg_enable",
+   "edge": "pass"
+  },
+  {
+   "node": "bkg_enable_out",
+   "edge": "pass"
+  },
+  {
+   "node": "rendering_disabled",
+   "edge": "inv"
+  },
+  {
+   "node": "/rendering_disabled",
+   "edge": "inv"
+  },
+  {
+   "node": "n10676",
+   "edge": "inv"
+  },
+  {
+   "node": "not_rendering",
+   "edge": "pass"
+  },
+  {
+   "node": "hpos_eq_339_and_rendering",
+   "edge": "inv"
+  }
+ ]
+}

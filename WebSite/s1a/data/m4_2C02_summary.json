@@ -94,28 +94,7 @@
    "names": "n714"
   }
  ],
- "validation": [
-  {
-   "name": "spr_d7_int",
-   "status": "found",
-   "detail": "gated-drive latch (9 pass feed + 3 driver)"
-  },
-  {
-   "name": "oam_write_disable",
-   "status": "missed",
-   "detail": "drive=3 pass=0 obs=16"
-  },
-  {
-   "name": "/bkg_pat_out",
-   "status": "found",
-   "detail": "gated-drive latch (1 pass feed + 1 driver + pull-up)"
-  },
-  {
-   "name": "/spr_pat_out",
-   "status": "found",
-   "detail": "gated-drive latch (1 pass feed + 1 driver + pull-up)"
-  }
- ],
+ "validation": [],
  "params": {
   "cone_depth": 2,
   "cone_cap": 500,

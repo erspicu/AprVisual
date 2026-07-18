@@ -28,7 +28,15 @@ MD/S1a/02_...TODOLIST.md         本檔(進度總帳)
 ```
 
 - **網表資料不 vendor 進網站**(CC-BY-NC-SA):script 一律吃 `--segdefs/--transdefs/--nodenames`
-  路徑參數,專文教讀者自備 Visual6502 系檔案。本機跑用 `ref/drive-download-*/visual2a03-*.js`。
+  路徑參數,專文教讀者自備 Visual6502 系檔案。
+  **⚠️ 網表出處(2026-07-18 使用者提醒,鐵律):圖與 JSON 一律用「修正版」網表
+  `AprVisualBenchMark/data/system-def/{2a03,2c02}/{transdefs,segdefs,nodenames}.js`,
+  不是 `ref/drive-download-*/` 原始上游版。** 原始 2A03 抽取漏了兩顆真下拉管
+  (t13032b=R4015 讀解碼 a1 項、t14634b=ACLK 相位;幾何在 segdefs 存在只是抽取漏),
+  **未修正網表本來就失真**(APU 暫存器讀解碼會模型錯)。修正版 2A03=10,918 顆(原始 10,916);
+  2C02 無補丁(幾何稽核零漏)。id-格式的 `transdefs.js`(非 named 版)與腳本解析器相容。
+  aggregate 統計幾乎不動,但分析要站在引擎真正模擬的網表上。**所有工具箱輸出已於 2026-07-18
+  用修正版重生。**
 - Python 一律 **stdlib-only**(re/json/math),手刻 SVG 輸出,任何人裝了 Python 就能重現。
 - console 輸出只用 ASCII(cp950 陷阱)。
 

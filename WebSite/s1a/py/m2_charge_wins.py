@@ -34,6 +34,10 @@ Usage (bring your own Visual6502-style netlist files — not vendored here):
         --transdefs visual2a03-transdefs.js --nodenames visual2a03-nodenames.js \
         --label 2A03 --outdir out/
 
+Netlist note: use the CORRECTED data/system-def/ netlist (the raw upstream
+Visual6502 2A03 dump dropped two real pull-downs, t13032b + t14634b); the raw
+is inherently distorted for the APU-decode region.
+
 Stdlib only.  Part of the AprVisual S1a study — see s1a.html / m2-charge-wins.html.
 """
 import argparse, json, math, os, re, sys

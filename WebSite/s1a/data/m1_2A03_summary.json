@@ -1,23 +1,23 @@
 {
  "label": "2A03",
- "transistors": 10916,
+ "transistors": 10918,
  "classes": {
-  "pulldown": 7147,
+  "pulldown": 7149,
   "pass": 2869,
   "to-vcc": 767,
   "always-off": 67,
   "always-on": 66
  },
- "signal_gated": 10783,
+ "signal_gated": 10785,
  "distinct_strengths": 1268,
  "vocab_top": [
   {
    "S": 1.67,
-   "count": 1579
+   "count": 1580
   },
   {
    "S": 2.33,
-   "count": 1426
+   "count": 1427
   },
   {
    "S": 4.33,
@@ -69,7 +69,7 @@
   }
  ],
  "vocab_coverage_pct": {
-  "5": 38.8,
+  "5": 38.9,
   "10": 51.6,
   "14": 57.8
  },
@@ -83,7 +83,7 @@
  },
  "strength_stats": {
   "pulldown": {
-   "n": 7147,
+   "n": 7149,
    "median": 4.0,
    "min": 0.5,
    "max": 94.11

@@ -28,6 +28,10 @@ Usage (bring your own Visual6502-style 2C02 files — not vendored here):
     python m6_interface_census.py --transdefs visual2c02-transdefs.js \
         --nodenames visual2c02-nodenames.js --outdir out/
 
+Netlist note: use the CORRECTED data/system-def/ netlist (the raw upstream
+Visual6502 2A03 dump dropped two real pull-downs, t13032b + t14634b); the raw
+is inherently distorted for the APU-decode region.
+
 Stdlib only.  Part of the AprVisual S1a study — see s1a.html / m6-phase.html.
 """
 import argparse, json, os, re, sys

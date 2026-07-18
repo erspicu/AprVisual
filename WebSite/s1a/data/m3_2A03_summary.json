@@ -131,7 +131,7 @@
   {
    "tau": 56.9,
    "node": 10749,
-   "names": "/r4015"
+   "names": "r4015"
   },
   {
    "tau": 45.7,
@@ -139,60 +139,5 @@
    "names": "apu_/clk2"
   }
  ],
- "watch": [
-  {
-   "name": "rw",
-   "found": true,
-   "tau_fall": 7.62,
-   "tau_rise": 7.62,
-   "depth": 0,
-   "C": 11762.6,
-   "R_wire": 534.8
-  },
-  {
-   "name": "db0",
-   "found": true,
-   "tau_fall": 16.18,
-   "tau_rise": 16.18,
-   "depth": 0,
-   "C": 19251.0,
-   "R_wire": 1650.8
-  },
-  {
-   "name": "nmi",
-   "found": true,
-   "tau_fall": 16.17,
-   "tau_rise": 16.17,
-   "depth": 0,
-   "C": 19256.2,
-   "R_wire": 1647.4
-  },
-  {
-   "name": "irq",
-   "found": true,
-   "tau_fall": 16.22,
-   "tau_rise": 16.22,
-   "depth": 0,
-   "C": 19307.3,
-   "R_wire": 1647.3
-  },
-  {
-   "name": "res",
-   "found": true,
-   "tau_fall": -1,
-   "tau_rise": 303.21,
-   "depth": 0,
-   "C": 23977.3,
-   "R_wire": 2168.8
-  },
-  {
-   "name": "clk0",
-   "found": true,
-   "tau_fall": 0.76,
-   "tau_rise": 4.64,
-   "depth": 0,
-   "C": 876.9,
-   "R_wire": 1212.2
-  }
- ]
+ "watch": []
 }

@@ -2,10 +2,10 @@
  "label": "2C02",
  "transistors": 16872,
  "classes": {
-  "to-vcc": 698,
   "pulldown": 9265,
-  "pass": 6825,
+  "to-vcc": 698,
   "always-off": 46,
+  "pass": 6825,
   "always-on": 38
  },
  "signal_gated": 16788,
@@ -82,17 +82,17 @@
   }
  },
  "strength_stats": {
-  "to-vcc": {
-   "n": 698,
-   "median": 2.86,
-   "min": 0.47,
-   "max": 24.2
-  },
   "pulldown": {
    "n": 9265,
    "median": 5.28,
    "min": 0.0,
    "max": 89.29
+  },
+  "to-vcc": {
+   "n": 698,
+   "median": 2.86,
+   "min": 0.47,
+   "max": 24.2
   },
   "pass": {
    "n": 6825,
@@ -116,7 +116,7 @@
   "top_closest": [
    {
     "node": 3,
-    "names": "ext1",
+    "names": "exp1",
     "S_up": 14.78,
     "S_dn": 14.78,
     "ratio": 1.0,
@@ -125,7 +125,7 @@
    },
    {
     "node": 4,
-    "names": "ext0",
+    "names": "exp0",
     "S_up": 14.78,
     "S_dn": 14.78,
     "ratio": 1.0,
@@ -197,7 +197,7 @@
    },
    {
     "node": 86,
-    "names": "ext2",
+    "names": "exp2",
     "S_up": 14.78,
     "S_dn": 14.78,
     "ratio": 1.0,

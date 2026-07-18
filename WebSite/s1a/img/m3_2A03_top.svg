@@ -50,7 +50,7 @@
 <text x="242.0" y="460.0" fill="#dcd7e3" font-size="12" text-anchor="end">notRdy0</text>
 <text x="274.5" y="460.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">66.5</text>
 <rect x="250.0" y="472.0" width="17.0" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
-<text x="242.0" y="486.0" fill="#dcd7e3" font-size="12" text-anchor="end">/r4015</text>
+<text x="242.0" y="486.0" fill="#dcd7e3" font-size="12" text-anchor="end">r4015</text>
 <text x="273.0" y="486.0" fill="#dcd7e3" font-size="12" font-weight="700" text-anchor="start">56.9</text>
 <rect x="250.0" y="498.0" width="15.2" height="18.0" fill="#ff6b6b" fill-opacity="0.85" rx="2"/>
 <text x="242.0" y="512.0" fill="#dcd7e3" font-size="12" text-anchor="end">apu_/clk2</text>

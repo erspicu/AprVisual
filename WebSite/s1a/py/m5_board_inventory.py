@@ -30,6 +30,10 @@ Outputs: console report, JSON summary, two SVG figures.
 Usage (bring your own MetalNES-style system-def dir — not vendored here):
     python m5_board_inventory.py --sysdef path/to/system-def --top nes-001 --outdir out/
 
+Netlist note: use the CORRECTED data/system-def/ netlist (the raw upstream
+Visual6502 2A03 dump dropped two real pull-downs, t13032b + t14634b); the raw
+is inherently distorted for the APU-decode region.
+
 Stdlib only.  Part of the AprVisual S1a study — see s1a.html / m5-board.html.
 """
 import argparse, json, os, re, sys

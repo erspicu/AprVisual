@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M7 on the die — every canonical twin, lit up on the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute; top:0; left:0;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m7-canonical.html"><span class="en">M7 study</span><span class="zh">M7 專文</span></a>
+  <a class="sec" href="m4-layout.html"><span class="en">M4 on the die</span><span class="zh">M4 晶粒圖</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M7 · canonical twins on the die</span><span class="zh">M7 · 晶粒上的正規化孿生</span></p>
+  <h1><span class="en">Same structure, same fate</span><span class="zh">相同結構,相同命運</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, <a href="m7-canonical.html">M7's canonical key</a> colours <i>every</i> node by its structural-twin tier. The big green blocks are the chip's <b>replicated cell arrays</b> — sprite OAM, palette RAM, the shift registers — that the key folds into a handful of large canonical groups (590, 582, 360, 360, 298, 288… cells). Drag to pan, wheel to zoom, hover any cell for its name and tier. The census numbers (3,824 nodes in 16 big arrays, 3,299 smaller twins, 1,642 structurally unique) stop being numbers and become <i>places</i>.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面疊著 <a href="m7-canonical.html">M7 正規化鍵</a>,把<i>每一個</i>節點依「結構孿生層級」著色。那幾團綠色大區塊,是晶片的<b>複製 cell 陣列</b> —— 精靈 OAM、調色盤 RAM、位移暫存器 —— 正規化鍵把它們摺疊進少數幾個大型正規化群組(590、582、360、360、298、288… 個 cell)。拖曳平移、滾輪縮放、停在任一 cell 上看名字與層級。那些普查數字(3,824 個節點落在 16 個大陣列、3,299 個較小孿生、1,642 個結構唯一)不再是數字,而是<i>位置</i>。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). <b style="color:var(--acc2)">Green</b> = nodes in the big replicated arrays; <b style="color:var(--acc)">purple</b> = smaller structural twins; <b style="color:#5ac8fa">blue</b> = structurally unique nodes the key already individuates. M7 assigns a key to <i>every</i> node, so the whole die is coloured — click a legend chip to toggle a tier off and isolate the arrays.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。<b style="color:var(--acc2)">綠色</b> = 大型複製陣列裡的節點;<b style="color:var(--acc)">紫色</b> = 較小的結構孿生;<b style="color:#5ac8fa">藍色</b> = 正規化鍵已能單獨識別的結構唯一節點。M7 給<i>每一個</i>節點一把鍵,所以整顆晶粒都上了色 —— 點圖例色塊可關掉某一層,單獨看那些陣列。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">The engine breaks ties by node <b>number</b>, and a node's number is just its <b>load order</b> — a file-order accident. When two events land in the same settle wave, or a floating group is a dead heat, whoever got the smaller id wins. That is the D-class <b>lottery</b>: identical twin circuits (u7/u8) where one twin passed a test and its structurally-identical sibling broke on the same test. M7 replaces "id = load order" with "id = a deterministic <b>canonical key</b> from physics + structure", so identical circuits get identical keys, hence identical fates. This is what <code>m7_canonical_key.py</code> computes; the highlights above are its key projected onto the layout.</span>
+       <span class="zh">引擎用節點<b>編號</b>來打破平手,而節點編號只是它的<b>載入順序</b> —— 一個檔案順序的意外。當兩個事件落在同一波 settle,或一個浮動群組平手時,誰的 id 較小誰就贏。這就是 D 類<b>抽籤</b>:一模一樣的孿生電路(u7/u8),其中一個通過測試,而結構完全相同的兄弟卻在同一測試上壞掉。M7 把「id = 載入順序」換成「id = 一把由物理 + 結構決定的<b>正規化鍵</b>」,於是相同電路拿到相同鍵、因而有相同命運。這就是 <code>m7_canonical_key.py</code> 算的東西;上面的亮點就是它的鍵投影到佈局上。</span></p>
+
+    <table>
+      <tr><th><span class="en">Key dimension</span><span class="zh">鍵的維度</span></th><th><span class="en">The rule</span><span class="zh">規則</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+      <tr><td><b><span class="en">1 · class</span><span class="zh">1 · 類別</span></b></td><td><span class="en">the node's prune / locality class, kept as the leading key field</span><span class="zh">節點的 prune / locality 類別,放在鍵的最前面</span></td><td><span class="en">preserves the +3.56% class-major locality win — the canonical order only reorders <i>within</i> a class, never across</span><span class="zh">保住 +3.56% class-major locality 的成果 —— 正規化順序只在<i>同一類別內</i>重排,不跨類</span></td></tr>
+      <tr><td><b><span class="en">2 · layeredArea</span><span class="zh">2 · 分層面積</span></b></td><td><span class="en">the M2 capacitance proxy: segdefs polygon area × layer weight, log-bucketed</span><span class="zh">M2 電容代理量:segdefs 多邊形面積 × 層權重,取對數分桶</span></td><td><span class="en">a physical, load-order-independent magnitude — near-equal capacitances collide, different scales separate</span><span class="zh">一個與載入順序無關的物理量 —— 相近電容碰撞、不同量級分開</span></td></tr>
+      <tr><td><b><span class="en">3 · structHash (Weisfeiler-Lehman)</span><span class="zh">3 · 結構雜湊(Weisfeiler-Lehman)</span></b></td><td><span class="en">start each node labelled by its degree; each round, relabel it by <code>hash(own label, sorted neighbour labels)</code>; iterate twice</span><span class="zh">每個節點先以其度數(degree)為標籤;每一輪用 <code>hash(自身標籤, 已排序的鄰居標籤)</code> 重新貼標;疊代兩輪</span></td><td><span class="en">the twin-finder — after two rounds, nodes with the same local neighbourhood collapse to the same hash, and any structural difference within two hops splits them apart</span><span class="zh">孿生偵測器 —— 兩輪之後,鄰域相同的節點塌縮到同一雜湊,而兩跳之內的任何結構差異都會把它們分開</span></td></tr>
+      <tr><td><b><span class="en">4 · degree</span><span class="zh">4 · 度數</span></b></td><td><span class="en">the node's transistor gate + channel fan-in/out</span><span class="zh">節點的電晶體閘極 + 通道扇入/扇出</span></td><td><span class="en">the final cheap tiebreak</span><span class="zh">最後一道廉價的打破平手</span></td></tr>
+    </table>
+
+    <p><span class="en">Add <code>structHash</code> and <code>layeredArea</code> on top of degree and <b>18.3%</b> of the degree-order ties resolve — 8,723 nodes tied by degree fall to 7,123 that still share a key. The ones that still share a key are the point, not a failure: they are the <b>structural twins</b>, and giving them one key is exactly the goal — <i>same structure, same fate</i>. They cluster into 497 canonical groups, and the 16 largest (each ≥ 96 cells, with a clean gap to the next tier at 60) are the replicated arrays lit green above.</span>
+       <span class="zh">在度數之上再加 <code>structHash</code> 與 <code>layeredArea</code>,就有 <b>18.3%</b> 的度數順序平手被解開 —— 原本 8,723 個依度數平手的節點,降到 7,123 個仍共用一把鍵。仍共用鍵的那些不是失敗,而是重點:它們就是<b>結構孿生</b>,而給它們同一把鍵正是目標 —— <i>同結構、同命運</i>。它們聚成 497 個正規化群組,其中最大的 16 個(每個 ≥ 96 個 cell,與下一層級的 60 之間有明顯斷層)就是上面點亮成綠色的複製陣列。</span></p>
+
+    <div class="note">
+      <span class="en"><b>The key has no concept of "OAM" or "palette".</b> It was handed only degree and adjacency — yet the Weisfeiler-Lehman refinement folded the 64-sprite sprite memory, the palette RAM, and the sprite/background shift registers into a handful of large canonical groups (the green blocks: 590 + 582 + 360 + 360 + 298 + 288 + … = 3,824 cells in 16 groups). Same local structure ⇒ same key ⇒ same fate. The lottery the accuracy campaigns kept losing — one twin passes, its identical sibling breaks on the same test, and an instrument probe re-rolls the whole outcome just by shifting ids — has nowhere left to hide once the tie-break is the structure itself, not the load order.</span>
+      <span class="zh"><b>這把鍵根本不知道什麼是「OAM」或「調色盤」。</b>它只拿到度數與相鄰關係 —— Weisfeiler-Lehman 精煉卻把 64 精靈的精靈記憶體、調色盤 RAM、以及精靈/背景位移暫存器,摺疊進少數幾個大型正規化群組(那幾團綠色:590 + 582 + 360 + 360 + 298 + 288 + … = 16 個群組共 3,824 個 cell)。相同的局部結構 ⇒ 相同的鍵 ⇒ 相同的命運。精準度戰役一再輸掉的那場抽籤 —— 一個孿生通過、結構相同的兄弟在同一測試上壞掉,而一根量測探針只要挪動 id 就能把整個結果重擲 —— 一旦打破平手的依據是結構本身、而非載入順序,它就再也無處可藏。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up with the key construction, the tie-reduction stages, and the name-vs-structure audit: <a href="m7-canonical.html">M7 · The canonical key that ends the lottery →</a></span><span class="zh">完整說明含鍵的建構、平手削減各階段、以及「名字 vs 結構」稽核:<a href="m7-canonical.html">M7 · 終結抽籤的正規化鍵 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m7_canonical_key.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m7_canonical_key.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m7_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AprVisual S1a — CLI &amp; environment-variable reference</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --good:#7ee0a8;
+    --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+
+  nav{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd);
+      backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd);
+             border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+
+  header.hero{padding:56px 24px 40px; text-align:center;
+    background:radial-gradient(1100px 520px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(34px,7vw,58px); margin:0 0 6px; letter-spacing:-1px;
+    background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  header.hero .tag{font-size:clamp(15px,3vw,19px); color:#e8dcff; margin:0 auto 10px; max-width:760px; font-weight:500;}
+  header.hero .sub{color:var(--mut); max-width:720px; margin:0 auto 20px; font-size:14.5px;}
+  .hbtns{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+  .btn{display:inline-block; border-radius:8px; padding:9px 18px; font-size:14px; font-weight:600; border:1px solid var(--bd);}
+  .btn.primary{background:var(--acc); color:#160f1f; border-color:var(--acc);}
+  .btn.primary:hover{text-decoration:none; filter:brightness(1.08);}
+  .btn.ghost{background:var(--card); color:var(--fg);}
+  .btn.ghost:hover{text-decoration:none; border-color:var(--acc); color:var(--acc);}
+
+  main{max-width:max(920px, 78vw); margin:0 auto; padding:8px 24px 90px;}
+  section{padding:30px 0 8px; border-top:1px solid var(--bd);}
+  section:first-of-type{border-top:none;}
+  h2{font-size:23px; margin:.3em 0 .2em; color:#e8dcff;}
+  h2 .kick{display:block; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700; margin-bottom:2px;}
+  h3{font-size:16px; margin:1.3em 0 .3em; color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em; padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,"SF Mono",monospace; white-space:nowrap;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12.5px; line-height:1.55;}
+  pre code{background:none; padding:0; white-space:pre; font-size:12.5px;}
+
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 20px 16px; margin:16px 0;}
+  .pill{display:inline-block; border-radius:20px; padding:2px 11px; font-size:12px; margin:2px 4px 2px 0; border:1px solid #3d2f4d; background:#251d31; color:var(--acc);}
+  .pill.on{background:#14201a; border-color:var(--acc2); color:var(--acc2);}
+  .pill.off{background:#211417; border-color:var(--bad); color:var(--bad);}
+  .pill.same{background:#171a21; border-color:var(--bd); color:var(--mut);}
+
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13px;}
+  th,td{border:1px solid var(--bd); padding:7px 9px; text-align:left; vertical-align:top;}
+  th{background:var(--card); color:#e8dcff;}
+  td code{white-space:nowrap;}
+  .tbl-wrap{overflow-x:auto;}
+  td.flag{white-space:nowrap;} td.arg{white-space:nowrap; color:var(--acc2);}
+
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:13.5px;}
+  .note.acc{border-left-color:var(--acc); background:#181425;}
+  .note.grn{border-left-color:var(--acc2); background:#12201a;}
+  footer{border-top:1px solid var(--bd); padding:26px 24px 60px; text-align:center; color:var(--mut); font-size:13px; max-width:max(920px, 78vw); margin:0 auto;}
+
+  .en,.zh{display:none;}
+  body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a CLI</span>
+  <a class="sec" href="#adds" style="color:var(--acc2)"><span class="en">What S1a adds</span><span class="zh">S1a 加了什麼</span></a>
+  <a class="sec" href="#modes"><span class="en">Modes</span><span class="zh">模式</span></a>
+  <a class="sec" href="#env"><span class="en">Sim env</span><span class="zh">環境</span></a>
+  <a class="sec" href="#verdict"><span class="en">Verdict</span><span class="zh">判定</span></a>
+  <a class="sec" href="#snapshot"><span class="en">Snapshot</span><span class="zh">快照</span></a>
+  <a class="sec" href="#bench"><span class="en">Bench</span><span class="zh">效能</span></a>
+  <a class="sec" href="#shims"><span class="en">Shims &amp; env</span><span class="zh">Shim/環境</span></a>
+  <a class="sec" href="#probes"><span class="en">Probes</span><span class="zh">探針</span></a>
+  <a class="sec" href="#recipes"><span class="en">Recipes</span><span class="zh">配方</span></a>
+  <a class="sec" href="s1-cli.html" style="color:var(--acc2)"><span class="en">← S1 CLI</span><span class="zh">← S1 CLI</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1>S1a CLI reference</h1>
+  <p class="tag en">S1a = S1 + physics mechanisms. Every S1 flag, plus the M2 / M4 / M6X mechanism toggles that walk past the netlist's edge.</p>
+  <p class="tag zh">S1a = S1 + 物理機制。S1 的每個旗標,加上走出網表邊緣的 M2 / M4 / M6X 機制開關。</p>
+  <p class="sub en"><b>71 CLI flags (identical to S1 today) · 16 shared env vars · 11 S1a-only env vars.</b> The authoritative parser is <code>src/AprVisual.S1A/Test/TestRunner.cs</code>; the mechanisms live in <code>Test/TestRunner.Test.cs</code> and <code>Sim/WireCore.System.cs</code>. Run as <code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>.</p>
+  <p class="sub zh"><b>71 個 CLI 旗標(目前與 S1 相同)· 16 個共用環境變數 · 11 個 S1a 專屬環境變數。</b>權威解析器是 <code>src/AprVisual.S1A/Test/TestRunner.cs</code>;機制在 <code>Test/TestRunner.Test.cs</code> 與 <code>Sim/WireCore.System.cs</code>。執行方式:<code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>。</p>
+  <div class="hbtns">
+    <a class="btn primary" href="s1a.html"><span class="en">← S1a study hub</span><span class="zh">← S1a 研究主站</span></a>
+    <a class="btn ghost" href="s1-cli.html"><span class="en">S1 CLI reference</span><span class="zh">S1 CLI 參考</span></a>
+  </div>
+</header>
+
+<main>
+
+<div class="note acc">
+  <span class="en"><b>S1a = S1 + the mechanisms below.</b> Today the 71 CLI flags are identical to S1; this page will track S1a as they diverge. The difference right now is <b>entirely in environment variables</b>: S1a shares S1's 16 env vars and adds 11 of its own — the M2 / M4 / M6X physics mechanisms plus extra per-shim kill switches. The shared 71-flag + 16-env reference is reproduced in full below so this page stands alone.</span>
+  <span class="zh"><b>S1a = S1 + 下面的機制。</b>今天這 71 個 CLI 旗標與 S1 相同;本頁會隨 S1a 分化而追蹤更新。此刻的差異<b>完全在環境變數</b>:S1a 共用 S1 的 16 個環境變數,並加自己的 11 個 —— M2 / M4 / M6X 物理機制,加上額外的 per-shim 關閉開關。共用的 71 旗標 + 16 環境變數參考在下方完整重現,讓本頁自足。</span>
+</div>
+
+<section id="adds">
+  <h2><span class="kick"><span class="en">The S1a difference</span><span class="zh">S1a 的差異</span></span><span class="en">What S1a adds over S1 — the 11 mechanism env vars</span><span class="zh">S1a 比 S1 多的 —— 11 個機制環境變數</span></h2>
+  <p class="en">Each S1a mechanism restores a slice of physics the binary switch-level model cannot express, and lands behind its own switch so S1's golden checksum is never disturbed. <b>M2 charge-decay is the only one ON by default</b> (it retired a shim after a three-arm proof); the rest are opt-in. The mechanisms <i>supersede</i> the hand-written shims they replace — arm the mechanism and its shims auto-disable.</p>
+  <p class="zh">每個 S1a 機制還原一片二值開關級模型表達不了的物理,並躲在自己的開關後面,絕不動到 S1 的金 checksum。<b>只有 M2 電荷衰減預設開</b>(它經三段論證後退役了一個 shim);其餘都是 opt-in。機制會<i>取代</i>它們替換掉的手寫 shim —— 武裝機制,對應的 shim 自動關閉。</p>
+
+  <h3><span class="en">Physics mechanisms</span><span class="zh">物理機制</span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Variable</span><span class="zh">變數</span></th><th><span class="en">Value</span><span class="zh">值</span></th><th><span class="en">Default</span><span class="zh">預設</span></th><th><span class="en">What it does / what it supersedes</span><span class="zh">作用 / 取代什麼</span></th></tr>
+    <tr>
+      <td class="flag"><code>NO_M2DECAY</code><br><span class="mut" style="font-size:11px"><span class="en">(M2 charge-decay)</span><span class="zh">(M2 電荷衰減)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en"><b>M2 charge-decay is default-ON in S1a</b>: engine-level per-bit timestamp decay on the 2C02 io-bus latch island (the "decay register" leaks to 0 in ~600 ms). It <b>retires</b> the runner-level <code>_io_db</code> decay shim (three-arm proven 2026-07-18: ppu_open_bus shim PASS / no-shim FAIL / mechanism PASS). Set <code>NO_M2DECAY</code> to turn the mechanism OFF and restore the old io_db shim. <i>There is no <code>M2_DECAY</code> enabling env — a stale code comment says so, but the mechanism is default-on and <code>NO_M2DECAY</code> is the only control.</i></span><span class="zh"><b>M2 電荷衰減在 S1a 預設開</b>:2C02 io 匯流排 latch 島上的引擎級 per-bit 時戳衰減(「衰減暫存器」不刷新 ~600ms 漏到 0)。它<b>退役</b>了 runner 級的 <code>_io_db</code> 衰減 shim(2026-07-18 三段論證:ppu_open_bus shim PASS / 拔 shim FAIL / 機制 PASS)。設 <code>NO_M2DECAY</code> 把機制關掉、還原舊 io_db shim。<i>沒有 <code>M2_DECAY</code> 這個啟用 env —— 有句過時的 code 註解那樣寫,但機制是預設開,<code>NO_M2DECAY</code> 才是唯一控制。</i></span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>M2_CAP</code></td>
+      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
+      <td><span class="pill off"><span class="en">opt-in</span><span class="zh">選用</span></span></td>
+      <td><span class="en">M2 <b>physical-capacitance floating arbitration</b>: floating groups resolve by physical capacitance (die polygons + gate W×L) instead of the engine's connection-count proxy — swapped in at Reset() fill time, read at LoadSystem. <b>Changes the NodeStates checksum by design</b> (~10.3% of floating-pair elections flip). Use for the M2 census / study, not for the golden gate.</span><span class="zh">M2 <b>物理電容浮接裁決</b>:浮接群改用物理電容(晶粒多邊形 + 閘極 W×L)解析,取代引擎的連接數代理 —— 在 Reset() 填值時換入,LoadSystem 時讀取。<b>設計上會改 NodeStates checksum</b>(~10.3% 浮接對選舉翻盤)。用於 M2 普查 / 研究,不是金閘。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>M2_CENSUS</code></td>
+      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
+      <td><span class="pill off"><span class="en">opt-in · DEBUG</span><span class="zh">選用 · DEBUG</span></span></td>
+      <td><span class="en">DEBUG-build firing census: shadow the legacy connection-count key and tally, per floating resolve, how often the M2 physical key and the legacy key disagree. <b>Needs <code>M2_CAP</code></b> and a DEBUG build; diagnostic only.</span><span class="zh">DEBUG 版開火普查:影子跑 legacy 連接數鍵,對每次浮接解析統計 M2 物理鍵與 legacy 鍵多常不一致。<b>需 <code>M2_CAP</code></b> 與 DEBUG 版;僅診斷。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>M4_EDGE</code></td>
+      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
+      <td><span class="pill off"><span class="en">opt-in</span><span class="zh">選用</span></span></td>
+      <td><span class="en">Arm the <b>M4 generic edge-capture latch primitive</b> with its built-in annotation rows (DMC <code>pcm_latch</code> = data-wins; ALU input latches = hold). A mechanism, independent of <code>--no-shims</code>. When armed it <b>supersedes the DmcLatch + AluLatch shims</b> (they auto-disable).</span><span class="zh">武裝 <b>M4 通用邊沿捕捉閂鎖原語</b>,附內建標註列(DMC <code>pcm_latch</code> = 資料贏;ALU 輸入閂鎖 = hold)。這是機制,與 <code>--no-shims</code> 無關。武裝後<b>取代 DmcLatch + AluLatch shim</b>(它們自動關)。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>M4_DL</code></td>
+      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
+      <td><span class="pill off"><span class="en">opt-in · needs M4_EDGE</span><span class="zh">選用 · 需 M4_EDGE</span></span></td>
+      <td><span class="en">Add the <b>DL/idl transparent-latch row</b> to the M4 mechanism (glitch immunity at <code>$4016/$4017</code>; scoped, ≥2-bit capture signature). Read inside <code>EnableM4EdgeLatch</code>, so it only takes effect when <code>M4_EDGE</code> is armed. Targets the DL shim.</span><span class="zh">為 M4 機制加上 <b>DL/idl 透明閂鎖列</b>(<code>$4016/$4017</code> 毛刺免疫;有範圍、≥2 位元捕捉簽章)。在 <code>EnableM4EdgeLatch</code> 內讀取,只有 <code>M4_EDGE</code> 武裝時才生效。瞄準 DL shim。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>M6X</code></td>
+      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
+      <td><span class="pill off"><span class="en">opt-in</span><span class="zh">選用</span></span></td>
+      <td><span class="en">Arm the <b>M6×M3 unified cross-chip phase-arbitration table</b> — one (trigger, gate, delay, window) mechanism. It <b>supersedes the dot-339 + BGSerialIn + even_odd</b> downstream-clamp shims (they gate off when it is armed).</span><span class="zh">武裝 <b>M6×M3 統一跨晶片相位裁決表</b> —— 一個 (trigger, gate, delay, window) 機制。它<b>取代 dot-339 + BGSerialIn + even_odd</b> 下游 clamp shim(武裝時它們關閉)。</span></td>
+    </tr>
+  </table></div>
+
+  <h3><span class="en">Per-shim kill switches added in S1a (set = skip that shim)</span><span class="zh">S1a 新增的 per-shim 關閉開關(有設 = 跳過該 shim)</span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Variable</span><span class="zh">變數</span></th><th><span class="en">Skips</span><span class="zh">跳過</span></th><th><span class="en">Notes</span><span class="zh">備註</span></th></tr>
+    <tr><td class="flag"><code>NO_DMC_SHIM</code></td><td><span class="en">DMC <code>pcm_latch</code> edge-capture shim</span><span class="zh">DMC <code>pcm_latch</code> 邊沿捕捉 shim</span></td><td><span class="en">Also auto-off when <code>M4_EDGE</code> is armed (the mechanism supersedes it). No S1 equivalent.</span><span class="zh"><code>M4_EDGE</code> 武裝時也自動關(機制取代它)。S1 無對應。</span></td></tr>
+    <tr><td class="flag"><code>NO_ALU_SHIM</code></td><td><span class="en">ALU input-latch hold shim</span><span class="zh">ALU 輸入閂鎖 hold shim</span></td><td><span class="en">Env twin of the <code>--no-alu-shim</code> CLI flag; also auto-off under <code>M4_EDGE</code>.</span><span class="zh"><code>--no-alu-shim</code> CLI 旗標的 env 版;<code>M4_EDGE</code> 下也自動關。</span></td></tr>
+    <tr><td class="flag"><code>NO_LXA_SHIM</code></td><td><span class="en">LXA <code>$AB</code> magic=<code>$FF</code> bus-fight shim</span><span class="zh">LXA <code>$AB</code> magic=<code>$FF</code> 匯流排對抗 shim</span></td><td><span class="en">No S1 equivalent (S1 always arms it under <code>!--no-shims</code>).</span><span class="zh">S1 無對應(S1 在 <code>!--no-shims</code> 下恆開)。</span></td></tr>
+    <tr><td class="flag"><code>NO_FRAMEIRQ_SHIM</code></td><td><span class="en">frame-IRQ flag-hold shim</span><span class="zh">frame-IRQ 旗標 hold shim</span></td><td><span class="en">No S1 equivalent.</span><span class="zh">S1 無對應。</span></td></tr>
+    <tr><td class="flag"><code>NO_IODECAY_SHIM</code></td><td><span class="en">runner-level <code>_io_db</code> decay fallback shim</span><span class="zh">runner 級 <code>_io_db</code> 衰減備援 shim</span></td><td><span class="en">Only relevant when the M2 decay mechanism is OFF (i.e. under <code>NO_M2DECAY</code>); when M2 decay is on, this shim is already superseded.</span><span class="zh">只有 M2 衰減機制關掉時(即 <code>NO_M2DECAY</code> 下)才有意義;M2 衰減開時此 shim 已被取代。</span></td></tr>
+  </table></div>
+  <div class="note grn">
+    <span class="en"><b>Mechanism ⇄ shim map</b> (see the <a href="s1a.html#shimlist">shim ledger</a> for the full retirement status): <code>NO_M2DECAY</code>→io_db decay · <code>M4_EDGE</code>→DmcLatch + AluLatch · <code>M4_DL</code>→DL · <code>M6X</code>→dot-339 + BGSerialIn + even_odd. Each mechanism keeps the golden checksum unchanged while OFF, and every retirement is gated on AC 141/141 + the 147-ROM regression with it ON.</span>
+    <span class="zh"><b>機制 ⇄ shim 對應</b>(完整退役狀態見<a href="s1a.html#shimlist">shim 總帳</a>):<code>NO_M2DECAY</code>→io_db 衰減 · <code>M4_EDGE</code>→DmcLatch + AluLatch · <code>M4_DL</code>→DL · <code>M6X</code>→dot-339 + BGSerialIn + even_odd。每個機制關閉時金 checksum 不變,每次退役都以機制開時 AC 141/141 + 147 顆回歸為閘。</span>
+  </div>
+</section>
+
+<section id="modes">
+  <h2><span class="kick"><span class="en">1 · Entry points</span><span class="zh">1 · 入口</span></span><span class="en">Mode selectors</span><span class="zh">執行模式(擇一)</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--benchmark</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Throughput mode: run a fixed number of master half-cycles, print hc/s, simulated FPS, MIPS, and the NodeStates checksum. ROM path optional.</span><span class="zh">效能量測模式:跑固定數量的主 half-cycle,輸出 hc/s、模擬 FPS、MIPS、NodeStates checksum。ROM 路徑可選。</span></td></tr>
+    <tr><td class="flag"><code>--test</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Run one test ROM to a verdict (blargg <code>$6000</code>, AccuracyCoin block, screen text, or CRC) or until the frame budget runs out; result in the exit code.</span><span class="zh">跑單顆測試 ROM 到判定(blargg <code>$6000</code>、AccuracyCoin 塊、畫面文字或 CRC),或到幀預算耗盡;結果在 exit code。</span></td></tr>
+    <tr><td class="flag"><code>--test-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Batch-run every <code>*.nes</code> under a directory (recursive); prints an <code>N/total passed</code> summary.</span><span class="zh">批次跑目錄下每顆 <code>*.nes</code>(遞迴);印 <code>N/total passed</code> 總結。</span></td></tr>
+    <tr><td class="flag"><code>--rom</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Headless build has no window — a bare ROM renders 3 frames to <code>screenshot.png</code>; positional catch-all.</span><span class="zh">headless 版無視窗 —— 純 ROM render 3 幀到 <code>screenshot.png</code>;位置性引數。</span></td></tr>
+    <tr><td class="flag"><code>--selftest</code></td><td class="arg">—</td><td><span class="en">Run the built-in inverter / NAND / pass-gate / callback / static-merge micro-circuits.</span><span class="zh">跑內建 inverter / NAND / pass-gate / callback / static-merge 微電路。</span></td></tr>
+    <tr><td class="flag"><code>--help</code> <code>-h</code> <code>/?</code></td><td class="arg">—</td><td><span class="en">Print usage and exit.</span><span class="zh">印使用說明並結束。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="env">
+  <h2><span class="kick"><span class="en">2 · Simulation environment</span><span class="zh">2 · 模擬環境</span></span><span class="en">How the chip is loaded and run</span><span class="zh">晶片怎麼載入與跑</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--system-def-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Directory of the <code>.js</code> system-module definitions (default <code>data/system-def</code>).</span><span class="zh"><code>.js</code> 系統模組定義的目錄(預設 <code>data/system-def</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--extra-ram</code></td><td class="arg">—</td><td><span class="en">Force-map cart extra-RAM (<code>$6000-$7FFF</code>). Required for the golden checksum; <code>--ac-verdict</code> auto-disables it.</span><span class="zh">強制掛載 cart extra-RAM(<code>$6000-$7FFF</code>)。金 checksum 必帶;<code>--ac-verdict</code> 會自動停用。</span></td></tr>
+    <tr><td class="flag"><code>--region</code></td><td class="arg"><code>ntsc|pal|dendy</code></td><td><span class="en">Select region timing (default <code>ntsc</code>).</span><span class="zh">選區域時序(預設 <code>ntsc</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--joypad</code></td><td class="arg">—</td><td><span class="en">Attach the behavioral joypad + <code>u7/u8</code> tie-rewire (per-test). OFF by default (load-time graph change re-rolls the alignment lottery).</span><span class="zh">掛行為層手把 + <code>u7/u8</code> tie-rewire(per-test)。預設關(載入期圖變更會重擲對齊彩票)。</span></td></tr>
+    <tr><td class="flag"><code>--reset-hold-extra</code></td><td class="arg"><code>&lt;K&gt;</code></td><td><span class="en">Hold reset K extra half-cycles (CPU/PPU phase-alignment). Flagship recipe uses <code>K=1</code>.</span><span class="zh">reset 多按住 K 個 half-cycle(CPU/PPU 相位對齊)。旗艦配方用 <code>K=1</code>。</span></td></tr>
+    <tr><td class="flag"><code>--pin</code></td><td class="arg"><code>[N]</code></td><td><span class="en">Pin the hot thread + High priority + EcoQoS-off to cut bench variance (Windows). No arg = auto P-core; <code>N</code> = force core N. Bit-exact; no frequency change.</span><span class="zh">釘熱執行緒 + High priority + 關 EcoQoS 降 variance(Windows)。無引數 = 自動 P-core;<code>N</code> = 強制核 N。bit-exact;不改頻率。</span></td></tr>
+    <tr><td class="flag"><code>--no-lower</code></td><td class="arg">—</td><td><span class="en">Skip the S1.5 netlist-lowering pass (mapped-checksum A/B gate).</span><span class="zh">跳過 S1.5 netlist-lowering pass(mapped-checksum A/B 閘)。</span></td></tr>
+    <tr><td class="flag"><code>--fast-path</code></td><td class="arg">—</td><td><span class="en">No-op — fast-path is always on; accepted for compatibility.</span><span class="zh">無作用 —— fast-path 恆開;保留相容。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="verdict">
+  <h2><span class="kick"><span class="en">3 · Verdict detection</span><span class="zh">3 · 測試判定</span></span><span class="en">How a test-ROM result is read</span><span class="zh">測試 ROM 結果怎麼判</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--ac-verdict</code></td><td class="arg">—</td><td><span class="en">AccuracyCoin unattended verdict: read the completion block at CPU RAM <code>$07F0</code> (<code>DE B0 61</code> + passed/total/skipped). Auto-disables extra-RAM; storm detection + <code>$0400-$04FF</code> table dump at exit.</span><span class="zh">AccuracyCoin 無人值守判定:讀 CPU RAM <code>$07F0</code> 完成塊(<code>DE B0 61</code> + passed/total/skipped)。自動停用 extra-RAM;含風暴偵測 + 結束傾印 <code>$0400-$04FF</code> 表。</span></td></tr>
+    <tr><td class="flag"><code>--screen-verdict</code></td><td class="arg">—</td><td><span class="en">B-class: per-frame nametable scan for a terminal <code>Passed</code>/<code>Failed</code> marker; 2-frame confirm.</span><span class="zh">B 類:逐幀掃 nametable 找 terminal <code>Passed</code>/<code>Failed</code>;2 幀確認。</span></td></tr>
+    <tr><td class="flag"><code>--pass-marker</code></td><td class="arg"><code>&lt;txt&gt;</code></td><td><span class="en">Custom terminal PASS text for ROMs that never print "Passed".</span><span class="zh">為不印 "Passed" 的 ROM 自訂 PASS 字串。</span></td></tr>
+    <tr><td class="flag"><code>--expected-crc</code></td><td class="arg"><code>&lt;A,B,…&gt;</code></td><td><span class="en">C-class: accept set for an on-screen 8-hex CRC (dmc_dma visual tests); 2-frame confirm.</span><span class="zh">C 類:畫面 8-hex CRC 接受集(dmc_dma 視覺測試);2 幀確認。</span></td></tr>
+    <tr><td class="flag"><code>--max-wait</code></td><td class="arg"><code>&lt;sec&gt;</code></td><td><span class="en">Wall-clock safety cap (0 = disabled). <code>--max-frames</code> is primary.</span><span class="zh">wall-clock 安全上限(0 = 停用)。<code>--max-frames</code> 為主。</span></td></tr>
+    <tr><td class="flag"><code>--max-frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Simulation-frame budget — the primary limit (default 900 ≈ 15 sim-sec).</span><span class="zh">模擬幀預算 —— 主要限制(預設 900 ≈ 15 模擬秒)。</span></td></tr>
+    <tr><td class="flag"><code>--input</code></td><td class="arg"><code>"&lt;spec&gt;"</code></td><td><span class="en">Scripted input, <code>Button:sec[:holdSec]</code> (e.g. <code>A:2,Start:6.5</code>).</span><span class="zh">腳本化輸入,<code>Button:秒[:holdSec]</code>(如 <code>A:2,Start:6.5</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--test-json</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Structured per-test result record (schema <code>aprvisual-testrom/1</code>).</span><span class="zh">結構化每測結果記錄(schema <code>aprvisual-testrom/1</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--test-screenshot</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Save the final frame as a PNG.</span><span class="zh">把最終幀存成 PNG。</span></td></tr>
+    <tr><td class="flag"><code>--shot-delay</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">N extra frames after the verdict before the screenshot (cosmetic).</span><span class="zh">判定後多跑 N 幀再截圖(裝飾)。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="snapshot">
+  <h2><span class="kick"><span class="en">4 · Snapshot / resume · 5 · progress</span><span class="zh">4 · 快照/續跑 · 5 · 進度</span></span><span class="en">Windowed regression &amp; long-run telemetry</span><span class="zh">窗口回歸與長跑遙測</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--snapshot-frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Full engine-state snapshot every N frames (0 = off). ~380 KB each; carries live shim state + CRC-32.</span><span class="zh">每 N 幀存完整引擎狀態(0 = 關)。每顆 ~380 KB;含 live shim 狀態 + CRC-32。</span></td></tr>
+    <tr><td class="flag"><code>--snapshot-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Where the snapshot <code>.sav</code> files land.</span><span class="zh">snapshot <code>.sav</code> 輸出目錄。</span></td></tr>
+    <tr><td class="flag"><code>--resume</code></td><td class="arg"><code>&lt;sav&gt;</code></td><td><span class="en">Restore a snapshot after LoadSystem, continue from frame+1. Fingerprint check refuses a config mismatch.</span><span class="zh">LoadSystem 後還原快照,從 frame+1 續跑。指紋校驗不符即拒。</span></td></tr>
+    <tr><td class="flag"><code>--progress-frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Every N frames: checkpoint <code>latest.png</code> + a JSON line in <code>progress.jsonl</code>. 0 = off.</span><span class="zh">每 N 幀:checkpoint <code>latest.png</code> + <code>progress.jsonl</code> 一行 JSON。0 = 關。</span></td></tr>
+    <tr><td class="flag"><code>--progress-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Where those checkpoints land (cleared of stale files at start).</span><span class="zh">checkpoint 輸出目錄(啟動時清舊檔)。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="bench">
+  <h2><span class="kick"><span class="en">6 · Benchmark / perf</span><span class="zh">6 · 效能量測</span></span><span class="en">Throughput knobs &amp; profiling dumps</span><span class="zh">吞吐旋鈕與剖析傾印</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--bench-hc</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Benchmark exactly N raw master half-cycles. Golden: <code>300000</code> → <code>0x794A43ABDF169ADA</code> (mechanisms OFF).</span><span class="zh">benchmark 精確跑 N 個原始主 half-cycle。金:<code>300000</code> → <code>0x794A43ABDF169ADA</code>(機制關)。</span></td></tr>
+    <tr><td class="flag"><code>--log-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Benchmark JSON log output directory (default <code>log</code>).</span><span class="zh">benchmark JSON log 輸出目錄(預設 <code>log</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--dump-states</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Dump per-node states after the bench run (A/B per-node diff).</span><span class="zh">bench 後傾印全節點狀態(A/B 逐節點 diff)。</span></td></tr>
+    <tr><td class="flag"><code>--array-footprint</code></td><td class="arg">—</td><td><span class="en">Print the hot unmanaged-array base+size at setup (IBS/SPE bucketing).</span><span class="zh">設定時印熱 unmanaged 陣列 base+size(IBS/SPE 分桶)。</span></td></tr>
+    <tr><td class="flag"><code>--payload-hist</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">NodeInfo inline-payload size distribution.</span><span class="zh">NodeInfo inline-payload 大小分佈。</span></td></tr>
+    <tr><td class="flag"><code>--fc-taint-stats</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">same-state-prune eligibility (FC-free vs FC-tainted; diagnostic).</span><span class="zh">same-state-prune 適格性(FC-free vs FC-tainted;診斷)。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="shims">
+  <h2><span class="kick"><span class="en">7 · Shim toggles &amp; shared env vars</span><span class="zh">7 · Shim 開關與共用環境變數</span></span><span class="en">The analog-race patch surface</span><span class="zh">類比賽跑補丁面</span></h2>
+  <div class="note grn">
+    <span class="en"><b>In S1a, most of these shims are superseded by mechanisms.</b> The CLI flags below are identical to S1, but note: arming <code>M4_EDGE</code> auto-disables the ALU + DMC shims, and arming <code>M6X</code> auto-disables the dot-339 / BGSerialIn / even_odd write-delay shims. The 16 shared env vars are identical to S1; the 11 S1a-only mechanism env vars are documented in <a href="#adds">What S1a adds</a> above.</span>
+    <span class="zh"><b>在 S1a,大多數這些 shim 已被機制取代。</b>下方 CLI 旗標與 S1 相同,但注意:武裝 <code>M4_EDGE</code> 會自動關 ALU + DMC shim,武裝 <code>M6X</code> 會自動關 dot-339 / BGSerialIn / even_odd 寫延遲 shim。16 個共用環境變數與 S1 相同;11 個 S1a 專屬機制環境變數見上方 <a href="#adds">S1a 加了什麼</a>。</span>
+  </div>
+
+  <h3><span class="en">CLI shim flags</span><span class="zh">CLI shim 旗標</span> <span class="pill same"><span class="en">identical to S1</span><span class="zh">與 S1 相同</span></span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--no-shims</code></td><td class="arg">—</td><td><span class="en">Disable all test-mode shims. <b>Does NOT disable the S1a M2 / M4 / M6X mechanisms</b> — those are gated by their own env vars.</span><span class="zh">停用全部 test-mode shim。<b>不會關 S1a 的 M2 / M4 / M6X 機制</b> —— 那些由自己的環境變數控制。</span></td></tr>
+    <tr><td class="flag"><code>--no-alu-shim</code></td><td class="arg">—</td><td><span class="en">A/B the ALU input-latch hold shim (also skippable via <code>NO_ALU_SHIM</code>; auto-off under <code>M4_EDGE</code>).</span><span class="zh">A/B ALU 輸入閂鎖 hold shim(也可用 <code>NO_ALU_SHIM</code> 跳過;<code>M4_EDGE</code> 下自動關)。</span></td></tr>
+    <tr><td class="flag"><code>--no-dbl2007-shim</code></td><td class="arg">—</td><td><span class="en">A/B the <code>$2007</code> double-read merge shim.</span><span class="zh">A/B <code>$2007</code> 雙讀合併 shim。</span></td></tr>
+    <tr><td class="flag"><code>--no-ppu-ale-read-feedback-shim</code></td><td class="arg">—</td><td><span class="en">Expose the raw CHR <code>ALE</code>+<code>/RD</code> analog-feedback loop (P4 guard).</span><span class="zh">暴露原始 CHR <code>ALE</code>+<code>/RD</code> 類比回授環(P4 guard)。</span></td></tr>
+    <tr><td class="flag"><code>--oam-dma-ppu-bus-shim</code></td><td class="arg">—</td><td><span class="en">Re-affirm the <code>$4014</code>-from-PPU-I/O-bus OAM write hold (already ON by default).</span><span class="zh">重申 <code>$4014</code>-自-PPU-I/O-bus OAM 寫 hold(預設本來就開)。</span></td></tr>
+    <tr><td class="flag"><code>--no-oam-dma-ppu-bus-shim</code></td><td class="arg">—</td><td><span class="en">Disable that OAM-DMA-PPU-bus shim.</span><span class="zh">停用該 OAM-DMA-PPU-bus shim。</span></td></tr>
+    <tr><td class="flag"><code>--ppu-write-delay</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en"><code>$2001</code> write-effect delay in hc (even_odd; default 16; 0 = off). <b>Auto-off under <code>M6X</code>.</b></span><span class="zh"><code>$2001</code> 寫入生效延遲 N hc(even_odd;預設 16;0 = 關)。<b><code>M6X</code> 下自動關。</b></span></td></tr>
+    <tr><td class="flag"><code>--ppu-write-delay-global</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">dot-339 sprite-counter-reset delay in hc (default 24; 0 = off). <b>Auto-off under <code>M6X</code>.</b></span><span class="zh">dot-339 精靈計數器重置延遲 N hc(預設 24;0 = 關)。<b><code>M6X</code> 下自動關。</b></span></td></tr>
+    <tr><td class="flag"><code>--callback-drain-limit</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Non-convergence guard: fail with callback/node evidence if one drain exceeds N dispatches (AC recipe uses 2000).</span><span class="zh">非收斂 guard:單次排水超 N 次 dispatch 就帶證據失敗(AC 配方用 2000)。</span></td></tr>
+  </table></div>
+
+  <h3><span class="en">Shared environment variables (16)</span><span class="zh">共用環境變數(16 個)</span> <span class="pill same"><span class="en">identical to S1</span><span class="zh">與 S1 相同</span></span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Variable</span><span class="zh">變數</span></th><th><span class="en">Value</span><span class="zh">值</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td colspan="3" style="background:#181425"><b><span class="en">Group A — ALERead phase mux</span><span class="zh">A 組 — ALERead 相位 mux</span></b></td></tr>
+    <tr><td class="flag"><code>ALEREAD_MUX</code></td><td class="arg"><span class="en">set (any)</span><span class="zh">有設(任意)</span></td><td><span class="en"><b>Arm the ALERead <code>$2007</code>-access phase mux + node-split</b> (cuts <code>ppu.io_ab</code>↔<code>cpu.ab</code>). MUST be present before LoadSystem. <b>Required for the ALERead test</b>; the flagship recipe sets <code>ALEREAD_MUX=1</code>. The one everyone forgets.</span><span class="zh"><b>武裝 ALERead <code>$2007</code> 存取相位 mux + node-split</b>(切開 <code>ppu.io_ab</code>↔<code>cpu.ab</code>)。必須在 LoadSystem 前存在。<b>ALERead 測試必需</b>;旗艦配方設 <code>ALEREAD_MUX=1</code>。大家最常忘的那個。</span></td></tr>
+    <tr><td class="flag"><code>MUX_HC</code></td><td class="arg"><code>sw,rpS,rpE,fzS,fzE</code></td><td><span class="en">Tune the five mux window edges. Default <code>13,13,25,44,52</code> — the only calibration verified to PASS in-suite (matches the code default).</span><span class="zh">調 mux 五個窗邊。預設 <code>13,13,25,44,52</code> —— 唯一驗證套內 PASS 的校準(與 code 預設相同)。</span></td></tr>
+    <tr><td class="flag"><code>MUX_GATE</code></td><td class="arg"><code>vlo,vhi,hlo,hhi</code></td><td><span class="en">Override the mux detection gate. Default <code>3,3,220,226</code> — tight, so only the <code>boing2k7</code> stunt read triggers it.</span><span class="zh">覆蓋 mux 偵測閘。預設 <code>3,3,220,226</code> —— 很緊,只有 <code>boing2k7</code> 特技讀取會觸發。</span></td></tr>
+    <tr><td class="flag"><code>MUX_DBG</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Print <code>[mux]</code> arm/detect/replay/freeze trace (also on under <code>OB_DEBUG</code>).</span><span class="zh">印 <code>[mux]</code> arm/detect/replay/freeze 追蹤(<code>OB_DEBUG</code> 下也會開)。</span></td></tr>
+    <tr><td colspan="3" style="background:#181425"><b><span class="en">Group B — per-shim kill switches (set = skip)</span><span class="zh">B 組 — per-shim 關閉開關(有設 = 跳過)</span></b></td></tr>
+    <tr><td class="flag"><code>NO_OB_SHIM</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Skip the open-bus last-transferred-byte replay shim.</span><span class="zh">跳過 open-bus 最後傳輸位元組重放 shim。</span></td></tr>
+    <tr><td class="flag"><code>NO_DL_SHIM</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Skip the DL/idl φ2-transparency shim at <code>$4016/$4017</code>. (In S1a, <code>M4_DL</code> is the mechanism form.)</span><span class="zh">跳過 <code>$4016/$4017</code> 的 DL/idl φ2 透明 shim。(在 S1a,<code>M4_DL</code> 是其機制形式。)</span></td></tr>
+    <tr><td class="flag"><code>NO_ABORT_SHIM</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Skip the deferred-<code>$4015</code> DMC-DMA abort shim.</span><span class="zh">跳過延遲 <code>$4015</code> 的 DMC-DMA 中止 shim。</span></td></tr>
+    <tr><td class="flag"><code>NO_OAMEDGE_SHIM</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Skip the rendering-disable-edge OAM-write-suppression shim.</span><span class="zh">跳過關渲染邊沿抑制 OAM 寫入的 shim。</span></td></tr>
+    <tr><td class="flag"><code>NO_BGS_SHIM</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">Skip the BG-serial reload-delay shim (M6 family; superseded by <code>M6X</code>).</span><span class="zh">跳過 BG 序列 reload 延遲 shim(M6 家族;被 <code>M6X</code> 取代)。</span></td></tr>
+    <tr><td colspan="3" style="background:#181425"><b><span class="en">Group C — forensic debug probes</span><span class="zh">C 組 — 取證除錯探針</span></b></td></tr>
+    <tr><td class="flag"><code>OB_DEBUG</code></td><td class="arg"><code>1</code></td><td><span class="en">Turn on the test-only forensic probe group (<code>[ob]</code>/<code>[dl]</code>/<code>[dma]</code>/<code>[pcm]</code>/<code>[ae]</code>…; some carry hardcoded time windows). Also enables the mux trace.</span><span class="zh">開 test-only 取證探針群(<code>[ob]</code>/<code>[dl]</code>/<code>[dma]</code>/<code>[pcm]</code>/<code>[ae]</code>…;部分帶硬編時間窗)。也開 mux 追蹤。</span></td></tr>
+    <tr><td class="flag"><code>LAE_DEBUG</code></td><td class="arg"><code>1</code></td><td><span class="en">LAE shim forensic output.</span><span class="zh">LAE shim 取證輸出。</span></td></tr>
+    <tr><td class="flag"><code>ODMA_DEBUG</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">OAM-DMA-PPU-bus shim forensic output.</span><span class="zh">OAM-DMA-PPU-bus shim 取證輸出。</span></td></tr>
+    <tr><td class="flag"><code>PB_DEBUG</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">PPU ALE/read-feedback shim forensic output.</span><span class="zh">PPU ALE/read-feedback shim 取證輸出。</span></td></tr>
+    <tr><td class="flag"><code>PWD_DEBUG</code></td><td class="arg"><code>1</code></td><td><span class="en"><code>$2001</code> write-delay shim forensic output.</span><span class="zh"><code>$2001</code> 寫入延遲 shim 取證輸出。</span></td></tr>
+    <tr><td class="flag"><code>OE_DEBUG</code></td><td class="arg"><span class="en">set</span><span class="zh">有設</span></td><td><span class="en">OAM-blank-edge shim forensic output.</span><span class="zh">OAM-blank-edge shim 取證輸出。</span></td></tr>
+    <tr><td class="flag"><code>PC_WIN</code></td><td class="arg"><code>lo,hi</code></td><td><span class="en">A <code>lo,hi</code> time-window (in hc) scoping the forensic probes; default = the IDR-forensics window <code>13750000,15090000</code>.</span><span class="zh">一個 <code>lo,hi</code> 時間窗(以 hc 計)限定取證探針;預設 = IDR-forensics 窗 <code>13750000,15090000</code>。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="probes">
+  <h2><span class="kick"><span class="en">8 · Diagnostic probes</span><span class="zh">8 · 診斷探針</span></span><span class="en">The forensic toolbox</span><span class="zh">取證工具箱</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--dump-node</code></td><td class="arg"><code>&lt;name&gt;</code> / <code>@&lt;id&gt;</code></td><td><span class="en">Dissect one node: pull-up, gated transistors, channel-end transistors. Raw-id aliases (<code>cpu.#nnnn</code>) do not resolve here — only in test mode.</span><span class="zh">解剖單節點:pull-up、被 gate 的電晶體、channel 端電晶體。raw-id 別名(<code>cpu.#nnnn</code>)在此不解析 —— 只在 test 模式。</span></td></tr>
+    <tr><td class="flag"><code>--dump-module</code></td><td class="arg"><code>&lt;name&gt;</code></td><td><span class="en">Parse <code>&lt;system-def-dir&gt;/&lt;name&gt;.js</code> and print a summary.</span><span class="zh">解析 <code>&lt;system-def-dir&gt;/&lt;name&gt;.js</code> 並印摘要。</span></td></tr>
+    <tr><td class="flag"><code>--dump-system</code></td><td class="arg">—</td><td><span class="en">Compose the full nes-001 + cart netlist and print counts + probes.</span><span class="zh">組出完整 nes-001 + cart 網表並印計數 + 探針。</span></td></tr>
+    <tr><td class="flag"><code>--names</code></td><td class="arg"><code>&lt;id1,id2,…&gt;</code></td><td><span class="en">Engine id → name (keeps the name map).</span><span class="zh">引擎 id → 名稱(保留名稱映射)。</span></td></tr>
+    <tr><td class="flag"><code>--watch</code></td><td class="arg"><code>&lt;names&gt;</code></td><td><span class="en">Comma list of node names, printed per frame (pairs with <code>--micro</code> / after <code>--resume</code>).</span><span class="zh">節點名逗號清單,每幀印(配 <code>--micro</code> / <code>--resume</code> 後)。</span></td></tr>
+    <tr><td class="flag"><code>--micro</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Run N frames, dump work RAM <code>$0200-$07FF</code>.</span><span class="zh">跑 N 幀,傾印工作 RAM <code>$0200-$07FF</code>。</span></td></tr>
+    <tr><td class="flag"><code>--micro-frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en"><code>--micro</code> frame count (default 3).</span><span class="zh"><code>--micro</code> 幀數(預設 3)。</span></td></tr>
+    <tr><td class="flag"><code>--trace</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Classic trace-column output.</span><span class="zh">傳統 trace 欄位輸出。</span></td></tr>
+    <tr><td class="flag"><code>--cycles</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en"><code>--trace</code> cycle count (default 64).</span><span class="zh"><code>--trace</code> 週期數(預設 64)。</span></td></tr>
+    <tr><td class="flag"><code>--bus-trace</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">DMC bus microscope (<code>$4013/$4015</code> + RDY-stall cycles).</span><span class="zh">DMC 匯流排顯微鏡(<code>$4013/$4015</code> + RDY-stall 週期)。</span></td></tr>
+    <tr><td class="flag"><code>--op-probe</code></td><td class="arg"><code>&lt;path&gt; &lt;hexaddr&gt;</code></td><td><span class="en">hc-log the datapath buses when AB hits the address.</span><span class="zh">AB 命中位址時做 hc 級 datapath 匯流排記錄。</span></td></tr>
+    <tr><td class="flag"><code>--rdy-probe</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Per-frame <code>cpu.rdy</code> transition counts.</span><span class="zh">每幀 <code>cpu.rdy</code> 轉換計數。</span></td></tr>
+    <tr><td class="flag"><code>--phase-probe</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Per-hc CPU/PPU clock-phase dump.</span><span class="zh">每 hc CPU/PPU 時鐘相位傾印。</span></td></tr>
+    <tr><td class="flag"><code>--probe2002</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace bus/PPU signals at the next <code>$2002</code> read after vblank.</span><span class="zh">追蹤 vblank 後下一個 <code>$2002</code> 讀取的訊號。</span></td></tr>
+    <tr><td class="flag"><code>--probe-vbl</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace the 2C02 vbl-flag latch through the <code>$2002</code> read path.</span><span class="zh">追蹤 2C02 vbl 旗標 latch 經 <code>$2002</code> 讀取路徑。</span></td></tr>
+    <tr><td class="flag"><code>--probe-2001</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace <code>$2001</code> write → bkg_enable → rendering + the dot-339 skip window.</span><span class="zh">追蹤 <code>$2001</code> 寫 → bkg_enable → rendering + dot-339 skip 窗。</span></td></tr>
+    <tr><td class="flag"><code>--probe-dma</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace the OAM-DMA address bus + open bus (read_buffer #67).</span><span class="zh">追蹤 OAM-DMA 位址匯流排 + open bus(read_buffer #67)。</span></td></tr>
+    <tr><td class="flag"><code>--ppu-memory-trace</code></td><td class="arg"><code>&lt;lo&gt; &lt;hi&gt;</code></td><td><span class="en">Trace CHR/VRAM callbacks while the CPU PC is in this inclusive hex range.</span><span class="zh">CPU PC 在此 hex 範圍(含端點)內時追蹤 CHR/VRAM callback。</span></td></tr>
+    <tr><td class="flag"><code>--ppu-memory-trace-x</code></td><td class="arg"><code>&lt;hex&gt;</code></td><td><span class="en">Restrict the PPU memory trace to one CPU X value.</span><span class="zh">把 PPU memory trace 限定到單一 CPU X 值。</span></td></tr>
+    <tr><td class="flag"><code>--ac-dump-work</code></td><td class="arg">—</td><td><span class="en">Dump AccuracyCoin work/results RAM <code>$0500-$06FF</code> at verdict.</span><span class="zh">判定時傾印 AccuracyCoin 工作/結果 RAM <code>$0500-$06FF</code>。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="screen">
+  <h2><span class="kick"><span class="en">9 · Screen output</span><span class="zh">9 · 畫面輸出</span></span><span class="en">Framebuffer dumps</span><span class="zh">framebuffer 傾印</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
+    <tr><td class="flag"><code>--screenshot</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Run N frames, dump the framebuffer to a PNG.</span><span class="zh">跑 N 幀後把 framebuffer 傾印成 PNG。</span></td></tr>
+    <tr><td class="flag"><code>--frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Frame count for <code>--screenshot</code> / <code>--ppu-dump</code> (default 3).</span><span class="zh"><code>--screenshot</code> / <code>--ppu-dump</code> 幀數(預設 3)。</span></td></tr>
+    <tr><td class="flag"><code>--out</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Output PNG path for <code>--screenshot</code> (default <code>screenshot.png</code>).</span><span class="zh"><code>--screenshot</code> 輸出 PNG 路徑(預設 <code>screenshot.png</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--frame-dump</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Per-frame PNG dump with progress + timing.</span><span class="zh">逐幀 PNG 傾印(含進度 + 計時)。</span></td></tr>
+    <tr><td class="flag"><code>--frame-count</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Number of frames for <code>--frame-dump</code> (default 50).</span><span class="zh"><code>--frame-dump</code> 幀數(預設 50)。</span></td></tr>
+    <tr><td class="flag"><code>--out-dir</code></td><td class="arg"><code>&lt;dir&gt;</code></td><td><span class="en">Output directory for <code>--frame-dump</code> (default <code>frames</code>).</span><span class="zh"><code>--frame-dump</code> 輸出目錄(預設 <code>frames</code>)。</span></td></tr>
+    <tr><td class="flag"><code>--ppu-dump</code></td><td class="arg"><code>&lt;rom&gt;</code></td><td><span class="en">Run N frames, dump palette RAM / VRAM nametable / rendering state / pclk1 samples.</span><span class="zh">跑 N 幀,傾印 palette RAM / VRAM nametable / rendering 狀態 / pclk1 取樣。</span></td></tr>
+  </table></div>
+</section>
+
+<section id="recipes">
+  <h2><span class="kick"><span class="en">10 · Common recipes</span><span class="zh">10 · 常用配方</span></span><span class="en">Copy-paste command lines</span><span class="zh">可貼上的指令列</span></h2>
+
+  <h3><span class="en">Golden checksum (mechanisms OFF — must match S1)</span><span class="zh">黃金驗證(機制關 —— 必須與 S1 相同)</span></h3>
+  <pre><code>dotnet AprVisual.S1A.dll --benchmark AprVisualBenchMark/roms/full_palette.nes --bench-hc 300000 \
+  --extra-ram --system-def-dir AprVisualBenchMark/data/system-def
+# checksum MUST be 0x794A43ABDF169ADA (benchmark path never loads shims OR mechanisms)</code></pre>
+
+  <h3><span class="en">S1a mechanism A/B (arm a mechanism, its shims auto-retire)</span><span class="zh">S1a 機制 A/B(武裝機制,對應 shim 自動退役)</span></h3>
+  <pre><code>M4_EDGE=1  dotnet AprVisual.S1A.dll --test ...   # M4 edge-latch replaces DmcLatch + AluLatch
+M4_EDGE=1 M4_DL=1 dotnet AprVisual.S1A.dll --test ...   # + the DL transparent row ($4016/$4017)
+M6X=1      dotnet AprVisual.S1A.dll --test ...   # M6xM3 phase table replaces dot-339 + BGSerialIn + even_odd
+NO_M2DECAY=1 dotnet AprVisual.S1A.dll --test ... # turn the default-ON M2 decay OFF (restores io_db shim)
+M2_CAP=1   dotnet AprVisual.S1A.dll --benchmark ...  # physical-capacitance arbitration — CHANGES the checksum by design</code></pre>
+  <p class="mut" style="font-size:12.5px"><span class="en">PowerShell: <code>$env:M4_EDGE=1; dotnet …</code> (set the env var first).</span><span class="zh">PowerShell:<code>$env:M4_EDGE=1; dotnet …</code>(先設環境變數)。</span></p>
+
+  <h3><span class="en">AccuracyCoin flagship run (shared surface — same as S1)</span><span class="zh">AccuracyCoin 掛牌跑(共用面 —— 與 S1 相同)</span></h3>
+  <div class="note acc">
+    <span class="en"><b>The <code>ALEREAD_MUX</code> env is load-bearing and the thing everyone forgets.</b> Without it the ALERead test fails; <code>MUX_HC=13,13,25,44,52</code> is the only calibration verified to PASS in-suite (it equals the code default). The flagship must carry <code>--max-frames 12000</code> — the default 900 stops the run early.</span>
+    <span class="zh"><b><code>ALEREAD_MUX</code> 環境變數是關鍵、也是大家最常忘的。</b>沒有它 ALERead 測試就掛;<code>MUX_HC=13,13,25,44,52</code> 是唯一驗證套內 PASS 的校準(等於 code 預設)。旗艦必帶 <code>--max-frames 12000</code> —— 預設 900 會提早停。</span>
+  </div>
+  <pre><code>ALEREAD_MUX=1 MUX_HC=13,13,25,44,52 \
+dotnet AprVisual.S1A.dll --test AprAccuracyCoinUnattended/AccuracyCoin.nes --ac-verdict --joypad \
+  --callback-drain-limit 2000 --reset-hold-extra 1 --pin 2 \
+  --system-def-dir AprVisualBenchMark/data/system-def --max-frames 12000 \
+  --snapshot-frames 10 --snapshot-dir out/snaps --progress-frames 600 --progress-dir out/prog
+# S1a note: M2 charge-decay is default-ON here; the io_db shim is already retired</code></pre>
+
+  <h3><span class="en">Shim A/B isolation</span><span class="zh">Shim A/B 隔離</span></h3>
+  <pre><code># S1a adds five per-shim kill switches over S1 (NO_DMC_SHIM / NO_ALU_SHIM / NO_LXA_SHIM /
+#   NO_FRAMEIRQ_SHIM / NO_IODECAY_SHIM), on top of the five shared ones:
+NO_OB_SHIM=1 NO_DL_SHIM=1 NO_ABORT_SHIM=1 NO_OAMEDGE_SHIM=1 NO_BGS_SHIM=1 \
+NO_DMC_SHIM=1 NO_ALU_SHIM=1 NO_LXA_SHIM=1 NO_FRAMEIRQ_SHIM=1 \
+  dotnet AprVisual.S1A.dll --test ...
+# --no-shims kills the shims at once, but NOT the M2/M4/M6X mechanisms (env-gated)</code></pre>
+
+  <div class="note">
+    <span class="en"><b>One-runner rule:</b> run only one simulation instance at a time; do not build during a benchmark (the DLL is locked). Every mechanism must keep the golden checksum unchanged while OFF and hold AC 141/141 + the 147-ROM regression while ON.</span>
+    <span class="zh"><b>單 runner 鐵律:</b>同一時間只跑一個模擬實例;benchmark 期間不 build(DLL 鎖)。每個機制關閉時金 checksum 須不變,開啟時須守住 AC 141/141 + 147 顆回歸。</span>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">The S1a CLI reference — S1's shared surface plus the M2 / M4 / M6X mechanism env vars. Self-contained, and tracking S1a as it diverges.</span>
+     <span class="zh">S1a CLI 參考 —— S1 的共用面加上 M2 / M4 / M6X 機制環境變數。自足,並隨 S1a 分化而追蹤。</span></p>
+  <p class="mut"><span class="en">71 CLI flags (identical to S1 today) · 16 shared env vars · 11 S1a-only env vars. Generated / verified from source on 2026-07-18; authoritative parser = <code>src/AprVisual.S1A/Test/TestRunner.cs</code> (mechanisms: <code>Test/TestRunner.Test.cs</code>, <code>Sim/WireCore.System.cs</code>).</span>
+     <span class="zh">71 個 CLI 旗標(今天與 S1 相同)· 16 個共用環境變數 · 11 個 S1a 專屬環境變數。2026-07-18 由原始碼生成 / 驗證;權威解析器 = <code>src/AprVisual.S1A/Test/TestRunner.cs</code>(機制:<code>Test/TestRunner.Test.cs</code>、<code>Sim/WireCore.System.cs</code>)。</span></p>
+  <p><a href="s1a.html"><span class="en">← S1a study hub</span><span class="zh">← S1a 研究主站</span></a> · <a href="s1-cli.html"><span class="en">← S1 CLI reference</span><span class="zh">← S1 CLI 參考</span></a></p>
+</footer>
+
+<script>
+  function setLang(l){
+    document.body.className = 'lang-' + l;
+    document.documentElement.lang = (l === 'zh') ? 'zh-Hant' : 'en';
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    try{ localStorage.setItem('aprvisual-lang', l); }catch(e){}
+  }
+  (function(){
+    var saved=null; try{ saved=localStorage.getItem('aprvisual-lang'); }catch(e){}
+    if(saved === 'zh' || saved === 'en'){ setLang(saved); return; }
+    var langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage || ''];
+    var isZh = langs.some(function(l){ return String(l).toLowerCase().indexOf('zh') === 0; });
+    setLang(isZh ? 'zh' : 'en');
+  })();
+</script>
+</body>
+</html>

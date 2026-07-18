@@ -155,6 +155,22 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   判不了,需套內 141/blargg 證據)。**毛刺免疫三結論:(a)Transparent 判決=原語就位可用;
   (b)OpenBus last-byte=真邊界(L3 行為資料);(c)DL/OAM=判決可機制化但孤立不可判。**
   無乾淨退役產出 —— 是 campaign 式誠實負面 + 精確邊界刻畫,不是失敗。
+- **2026-07-18:M6×M3 統一相位仲裁機制(4aef1b8)+ 誠實結論**。三顆 downstream-clamp 延遲 shim
+  (dot-339/even_odd/BGSerialIn)= 同一物理:跨晶片控制變更晚 16-24hc 到,計數器比較器不該提前動作。
+  **一張表(trigger, gate, delay, window)取代手寫 ShimStep**:dot339=NodeRise(rendering_1)→clamp
+  hpos_eq_339_and_rendering 24hc/visible;bgserial=RegWrite($2001,enable)→clamp reload gate 16hc/hpos%8≥4。
+  兩 action(ClampGate/DelayTransition)、兩 trigger、三 window;force-LOW 無牆;env `M6X`。Gate A 金不變。
+  **8 臂實驗全 PASS**:M6X 機制 bit-safe(d339_m6x/bgs_m6x/reg_ob/reg_oc 全過)—— **但 dot-339 與
+  BGSerialIn 兩顆孤立不可判**(d339_ctrl 拔 dot-339 也 PASS、bgs_ctrl 拔 BGS 也 PASS,無失敗對照)。
+  **與 DL/OAM 同類:整個跨晶片相位家族本來就在套內修好,孤立協定判不了退役。** even_odd 的
+  DelayTransition 尚未建。→ 要真正驗退役需**套內(snapshot resume)跑滿 141**。
+- **2026-07-18:s1a.html 新增「shim 總帳」區(shim ledger)** + 兩個工具。使用者要求:每個 shim
+  說明目的、五種下場(RETIRED/PROVEN/UNDECIDABLE/CEILING/ACTIVE)、天花板與不可判用教學方式誠實記錄。
+  天花板教學:OpenBus last-byte=外部匯流排電容(非晶粒內節點,M4 全 stack 仍 FAIL);不可判教學:
+  跨晶片相位家族孤立無鑑別對照。**工具:`tools/estimate_frames.py`**(跑 AprNes 算完成幀→×7s/frame→
+  timeout ×1.5 保險;AC 測試回報畫面穩定幀=安全上界)。**147 快照確認可用**(實測 01-basics:
+  --snapshot-frames 存 f5/10/15 → --resume from f15 → 同 PASS@f19,只跑 4 幀;與 141 同一套引擎快照,
+  共用測試迴圈)。⚠️ 快照對設定敏感:換機制/旗標則節點重編、舊快照失效(LoadState 拒絕)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

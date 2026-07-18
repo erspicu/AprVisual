@@ -230,6 +230,22 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   M2_DECAY 證實中立(20.6M hc < 25.7M 閾值,機制/舊 shim 皆不可能開火)→ io_db 退役不受影響。
   **誠實推論:現 build 的 147 全量分數預期 145/2**(oam_read 合法翻籤加入 cpu_dummy_writes_oam
   的忠實偏差欄);146/1 是戰役 build 的歷史成績,下次全量回歸登記新分數。已記 KB 時間線。
+- **2026-07-18 晚:重大更正 —— 上一條的「翻籤」敘事整條收回(配方錯誤,K=0)**。
+  追查鏈:①拔 t13032b 的取證臂 **hc 逐位相同** → 補管歸屬否證;②細讀程式碼,ALERead
+  node-split 是 **opt-in**(`ALEREAD_MUX` env 才切,plain 測試不切)→ mux 歸屬也否證;
+  ③真相 = **campaign runner 對每個測試都帶 `--reset-hold-extra 1`(K=1 對齊,run_tests.py
+  L154),而本日所有孤立臂都是 plain(K=0)** → 跨時代比較整批無效(05-nmi 本就記載
+  K∈{0,5} 會倒)。oam_read/oam_stress 沒有翻籤、**146/1 照舊有效**;「預期 145/2→144/3」
+  收回;KB 兩語版時間線已改寫為假警報更正條目。
+  仍然成立的:S1≡S1A≡側建 三 exe 逐位相同(fork 零漂移)、M2_DECAY 對 oam_read 中立、
+  同配方對內對照(FrameIrq FAIL(6)/LXA FAIL(1) 可判訊號、dbl/eot hc-identical)—— 但後者
+  全是 **K=0 量測**,旁觀者/可判結論待 K=1 重確認(腳本已備:temp/m2_gateB/run_k1_*.ps1,
+  等 7 核重跑空檔)。網頁 decidability.html/s1a.html 補 K=0 量測註記。
+  **教訓(已入長期記憶 ac-test-toolchain-and-verdict-flow):孤立重驗前先對 runner 原始碼
+  核配方;重跑/watcher 用正牌工具鏈(ac_watch.py、$07F0→AccuracyCoin.json 判定鏈),別土製。**
+  **基準重述(user 口述確認)**:S1 於分支上以 shim 機制達成 AC 無人版 141/141 + 147 套
+  146/147(唯一 FAIL=忠實偏差)後合併回 main;S1A 才是拆 shim 的研究 fork。S1 最新 build
+  全量重跑(AC@核8 + 147@6 lane,TASK #1/#2)進行中再認證。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

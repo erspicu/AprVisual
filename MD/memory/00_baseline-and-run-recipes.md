@@ -91,9 +91,10 @@ python tools/testrom/run_tests.py --rerun --jobs 6 --no-build
 - **147 全量重跑 = 146/1 完成(7.5h,K=1 正典配方)** —— 與掛牌基準逐項相符,唯一 FAIL =
   cpu_dummy_writes_oam(忠實偏差),**oam_read PASS**。**徹底否證 K=0 假警報的「預期 145/2」**;
   最新 S1 build 的 147 就是 146/1。報告已重建 WebSite/Report/。Task #2 completed。
-- **AC-141 仍在跑**(核 8,PID 見 temp/ac141_s1.pid;~frame 3840+/4870,~80%,ETA ~02:15)。
-  快照每 10 幀 temp/ac141_s1_snap/;ac_watch 哨兵盯著、判決寄信。判決落地 = io_db 退役正式入帳
-  的套內證據(注意:AC 跑的是純 S1,不是 S1A M2_DECAY;io_db 退役的套內確認要另跑 S1A)。
+- **AC-141 = 141/141 passed, 0 skipped 完成(2026-07-19 03:26,4925 幀 8.1h,detection=ac)** ——
+  與掛牌 run8 逐項相符(同 4925 幀)。engineVersion eff4534。判決權威 = AccuracyCoin.json。
+  **整個 S1 基準重新認證完成:AC 141/141 + 147 146/1,與掛牌一致。** io_db 退役的套內確認
+  要另跑 S1A(AC 跑的是純 S1,不是 S1A M2_DECAY)。
 - **S1a 晶粒佈局檢視器全上線**(commit 系列 in WebSite/s1a/layout/ + m[1-7]-layout.html):
   Visual6502-style 即時渲染、向量重繪銳利、gesture 降級、loading 疊層、CPU/PPU 惰性切換。
   M1-M7 七頁;2C02+2A03 兩晶片(M5/M6 PPU-only)。偵測器全用 --dump-nodes(既有偵測投影)。

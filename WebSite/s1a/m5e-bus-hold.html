@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M5e · The capacitor nobody placed — chartering the board-level bus-hold</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:860px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  figure{margin:20px 0;text-align:center;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#shimlist"><span class="en">Shim ledger</span><span class="zh">shim 總帳</span></a>
+  <a class="sec" href="m5-board.html"><span class="en">M5: the board</span><span class="zh">M5:板級</span></a>
+  <a class="sec" href="m4-latch.html#glitch"><span class="en">The experiments</span><span class="zh">實驗紀錄</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The capacitor nobody placed</span><span class="zh">沒有人放的那顆電容</span></h1>
+  <p class="tag en">Mechanism charter M5e. One shim survived every on-die mechanism we built — because the physics it stands in for is not on either die. The open-bus "last byte" lives in the <b>parasitic capacitance of the board's data bus</b>: a capacitor that appears on no schematic, placed by no designer, made of traces and everyone's pins. This page records the issue, the proof, and the charter for its eventual mechanism — deliberately designed later, documented now.</p>
+  <p class="tag zh">機制立案 M5e。有一顆 shim 在我們建的每一個晶粒內機制面前都存活下來 —— 因為它代打的物理根本不在任何一顆晶粒上。open-bus 的「last byte」活在<b>主機板資料匯流排的寄生電容</b>裡:一顆不出現在任何電路圖上、沒有任何設計者放置、由走線和大家的接腳組成的電容。本頁記錄這個 issue、證明、以及它未來機制的立案 —— 刻意留待日後設計,現在先記錄。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M5e · board parasitic bus-hold</span>
+    <span class="pill"><span class="en">chartered 2026-07-18 — design TBD</span><span class="zh">2026-07-18 立案 —— 設計待議</span></span>
+  </p>
+</header>
+
+<main>
+
+<section id="physics">
+  <h2><span class="kick"><span class="en">The physics</span><span class="zh">物理</span></span>
+      <span class="en">A capacitor made of wires and pins</span><span class="zh">由線和腳組成的電容</span></h2>
+  <p class="en">The NES CPU data bus (D0–D7) strings together the 2A03, the PRG ROM, the work RAM, and (buffered) the PPU. When the CPU reads an address nothing answers — the open bus — the value it gets is whatever charge remains on the copper: <b>the last byte anyone drove</b>. What holds that charge is the bus net's <i>parasitic</i> capacitance: PCB trace-to-plane capacitance plus the package pins, bond wires, and input gates of <b>every chip hanging on the bus</b>. Tens of picofarads in total; with leakage currents this small, the level survives for milliseconds and more — vastly longer than the microseconds between CPU cycles, so a following read always sees the last byte. No component on the schematic is "the open-bus capacitor". The board provides it for free, by existing.</p>
+  <p class="zh">NES 的 CPU 資料匯流排(D0–D7)串著 2A03、PRG ROM、工作 RAM 和(經緩衝的)PPU。當 CPU 讀一個沒人回應的位址 —— open bus —— 它拿到的值,就是銅線上殘留的電荷:<b>最後被任何人驅動過的位元組</b>。保持這團電荷的,是匯流排網的<i>寄生</i>電容:PCB 走線對地電容,加上<b>掛在匯流排上每一顆晶片</b>的封裝接腳、bond wire 與輸入閘極。合計幾十 pF;漏電流這麼小,電位能存活毫秒以上 —— 遠長於 CPU cycle 之間的微秒,所以緊接的讀取永遠看得到 last byte。電路圖上沒有任何零件叫「open-bus 電容」。主機板光是存在,就免費提供了它。</p>
+</section>
+
+<section id="proof">
+  <h2><span class="kick"><span class="en">The proof</span><span class="zh">證明</span></span>
+      <span class="en">Why every on-die mechanism failed — experimentally</span><span class="zh">為什麼每個晶粒內機制都失敗 —— 實驗為證</span></h2>
+  <p class="en">Our graph models the two dies' interiors exactly (segdefs polygons — the M2 census computes real capacitance for every on-die node) and the board as <b>ideal wires with no geometry</b>. The bus trace and everyone's pin capacitance exist <i>between</i> the dies, in a region our data simply does not describe. The retirement experiments confirmed the consequence three independent ways (<a href="m4-latch.html#glitch">full record</a>):</p>
+  <p class="zh">我們的圖精確建模兩顆晶粒的內部(segdefs 多邊形 —— M2 普查能算出每個晶粒內節點的真電容),而主機板是<b>沒有幾何的理想導線</b>。匯流排走線與大家的接腳電容存在於晶粒<i>之間</i>,在我們的資料完全沒有描述的區域。試拔實驗用三條獨立路徑證實了後果(<a href="m4-latch.html#glitch">完整紀錄</a>):</p>
+  <ul>
+    <li class="en"><b>M2 capacitance arbitration</b> — can't reach it: the bus is actively re-driven each cycle (not floating), and the board net has no C in our data anyway. Control experiment: FAIL(1).</li>
+    <li class="zh"><b>M2 電容裁決</b> —— 碰不到:匯流排每個 cycle 被主動重驅動(不是浮接),而且板網在我們的資料裡本來就沒有 C。對照實驗:FAIL(1)。</li>
+    <li class="en"><b>The full M4 latch stack</b> (data-wins + hold + transparent) — wrong physics: nothing here is a latch. Control: FAIL(1).</li>
+    <li class="zh"><b>M4 閂鎖全 stack</b>(data-wins + hold + transparent)—— 物理不對口:這裡沒有任何東西是閂鎖。對照:FAIL(1)。</li>
+    <li class="en"><b>M3 delay</b> — timing does not create charge storage that isn't modeled.</li>
+    <li class="zh"><b>M3 延遲</b> —— 時序不會憑空生出沒被建模的電荷儲存。</li>
+  </ul>
+  <table>
+    <tr><th></th><th><span class="en">OpenBus last-byte (this page)</span><span class="zh">OpenBus last-byte(本頁)</span></th><th><span class="en">io_db decay (retired ✅)</span><span class="zh">io_db 衰減(已退役 ✅)</span></th></tr>
+    <tr><td><span class="en">where the capacitance lives</span><span class="zh">電容在哪</span></td><td class="hot"><span class="en">the board (traces + pins)</span><span class="zh">板上(走線+接腳寄生)</span></td><td class="ok"><span class="en">on-die (2C02 io-bus latch)</span><span class="zh">晶粒內(2C02 io-bus 閂鎖)</span></td></tr>
+    <tr><td><span class="en">hold time</span><span class="zh">保持多久</span></td><td><span class="en">milliseconds and up</span><span class="zh">毫秒級以上</span></td><td>~600 ms <span class="en">then leaks to 0</span><span class="zh">後漏到 0</span></td></tr>
+    <tr><td><span class="en">in our graph?</span><span class="zh">在我們的圖裡嗎</span></td><td class="hot"><span class="en">no geometry at all</span><span class="zh">❌ 零幾何</span></td><td class="ok"><span class="en">real nodes (ppu._io_db)</span><span class="zh">✅ 真節點</span></td></tr>
+    <tr><td><span class="en">fate</span><span class="zh">命運</span></td><td class="hot"><span class="en">ceiling → M5e chartered</span><span class="zh">天花板 → M5e 立案</span></td><td class="ok"><span class="en">M2 timestamp decay</span><span class="zh">M2 時戳衰減</span></td></tr>
+  </table>
+  <p class="mut" style="font-size:13.5px"><span class="en">The two are easy to confuse — both are "charge remembers a byte". The difference is jurisdiction: one capacitor is drawn in segdefs, the other exists only in the physical world between the packages.</span><span class="zh">兩者很容易搞混 —— 都是「電荷記住一個位元組」。差別在管轄權:一顆電容畫在 segdefs 裡,另一顆只存在於封裝之間的物理世界。</span></p>
+</section>
+
+<section id="charter">
+  <h2><span class="kick"><span class="en">The charter</span><span class="zh">立案</span></span>
+      <span class="en">M5e — give the bus its physics, in the right home</span><span class="zh">M5e —— 把物理還給匯流排,放進對的家</span></h2>
+  <p class="en">The honest fix is not another on-die mechanism — it is admitting the board's bus is a <b>physical component</b> our system model should carry, exactly as the 74LS373 already is. M5e charters that: extend the M5 board-component library with a <b>bus-hold semantic for external nets</b> — a capacitance annotation on the board-level data bus that remembers the last driven value and supplies it when nothing drives. The shim's <i>logic</i> barely changes; its <i>home and legitimacy</i> do: from "test-mode patch" to "physically-justified board net model", the same philosophy that made the '373 a first-class citizen instead of a hack in a callback.</p>
+  <p class="zh">誠實的解法不是再做一個晶粒內機制 —— 而是承認主機板的匯流排是一個系統模型本來就該攜帶的<b>物理元件</b>,就像 74LS373 已經是的那樣。M5e 立的就是這個案:把 M5 板級元件庫延伸出<b>外部網的 bus-hold 語意</b> —— 在板級資料匯流排上掛一個電容標註,記住最後被驅動的值、在沒人驅動時供出它。shim 的<i>邏輯</i>幾乎不變;改變的是它的<i>家與正當性</i>:從「測試模式補丁」變成「有物理依據的板網模型」—— 跟讓 '373 成為一級公民、而不是回呼裡的 hack,是同一個哲學。</p>
+  <div class="note">
+    <span class="en"><b>Deliberately chartered, not built.</b> The design is left open on purpose (recorded now, decided later). The open questions it must answer:</span>
+    <span class="zh"><b>刻意只立案、不實作。</b>設計刻意留白(現在記錄、日後決定)。它必須回答的開放問題:</span>
+  </div>
+  <ul>
+    <li class="en"><b>Where does bus-hold live?</b> A property of the connection layer (any board net can carry a C annotation), or a pseudo-component ("the bus" as a device)? The former is more general; the latter matches the '373 precedent.</li>
+    <li class="zh"><b>bus-hold 住哪?</b>連線層的屬性(任何板網都能帶 C 標註),還是偽元件(「匯流排」本身當一個 device)?前者更通用;後者符合 '373 前例。</li>
+    <li class="en"><b>Does board-bus decay matter?</b> On-die decay was ~600 ms and test-visible; board hold is longer and probably never decays within any test. Likely a hold-forever first version.</li>
+    <li class="zh"><b>板匯流排的衰減要不要建?</b>晶粒內衰減 ~600ms 且測試看得到;板上保持更久,大概沒有測試等得到它衰減。第一版可能就是永久保持。</li>
+    <li class="en"><b>The P6 glitch half stays separate.</b> The err4 DOR-precharge pulse escaping through an open pad driver is a transient (M4/P6 jurisdiction), not bus-hold; M5e must not quietly absorb it.</li>
+    <li class="zh"><b>P6 毛刺那一半另案。</b>err4 的 DOR precharge 脈衝經敞開 pad 驅動洩出是瞬態(M4/P6 管轄),不是 bus-hold;M5e 不可以悄悄把它吸收進來。</li>
+    <li class="en"><b>Verification is decidable.</b> Unusually for this family, the control already fails in isolation (AC OpenBus, FAIL(1)) — so when M5e is built, a clean three-arm retirement proof is available immediately.</li>
+    <li class="zh"><b>驗證是可判的。</b>在這個家族裡難得地,對照組在孤立下就會失敗(AC OpenBus,FAIL(1))—— 所以 M5e 一旦建成,乾淨的三段論退役證明立刻可用。</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a mechanism charter M5e · see <a href="m5-board.html">M5: the board as a circuit</a> · experiments: <a href="m4-latch.html#glitch">glitch immunity</a> · back to the <a href="../s1a.html#shimlist">shim ledger</a></span>
+     <span class="zh">S1a 機制立案 M5e · 參見 <a href="m5-board.html">M5:把主機板當電路</a> · 實驗:<a href="m4-latch.html#glitch">毛刺免疫</a> · 回 <a href="../s1a.html#shimlist">shim 總帳</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the board provides the capacitor for free; the model should too.</span><span class="zh">主機板免費提供了那顆電容;模型也該如此。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

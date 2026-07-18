@@ -383,10 +383,23 @@ namespace AprVisual.Sim
                 rows.Add(new M6xRow { Name = "bgserial", Trig = M6xTrig.RegWrite, Act = M6xAct.ClampGate, Win = M6xWin.Hpos8Ge4,
                                       Reg = 0x2001, EnableMask = 0x18, TrigNode = EmptyNode, Gate = bgg, GateComp = EmptyNode,
                                       DelayHc = 16, PrevTrig = 0, HoldUntil = -1, ClampedNode = EmptyNode });
+            // rows: even_odd — a bkg/spr_enable transition in the vpos261/hpos338-339 pre-render skip
+            // window is delayed 16hc by holding the OLD value (clamp the old-value side low). This is
+            // the DelayTransition action: it delays a two-sided enable's edge, not a one-sided gate.
+            foreach (var (nm, en, comp) in new[] { ("eo_bkg", "ppu.bkg_enable", "ppu./bkg_enable"),
+                                                   ("eo_spr", "ppu.spr_enable", "ppu./spr_enable") })
+            {
+                int g = LookupNode(en), gc = LookupNode(comp);
+                if (g != EmptyNode && gc != EmptyNode)
+                    rows.Add(new M6xRow { Name = nm, Trig = M6xTrig.NodeRise /*unused for DelayTransition*/, Act = M6xAct.DelayTransition,
+                                          Win = M6xWin.PreRenderNarrow, Reg = 0, EnableMask = 0, TrigNode = g, Gate = g, GateComp = gc,
+                                          DelayHc = 16, PrevTrig = NodeStates[g], HoldUntil = -1, ClampedNode = EmptyNode });
+                else Console.Error.WriteLine($"# [m6x] row {nm}: {en}/{comp} unresolved -- skipped");
+            }
             _m6xRows = rows.ToArray();
             _m6x = _m6xRows.Length > 0;
             if (_m6x) ShimChainArmed = true;
-            Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial)");
+            Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial + even_odd)");
         }
 
         private static bool M6xWindowOk(M6xWin win)
@@ -413,7 +426,19 @@ namespace AprVisual.Sim
                     row.ClampedNode = EmptyNode; row.HoldUntil = -1;
                 }
                 // arm on trigger
-                if (row.Trig == M6xTrig.NodeRise)
+                if (row.Act == M6xAct.DelayTransition)
+                {
+                    // even_odd: on a two-sided enable's transition in the window, hold the OLD value
+                    // by clamping the old-value side low (old 0 -> clamp Gate; old 1 -> clamp GateComp).
+                    byte cur = NodeStates[row.Gate];
+                    if (cur != row.PrevTrig && row.HoldUntil < 0 && M6xWindowOk(row.Win))
+                    {
+                        int hold = row.PrevTrig == 0 ? row.Gate : row.GateComp;
+                        InstClampLow(hold); row.ClampedNode = hold; row.HoldUntil = Time + row.DelayHc;
+                    }
+                    else if (row.HoldUntil < 0) row.PrevTrig = cur;   // track only while not clamped
+                }
+                else if (row.Trig == M6xTrig.NodeRise)
                 {
                     byte cur = NodeStates[row.TrigNode];
                     bool rise = row.PrevTrig == 0 && cur != 0;
@@ -1993,7 +2018,9 @@ namespace AprVisual.Sim
         // than the shim's aggregate-value clock (each cell leaks on its own). The annotation set
         // is the first entry of the analog-sidecar plan: the 2C02 io-bus latch island.
         // Scan every 16,384 hc (~0.38 ms) — ample resolution for a 600 ms constant, negligible
-        // cost. Enabled via env M2_DECAY (EnableM2Decay from the test runner); golden/bench
+        // cost. DEFAULT-ON in test mode (EnableM2Decay from the test runner, unless --no-shims);
+        // env NO_M2DECAY disables it and restores the old runner-level _io_db shim. (There is no
+        // "M2_DECAY" enabling env — the mechanism supersedes the shim by default.) golden/bench
         // paths never enable it, and the threshold (25.7M hc) cannot fire inside benchmark runs.
         private static bool _m2Decay;
         public static bool M2DecayEnabled => _m2Decay;

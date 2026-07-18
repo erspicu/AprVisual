@@ -831,6 +831,7 @@ namespace AprVisual.Sim
                 ProcessQueue();
             }
             if (M2DecayEnabled) M2DecayStep();      // M2 charge-decay island (mechanism, not a shim; env M2_DECAY)
+            if (M6xEnabled) M6xPhaseStep();         // M6×M3 unified cross-chip phase arbitration (env M6X; supersedes dot-339/bgserial shims)
             if (ShimChainArmed) TestShimChainStep();   // flattened test-shim family dispatch; see WireCore.System.cs
             if (AleReadMuxShim) AleReadMuxStep();   // test-mode only; ALERead $2007 access phase-delay (M6)
             if (BgSerialReloadShim) BgSerialReloadShimStep();   // test-mode only; $2001-enable reload-delay (BGSerialIn, M6)

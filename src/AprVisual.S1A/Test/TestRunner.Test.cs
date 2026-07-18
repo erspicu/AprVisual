@@ -161,6 +161,11 @@ namespace AprVisual.Test
                 // data-wins + ALU input-latch hold). When armed it supersedes those two shims below.
                 if (Environment.GetEnvironmentVariable("M4_EDGE") is { Length: > 0 } m4e && m4e != "0")
                     WireCore.EnableM4EdgeLatch();
+                // M6×M3 unified cross-chip phase arbitration (env M6X): one table-driven mechanism
+                // supersedes the dot-339 + BGSerialIn downstream-clamp shims. Arm before the shims
+                // so M6xEnabled gates them off below.
+                if (Environment.GetEnvironmentVariable("M6X") is { Length: > 0 } m6x && m6x != "0")
+                    WireCore.EnableM6xPhase();
                 if (!_noShims)
                 {
                     if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
@@ -170,14 +175,15 @@ namespace AprVisual.Test
                     WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
                     WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
                     WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
-                    WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
+                    if (!WireCore.M6xEnabled)   // dot-339 superseded by M6X
+                        WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
                     if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (see System.cs)
-                    if (Environment.GetEnvironmentVariable("NO_BGS_SHIM") == null) WireCore.EnableBgSerialReloadShim();   // $2001-enable reload-delay at the dot%8==7 shifter-load boundary (BGSerialIn; M6 family, see System.cs)
+                    if (!WireCore.M6xEnabled && Environment.GetEnvironmentVariable("NO_BGS_SHIM") == null) WireCore.EnableBgSerialReloadShim();   // $2001-enable reload-delay (BGSerialIn; superseded by M6X)
                     if (WireCore.AleReadMuxShim) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux + node-split (M6; resolves nodes + arms; the cut already happened in LoadSystem)
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.

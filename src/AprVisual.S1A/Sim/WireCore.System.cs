@@ -327,6 +327,118 @@ namespace AprVisual.Sim
             DmcLatchShim = true; ShimChainArmed = true;
         }
 
+        // ── M6×M3 unified cross-chip phase-arbitration mechanism ─────────────────────────────
+        // The three downstream-clamp delay shims (dot-339, even_odd, BGSerialIn) are one physics:
+        // a cross-chip control change arrives ~16–24 hc late (M3's delay), and a 2C02 counter-
+        // comparator (M6's site) must not act until it does. Instead of three hand-written
+        // ShimSteps, one table of (trigger, gate, delay, window) — the first entries of the
+        // cpu_ppu_access_delays sidecar (MD/S1a/01). M6's census (m6_interface_census.py) is the
+        // source of the gate list; M3's Elmore binner the delays. Two actions cover all three:
+        //   ClampGate      — hold a downstream comparator gate LOW for N hc (dot-339, BGSerialIn);
+        //   DelayTransition — hold a two-sided enable's transition by clamping its old-value side
+        //                     LOW for N hc (even_odd).
+        // Triggers: NodeRise (an on-die control signal's own arrival) or RegWrite ($2001 write).
+        // Env M6X arms the built-in rows and supersedes the three shims. Force-LOW only (no
+        // GND>VCC wall); test-mode only, benchmark path never arms it.
+        private enum M6xTrig { NodeRise, RegWrite }
+        private enum M6xWin { VisibleLines, PreRenderNarrow, Hpos8Ge4 }
+        private enum M6xAct { ClampGate, DelayTransition }
+        private struct M6xRow
+        {
+            public string Name; public M6xTrig Trig; public M6xAct Act; public M6xWin Win;
+            public int Reg, EnableMask;             // RegWrite: $2001 + db enable bits
+            public int TrigNode;                    // NodeRise: the arriving control signal
+            public int Gate, GateComp;              // ClampGate: Gate; DelayTransition: Gate + its complement
+            public int DelayHc;
+            // state
+            public byte PrevTrig; public long HoldUntil; public int ClampedNode; public bool InWr; public int WrDb;
+        }
+        private static bool _m6x;
+        public static bool M6xEnabled => _m6x;
+        private static M6xRow[] _m6xRows = Array.Empty<M6xRow>();
+        private static int[] _m6xHp = Array.Empty<int>(), _m6xVp = Array.Empty<int>(), _m6xHp3 = Array.Empty<int>();
+
+        public static void EnableM6xPhase()
+        {
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _m6xHp = hp.Count == 9 ? hp.ToArray() : Array.Empty<int>();
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _m6xVp = vp.Count == 9 ? vp.ToArray() : Array.Empty<int>();
+            var h3 = new List<int>(); ResolveNodes("ppu.hpos[2:0]", h3, quiet: true); _m6xHp3 = h3.Count == 3 ? h3.ToArray() : Array.Empty<int>();
+            var rows = new List<M6xRow>();
+            void AddClamp(string name, M6xTrig trig, int trigNode, int reg, int mask, string gateName, int delay, M6xWin win)
+            {
+                int g = LookupNode(gateName);
+                if (g == EmptyNode) { Console.Error.WriteLine($"# [m6x] row {name}: gate {gateName} unresolved -- skipped"); return; }
+                rows.Add(new M6xRow { Name = name, Trig = trig, Act = M6xAct.ClampGate, Win = win,
+                                      Reg = reg, EnableMask = mask, TrigNode = trigNode, Gate = g, GateComp = EmptyNode,
+                                      DelayHc = delay, PrevTrig = trigNode != EmptyNode ? NodeStates[trigNode] : (byte)0,
+                                      HoldUntil = -1, ClampedNode = EmptyNode });
+            }
+            // row: dot-339 — rendering_1 rise clamps hpos_eq_339_and_rendering for 24hc on visible lines
+            int ren = LookupNode("ppu.rendering_1");
+            if (ren != EmptyNode) AddClamp("dot339", M6xTrig.NodeRise, ren, 0, 0, "ppu.hpos_eq_339_and_rendering", 24, M6xWin.VisibleLines);
+            // row: BGSerialIn — $2001 enable write clamps the shifter-reload gate for 16hc at hpos%8>=4
+            int bgg = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
+            if (bgg == EmptyNode) bgg = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
+            if (bgg != EmptyNode)
+                rows.Add(new M6xRow { Name = "bgserial", Trig = M6xTrig.RegWrite, Act = M6xAct.ClampGate, Win = M6xWin.Hpos8Ge4,
+                                      Reg = 0x2001, EnableMask = 0x18, TrigNode = EmptyNode, Gate = bgg, GateComp = EmptyNode,
+                                      DelayHc = 16, PrevTrig = 0, HoldUntil = -1, ClampedNode = EmptyNode });
+            _m6xRows = rows.ToArray();
+            _m6x = _m6xRows.Length > 0;
+            if (_m6x) ShimChainArmed = true;
+            Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial)");
+        }
+
+        private static bool M6xWindowOk(M6xWin win)
+        {
+            int v = _m6xVp.Length == 9 ? ReadBits(_m6xVp) : -1;
+            switch (win)
+            {
+                case M6xWin.VisibleLines:    return v != 261;
+                case M6xWin.PreRenderNarrow: return v == 261 && _m6xHp.Length == 9 && ReadBits(_m6xHp) >= 338 && ReadBits(_m6xHp) <= 339;
+                case M6xWin.Hpos8Ge4:        return _m6xHp3.Length == 3 && ReadBits(_m6xHp3) >= 4;
+            }
+            return false;
+        }
+
+        private static void M6xPhaseStep()
+        {
+            for (int r = 0; r < _m6xRows.Length; r++)
+            {
+                ref var row = ref _m6xRows[r];
+                // release when the hold expires
+                if (row.HoldUntil >= 0 && Time >= row.HoldUntil)
+                {
+                    if (row.ClampedNode != EmptyNode) InstRelease(row.ClampedNode);
+                    row.ClampedNode = EmptyNode; row.HoldUntil = -1;
+                }
+                // arm on trigger
+                if (row.Trig == M6xTrig.NodeRise)
+                {
+                    byte cur = NodeStates[row.TrigNode];
+                    bool rise = row.PrevTrig == 0 && cur != 0;
+                    row.PrevTrig = cur;
+                    if (rise && row.HoldUntil < 0 && M6xWindowOk(row.Win))
+                    { InstClampLow(row.Gate); row.ClampedNode = row.Gate; row.HoldUntil = Time + row.DelayHc; }
+                    // NodeRise/ClampGate also needs to keep the clamp asserted only while the window holds
+                    else if (row.HoldUntil >= 0 && !M6xWindowOk(row.Win))
+                    { if (row.ClampedNode != EmptyNode) InstRelease(row.ClampedNode); row.ClampedNode = EmptyNode; row.HoldUntil = -1; }
+                }
+                else   // RegWrite
+                {
+                    int ab = ReadReg(R_CpuAb);
+                    bool wr = (ab & 0xE007) == row.Reg && NodeStates[_pdRw] == 0;
+                    if (wr) { row.InWr = true; row.WrDb = ReadReg(R_CpuDb); continue; }
+                    if (!row.InWr) continue;
+                    row.InWr = false;
+                    if ((row.WrDb & row.EnableMask) == 0) continue;
+                    if (!M6xWindowOk(row.Win)) continue;
+                    if (row.HoldUntil < 0) { InstClampLow(row.Gate); row.ClampedNode = row.Gate; }
+                    row.HoldUntil = Time + row.DelayHc;
+                }
+            }
+        }
+
         // ── M4 edge-latch mechanism (the generic edge-capture primitive) ─────────────────────
         // A transparent latch's edge defines the cell's value; zero-delay settling lets same-wave
         // races and mid-settle glitches corrupt it. One primitive expresses three measured verdicts:

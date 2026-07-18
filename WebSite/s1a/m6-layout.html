@@ -81,7 +81,7 @@
   <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, the nodes that <a href="m6-phase.html">M6's cross-chip interface census</a> flags are highlighted by category. Drag to pan, wheel to zoom, hover any cell for its name and which set it belongs to. The funnel numbers (173 interface-entry nodes, 203 counter-comparators, 66 phase-sensitive sites) stop being numbers and become <i>places</i>: the interface arriving at the die edge (blue), the position counter sitting in its own block (green), the comparators that ask "are we there yet?" (orange), and — lit red on top — the exact 66 sites where an arrival one dot early would flip a per-dot decision.</span>
      <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面疊著 <a href="m6-phase.html">M6 跨晶片介面普查</a>標記的節點,依類別著色。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字與所屬集合。那些漏斗數字(173 個介面入口節點、203 個計數器比較器、66 個相位敏感站點)不再是數字,而是<i>位置</i>:介面在晶粒邊緣抵達(藍)、位置計數器坐在自己的區塊裡(綠)、問「到了嗎?」的比較器(橘),以及疊在最上層點成紅色的那 66 個站點 —— 抵達早一個 dot 就會翻掉一個 per-dot 決策的確切位置。</span></p>
 
-  <div class="die-viewer"></div>
+  <div class="die-viewer" data-mechanism="m6" data-chips="2C02"></div>
 
   <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Bright fills = M6-flagged nodes. Every one of the 388 flagged nodes has a polygon — none are pure-logic phantoms — so the whole census is visible. The hot red set is drawn last, on top of the orange comparators it is a subset of; toggle a legend chip to isolate a set.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。亮色填充 = M6 標記的節點。388 個被標記節點每一個都有多邊形 —— 沒有純邏輯的幽靈節點 —— 所以整份普查都看得見。熱紅集合畫在最上層,疊在它所屬子集的橘色比較器之上;點圖例色塊可單獨隔離某個集合。</span></p>
 
@@ -110,9 +110,9 @@
     <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m6_interface_census.py --dump-nodes</code>。</span></p>
 </main>
 
-<script src="layout/2c02_layout.js"></script>
-<script src="layout/m6_2c02_nodes.js"></script>
-<script src="layout/die-viewer.js"></script>
+<script src="layout/2c02_layout.js" defer></script>
+<script src="layout/m6_2c02_nodes.js" defer></script>
+<script src="layout/die-viewer.js" defer></script>
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
     document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');

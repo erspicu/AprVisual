@@ -82,7 +82,7 @@
   <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, the nodes where two <b>drivers physically contend</b> are lit up, straight from <a href="m1-strength.html">M1's geometry census</a> (drive strength <code>S = W/L</code>, read out of the transdefs the engine always threw away). Unlike M4's pure-topology latches, M1 is a <b>physical</b> mechanism, so the highlights are a <b>heatmap</b>: the redder a cell, the closer the two drivers are in strength — and the less the engine's "a path to GND always wins" is anything more than a coin toss. Drag to pan, wheel to zoom, hover any cell for its name, strength ratio, and heat band. The census numbers (250 fight sites, 114 near dead-heat…) stop being numbers and become <i>places</i> — and they land squarely on the external data bus.</span>
      <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面點亮的,是兩個<b>驅動源在物理上互相對抗</b>的節點,直接來自 <a href="m1-strength.html">M1 幾何普查</a>(驅動強度 <code>S = W/L</code>,從引擎一向丟棄的 transdefs 幾何欄讀回來)。和 M4 的純拓撲閂鎖不同,M1 是<b>物理</b>機制,所以亮點是一張<b>熱力圖</b>:cell 愈紅,兩個驅動源的強度愈接近 —— 引擎那句「有一條路到 GND 就贏」也就愈接近擲銅板。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字、強度比與熱度分級。那些普查數字(250 個對決點、114 個近乎勢均力敵⋯)不再是數字,而是<i>位置</i> —— 而且它們正好落在對外資料匯流排上。</span></p>
 
-  <div class="die-viewer"></div>
+  <div class="die-viewer" data-mechanism="m1" data-chips="2C02,2A03"></div>
 
   <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Coloured fills = M1 fight sites, graded hot → cold: <span class="heat" style="background:#ff2d55"></span> red = within 2× strength (near dead-heat), <span class="heat" style="background:#ffb454"></span> amber = within 4×, <span class="heat" style="background:#5ac8fa"></span> blue = any driver-vs-driver fight. Hotter = the fiat is least justified. All 250 sites have silicon area, so all 250 are drawn.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。彩色填充 = M1 對決點,由熱到冷分級:<span class="heat" style="background:#ff2d55"></span> 紅 = 強度在 2× 內(近乎勢均力敵)、<span class="heat" style="background:#ffb454"></span> 琥珀 = 4× 內、<span class="heat" style="background:#5ac8fa"></span> 藍 = 任何驅動對決。愈熱 = 那條裁決規則愈站不住腳。250 個點全都有矽面積,所以 250 個全部畫得出來。</span></p>
 
@@ -114,9 +114,9 @@
     <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m1_device_census.py --dump-nodes</code>。</span></p>
 </main>
 
-<script src="layout/2c02_layout.js"></script>
-<script src="layout/m1_2c02_nodes.js"></script>
-<script src="layout/die-viewer.js"></script>
+<script src="layout/2c02_layout.js" defer></script>
+<script src="layout/m1_2c02_nodes.js" defer></script>
+<script src="layout/die-viewer.js" defer></script>
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
     document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');

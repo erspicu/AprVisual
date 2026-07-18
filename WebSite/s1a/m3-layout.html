@@ -84,7 +84,7 @@
   <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. Painted over it is <a href="m3-delay.html">M3's Elmore-delay heatmap</a>: every one of the <b>7,246 driven nets</b> coloured by how long it takes to switch, <b>cool (fast) → hot (slow)</b>. The red islands — the slowest ~5% — are not scattered at random: they cluster on the <b>CPU↔PPU interface</b>, the clock trees, and the pads. That is where the 24-half-cycle cross-chip latency the accuracy campaigns kept measuring physically lives. Drag to pan, wheel to zoom, hover any cell for its name and delay bucket.</span>
      <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面塗著 <a href="m3-delay.html">M3 的 Elmore 延遲熱圖</a>:<b>7,246 張受驅動網</b>每一張都依「切換要花多久」著色,<b>冷(快)→ 熱(慢)</b>。那些紅色的島 —— 最慢的約 5% —— 不是隨機散落:它們聚在 <b>CPU↔PPU 介面</b>、時鐘樹、以及接腳上。戰役一再量到的 24 個半週期跨晶片延遲,物理上就住在那裡。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字與延遲級別。</span></p>
 
-  <div class="die-viewer"></div>
+  <div class="die-viewer" data-mechanism="m3" data-chips="2C02,2A03"></div>
 
   <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Coloured fills = each net's delay bucket, cool → hot; islands drawn on top. A driven net with no polygon isn't drawn — but here all 7,246 have silicon area, so the map is dense. τ is in <i>gate units</i> (the median driven net ≡ 1.0), and clock trees / super-buffers are known over-estimates.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。彩色填充 = 每張網的延遲級別,冷 → 熱;島畫在最上層。沒有多邊形的受驅動網不會畫 —— 但這裡 7,246 張每一張都有矽面積,所以圖是密的。τ 以 <i>gate 單位</i>呈報(受驅動網中位數 ≡ 1.0),時鐘樹 / super-buffer 是已知的高估案。</span></p>
 
@@ -122,9 +122,9 @@
     <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m3_elmore_binner.py --dump-nodes</code>。</span></p>
 </main>
 
-<script src="layout/2c02_layout.js"></script>
-<script src="layout/m3_2c02_nodes.js"></script>
-<script src="layout/die-viewer.js"></script>
+<script src="layout/2c02_layout.js" defer></script>
+<script src="layout/m3_2c02_nodes.js" defer></script>
+<script src="layout/die-viewer.js" defer></script>
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
     document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');

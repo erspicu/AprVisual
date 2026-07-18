@@ -85,7 +85,7 @@
   <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, every <a href="m2-charge-wins.html">floating pass-gate election</a> is painted as a <b>graded heatmap</b>: <span class="heat" style="background:#ff2d55"></span>red where real silicon <b>capacitance reverses the winner</b> the engine's connection-count proxy would have picked, <span class="heat" style="background:#ffb454"></span>amber where the engine can't call it at all — a tie it settles by graph-walk order — and <span class="heat" style="background:#5ac8fa"></span>cool blue where physics and the engine agree. Drag to pan, wheel to zoom, hover any cell. Of <b>6,820</b> floating elections on this die, <b>517 (7.6%)</b> come out backwards under physics and another <b>601 (8.8%)</b> are coin-flips the engine breaks by accident. Because M2 is a <i>physical</i> quantity, the colour is a temperature, not a label — and the hot cells cluster exactly where you would hope: the pattern shift-registers and the sprite datapath.</span>
      <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面把每一場<a href="m2-charge-wins.html">浮動 pass-gate 選舉</a>畫成一張<b>分級熱度圖</b>:<span class="heat" style="background:#ff2d55"></span>紅色 = 真實矽電容<b>把贏家翻盤</b>,推翻引擎用連接數代理選出的贏家;<span class="heat" style="background:#ffb454"></span>琥珀 = 引擎根本喊不出來 —— 一場它靠圖走訪順序硬分的平手;<span class="heat" style="background:#5ac8fa"></span>冷藍 = 物理與引擎一致。拖曳平移、滾輪縮放、停在任一 cell 上。這顆晶粒上共 <b>6,820</b> 場浮動選舉,其中 <b>517 場(7.6%)</b>在物理下翻盤,另有 <b>601 場(8.8%)</b>是引擎意外分出的擲硬幣。因為 M2 是<i>物理</i>量,顏色是溫度、不是標籤 —— 而發燙的 cell 正好聚在你會期望的地方:pattern 移位暫存器與精靈資料路徑。</span></p>
 
-  <div class="die-viewer"></div>
+  <div class="die-viewer" data-mechanism="m2" data-chips="2C02,2A03"></div>
 
   <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Graded fills = the M2 election heatmap. A flagged node with no polygon (pure-logic, no silicon area) simply isn't drawn — here every one of the 7,378 flagged cells has silicon, so the map is complete. Click a swatch below to toggle a temperature band; turn off <span class="heat" style="background:#5ac8fa"></span>agree to see only the divergence.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。分級填色 = M2 選舉熱度圖。被標記但沒有多邊形的節點(純邏輯、無矽面積)就不畫 —— 這裡 7,378 個被標記的 cell 每一個都有矽面積,所以這張圖是完整的。點下方色塊可開關溫度帶;把<span class="heat" style="background:#5ac8fa"></span>一致關掉,就只剩分歧。</span></p>
 
@@ -136,9 +136,9 @@
     <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m2_charge_wins.py --dump-nodes</code>。</span></p>
 </main>
 
-<script src="layout/2c02_layout.js"></script>
-<script src="layout/m2_2c02_nodes.js"></script>
-<script src="layout/die-viewer.js"></script>
+<script src="layout/2c02_layout.js" defer></script>
+<script src="layout/m2_2c02_nodes.js" defer></script>
+<script src="layout/die-viewer.js" defer></script>
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
     document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');

@@ -81,7 +81,7 @@
   <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, <a href="m7-canonical.html">M7's canonical key</a> colours <i>every</i> node by its structural-twin tier. The big green blocks are the chip's <b>replicated cell arrays</b> — sprite OAM, palette RAM, the shift registers — that the key folds into a handful of large canonical groups (590, 582, 360, 360, 298, 288… cells). Drag to pan, wheel to zoom, hover any cell for its name and tier. The census numbers (3,824 nodes in 16 big arrays, 3,299 smaller twins, 1,642 structurally unique) stop being numbers and become <i>places</i>.</span>
      <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面疊著 <a href="m7-canonical.html">M7 正規化鍵</a>,把<i>每一個</i>節點依「結構孿生層級」著色。那幾團綠色大區塊,是晶片的<b>複製 cell 陣列</b> —— 精靈 OAM、調色盤 RAM、位移暫存器 —— 正規化鍵把它們摺疊進少數幾個大型正規化群組(590、582、360、360、298、288… 個 cell)。拖曳平移、滾輪縮放、停在任一 cell 上看名字與層級。那些普查數字(3,824 個節點落在 16 個大陣列、3,299 個較小孿生、1,642 個結構唯一)不再是數字,而是<i>位置</i>。</span></p>
 
-  <div class="die-viewer"></div>
+  <div class="die-viewer" data-mechanism="m7" data-chips="2C02,2A03"></div>
 
   <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). <b style="color:var(--acc2)">Green</b> = nodes in the big replicated arrays; <b style="color:var(--acc)">purple</b> = smaller structural twins; <b style="color:#5ac8fa">blue</b> = structurally unique nodes the key already individuates. M7 assigns a key to <i>every</i> node, so the whole die is coloured — click a legend chip to toggle a tier off and isolate the arrays.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。<b style="color:var(--acc2)">綠色</b> = 大型複製陣列裡的節點;<b style="color:var(--acc)">紫色</b> = 較小的結構孿生;<b style="color:#5ac8fa">藍色</b> = 正規化鍵已能單獨識別的結構唯一節點。M7 給<i>每一個</i>節點一把鍵,所以整顆晶粒都上了色 —— 點圖例色塊可關掉某一層,單獨看那些陣列。</span></p>
 
@@ -113,9 +113,9 @@
     <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m7_canonical_key.py --dump-nodes</code>。</span></p>
 </main>
 
-<script src="layout/2c02_layout.js"></script>
-<script src="layout/m7_2c02_nodes.js"></script>
-<script src="layout/die-viewer.js"></script>
+<script src="layout/2c02_layout.js" defer></script>
+<script src="layout/m7_2c02_nodes.js" defer></script>
+<script src="layout/die-viewer.js" defer></script>
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
     document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');

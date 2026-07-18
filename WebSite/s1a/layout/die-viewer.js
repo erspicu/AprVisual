@@ -97,7 +97,7 @@
   DieViewer.prototype._useHighlights = function (j) {
     var self = this; this.hl = j; this.nodeCat = {};
     Object.keys(j.categories).forEach(function (key) {
-      self.activeCats[key] = true;
+      self.activeCats[key] = !j.categories[key].off;   // a category may start toggled off (background layers)
       j.categories[key].nodes.forEach(function (n) { (self.nodeCat[n] || (self.nodeCat[n] = [])).push(key); });
     });
     this.segsByNode = {};
@@ -235,6 +235,7 @@
     this.legend.appendChild(head);
     Object.keys(cats).forEach(function (key) {
       var c = cats[key], row = el("button", "dv-leg-row"); row.type = "button";
+      if (!self.activeCats[key]) row.classList.add("off");   // reflect a default-off (background) layer
       row.innerHTML = '<span class="dv-sw" style="background:' + c.color + '"></span>' +
         '<span class="dv-leg-lbl">' + c.label + '</span><span class="dv-leg-n">' + c.nodes.length + '</span>';
       row.addEventListener("click", function () {

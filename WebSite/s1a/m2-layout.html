@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M2 on the die — the charge-sharing heatmap on the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .formula{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:10px 14px; margin:12px 0;
+           font-family:Consolas,monospace; font-size:13.5px; color:#efe9f7; overflow-x:auto;}
+  .formula .cm{color:var(--mut);}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute; top:0; left:0;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+  .heat{display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:5px;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m2-charge-wins.html"><span class="en">M2 study</span><span class="zh">M2 專文</span></a>
+  <a class="sec" href="m4-layout.html"><span class="en">M4 on the die</span><span class="zh">M4 佈局</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M2 · charge storage on the die</span><span class="zh">M2 · 晶粒上的電荷儲存</span></p>
+  <h1><span class="en">Where the die overrules the engine</span><span class="zh">晶粒推翻引擎之處</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, every <a href="m2-charge-wins.html">floating pass-gate election</a> is painted as a <b>graded heatmap</b>: <span class="heat" style="background:#ff2d55"></span>red where real silicon <b>capacitance reverses the winner</b> the engine's connection-count proxy would have picked, <span class="heat" style="background:#ffb454"></span>amber where the engine can't call it at all — a tie it settles by graph-walk order — and <span class="heat" style="background:#5ac8fa"></span>cool blue where physics and the engine agree. Drag to pan, wheel to zoom, hover any cell. Of <b>6,820</b> floating elections on this die, <b>517 (7.6%)</b> come out backwards under physics and another <b>601 (8.8%)</b> are coin-flips the engine breaks by accident. Because M2 is a <i>physical</i> quantity, the colour is a temperature, not a label — and the hot cells cluster exactly where you would hope: the pattern shift-registers and the sprite datapath.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面把每一場<a href="m2-charge-wins.html">浮動 pass-gate 選舉</a>畫成一張<b>分級熱度圖</b>:<span class="heat" style="background:#ff2d55"></span>紅色 = 真實矽電容<b>把贏家翻盤</b>,推翻引擎用連接數代理選出的贏家;<span class="heat" style="background:#ffb454"></span>琥珀 = 引擎根本喊不出來 —— 一場它靠圖走訪順序硬分的平手;<span class="heat" style="background:#5ac8fa"></span>冷藍 = 物理與引擎一致。拖曳平移、滾輪縮放、停在任一 cell 上。這顆晶粒上共 <b>6,820</b> 場浮動選舉,其中 <b>517 場(7.6%)</b>在物理下翻盤,另有 <b>601 場(8.8%)</b>是引擎意外分出的擲硬幣。因為 M2 是<i>物理</i>量,顏色是溫度、不是標籤 —— 而發燙的 cell 正好聚在你會期望的地方:pattern 移位暫存器與精靈資料路徑。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Graded fills = the M2 election heatmap. A flagged node with no polygon (pure-logic, no silicon area) simply isn't drawn — here every one of the 7,378 flagged cells has silicon, so the map is complete. Click a swatch below to toggle a temperature band; turn off <span class="heat" style="background:#5ac8fa"></span>agree to see only the divergence.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。分級填色 = M2 選舉熱度圖。被標記但沒有多邊形的節點(純邏輯、無矽面積)就不畫 —— 這裡 7,378 個被標記的 cell 每一個都有矽面積,所以這張圖是完整的。點下方色塊可開關溫度帶;把<span class="heat" style="background:#5ac8fa"></span>一致關掉,就只剩分歧。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">M4 is a <b>structural</b> pattern — a latch either is or isn't. M2 is the opposite: a <b>physical</b> one, decided by a continuous quantity the netlist never states — <b>capacitance</b>. So there is no clean yes/no; there is a <i>margin</i>, and the right picture is a heatmap. Here is the quantity, and the election it settles.</span>
+       <span class="zh">M4 是<b>結構性</b> pattern —— 一個閂鎖要嘛是、要嘛不是。M2 恰好相反:它是<b>物理性</b>的,由網表從未寫下的一個連續量決定 —— <b>電容</b>。所以沒有乾淨的是/否;有的是一個<i>差距</i>,而正確的畫面就是熱度圖。以下是那個量,以及它裁決的那場選舉。</span></p>
+
+    <h3><span class="en">1 · What a switch-level engine does when nothing drives</span><span class="zh">1 · 沒有東西在驅動時,開關級引擎怎麼做</span></h3>
+    <p><span class="en">When a transistor group has <b>no path to ground, no pull-up, and no external driver</b>, it is <i>floating</i> — it must hold its remembered charge. Real silicon resolves this by physics: <b>the node with the largest capacitance wins</b>, because it holds the most charge. But Visual6502 → MetalNES → AprVisual.S1 never carried real capacitance, so they use a cheap proxy — a connection count — with ties broken by whatever order the graph walk happens to visit:</span>
+       <span class="zh">當一個電晶體群<b>沒有接地路徑、沒有上拉、也沒有外部驅動</b>時,它就<i>浮動</i> —— 只能保住記憶中的電荷。真實矽靠物理裁決:<b>電容最大的節點勝出</b>,因為它存的電荷最多。但 Visual6502 → MetalNES → AprVisual.S1 從來沒有真的電容,所以它們用一個廉價代理 —— 連接數 —— 平手時就看圖走訪剛好先碰到誰:</span></p>
+    <div class="formula"><span class="cm"># the engine's stand-in for capacitance (S1: WireCore.cs)</span><br>
+    conn(node) = (#times node is a transistor channel terminal c1/c2)<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ (#times node is a transistor gate)<br>
+    <span class="cm"># winner = larger conn; equal conn → decided by graph-walk order (an accident, not physics)</span></div>
+
+    <h3><span class="en">2 · The capacitance the die actually carries</span><span class="zh">2 · 晶粒實際承載的電容</span></h3>
+    <p><span class="en">The layout <i>does</i> know. <code>segdefs</code> carries every silicon polygon (its layer + vertex list); <code>transdefs</code> carries every gate's W×L. Node capacitance is dominated by gate oxide, plus the wiring area on each layer — so we sum the <b>shoelace area of each polygon</b>, weighted by an NMOS-era per-layer prior (metal ≈ 0.03, poly ≈ 0.04, diffusion ≈ 0.10 fF/µm², gate oxide ≈ 1.0), and add the area of every gate the node drives. Only the <i>ratios</i> decide a winner, so no unit calibration is needed:</span>
+       <span class="zh">佈局<i>確實</i>知道。<code>segdefs</code> 記錄了每一塊矽多邊形(層別+頂點串);<code>transdefs</code> 記錄了每個閘的 W×L。節點電容由閘氧化層主導,加上各層佈線面積 —— 所以我們把<b>每塊多邊形的鞋帶面積</b>加總,依 NMOS 時代的各層先驗加權(金屬 ≈ 0.03、多晶矽 ≈ 0.04、擴散 ≈ 0.10 fF/µm²、閘氧化層 ≈ 1.0),再加上該節點所驅動每個閘的面積。決定贏家的只是<i>比值</i>,所以不需要單位校準:</span></p>
+    <div class="formula">C_phys(node) = &Sigma;<sub>polygons</sub> area(node, layer) &times; W[layer]<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + &Sigma;<sub>{ t : gate(t)=node }</sub> gate_area(t) &times; W_gate</div>
+
+    <h3><span class="en">3 · The election — and charge-sharing, which decides it</span><span class="zh">3 · 那場選舉 —— 以及裁決它的電荷分享</span></h3>
+    <p><span class="en">The 2-node floating groups that dominate the engine's sub-1% floating branch are exactly the <b>pass-gate pairs</b>: a transistor whose two channel terminals are both signal nodes. When that gate opens, the two nodes <b>share charge</b> and settle to a single weighted-average voltage:</span>
+       <span class="zh">主宰引擎那不到 1% 浮動分支的兩節點浮動群,正是那些 <b>pass-gate 對</b>:一顆電晶體、兩個通道端點都是訊號節點。當那個閘打開,兩個節點<b>分享電荷</b>,穩定到單一的加權平均電壓:</span></p>
+    <div class="formula">V_shared = ( C<sub>a</sub>&middot;V<sub>a</sub> + C<sub>b</sub>&middot;V<sub>b</sub> ) / ( C<sub>a</sub> + C<sub>b</sub> )
+    &nbsp;&nbsp;&nbsp;<span class="cm">&larr; the bigger capacitor pulls the shared node toward its own remembered value</span></div>
+    <p><span class="en">So for every pass-gate pair we hold the vote twice — once with the engine's <code>conn</code> proxy, once with <code>C_phys</code> — and compare the winners. That is the whole detector: <b>~6.8k elections, re-counted under physics.</b></span>
+       <span class="zh">於是每一對 pass-gate,我們投兩次票 —— 一次用引擎的 <code>conn</code> 代理,一次用 <code>C_phys</code> —— 再比對贏家。這就是整個偵測器:<b>約 6.8k 場選舉,用物理重新計票。</b></span></p>
+
+    <table>
+      <tr><th><span class="en">Heat band</span><span class="zh">溫度帶</span></th><th><span class="en">What the election did</span><span class="zh">選舉發生了什麼</span></th><th><span class="en">2C02 count</span><span class="zh">2C02 數量</span></th></tr>
+      <tr><td><b><span class="heat" style="background:#ff2d55"></span><span class="en">flip</span><span class="zh">翻盤</span></b></td><td><span class="en">physics <b>reverses</b> the engine's winner — the bigger real capacitor is the node the connection count called the loser. The engine, run to quiescence, would latch the wrong value.</span><span class="zh">物理<b>推翻</b>引擎的贏家 —— 真實電容較大的,是連接數判為輸家的那個節點。引擎跑到穩定,會閂進錯的值。</span></td><td><b>517</b> <span class="mut">(7.6%)</span><br><span class="mut">853 <span class="en">nodes</span><span class="zh">個節點</span></span></td></tr>
+      <tr><td><b><span class="heat" style="background:#ffb454"></span><span class="en">lottery</span><span class="zh">抽籤</span></b></td><td><span class="en">the engine's counts <b>tie</b> — it has no opinion and settles the group by graph-walk order, a structural accident. Physics <i>is</i> decisive here, so the "right" answer exists; the engine just isn't computing it.</span><span class="zh">引擎的計數<b>平手</b> —— 它沒意見,靠圖走訪順序把群裁定掉,一個結構性偶然。物理在這裡<i>是</i>有定論的,「正確」答案存在,只是引擎沒在算它。</span></td><td><b>601</b> <span class="mut">(8.8%)</span><br><span class="mut">982 <span class="en">nodes</span><span class="zh">個節點</span></span></td></tr>
+      <tr><td><b><span class="heat" style="background:#5ac8fa"></span><span class="en">agree</span><span class="zh">一致</span></b></td><td><span class="en">the connection count happens to name the same winner physics does — the cheap proxy is right. The cool baseline the hot spots stand out against.</span><span class="zh">連接數剛好指到與物理相同的贏家 —— 廉價代理是對的。這是讓熱點凸顯出來的冷色基線。</span></td><td><b>5,693</b> <span class="mut">(83.5%)</span><br><span class="mut">5,543 <span class="en">nodes</span><span class="zh">個節點</span></span></td></tr>
+      <tr><td><b><span class="heat" style="background:#ff0033"></span><span class="en">top&nbsp;flips</span><span class="zh">最烈翻盤</span></b></td><td><span class="en">the peak of the heatmap — the flips where the capacitance ratio is most lopsided (decisiveness <code>d = |C<sub>a</sub>−C<sub>b</sub>|/(C<sub>a</sub>+C<sub>b</sub>)</code> nearest 1). Not a separate cause; just the reddest of the red.</span><span class="zh">熱度圖的頂點 —— 電容比最懸殊的那些翻盤(果斷度 <code>d = |C<sub>a</sub>−C<sub>b</sub>|/(C<sub>a</sub>+C<sub>b</sub>)</code> 最接近 1)。不是另一種成因,只是紅中之紅。</span></td><td><b>40</b> <span class="mut"><span class="en">nodes</span><span class="zh">個節點</span></span></td></tr>
+    </table>
+
+    <div class="note">
+      <span class="en"><b>The scanner has no idea what a "shift register" is.</b> It was handed polygons and gate geometry, nothing else — yet the single most decisive reversal on this die is <code>/bkg_pat_out</code>, the background pattern output, with <code>C_phys ≈ 1176</code> against its rival's <code>≈ 64</code> (d = 0.90); <code>/spr_pat_out</code>, the sprite pattern output, is close behind. These are <b>wide bus nodes</b> — physically large, high-capacitance — that the engine sees only as <code>conn = 2</code> versus a rival's <code>3</code>, so it picks the rival. Where the die lays down more silicon, the die wins the charge-share; and by colouring that margin, the heatmap redraws the datapath the engine's counter is blind to. That is the whole point of a physical mechanism: the number <i>is</i> the geometry.</span>
+      <span class="zh"><b>掃描器根本不知道什麼是「移位暫存器」。</b>它只拿到多邊形與閘幾何、別無其他 —— 這顆晶粒上最果斷的翻盤卻是 <code>/bkg_pat_out</code>(背景 pattern 輸出),<code>C_phys ≈ 1176</code> 對上對手的 <code>≈ 64</code>(d = 0.90);<code>/spr_pat_out</code>(精靈 pattern 輸出)緊追在後。這些是<b>寬匯流排節點</b> —— 物理上很大、高電容 —— 引擎卻只看到 <code>conn = 2</code> 對上對手的 <code>3</code>,於是選了對手。晶粒鋪下越多矽的地方,晶粒就贏得電荷分享;而只要把那個差距上色,熱度圖就重畫出引擎的計數器看不見的資料路徑。這正是物理性機制的全部命題:那個數字<i>就是</i>幾何。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up — the scatter of proxy vs capacitance, the verdict bars, and the decisiveness histogram: <a href="m2-charge-wins.html">M2 · Who wins when nothing is driving? →</a></span><span class="zh">完整論述 —— 代理 vs 電容的散點、判決長條、與果斷度直方圖:<a href="m2-charge-wins.html">M2 · 沒有東西在驅動時,誰勝出? →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m2_charge_wins.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m2_charge_wins.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m2_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

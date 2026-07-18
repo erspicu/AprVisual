@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 on the die — every net's delay, as a heatmap over the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#8fb4ff,#5ac8fa 38%,#ffb454 72%,#ff2d55); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  pre{background:var(--code); border:1px solid var(--bd); border-radius:8px; padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.6; margin:14px 0;}
+  pre code{background:none; padding:0;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute; top:0; left:0;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block; vertical-align:middle;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+  td.n{text-align:right; font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m3-delay.html"><span class="en">M3 study</span><span class="zh">M3 專文</span></a>
+  <a class="sec" href="m4-layout.html"><span class="en">M4 on the die</span><span class="zh">M4 晶粒圖</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M3 · delay islands on the die</span><span class="zh">M3 · 晶粒上的延遲島</span></p>
+  <h1><span class="en">Every net gets a colour</span><span class="zh">每一張網都有顏色</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. Painted over it is <a href="m3-delay.html">M3's Elmore-delay heatmap</a>: every one of the <b>7,246 driven nets</b> coloured by how long it takes to switch, <b>cool (fast) → hot (slow)</b>. The red islands — the slowest ~5% — are not scattered at random: they cluster on the <b>CPU↔PPU interface</b>, the clock trees, and the pads. That is where the 24-half-cycle cross-chip latency the accuracy campaigns kept measuring physically lives. Drag to pan, wheel to zoom, hover any cell for its name and delay bucket.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面塗著 <a href="m3-delay.html">M3 的 Elmore 延遲熱圖</a>:<b>7,246 張受驅動網</b>每一張都依「切換要花多久」著色,<b>冷(快)→ 熱(慢)</b>。那些紅色的島 —— 最慢的約 5% —— 不是隨機散落:它們聚在 <b>CPU↔PPU 介面</b>、時鐘樹、以及接腳上。戰役一再量到的 24 個半週期跨晶片延遲,物理上就住在那裡。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字與延遲級別。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Coloured fills = each net's delay bucket, cool → hot; islands drawn on top. A driven net with no polygon isn't drawn — but here all 7,246 have silicon area, so the map is dense. τ is in <i>gate units</i> (the median driven net ≡ 1.0), and clock trees / super-buffers are known over-estimates.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。彩色填充 = 每張網的延遲級別,冷 → 熱;島畫在最上層。沒有多邊形的受驅動網不會畫 —— 但這裡 7,246 張每一張都有矽面積,所以圖是密的。τ 以 <i>gate 單位</i>呈報(受驅動網中位數 ≡ 1.0),時鐘樹 / super-buffer 是已知的高估案。</span></p>
+
+  <section>
+    <h2><span class="en">How the delay map is built</span><span class="zh">延遲地圖怎麼算出來的</span></h2>
+    <p><span class="en">Unlike <a href="m4-layout.html">M4's latch scan</a> — pure topology, zero physical priors — M3 is the toolbox's one <b>physical</b> mechanism. It reads the die's geometry and puts a clock on every net: a first-order <b>Elmore delay</b>. Nothing here is new physics; the formula just <i>composes the first two studies</i> — resistance from M1's device strengths, capacitance from M2's polygon areas. The heatmap above is that τ, bucketed. This is what <code>m3_elmore_binner.py</code> computes; the colours are its output projected onto the layout.</span>
+       <span class="zh">跟 <a href="m4-layout.html">M4 的閂鎖掃描</a>不同 —— 那是純拓撲、零物理先驗 —— M3 是工具箱裡唯一的<b>物理</b>機制。它讀晶粒的幾何,給每張網一個時鐘:一階 <b>Elmore 延遲</b>。這裡沒有新物理;公式只是<i>把前兩份研究組起來</i> —— 電阻來自 M1 的器件強度、電容來自 M2 的多邊形面積。上面的熱圖就是那個 τ,分好級。這就是 <code>m3_elmore_binner.py</code> 算的東西;顏色就是它的輸出投影到佈局上。</span></p>
+
+<pre><code>τ(net) ≈ ( R_driver + R_wire/2 ) × C_net        ← reported in GATE UNITS (median net ≡ 1.0)
+
+  C_net    = Σ polygon-area × layer-weight + Σ gate W×L        ← M2 areas (study #2)
+  R_driver = 20 kΩ / S,  S = W/L of the strongest pull-down    ← M1 strengths (study #1)
+  R_wire   = Σ sheet-R × squares  (squares = rectangle-equivalent L/W per polygon)</code></pre>
+
+    <p><span class="en">Then every net's τ is normalised (median driven net ≡ 1.0) and dropped into four buckets — the heatmap legend above, documented:</span>
+       <span class="zh">接著把每張網的 τ 正規化(受驅動網中位數 ≡ 1.0),丟進四個級別 —— 就是上面熱圖的圖例,列在這裡:</span></p>
+
+    <table>
+      <tr><th><span class="en">Bucket</span><span class="zh">級別</span></th><th><span class="en">τ (gate units)</span><span class="zh">τ(gate 單位)</span></th><th class="n"><span class="en">2C02 nets</span><span class="zh">2C02 網數</span></th><th><span class="en">What lives here</span><span class="zh">住著什麼</span></th></tr>
+      <tr><td><span class="dv-sw" style="background:#5b7cff"></span> <b><span class="en">fast</span><span class="zh">快</span></b></td><td><code>&lt; 0.5</code></td><td class="n">383</td><td><span class="en">tiny local nets — switch effectively instantly (the cool floor of the gradient)</span><span class="zh">微小的本地網 —— 幾乎瞬間切換(梯度的冷底)</span></td></tr>
+      <tr><td><span class="dv-sw" style="background:#5ac8fa"></span> <b><span class="en">ordinary</span><span class="zh">普通</span></b></td><td><code>0.5 – 2</code></td><td class="n">5,478</td><td><span class="en">the logic bulk — this is what "1.0" means</span><span class="zh">邏輯主體 —— 「1.0」指的就是這批</span></td></tr>
+      <tr><td><span class="dv-sw" style="background:#ffb454"></span> <b><span class="en">slow</span><span class="zh">慢</span></b></td><td><code>2 – 8</code></td><td class="n">1,023</td><td><span class="en">long or high-fanout nets — warming toward annotation-worthy</span><span class="zh">長線或高扇出網 —— 熱到接近值得標註</span></td></tr>
+      <tr><td><span class="dv-sw" style="background:#ff2d55"></span> <b><span class="en">delay island</span><span class="zh">延遲島</span></b></td><td><code>&gt; 8</code></td><td class="n">362 (5.0%)</td><td><span class="en">the interface, clock trees, pads — <b>where cross-chip latency lives</b></span><span class="zh">介面、時鐘樹、接腳 —— <b>跨晶片延遲住的地方</b></span></td></tr>
+    </table>
+
+    <div class="note">
+      <span class="en"><b>The binner has no concept of "the CPU↔PPU interface."</b> It was handed polygons and device sizes, nothing else — yet the hottest nets it ranks are exactly <code>pclk0</code>/<code>pclk1</code> (the pixel clocks), then <code>_rd</code>, <code>_io_ce</code>, <code>_io_rw_buf</code>, <code>_io_db0–2</code>: the bus between the two chips. That is the <b>24-half-cycle cross-chip delay family</b> — the same physics behind the <code>ALERead</code>, <code>dot-339</code>, <code>even_odd</code> and <code>BGSerialIn</code> shims — given a purely geometric background check. The islands aren't a model artefact: the silicon is genuinely slow there, and it is slow exactly where the timing shims already live.</span>
+      <span class="zh"><b>分級器根本不知道什麼是「CPU↔PPU 介面」。</b>它只拿到多邊形與器件尺寸、別無其他 —— 但它排出來最熱的網,恰好就是 <code>pclk0</code>/<code>pclk1</code>(像素時鐘),接著是 <code>_rd</code>、<code>_io_ce</code>、<code>_io_rw_buf</code>、<code>_io_db0–2</code>:兩顆晶片之間的匯流排。那正是 <b>24 個半週期的跨晶片延遲家族</b> —— <code>ALERead</code>、<code>dot-339</code>、<code>even_odd</code>、<code>BGSerialIn</code> 這些 shim 背後的同一套物理 —— 拿到了一次純幾何的身家調查。延遲島不是模型的假影:矽在那裡就是真的慢,而它慢的地方,恰好就是計時 shim 已經住著的地方。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up — the formula, the five hardware anchors, and the impossible 16/18 rise/fall asymmetry: <a href="m3-delay.html">M3 · Every net gets a clock →</a></span><span class="zh">完整專文 —— 公式、五個硬體錨點、以及不可能的 16/18 rise/fall 不對稱:<a href="m3-delay.html">M3 · 每張網都有自己的時鐘 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m3_elmore_binner.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m3_elmore_binner.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m3_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

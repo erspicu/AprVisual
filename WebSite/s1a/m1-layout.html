@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M1 on the die — every ratioed fight, graded as a heatmap on the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#ffd0d8,#ff2d55); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--bad); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--bad); background:#1e1416; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute; top:0; left:0;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  .heat{display:inline-block; width:13px; height:13px; border-radius:3px; vertical-align:-1px; margin-right:2px;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m1-strength.html"><span class="en">M1 study</span><span class="zh">M1 專文</span></a>
+  <a class="sec" href="m4-layout.html"><span class="en">M4 on the die</span><span class="zh">M4 晶粒圖</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M1 · drive strength on the die</span><span class="zh">M1 · 晶粒上的驅動強度</span></p>
+  <h1><span class="en">Every fight, graded by heat</span><span class="zh">每一場對決,依熱度分級</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, the nodes where two <b>drivers physically contend</b> are lit up, straight from <a href="m1-strength.html">M1's geometry census</a> (drive strength <code>S = W/L</code>, read out of the transdefs the engine always threw away). Unlike M4's pure-topology latches, M1 is a <b>physical</b> mechanism, so the highlights are a <b>heatmap</b>: the redder a cell, the closer the two drivers are in strength — and the less the engine's "a path to GND always wins" is anything more than a coin toss. Drag to pan, wheel to zoom, hover any cell for its name, strength ratio, and heat band. The census numbers (250 fight sites, 114 near dead-heat…) stop being numbers and become <i>places</i> — and they land squarely on the external data bus.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面點亮的,是兩個<b>驅動源在物理上互相對抗</b>的節點,直接來自 <a href="m1-strength.html">M1 幾何普查</a>(驅動強度 <code>S = W/L</code>,從引擎一向丟棄的 transdefs 幾何欄讀回來)。和 M4 的純拓撲閂鎖不同,M1 是<b>物理</b>機制,所以亮點是一張<b>熱力圖</b>:cell 愈紅,兩個驅動源的強度愈接近 —— 引擎那句「有一條路到 GND 就贏」也就愈接近擲銅板。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字、強度比與熱度分級。那些普查數字(250 個對決點、114 個近乎勢均力敵⋯)不再是數字,而是<i>位置</i> —— 而且它們正好落在對外資料匯流排上。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Coloured fills = M1 fight sites, graded hot → cold: <span class="heat" style="background:#ff2d55"></span> red = within 2× strength (near dead-heat), <span class="heat" style="background:#ffb454"></span> amber = within 4×, <span class="heat" style="background:#5ac8fa"></span> blue = any driver-vs-driver fight. Hotter = the fiat is least justified. All 250 sites have silicon area, so all 250 are drawn.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。彩色填充 = M1 對決點,由熱到冷分級:<span class="heat" style="background:#ff2d55"></span> 紅 = 強度在 2× 內(近乎勢均力敵)、<span class="heat" style="background:#ffb454"></span> 琥珀 = 4× 內、<span class="heat" style="background:#5ac8fa"></span> 藍 = 任何驅動對決。愈熱 = 那條裁決規則愈站不住腳。250 個點全都有矽面積,所以 250 個全部畫得出來。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">M1 is the mirror image of M4. Where a latch is <b>pure topology</b>, a strength fight is <b>pure physics</b>: real NMOS is <i>ratioed</i> logic — every contested node is resolved by a race between conductances, and conductance is geometry, <code>S = W/L</code>, printed in plain sight in the transdefs geometry column <code>[w1, w2, length, #segs, W·L]</code>. The switch-level engines in this family read the connectivity and <b>discarded that column</b>; they treat every transistor as one ideal switch and resolve every group by a fixed priority — <b>a path to GND always wins</b> — without ever asking <i>how strong</i>. That fiat is correct when the fight is lopsided. It is a <b>guess</b> when it is not. <code>m1_device_census.py</code> reads the column back and finds the nodes where the guess is riskiest; the heatmap above is its output projected onto the layout.</span>
+       <span class="zh">M1 是 M4 的鏡像。閂鎖是<b>純拓撲</b>,強度對決則是<b>純物理</b>:真實 NMOS 是<i>比例式(ratioed)</i>邏輯 —— 每個被爭奪的節點都是電導之間的競速裁決出來的,而電導就是幾何,<code>S = W/L</code>,明明白白印在 transdefs 幾何欄 <code>[w1, w2, length, #segs, W·L]</code> 裡。這個家族的開關級引擎讀了連接性、卻<b>丟掉了那一欄</b>;它們把每顆電晶體當成一個理想開關,用固定優先序裁決每一組 —— <b>有一條路到 GND 就贏</b> —— 從不問<i>到底多強</i>。當對決一面倒時,這條裁決是對的;不一面倒時,它是<b>猜的</b>。<code>m1_device_census.py</code> 把那一欄讀回來,找出這個猜測最危險的節點;上面那張熱力圖就是它的輸出投影到佈局上。</span></p>
+
+    <p><span class="en">A <b>fight site</b> is a node where a signal-gated pull-up (a to-VCC device) and a signal-gated pull-down (a to-GND device) can both drive at once. The census grades each by the strength ratio <code>S<sub>up</sub> : S<sub>down</sub></code> — the closer to 1:1, the hotter:</span>
+       <span class="zh"><b>對決點</b>是一個節點,上面同時有訊號閘控的上拉(通到 VCC 的器件)和訊號閘控的下拉(通到 GND 的器件),兩者都能同時驅動。普查用強度比 <code>S<sub>up</sub> : S<sub>down</sub></code> 給每個點分級 —— 愈接近 1:1 愈熱:</span></p>
+
+    <table>
+      <tr><th><span class="en">Heat band</span><span class="zh">熱度分級</span></th><th><span class="en">Strength ratio</span><span class="zh">強度比</span></th><th><span class="en">What it means</span><span class="zh">代表什麼</span></th></tr>
+      <tr><td><b><span class="heat" style="background:#ff2d55"></span> <span class="en">near dead-heat</span><span class="zh">近乎勢均力敵</span></b></td><td><span class="en">within <b>2×</b> (0.5–2.0)</span><span class="zh"><b>2×</b> 內(0.5–2.0)</span></td><td><span class="en">the two drivers are nearly matched; the real silicon resolves by analog ratio, the engine by fiat — a coin toss it can lose. <b>114 sites.</b></span><span class="zh">兩個驅動源幾乎相等;真實矽靠類比比例裁決,引擎靠一句規定 —— 一場它可能輸掉的擲銅板。<b>114 個。</b></span></td></tr>
+      <tr><td><b><span class="heat" style="background:#ffb454"></span> <span class="en">close fight</span><span class="zh">接近的對決</span></b></td><td><span class="en">within <b>4×</b></span><span class="zh"><b>4×</b> 內</span></td><td><span class="en">still contestable — the stronger driver usually wins, but the margin is thin. <b>130 cumulative.</b></span><span class="zh">仍有得爭 —— 較強者通常贏,但差距不大。<b>累計 130 個。</b></span></td></tr>
+      <tr><td><b><span class="heat" style="background:#5ac8fa"></span> <span class="en">any fight</span><span class="zh">任何對決</span></b></td><td><span class="en">all ratios</span><span class="zh">任何比例</span></td><td><span class="en">every driver-vs-driver site, including the lopsided ones the fiat gets right. <b>250 total.</b></span><span class="zh">每一個驅動對決點,包括那些一面倒、裁決剛好猜對的。<b>共 250 個。</b></span></td></tr>
+    </table>
+    <p class="mut" style="font-size:13px"><span class="en">The bands are nested (2× ⊂ 4× ⊂ any) and drawn hottest-last, so a dead-heat cell ends up red on top. Toggle any band in the legend; hover a red cell and you will see it listed in all three.</span><span class="zh">分級是巢狀的(2× ⊂ 4× ⊂ 任何),而且愈熱愈後畫,所以勢均力敵的 cell 最後蓋在最上層、顯示為紅。可在圖例點任一分級開關;停在紅色 cell 上,會看到它同時列在三個分級裡。</span></p>
+
+    <div class="note">
+      <span class="en"><b>The census has no concept of "the data bus."</b> It was handed transistor geometry and nothing else — yet the hottest, near-dead-heat fights trace the outline of the 2C02's external interface: <code>io_db0…7</code> (the CPU-facing data pads, both polarities), <code>ale</code> (address-latch enable), <code>wr</code>. <b>21 named neighbourhoods re-found from geometry alone.</b> This is exactly where a ratioed bus fight lives — the same physics behind the 6502 family's notorious <code>LXA</code>/<code>$AB</code> "magic constant" opcode, where two comparable drivers share a bus wire and the digital "GND always wins" is a physical <i>guess</i>, not a law. Strength the engine discarded, recovered from the die — and pointed straight at the bus.</span>
+      <span class="zh"><b>普查根本不知道什麼是「資料匯流排」。</b>它只拿到電晶體幾何、別無其他 —— 最熱、近乎勢均力敵的那些對決,卻描出了 2C02 對外介面的輪廓:<code>io_db0…7</code>(面向 CPU 的資料接腳,正反極性都在)、<code>ale</code>(位址閂鎖致能)、<code>wr</code>。<b>光靠幾何,就重新找回 21 個具名鄰域。</b>這正是比例式匯流排對決的所在 —— 和 6502 家族那顆惡名昭彰的 <code>LXA</code>/<code>$AB</code>「魔術常數」指令背後是同一套物理:兩個強度相當的驅動源共用一條匯流排線,而數位式的「GND 一定贏」是物理上的<i>猜測</i>,不是定律。引擎丟掉的強度,從晶粒上被找回來 —— 而且直指匯流排。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up with the W/L histogram, the strength vocabulary, and the 4:1 audit: <a href="m1-strength.html">M1 · The die's strength vocabulary →</a></span><span class="zh">完整內容,含 W/L 分布、強度詞彙與 4:1 稽核:<a href="m1-strength.html">M1 · 晶粒的強度詞彙 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m1_device_census.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m1_device_census.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m1_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

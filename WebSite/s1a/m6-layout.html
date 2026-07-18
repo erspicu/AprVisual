@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M6 on the die — every cross-chip counter-comparator, lit up on the real 2C02 layout</title>
+<style>
+  :root{
+    --bg:#100f15; --fg:#dcd7e3; --mut:#968ba1; --acc:#c792ea; --acc2:#7ee0a8;
+    --warn:#ffb454; --bad:#ff6b6b; --card:#1a1721; --bd:#2e2634; --code:#211d29;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;
+       background:var(--bg); color:var(--fg); line-height:1.7;}
+  a{color:var(--acc); text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 20px; background:rgba(20,17,26,.94); border-bottom:1px solid var(--bd); backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700; color:var(--acc); letter-spacing:.4px; margin-right:8px;}
+  nav a.sec{color:var(--mut); font-size:14px; padding:5px 9px; border-radius:6px;}
+  nav a.sec:hover{color:var(--fg); background:var(--card); text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:5px 12px; cursor:pointer; font-size:13px;}
+  nav button.active{background:var(--acc); color:#160f1f; border-color:var(--acc); font-weight:600;}
+  main{max-width:max(960px, 82vw); margin:0 auto; padding:22px 22px 90px;}
+  h1{font-size:clamp(28px,5vw,44px); margin:.2em 0 .1em; letter-spacing:-.5px;
+     background:linear-gradient(90deg,#e8dcff,#c792ea); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .kick{font-size:12px; letter-spacing:1.5px; text-transform:uppercase; color:var(--acc); font-weight:700;}
+  h2{font-size:22px; color:#e8dcff; margin:1.4em 0 .2em;}
+  h3{font-size:16px; color:#efe9f7; margin:1.2em 0 .2em;}
+  p{margin:.5em 0;} .mut{color:var(--mut);} code{background:var(--code); padding:2px 6px; border-radius:4px; font-size:13px; font-family:Consolas,monospace;}
+  .card{background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:6px 18px 16px; margin:16px 0;}
+  .note{border-left:3px solid var(--warn); background:#1e1a14; padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+
+  /* ── die-viewer component ── */
+  .dv-host{position:relative; margin:14px 0 6px;}
+  .dv-hud{display:flex; align-items:center; gap:12px; padding:6px 2px 8px;}
+  .dv-hud .dv-chip{font-weight:700; color:var(--acc2); border:1px solid var(--bd); border-radius:20px; padding:2px 12px; font-size:13px; background:#14201a;}
+  .dv-hud .dv-hint{color:var(--mut); font-size:12.5px;}
+  .dv-hud .dv-reset{margin-left:auto; background:var(--card); color:var(--fg); border:1px solid var(--bd); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:12.5px;}
+  .dv-hud .dv-reset:hover{border-color:var(--acc); color:var(--acc);}
+  .dv-viewport{position:relative; width:100%; height:min(74vh,760px); overflow:hidden; cursor:grab;
+     border:1px solid var(--bd); border-radius:10px; background:#0b0a0f;}
+  .dv-viewport.dv-grab{cursor:grabbing;}
+  .dv-canvas{position:absolute; top:0; left:0;}
+  .dv-tip{position:absolute; z-index:10; pointer-events:none; max-width:320px;
+     background:rgba(16,15,21,.96); border:1px solid var(--bd); border-radius:7px; padding:6px 10px;
+     font-size:12.5px; color:var(--fg); box-shadow:0 6px 20px rgba(0,0,0,.5);}
+  .dv-tip .dv-tip-id{color:var(--mut); font-size:11px;}
+  .dv-tip .dv-tip-cat{display:block; font-size:12px; font-weight:600; margin-top:2px;}
+  .dv-tip .dv-tip-none{color:var(--mut);}
+  .dv-legend{display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:10px 0 4px;}
+  .dv-legend-head{width:100%; font-size:12.5px; color:var(--mut); margin-bottom:2px;}
+  .dv-legend-head b{color:var(--acc);}
+  .dv-leg-row{display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--bd);
+     border-radius:20px; padding:3px 11px 3px 6px; cursor:pointer; font-size:12.5px; color:var(--fg);}
+  .dv-leg-row:hover{border-color:var(--acc);}
+  .dv-leg-row.off{opacity:.4;}
+  .dv-sw{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .dv-leg-n{color:var(--mut); font-variant-numeric:tabular-nums;}
+  table{border-collapse:collapse; width:100%; margin:.6em 0; font-size:13.5px;}
+  th,td{border:1px solid var(--bd); padding:7px 10px; text-align:left; vertical-align:top;} th{background:var(--card); color:#e8dcff;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a hub</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="m6-phase.html"><span class="en">M6 study</span><span class="zh">M6 專文</span></a>
+  <a class="sec" href="m4-layout.html"><span class="en">M4 on the die</span><span class="zh">M4 晶粒圖</span></a>
+  <a class="sec" href="../index.html"><span class="en">AprVisual</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<main>
+  <p class="kick"><span class="en">M6 · where phase can hurt, on the die</span><span class="zh">M6 · 相位會咬人的地方,在晶粒上</span></p>
+  <h1><span class="en">Where phase can hurt, lit up</span><span class="zh">相位會咬人的地方,點亮</span></h1>
+  <p><span class="en">This is the <b>real 2C02 silicon layout</b> — the same segment polygons the switch-level engine simulates — rendered live in your browser. On top of it, the nodes that <a href="m6-phase.html">M6's cross-chip interface census</a> flags are highlighted by category. Drag to pan, wheel to zoom, hover any cell for its name and which set it belongs to. The funnel numbers (173 interface-entry nodes, 203 counter-comparators, 66 phase-sensitive sites) stop being numbers and become <i>places</i>: the interface arriving at the die edge (blue), the position counter sitting in its own block (green), the comparators that ask "are we there yet?" (orange), and — lit red on top — the exact 66 sites where an arrival one dot early would flip a per-dot decision.</span>
+     <span class="zh">這是<b>真實的 2C02 矽佈局</b> —— 開關級引擎模擬的同一批 segment 多邊形 —— 在你瀏覽器裡即時渲染。上面疊著 <a href="m6-phase.html">M6 跨晶片介面普查</a>標記的節點,依類別著色。拖曳平移、滾輪縮放、停在任一 cell 上看它的名字與所屬集合。那些漏斗數字(173 個介面入口節點、203 個計數器比較器、66 個相位敏感站點)不再是數字,而是<i>位置</i>:介面在晶粒邊緣抵達(藍)、位置計數器坐在自己的區塊裡(綠)、問「到了嗎?」的比較器(橘),以及疊在最上層點成紅色的那 66 個站點 —— 抵達早一個 dot 就會翻掉一個 per-dot 決策的確切位置。</span></p>
+
+  <div class="die-viewer"></div>
+
+  <p class="mut" style="font-size:12.5px"><span class="en">Faint background = the die's layers (diffusion / poly / metal). Bright fills = M6-flagged nodes. Every one of the 388 flagged nodes has a polygon — none are pure-logic phantoms — so the whole census is visible. The hot red set is drawn last, on top of the orange comparators it is a subset of; toggle a legend chip to isolate a set.</span><span class="zh">暗色背景 = 晶粒各層(擴散 / 多晶矽 / 金屬)。亮色填充 = M6 標記的節點。388 個被標記節點每一個都有多邊形 —— 沒有純邏輯的幽靈節點 —— 所以整份普查都看得見。熱紅集合畫在最上層,疊在它所屬子集的橘色比較器之上;點圖例色塊可單獨隔離某個集合。</span></p>
+
+  <section>
+    <h2><span class="en">How the detection works</span><span class="zh">偵測演算法怎麼運作</span></h2>
+    <p><span class="en">The whole cross-chip timing family — dot-339, even_odd, ALERead, BGSerialIn — is <b>one shape</b>: a CPU write, delayed on the die by ~24 hc, meets a 2C02 comparison against a <b>position counter</b>, and the zero-delay engine, having erased the delay, compares it one dot early. M6 enumerates every such site with a four-stage funnel over the transistor connectivity the netlist states exactly — no physical priors, just the graph. This is what <code>m6_interface_census.py</code> computes; the highlights above are its output projected onto the layout.</span>
+       <span class="zh">整個跨晶片時序家族 —— dot-339、even_odd、ALERead、BGSerialIn —— 是<b>同一個形狀</b>:一個 CPU 寫入,在晶粒上被延遲 ~24 hc,撞上 2C02 對<b>位置計數器</b>的比較,而抹掉延遲的零延遲引擎早一個 dot 就比了。M6 用四階段漏斗在網表明確描述的電晶體連接性上列舉每一個這樣的站點 —— 沒有物理先驗,只有圖。這就是 <code>m6_interface_census.py</code> 算的東西;上面的亮點就是它的輸出投影到佈局上。</span></p>
+
+    <table>
+      <tr><th><span class="en">Funnel stage</span><span class="zh">漏斗階段</span></th><th><span class="en">The graph rule</span><span class="zh">圖規則</span></th><th><span class="en">Count · colour</span><span class="zh">數量 · 顏色</span></th></tr>
+      <tr><td><b><span class="en">1 · interface entry</span><span class="zh">1 · 介面入口</span></b></td><td><span class="en">the cross-chip nets (<code>io_ce</code> / <code>io_ab</code> / <code>io_db</code> / <code>io_rw</code>) plus the write-latched enables a $2001/$2007 write sets (<code>rendering</code>, <code>bkg/spr_enable</code>) — the signals whose <i>arrival timing</i> the delay island governs</span><span class="zh">跨晶片網(<code>io_ce</code> / <code>io_ab</code> / <code>io_db</code> / <code>io_rw</code>)加上 $2001/$2007 寫入設定的閂鎖致能(<code>rendering</code>、<code>bkg/spr_enable</code>)—— 抵達時機由延遲島掌管的訊號</span></td><td><span class="en"><b>173</b> · <span style="color:#5ac8fa">blue</span></span><span class="zh"><b>173</b> · <span style="color:#5ac8fa">藍</span></span></td></tr>
+      <tr><td><b><span class="en">2 · position counters</span><span class="zh">2 · 位置計數器</span></b></td><td><span class="en">every node named <code>hpos*</code> / <code>vpos*</code> — the dot/scanline counter the die compares against. Shown as its own set so you can see it as a compact register block on the die</span><span class="zh">每個名為 <code>hpos*</code> / <code>vpos*</code> 的節點 —— 晶粒拿來比的 dot/掃描線計數器。單獨畫成一個集合,好讓你在晶粒上看見它是一塊緊湊的暫存器區</span></td><td><span class="en"><b>56</b> · <span style="color:#7ee0a8">green</span></span><span class="zh"><b>56</b> · <span style="color:#7ee0a8">綠</span></span></td></tr>
+      <tr><td><b><span class="en">3 · counter-comparator cone</span><span class="zh">3 · 計數器比較器錐</span></b></td><td><span class="en">any node whose 1–2 hop fan-in support includes a counter bit — the places the die asks "are we at dot N yet?" (found by a bounded BFS: 173 interface nodes reach 8,092 downstream, and 203 of the chip's comparators touch a counter)</span><span class="zh">任何 1–2 跳 fan-in 支撐含計數器位元的節點 —— 晶粒問「到 dot N 了嗎?」的地方(用有界 BFS 找:173 介面節點往下游抵達 8,092 個,其中 203 個比較器碰到計數器)</span></td><td><span class="en"><b>203</b> · <span style="color:#ffb454">orange</span></span><span class="zh"><b>203</b> · <span style="color:#ffb454">橘</span></span></td></tr>
+      <tr><td><b><span class="en">4 · phase-sensitive = the intersection</span><span class="zh">4 · 相位敏感 = 交集</span></b></td><td><span class="en">a comparator that is <i>also</i> interface-fed: an early/late arrival changes a per-dot decision. This is the hot set — the delay island's exact perimeter</span><span class="zh">同時被介面餵到的比較器:抵達早/晚會改變一個 per-dot 決策。這就是熱集合 —— 延遲島的精確周界</span></td><td><span class="en"><b>66</b> · <span style="color:#ff2d55">red</span></span><span class="zh"><b>66</b> · <span style="color:#ff2d55">紅</span></span></td></tr>
+    </table>
+
+    <div class="note">
+      <span class="en"><b>The scanner has no concept of "dot 339".</b> It was handed connectivity and which nets cross the package — nothing else — yet the intersection <b>interface-fed ∩ counter-comparator</b> re-found three of the four campaign bosses by pure structure: <code>hpos_eq_339_and_rendering</code> (dot-339, the StaleSprite boss, node&nbsp;#789), <code>hpos_mod_8_eq_0_or_1_and_rendering</code> (BGSerialIn, the shifter-reload boundary, node&nbsp;#836), and <code>io_ce</code> (ALERead's $2007 interface, node&nbsp;#5) — the three highlighted in the <i>validated</i> list. The fourth, even_odd (<code>skip_dot</code>), sits <i>correctly</i> just outside: its trigger is frame parity, not an interface arrival, so it is the one family member the enable×counter shape does not cover. Structure alone re-drew the delay island's perimeter — the pattern <i>is</i> the physics.</span>
+      <span class="zh"><b>掃描器根本不知道什麼是「dot 339」。</b>它只拿到連接性、以及哪些網跨越封裝 —— 別無其他 —— 但<b>介面餵到 ∩ 計數器比較器</b>這個交集,靠純結構重新找到四個戰役魔王的三個:<code>hpos_eq_339_and_rendering</code>(dot-339,StaleSprite 魔王,節點&nbsp;#789)、<code>hpos_mod_8_eq_0_or_1_and_rendering</code>(BGSerialIn,移位器 reload 邊界,節點&nbsp;#836)、以及 <code>io_ce</code>(ALERead 的 $2007 介面,節點&nbsp;#5)—— 就是 <i>validated</i> 清單裡標出來的三個。第四個 even_odd(<code>skip_dot</code>)<i>正確地</i>落在外面一點點:它的觸發是幀奇偶、不是介面抵達,所以它是唯一一個不在 致能×計數器 形狀裡的家族成員。純結構就重畫了延遲島的周界 —— pattern <i>就是</i>物理。</span>
+    </div>
+    <p class="mut" style="font-size:13px"><span class="en">Full write-up with the funnel figures, the ranked phase-sensitive table, and the boss validation: <a href="m6-phase.html">M6 · Where phase can hurt →</a></span><span class="zh">完整寫作、漏斗圖、相位敏感排序表與魔王驗證:<a href="m6-phase.html">M6 · 相位會咬人的地方 →</a></span></p>
+  </section>
+
+  <p class="mut" style="font-size:12px; border-top:1px solid var(--bd); padding-top:16px; margin-top:26px">
+    <span class="en">Live layout rendering adapted from <a href="https://github.com/trebonian/visual6502">Visual6502</a>'s <code>wires.js</code> (Brian &amp; Barry Silverman, MIT). Layout data derived from the Visual&nbsp;2C02 netlist (CC-BY-NC-SA) — the corrected <code>data/system-def/</code>. Detection: <code>WebSite/s1a/py/m6_interface_census.py --dump-nodes</code>.</span>
+    <span class="zh">即時佈局渲染改編自 <a href="https://github.com/trebonian/visual6502">Visual6502</a> 的 <code>wires.js</code>(Brian &amp; Barry Silverman,MIT)。佈局資料衍生自 Visual&nbsp;2C02 網表(CC-BY-NC-SA)—— 修正版 <code>data/system-def/</code>。偵測:<code>WebSite/s1a/py/m6_interface_census.py --dump-nodes</code>。</span></p>
+</main>
+
+<script src="layout/2c02_layout.js"></script>
+<script src="layout/m6_2c02_nodes.js"></script>
+<script src="layout/die-viewer.js"></script>
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';
+    document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');
+    document.querySelectorAll('[data-en]').forEach(function(e){var t=e.getAttribute('data-'+l);if(t)e.textContent=t;});
+    try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var s=null;try{s=localStorage.getItem('aprvisual-lang');}catch(e){}
+    if(s==='zh'||s==='en'){setLang(s);return;}
+    var z=(navigator.languages||[navigator.language||'']).some(function(x){return String(x).toLowerCase().indexOf('zh')===0;});
+    setLang(z?'zh':'en');})();
+</script>
+</body>
+</html>

@@ -45,6 +45,9 @@ tools/testrom/
 ├── archive_old_results.bat [ARCHIVE] pack the previous run's data so the next starts clean
 ├── archive_old_results.ps1 (the PowerShell the bat above calls)
 ├── build_report_only.bat   rebuild only the report page from existing results (no re-run)
+├── run_accuracycoin.bat    [OTHER BATTERY] one-click AccuracyCoin-141 unattended (a different verdict path: the $07F0 completion block, not the run_tests.py flow; includes AC-specific settings like ALEREAD_MUX)
+├── ac_snap_results.py      AC-only: read the $04xx result table straight from a snapshot (in-flight scoreboard, oracle-diffed)
+├── ac_watch.py             AC-only: mail a progress report every N frames (with screenshot); verdict authority = AccuracyCoin.json
 └── out/                    run artifacts (gitignored): results / screenshots / logs / archive_*
 ```
 
@@ -58,7 +61,7 @@ Double-click **`tools/testrom/run_full_regression.bat`** (or run it in a termina
 3. When all tests finish, automatically call `build_report.py` to produce `WebSite/Report/`.
 
 > ⏱️ **This takes several hours** (switch-level simulation is slow, ~5 s per simulated frame; a full run is
-> ~8 hours). Ctrl+C aborts. When it's done, open `WebSite/Report/index.html`.
+> **~6.2 hours on 7 pinned cores**, see §0). Ctrl+C aborts. When it's done, open `WebSite/Report/index.html`.
 
 To start from a clean slate, run the archive bat in §4 first, then this one.
 
@@ -182,3 +185,4 @@ when adding tests or changing detection methods; ordinary verification just uses
 - [Don't Touch the DUT — probe effect & instrument-grade shims](2026-07-08-probe-effect-instrument-grade-shims.en.md) — how a shim is attached without breaking other tests
 - [Faithful-deviation in-depth Q&A](2026-07-05-faithful-deviation-qa.en.md) — the one "supposed-to-be-red" remaining FAIL
 - Report card: [live report](https://erspicu.github.io/AprVisual/Report/)
+- **The other battery: AccuracyCoin 141** (harder, targeting RP2A03G+RP2C02G): one-click `run_accuracycoin.bat`, the run recipe in `MD/memory/00_baseline-and-run-recipes.md`, report [ReportAC](https://erspicu.github.io/AprVisual/ReportAC/). Different verdict path (the CPU-RAM `$07F0` completion block) and it needs the AC-specific env `ALEREAD_MUX` (omit it and 141 drops to 140).

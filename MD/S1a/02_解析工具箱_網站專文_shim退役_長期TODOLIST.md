@@ -208,6 +208,28 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   即可)、P6 毛刺半邊(DOR 脈衝)另案不可吸收。**驗證可判**(AC OpenBus 對照孤立即 FAIL(1),
   建成即可三段論)。專文:`WebSite/s1a/m5e-bus-hold.html`(沒有人放的那顆電容);機制表/工具箱
   M5 列/shim 總帳 OpenBus 列均已連結。
+- **2026-07-18 傍晚:剩餘 shim 可判定性掃描收官(核 8-14 四臂 × 兩波)+ 兩顆「旁觀者」定案**。
+  判決:**Dbl2007**(#67 test_ppu_read_buffer,1274 幀)與 **even_odd/PpuWriteDelay**(blargg 09+10
+  兩支家族測試)對照組全 PASS 且 **hc 逐位相同**(#67:910,509,287;09:52,830,383;10:98,573,519)——
+  比「對照通過」更強:shim 兩臂都有 armed(stderr 查證),但**開火窗整場沒打開過 = 套外旁觀者**。
+  even_odd 窗只有 2 dot 寬(vpos261/hpos338-339)、Dbl2007 窗是合併距離內的 $2007 背靠背雙讀,
+  blargg 家族從未踩進。→ 兩顆歸 UNDECIDABLE(孤立不可判),證據等級「hc-identical」寫進
+  decidability.html(新增證據等級說明段)+ s1a.html 總帳(even_odd 列改判、FrameIrq·Dbl2007·
+  OamDmaPpuBus 合併列拆成三列)。
+  **方法論自白(誠實記錄)**:第一版 OamDmaPpuBus 對照選錯 ROM —— blargg oam_read **根本沒有
+  $4014 DMA**,兩臂 hc 相同的原因平凡(shim 永遠開不了火),該臂作廢;KB 明載真防守者 =
+  **#67 的「DMA + PPU bus」子測**(OamDmaPpuBusShim → #14 修復紀錄)。正確對照
+  (`--no-oam-dma-ppu-bus-shim` × #67,核 12,~2.7h)已在跑 —— 預期 FAIL=可判(那 shim 本來
+  就是為 #67 建的)。
+  **意外發現 → 歸屬定案:oam_read 抽籤翻籤,兩 fork 共同、非 S1A 回歸**。孤立 oam_read 在現
+  build 上 FAIL(1) 圖樣 E03E03AD(戰役 07-09/10 時 PASS)。歸屬調查四臂收齊:**S1 出廠 exe
+  (07-17 build)同圖樣同 hc=20,667,239;S1A 預設 / S1A×NO_M2DECAY / S1A×no-oamdma 全部逐位
+  相同** —— S1≡S1A 在此軌跡位元級等價(fork 零漂移),翻籤來自戰役後共同的載入期圖變更
+  (ALERead node-split 進 LoadSystem;Socket Pattern 已知:load-time cut 重擲全部彩票)。
+  KB 預言應驗:「未來引擎變動可能再合法換邊」(blargg 真機 4 圖樣僅 1 過,抽籤=忠實行為)。
+  M2_DECAY 證實中立(20.6M hc < 25.7M 閾值,機制/舊 shim 皆不可能開火)→ io_db 退役不受影響。
+  **誠實推論:現 build 的 147 全量分數預期 145/2**(oam_read 合法翻籤加入 cpu_dummy_writes_oam
+  的忠實偏差欄);146/1 是戰役 build 的歷史成績,下次全量回歸登記新分數。已記 KB 時間線。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

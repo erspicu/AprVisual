@@ -90,7 +90,13 @@
     <tr><td>dot-339</td><td>AC StaleSpriteShiftRegs</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
     <tr><td>BGSerialIn</td><td>AC BGSerialIn</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
     <tr><td>Dmc4015Abort</td><td>AC Explicit/ImplicitAbort</td><td class="ok">PASS</td><td class="wa"><span class="en">no</span><span class="zh">否</span></td></tr>
+    <tr><td>even_odd (PpuWriteDelay)</td><td>09-even_odd_frames + 10-even_odd_timing (blargg)</td><td class="ok"><span class="en">PASS, hc-identical</span><span class="zh">PASS,hc 逐位相同</span></td><td class="wa"><span class="en">no — zero firings</span><span class="zh">否 —— 零開火</span></td></tr>
+    <tr><td>Dbl2007</td><td>test_ppu_read_buffer #67 (blargg)</td><td class="ok"><span class="en">PASS, hc-identical</span><span class="zh">PASS,hc 逐位相同</span></td><td class="wa"><span class="en">no — zero firings</span><span class="zh">否 —— 零開火</span></td></tr>
   </table>
+  <div class="note">
+    <span class="en"><b>Evidence grades.</b> A plain control-PASS says the isolated ROM survives without the shim. The two newest rows say something stronger: the run with the shim and the run without it finished on the <i>bit-identical half-cycle count</i> (09: 52,830,383 hc; 10: 98,573,519 hc; #67: 910,509,287 hc over 1,274 frames). The shim was armed both times — its firing window simply never opened. even_odd's window is two dots wide (vpos&nbsp;261, hpos&nbsp;338–339, on a $2001 write-effect); Dbl2007's is a back-to-back $2007 read pair at merge distance. The blargg family ROMs never step into either window, so in isolation these shims are not merely "not load-bearing" — they are <i>spectators</i>. The scenario they defend exists only in the AccuracyCoin suite's alignment. (A methodological confession from the same sweep: our first OamDmaPpuBus control used blargg's oam_read — which contains no $4014 DMA at all, so both arms were hc-identical for the trivial reason that the shim can never fire there. Wrong defender, void arm. The correct control, on #67's "DMA + PPU bus" sub-test, is in flight.)</span>
+    <span class="zh"><b>證據等級。</b>單純的對照 PASS 只說明孤立 ROM 沒有 shim 也活得下去。最新兩列說的更強:有 shim 和沒 shim 的兩次跑,結束在<i>逐位元相同的半週期數</i>(09:52,830,383 hc;10:98,573,519 hc;#67:910,509,287 hc、1,274 幀)。shim 兩次都有掛上 —— 只是它的開火窗從來沒打開過。even_odd 的窗只有兩個 dot 寬(vpos&nbsp;261、hpos&nbsp;338–339,$2001 寫入生效時);Dbl2007 的窗是合併距離內的背靠背 $2007 雙讀。blargg 家族 ROM 從頭到尾沒踩進任一個窗,所以在孤立環境下這些 shim 不只是「不承重」—— 它們是<i>旁觀者</i>。它們防守的場景只存在於 AccuracyCoin 套件的對齊裡。(同一輪掃描的方法論自白:我們第一版 OamDmaPpuBus 對照用了 blargg 的 oam_read —— 它根本沒有 $4014 DMA,兩臂 hc 相同的原因平凡到不行:shim 在那裡永遠開不了火。防守者選錯,該臂作廢。正確的對照 —— #67 的「DMA + PPU bus」子測 —— 正在跑。)</span>
+  </div>
 </section>
 
 <section id="pattern">
@@ -114,12 +120,12 @@
   <h2><span class="kick"><span class="en">What this means</span><span class="zh">這代表什麼</span></span>
       <span class="en">The verification frontier moves in-suite</span><span class="zh">驗證前線移到套內</span></h2>
   <ul>
-    <li class="en"><b>The isolated protocol has a ceiling, and we found it.</b> Four shims retired or proven through it; five more are bit-safe under it but unprovable by it. That is not a wall in the mechanisms — it is a limit of the measuring instrument.</li>
-    <li class="zh"><b>孤立協定有天花板,而我們找到了。</b>四顆 shim 透過它退役或證明;另外五顆在它底下 bit-safe 但無法被它證明。那不是機制的牆 —— 是量測儀器的極限。</li>
+    <li class="en"><b>The isolated protocol has a ceiling, and we found it.</b> Four shims retired or proven through it; seven more sit beyond it — five interaction shims whose controls pass, plus even_odd and Dbl2007 whose controls are outright hc-identical (the shim never fires in isolation at all). That is not a wall in the mechanisms — it is a limit of the measuring instrument.</li>
+    <li class="zh"><b>孤立協定有天花板,而我們找到了。</b>四顆 shim 透過它退役或證明;另外七顆在它之外 —— 五顆互動 shim 的對照會過,加上 even_odd 和 Dbl2007 的對照根本 hc 逐位相同(shim 在孤立環境完全不開火)。那不是機制的牆 —— 是量測儀器的極限。</li>
     <li class="en"><b>The next instrument is the in-suite run.</b> The full 141-test AccuracyCoin suite, with the mechanisms on and the shims removed, is the experiment that can discriminate the interaction shims. It is expensive (~8 hours of switch-level simulation), which is why the toolbox now includes an <a href="../../tools/estimate_frames.py">AprNes frame estimator</a> and a verified <a href="../s1a.html#shimlist">snapshot/resume</a> path — the machinery for running and re-running an 8-hour verification without waste.</li>
     <li class="zh"><b>下一個儀器是套內全跑。</b>跑滿 141 顆 AccuracyCoin 套件、機制開、shim 拔,就是能鑑別互動 shim 的實驗。它很貴(~8 小時開關級模擬),這正是工具箱現在有 <a href="../../tools/estimate_frames.py">AprNes 幀估算器</a>和一條驗證過的<a href="../s1a.html#shimlist">快照/resume</a>路徑的原因 —— 讓一個 8 小時驗證能跑、能重跑而不浪費的機器。</li>
-    <li class="en"><b>Honesty is the deliverable.</b> Five shims stay, clearly labelled "undecidable, mechanism ready", not quietly deleted or falsely claimed retired. When the in-suite run happens, each will resolve to a genuine retirement or a documented residue. Until then, the map is the result.</li>
-    <li class="zh"><b>誠實就是交付物。</b>五顆 shim 留著、清楚標成「不可判、機制就緒」,不是悄悄刪掉或謊稱退役。等套內全跑發生,每一顆會解析成真正的退役或有文件的殘留。在那之前,這張地圖就是結果。</li>
+    <li class="en"><b>Honesty is the deliverable.</b> The undecidable shims stay, clearly labelled — "mechanism ready" where one is built, "spectator in isolation" where the control was hc-identical — not quietly deleted or falsely claimed retired. When the in-suite run happens, each will resolve to a genuine retirement or a documented residue. Until then, the map is the result.</li>
+    <li class="zh"><b>誠實就是交付物。</b>不可判的 shim 留著、清楚標示 —— 機制建好的標「機制就緒」、對照 hc 相同的標「孤立旁觀者」—— 不是悄悄刪掉或謊稱退役。等套內全跑發生,每一顆會解析成真正的退役或有文件的殘留。在那之前,這張地圖就是結果。</li>
   </ul>
 </section>
 

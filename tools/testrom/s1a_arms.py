@@ -45,6 +45,7 @@ OUT_ROOT   = os.path.join(SCRIPT_DIR, "out")
 # run_tests.py's 6-lane set. Even logical ids only = one thread per physical core.
 CORES = [6, 10, 14, 2, 12, 4]
 WALL_GUARD_PER_FRAME = 10
+RESUME = False   # set by --resume; skip arms that already have a complete verdict
 
 
 def load_catalog():
@@ -114,6 +115,21 @@ def run_arm(job, core, outdir):
     spath = os.path.join(outdir, label + ".png")
     lpath = os.path.join(outdir, label + ".log")
 
+    # --resume: an interrupted batch (e.g. the host process restarted) leaves some arms
+    # done and some not. Skip any arm that already has a complete verdict so a re-launch
+    # only runs the missing ones -- never re-run the whole set.
+    if RESUME and os.path.isfile(jpath):
+        try:
+            r = json.load(open(jpath, encoding="utf-8"))
+            if r.get("status"):
+                return {"label": label, "core": core, "status": r["status"].upper(),
+                        "resultCode": r.get("resultCode"), "detection": r.get("detection"),
+                        "resultText": r.get("resultText", ""), "frames": r.get("frames"),
+                        "hc": r.get("halfCycles"), "rom": os.path.basename(rom),
+                        "env": job.get("env", {}), "expect": job.get("expect"), "cached": True}
+        except Exception:
+            pass
+
     cmd = ["dotnet", DLL, "--test", rom, "--max-frames", str(mf), "--pin", str(core),
            "--reset-hold-extra", "1",
            "--test-json", jpath, "--test-screenshot", spath, "--system-def-dir", SYSTEM_DEF]
@@ -160,10 +176,14 @@ def run_arm(job, core, outdir):
     return out
 
 
-def worker(jobq, results, outdir):
+def worker(jobq, results, outdir, core):
+    # each worker OWNS one physical core for the whole run, so at most len(CORES) arms
+    # ever run at once and never two on the same core (a job-index core assignment
+    # collides once cached/fast arms let workers race ahead). Correctness is unaffected
+    # either way -- verdicts are deterministic -- but this keeps the pinning clean.
     while True:
         try:
-            core, job = jobq.get_nowait()
+            job = jobq.get_nowait()
         except queue.Empty:
             return
         print(f"  [core {core:>2}] start {job['label']}", flush=True)
@@ -184,10 +204,12 @@ def main():
     ap.add_argument("--outdir", default="s1a_reverify")
     ap.add_argument("--jobs-n", type=int, default=len(CORES), dest="jobsn")
     ap.add_argument("--print-catalog", help="print catalog flags for a rom substring and exit")
+    ap.add_argument("--resume", action="store_true", help="skip arms that already have a complete verdict")
     args = ap.parse_args()
 
-    global CAT
+    global CAT, RESUME
     CAT = load_catalog()
+    RESUME = args.resume
 
     if args.print_catalog:
         for k, e in CAT.items():
@@ -205,10 +227,10 @@ def main():
     cores = CORES[:args.jobsn]
     print(f"== S1A arms: {len(jobs)} arms, {len(cores)} lanes {cores}, K=1, DLL=S1A ==", flush=True)
     jobq = queue.Queue()
-    for i, job in enumerate(jobs):
-        jobq.put((cores[i % len(cores)], job))
+    for job in jobs:
+        jobq.put(job)
     results = []
-    threads = [threading.Thread(target=worker, args=(jobq, results, outdir)) for _ in cores]
+    threads = [threading.Thread(target=worker, args=(jobq, results, outdir, cores[k])) for k in range(len(cores))]
     for t in threads:
         t.start()
         time.sleep(2)   # stagger: netlist compose is the heavy startup phase

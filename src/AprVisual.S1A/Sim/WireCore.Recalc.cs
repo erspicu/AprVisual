@@ -835,7 +835,7 @@ namespace AprVisual.Sim
             if (ShimChainArmed) TestShimChainStep();   // flattened test-shim family dispatch; see WireCore.System.cs
             if (AleReadMuxShim) AleReadMuxStep();   // test-mode only; ALERead $2007 access phase-delay (M6)
             if (BgSerialReloadShim) BgSerialReloadShimStep();   // test-mode only; $2001-enable reload-delay (BGSerialIn, M6)
-            if (OamDmaPpuBusShim) OamDmaPpuBusShimStep();   // test-mode only; OAM-DMA from PPU I/O bus
+            if (OamDmaPpuBusShim || _m4p1Queue) OamDmaPpuBusShimStep();   // shim OR M4·P1 QueuedDrive mechanism (same step, same point)
             if (PpuWriteDelay) PpuWriteDelayStep();  // test-mode only; $2001 write-effect delay (narrow-window OR global per PpuWriteDelayGlobal)
             if (PpuWriteDelayGlobal) Dot339DelayStep();  // test-mode only; surgical dot-339 rendering-sample delay (OFF by default)
             Time++;

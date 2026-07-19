@@ -185,7 +185,7 @@ namespace AprVisual.Test
                     if (!WireCore.M6xEnabled)   // dot-339 superseded by M6X
                         WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
                     if (!_noDbl2007Shim && !WireCore.M4P1Enabled) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (superseded by M4_P1)
-                    if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
+                    if (_oamDmaPpuBusShim && !WireCore.M4P1Enabled) WireCore.EnableOamDmaPpuBusShim();   // $4014-from-PPU-I/O-bus OAM write-data hold (superseded by M4_P1 QueuedDrive)
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
                     if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)

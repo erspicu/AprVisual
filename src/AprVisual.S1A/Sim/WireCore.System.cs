@@ -2594,19 +2594,25 @@ namespace AprVisual.Sim
         // exact chain position the shim did (LxaMagic tail), so mechanism-on == shim-on bit-for
         // -bit. Opt-in; the benchmark/golden path never arms it, so Gate A is untouched.
         public static bool M4P1Enabled;
-        private static bool _m4p1Clamp;   // ClampBus row active (Dbl2007)
+        private static bool _m4p1Clamp;   // ClampBus row (Dbl2007) — runs in M4P1Step (TestShimChainStep tail)
+        internal static bool _m4p1Queue;  // QueuedDrive row (OamDmaPpuBus) — runs at WireCore.Recalc.cs (its shim's point)
         public static void EnableM4P1()
         {
-            EnableDbl2007Shim();               // resolve + arm the ClampBus (_d27*) node state
-            if (Dbl2007Shim) { Dbl2007Shim = false; _m4p1Clamp = true; M4P1Enabled = true; ShimChainArmed = true; }
-            Console.Error.WriteLine(M4P1Enabled
-                ? "# [m4p1] armed: ClampBus row (Dbl2007 $2007 read-buffer merge)"
-                : "# [m4p1] ClampBus arm failed -- nodes unresolved");
+            EnableDbl2007Shim();               // ClampBus: resolve + arm the _d27* node state
+            if (Dbl2007Shim) { Dbl2007Shim = false; _m4p1Clamp = true; }
+            EnableOamDmaPpuBusShim();           // QueuedDrive: resolve + arm the OAM-DMA queue state
+            if (OamDmaPpuBusShim) { OamDmaPpuBusShim = false; _m4p1Queue = true; }
+            M4P1Enabled = _m4p1Clamp || _m4p1Queue;
+            if (M4P1Enabled) ShimChainArmed = true;
+            Console.Error.WriteLine($"# [m4p1] armed: ClampBus(Dbl2007)={_m4p1Clamp} QueuedDrive(OamDmaPpuBus)={_m4p1Queue}");
         }
         internal static void M4P1Step()
         {
+            // ClampBus only: the QueuedDrive row (OamDmaPpuBus) runs at its shim's own chain point
+            // (WireCore.Recalc.cs, gated by `OamDmaPpuBusShim || _m4p1Queue`), so mechanism-on
+            // reproduces shim-on bit-for-bit there too. Both members share this env; they do not
+            // share a step point (different actions, different hc position — see the ledger).
             if (_m4p1Clamp) Dbl2007ShimStep();
-            // if (_m4p1Queue) OamDmaPpuBusShimStep();   // QueuedDrive (OamDmaPpuBus) -- folds in next
         }
 
         // ── OAM-DMA from PPU I/O bus write-data hold shim (test mode only, opt-in) ───────────

@@ -309,6 +309,14 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   → 結果一到翻 PROVEN。commit:M4·P1 ClampBus(Dbl2007)、QueuedDrive fold-in。
   **蓋牌狀態**:PROVEN = DmcLatch/AluLatch/even_odd/BGSerialIn/Dbl2007(+OamDmaPpuBus 確認中);
   M4_EDGE+M6X+M4_P1 三機制齊,晚上 141 可一次證掉 7 顆退役。
+- **2026-07-19 下午:OamDmaPpuBus QueuedDrive 確認 PROVEN(#67 三臂)**。base PASS(hc 910,509,288)/
+  ctrl(--no-oam-dma-ppu-bus-shim)FAIL#67(hc 921,230,264)/ mech(M4_P1)PASS **hc 與 base 逐位相同
+  910,509,288**。**M4·P1 機制兩 row(ClampBus=Dbl2007、QueuedDrive=OamDmaPpuBus)全證 → 雙雙 PROVEN。**
+  **蓋牌 PROVEN 共 7 顆**:DmcLatch/AluLatch(M4_EDGE)、even_odd/BGSerialIn(M6X)、Dbl2007/OamDmaPpuBus
+  (M4_P1)、+ dot-339 待今晚 141。s1a.html + decidability.html 已更新。
+  **AprNes frame-budget 工具**(使用者設計):`--ac-frame-map` 逐子測試完成幀(納 tools/aprnes/);
+  range-run campaign 用它省時驗 UNDECIDABLE(DL@OpenBus f52 試金石過=方法通;f52 不鑑別 DL;
+  DL@ControllerClocking f1481 + Abort@ExplicitAbort f1347 跑中 bj0za0z71 ~17:00)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

@@ -83,6 +83,7 @@
   <a class="sec" href="#toolbox"><span class="en">Toolbox</span><span class="zh">工具箱</span></a>
   <a class="sec" href="#dielayout"><span class="en">On the die</span><span class="zh">晶粒上</span></a>
   <a class="sec" href="#shimlist"><span class="en">Shim ledger</span><span class="zh">shim 總帳</span></a>
+  <a class="sec" href="#special-cases"><span class="en">Special cases</span><span class="zh">特殊個案</span></a>
   <a class="sec" href="#education"><span class="en">Education</span><span class="zh">教育</span></a>
   <a class="sec" href="#archaeology"><span class="en">Foundations</span><span class="zh">考古文庫</span></a>
   <a class="sec" href="#status"><span class="en">Status</span><span class="zh">現況</span></a>
@@ -301,6 +302,38 @@
     <span class="zh"><b>為什麼有些 shim 是「不可判」而非失敗。</b>DL、OamBlankEdge、dot-339 各自都有能動的機制(M4 transparent / M4 hold / M6×M3),而且都是 <i>bit-safe</i> —— 每個機制開的跑法都過、鄰居也不退步。但在試過的每一顆孤立 ROM,對照組(拔掉 shim)<i>也</i>通過,因為這些 shim 防守的場景只在套內出現 —— 沒有會因拔 shim 而失敗的測試,孤立協定就判不了它們。然而「不可判」可能是<i>測錯 ROM</i> 的假象:even_odd 已在 K=1 重確認時跨到 PROVEN(它的對照在 10-even_odd_timing 會 FAIL),而一輪<b>鑑別 ROM 獵捕</b>(2026-07-19)又跨掉兩顆 —— <b>BGSerialIn</b> 到 PROVEN(對照在 AccuracyCoin_BGSerialInReal FAIL、M6×M3 取代)、<b>Dbl2007</b> 到 PROVEN(對照在 double_2007_read 上失敗 —— 秒級,對比 #67 的 ~2h —— 而 M4·P1 ClampBus 機制現在 hc 逐位相同地取代它)。上面點名的三顆撐過了獵捕:沒有候選 ROM 鑑別得了,所以它們是真的需要套內、跑滿 141 顆的證據 —— <b>而現在正在跑</b>:全機制 milestone(<a href="https://github.com/erspicu/AprVisual/commit/689c8fd" style="color:var(--acc2)">689c8fd</a>)一次在全 141 顆測試裡運行每一顆的機制,並在它們的晚段防守題(dot-339 / OamBlankEdge @ StaleSprite f4133、DL @ InternalDataBus f4812)排入 frame 窗對照以鑑別它們。誠實的狀態勝過捏造的退役。</span>
   </div>
   <p class="mut" style="font-size:13.5px"><span class="en">→ The full methodology, with the control-arm data re-verified at K=1 — including how even_odd crossed from "spectator" to decidable/PROVEN when the boot alignment was fixed: <a href="s1a/decidability.html"><b>The decidability boundary — when can you retire a shim by testing it alone?</b></a></span><span class="zh">→ 完整方法論,對照臂資料已在 K=1 下重驗 —— 含 even_odd 在修正開機對齊後如何從「旁觀者」跨進可判/PROVEN:<a href="s1a/decidability.html"><b>可判定性的邊界 —— 什麼時候你能靠單獨測試退役一個 shim?</b></a></span></p>
+</section>
+
+<section id="special-cases">
+  <h2><span class="kick"><span class="en">Beyond the toolbox</span><span class="zh">工具箱之外</span></span><span class="en">Four cases structure and physics can't cleanly reduce</span><span class="zh">結構與物理化約不了的四個個案</span></h2>
+  <p class="en">The S1a toolbox reduces most shims the same way: read the topology (M4 latches, M6 phase), compute a physical parameter (M1 strength, M2 capacitance, M3 delay), and a principled mechanism replaces the override. <b>Four cases escape that pipeline — each for a different reason</b>, and naming the reason precisely is itself the result. They line up as a spectrum, from fundamentally uncomputable to essentially solved with one knob left.</p>
+  <p class="zh">S1a 工具箱化約大部分 shim 的方式都一樣:讀拓撲(M4 閂鎖、M6 相位)、算一個物理參數(M1 強度、M2 電容、M3 延遲),有原理的機制就取代覆蓋。<b>有四個個案躲掉這條流水線 —— 各自理由不同</b>,而把理由講精確本身就是結果。它們排成一道光譜,從「本質算不出」到「基本解決、只剩一個旋鈕」。</p>
+
+  <div class="card" style="border-left:3px solid var(--bad)">
+    <p style="margin:.2em 0"><b>PowerUpState · reset-hold</b> &nbsp;<span class="pill" style="background:#211417;border-color:var(--bad);color:var(--bad)"><span class="en">not a function of the netlist</span><span class="zh">不是網表的函數</span></span></p>
+    <p class="en" style="margin:.3em 0">A node's power-up value depends on threshold mismatch, parasitic capacitance and the supply ramp — analog and manufacturing-variable. Structure can't give it; physical params give only relative strengths, not the random settling. The real chip itself powers up differently each time (hence the inherently-indeterminate <code>power_up_palette</code> test), and reset-hold is the board's external RESET timing, not a chip-internal property. <b>M7 makes the boot deterministic</b> (it ends the ordering lottery) <b>but does not compute the values</b> — these are an initial condition / external stimulus.</p>
+    <p class="zh" style="margin:.3em 0">節點的開機值取決於閾值失配、寄生電容、電源上升 —— 類比且製程變異。結構給不出;物理參數只給相對強弱、不給隨機沉澱。真晶片自己每次開機都不同(所以有本質不定的 <code>power_up_palette</code> 測試),而 reset-hold 是板子的外部 RESET 時序、不是晶片內部性質。<b>M7 讓開機決定論化</b>(終結排序抽籤)<b>但不算出值</b> —— 這是初始條件/外部激勵。</p>
+  </div>
+
+  <div class="card" style="border-left:3px solid var(--bad)">
+    <p style="margin:.2em 0"><b>OpenBus (last byte)</b> &nbsp;<span class="pill" style="background:#211417;border-color:var(--bad);color:var(--bad)"><span class="en">off-die — a data gap</span><span class="zh">晶粒外 —— 資料缺口</span></span></p>
+    <p class="en" style="margin:.3em 0">The last byte is held by the parasitic capacitance of the package + board data bus — a node on <i>neither</i> die, absent from our segdefs geometry. Every on-die mechanism (M2 charge, the full M4 latch stack, M3 delay) was tried and failed to reach it. The physical quantity is real but lives outside the netlists we have; it belongs to a board-level bus model (<a href="s1a/m5e-bus-hold.html">M5e</a>'s charter). A documented <b>ceiling</b> — the correct boundary between what the silicon graph knows and what only the board does.</p>
+    <p class="zh" style="margin:.3em 0">last byte 由封裝 + 板子資料匯流排的寄生電容保持 —— 一個<i>不在任何一顆</i>晶粒、我們 segdefs 幾何裡沒有的節點。每個晶粒內機制(M2 電荷、M4 閂鎖全堆疊、M3 延遲)都試過、都碰不到。物理量真實存在,但在我們手上的網表之外;它屬於板級匯流排模型(<a href="s1a/m5e-bus-hold.html">M5e</a> 立案)。是記錄在案的<b>天花板</b> —— 「矽電路圖知道的」與「只有主機板知道的」之間正確的邊界。</p>
+  </div>
+
+  <div class="card" style="border-left:3px solid var(--warn)">
+    <p style="margin:.2em 0"><b>DL (input data latch)</b> &nbsp;<span class="pill" style="background:#1e1a14;border-color:var(--warn);color:var(--warn)"><span class="en">mechanizable, but architectural</span><span class="zh">可機制化,但架構級</span></span></p>
+    <p class="en" style="margin:.3em 0">DL's glitch is <i>not</i> a property of the chip — the real latch's analog inertia has no glitch. It is a discrete-settle artifact (a node-id ordering lottery, same family as DMC/LAE). Structure <i>does</i> see it (M4 classifies idl as transparent) and physics says the chip is correct; the fix is to stop the <i>simulation</i> producing the artifact — M7 canonical renumbering, or a two-phase settle. Both touch the core settle loop (hot-path cost) or need above-switch-level semantics, so it stays a scoped shim as a cost decision. <b>Not a wall — a bill.</b></p>
+    <p class="zh" style="margin:.3em 0">DL 的毛刺<i>不是</i>晶片的性質 —— 真閂鎖的類比慣性沒有毛刺。它是離散 settle 的假象(node-id 排序抽籤,跟 DMC/LAE 同家族)。結構<i>看得到</i>(M4 把 idl 分類成 transparent)、物理上晶片是對的;修法是讓<i>模擬</i>別產生這個假象 —— M7 正準重編號、或兩階段 settle。兩者都動核心 settle loop(熱路徑成本)或需要開關級之上的語意,所以先當 scoped shim 留著、是成本判斷。<b>不是牆,是帳單。</b></p>
+  </div>
+
+  <div class="card" style="border-left:3px solid var(--acc2)">
+    <p style="margin:.2em 0"><b>ALERead mux</b> &nbsp;<span class="pill" style="background:#14201a;border-color:var(--acc2);color:var(--acc2)"><span class="en">computation-guided calibration</span><span class="zh">計算引導的校準</span></span></p>
+    <p class="en" style="margin:.3em 0">Here the structure is fully present — the 74LS373 octal latch is real switch-level (M5, 82 transistors), the AD-bus node-split is principled. Only the phase timing <code>MUX_HC=13,13,25,44,52</code> is empirically calibrated. Elmore delay (M3, composed with the '373 in M5) can <i>validate and anchor</i> those five values — as it did for dot-339 ("0.45% of nets can do 16/18") — reducing five free knobs to M3-predicted ratios plus one scale, though not pinning the exact hc (Elmore is ±tens of %, and the mux windows are an engine abstraction over raw net delay). Required for 141/141; kept opt-in (<code>ALEREAD_MUX</code>) because the node-split is a load-time graph change. <b>The least special of the four</b> — essentially solved, one calibration left to derive rather than tune.</p>
+    <p class="zh" style="margin:.3em 0">這裡結構完全在 —— 74LS373 八位元閂鎖是真開關級(M5,82 顆電晶體)、AD 匯流排 node-split 有原理。只有相位時序 <code>MUX_HC=13,13,25,44,52</code> 是經驗校準。Elmore 延遲(M3,與 M5 的 '373 合成)能<i>驗證與錨定</i>那 5 個值 —— 就像 dot-339(「0.45% 的 net 做得到 16/18」)—— 把 5 個自由旋鈕壓成 M3 預測的比例 + 一個 scale,但釘不死精確 hc(Elmore ±幾十 %,而 mux 窗是引擎對淨延遲的抽象)。它是 141/141 的必需品;保持 opt-in(<code>ALEREAD_MUX</code>)因為 node-split 是載入期改圖。<b>四個裡最不特殊的</b> —— 基本解決,只剩一個校準待「從調變成算」。</p>
+  </div>
+
+  <p class="mut" style="font-size:13px"><span class="en"><b>The spectrum.</b> PowerUpState is out of reach in principle; OpenBus is out of reach for lack of board-level data; DL is reachable but architecturally expensive; ALERead mux is reached, pending only that its timing be derived rather than tuned. Four different walls — and three of them are honest boundaries, not bugs.</span><span class="zh"><b>這道光譜。</b>PowerUpState 原則上算不到;OpenBus 因缺板級資料而算不到;DL 到得了但架構級的貴;ALERead mux 已到得了,只差把時序從「調」變成「算」。四面不同的牆 —— 其中三面是誠實的邊界,不是 bug。</span></p>
 </section>
 
 <section id="education">

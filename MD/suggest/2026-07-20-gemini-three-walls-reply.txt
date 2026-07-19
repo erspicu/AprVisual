@@ -1,0 +1,82 @@
+As a fellow practitioner of silicon-accurate simulation, I commend the achievement of a 141/141 bit-exact NES model. Reaching full behavioral parity using half-cycle switch-level evaluation on a bare netlist is a massive undertaking. 
+
+The three walls you have hit represent classic demarcations between digital switch-level abstraction and physical mixed-signal reality. Here is a rigorous breakdown of what is fundamentally out of reach, what is reachable with effort, and the standard EDA techniques to address each.
+
+---
+
+### CASE 1: PowerUpState / Reset-Hold
+
+**The Boundary:** Predicting the *exact* power-on state of a specific, symmetric SRAM cell or divider from a nominal netlist is **fundamentally out of reach**. Power-up state in symmetric cross-coupled structures is dictated by *intrinsic mismatch* (microscopic threshold voltage $V_{th}$ and $W/L$ variations from lithography) and *extrinsic factors* ($V_{DD}$ ramp rate, thermal noise).
+However, bounding the reachable states and determining topological constraints is **reachable with effort**.
+
+*   **(a) Characterizing/Bounding Reachable States:**
+    Do not pick one arbitrarily, but do not try to simulate the analog ramp. Instead, implement a **Topological State Finder**.
+    1.  Parse the netlist to find all cross-coupled inverter loops (RAM, OAM, registers).
+    2.  Check the $W/L$ of the pull-downs and depletion pull-ups in these loops. If they are perfectly symmetric (identical $W/L$), the cell is an indeterminate coin-flip. If they are asymmetric (deliberate layout choices for preferred startup), force the preferred state.
+    3.  To bound the system, use **Monte Carlo Initialization**: inject random 1/0 states into all symmetric loops, then run your `wire_compute` to quiescence. The resulting valid local minima are your physically reachable power-up states.
+
+*   **(b) CPU/PPU Divider Phase (Boot Lottery):**
+    This is definitively a **true coin-flip**. In early NMOS designs like the 6502/2A03, reset lines (RES) were routed *only* to the CPU state machine (forcing the PC to $FFFC), not to the master clock divider flip-flops. You can verify this directly in your netlist: trace the reset pad's topological fan-out. If there is no gate path from the reset pad to the clock divider latches, the phase alignment is locked in exactly as it powered up. There is no reset-topology mechanism to align them.
+
+*   **(c) Moving away from "assumed constant":**
+    Your M7 canonical renumbering is great for deterministic execution, but useless for physical accuracy here. To move forward, build an initialization pass: identify floating dynamic nodes and un-driven loops, randomize their initial voltages, and run an initialization settle. This makes your simulator legally reflect the true analog non-determinism of the silicon without requiring a SPICE license.
+
+---
+
+### CASE 2: OpenBus (last byte)
+
+**The Boundary:** Deriving exact hold time from first principles using *only* die netlists is **fundamentally impossible**. The hold time is an $RC$ decay where $C$ is dominated by package and PCB parasitics, and $R$ (leakage) is a mix of die reverse-bias leakage and PCB dielectric leakage.
+Behavioral replay with a timestamp decay is **genuinely the right abstraction level** for a switch-level simulator.
+
+*   **(a) Derive vs. Behavioral:**
+    Stick with the behavioral timestamp. A switch-level simulator has no concept of subthreshold leakage current or p-n junction reverse leakage. Attempting to model this at the switch level would require adding analog current-source shims to every external pad, which breaks your discrete model.
+
+*   **(b) Defensible Estimate of Capacitance and Leakage:**
+    You can easily back-of-the-envelope this to prove your ~600ms M2 decay is physically defensible.
+    *   **Capacitance ($C$):** Die pad (~3pF) + DIP40 package lead (~2pF) + PCB trace (5 inches @ ~2pF/in = 10pF) + Cartridge edge connector (~3pF) + ROM input gate capacitance (~2pF). Total $C \approx 20\text{ pF}$.
+    *   **Leakage ($I_{leak}$):** At room temperature, a large vintage NMOS source/drain diffusion or ESD diode reverse leakage is typically in the range of $10\text{ to }100\text{ pA}$. 
+    *   **Decay Time:** $dV/dt = I/C$. To decay from a valid high ($5V$) to the NMOS logic threshold ($\approx 1.5V$), $\Delta V = 3.5V$. 
+    $t = (C \cdot \Delta V) / I = (20\text{e-12} \cdot 3.5) / 100\text{e-12} = 0.7\text{ seconds}$ (700 ms).
+    Your ~600ms empirical decay aligns almost perfectly with first-principles mixed-signal math.
+
+*   **(c) Validation:**
+    Without board extraction, validate this empirically using a real NES and a high-impedance oscilloscope probe (100 M$\Omega$, $\le 2\text{pF}$). Write a test ROM that drives the bus high, switches the CPU to read a disconnected memory space (open bus), and capture the voltage droop curve on the scope. It will be an exponential (or roughly linear constant-current) decay.
+
+---
+
+### CASE 3: DL (input data latch glitch)
+
+**The Boundary:** Zero-delay, discrete-event simulation inherently suffers from ordering artifacts on structural reconvergent fan-outs. The physical chip uses continuous time and node capacitance to filter these; your discrete engine lacks this.
+
+*   **(a) M7 vs. Two-Phase Settle:**
+    M7 canonical renumbering is **unsound** for this issue. It merely makes the glitch deterministic, hiding the symptom while the disease (order dependence) remains.
+    The **Two-Phase Settle (Evaluate then Update)** is the theoretically sound fix. In standard EDA terminology, this is called **Delta-Delay Simulation** or the **Delta Cycle**. 
+    *   Phase 1 (Evaluate): Calculate the next state of all active groups based *only* on the current state.
+    *   Phase 2 (Update): Apply the new states.
+    *   Repeat until quiescent (zero delta-cycle changes) *before* advancing the half-cycle clock.
+
+*   **(b) A Cheaper Localized Option (The "Settle Guard"):**
+    If a full global delta-cycle loop destroys your hot-loop performance, you can implement a localized standard technique known as **Inertial Delay Filtering**. 
+    Since you know the specific node(s) acting as the input data latch, you shim the latch evaluation:
+    ```c
+    // Only latch the data if the input node's state has been stable 
+    // for the entire half-cycle compute phase.
+    if (node_changed_this_hc(idl_input)) {
+        idl_update_deferred = true; 
+    }
+    // At the VERY END of the half-cycle (quiescence reached):
+    if (idl_update_deferred) {
+        cpu_idl = evaluate_latch(idl_input);
+    }
+    ```
+    This avoids evaluating the whole chip twice, explicitly guarding the reconvergent capture point.
+
+*   **(c) Standard Techniques and IRSIM:**
+    Production switch simulators like **IRSIM** (developed at Stanford) avoid this by unifying timing and logic. IRSIM does not use zero-delay logic; it uses an **RC tree model (Elmore delay)**.
+    When a transistor switches, IRSIM calculates the equivalent resistance ($R_{eq}$) of the conducting path and the capacitance ($C$) of the driven node. It schedules the node to change at $t_{now} + (R \cdot C)$. 
+    Crucially, if the input to that network changes *again* before $t_{now} + (R \cdot C)$ is reached, the pending event is **squashed (preempted)**. This is the definition of **Inertial Delay**: a glitch shorter than the gate's propagation delay cannot pass through it. 
+    
+    Since your simulator is heavily optimized for zero-delay, half-cycle boundaries, you cannot easily bolt on Elmore delay. The cheapest, most physically defensible standard technique for your engine is **localized inertial delay** (the settle guard described above). 
+
+### Bonus Recommendation for 6502/NMOS Depletion Simulation
+Since you are modeling NMOS depletion loads accurately, ensure your `wire_compute` correctly handles **contention resolution by drive strength**, not just logical overriding. A depletion pull-up is a constant current source (~weak resistor). An enhancement pull-down is a strong switch. If your mid-settle glitches involve an enhancement device fighting a depletion device, ensure your graph solver mathematically guarantees the enhancement device *always* wins immediately, rather than bouncing through an intermediate 'X' or 'high-Z' state that accidentally trips a latch. Many zero-delay NMOS glitches disappear when contention resolution is perfectly prioritized by device strength.

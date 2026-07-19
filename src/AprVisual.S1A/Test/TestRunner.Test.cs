@@ -170,6 +170,12 @@ namespace AprVisual.Test
                 // (ClampBus row = the $2007 read-buffer merge). OamDmaPpuBus folds in as a second row.
                 if (Environment.GetEnvironmentVariable("M4_P1") is { Length: > 0 } m4p1 && m4p1 != "0")
                     WireCore.EnableM4P1();
+                // M4·hold-on-OAM (env M4_OE) + P3-abort (env M3_ABORT): promote the OamBlankEdge /
+                // Dmc4015Abort shims to opt-in mechanisms that supersede them below.
+                if (Environment.GetEnvironmentVariable("M4_OE") is { Length: > 0 } m4oe && m4oe != "0")
+                    WireCore.EnableOamBlankEdgeMech();
+                if (Environment.GetEnvironmentVariable("M3_ABORT") is { Length: > 0 } m3ab && m3ab != "0")
+                    WireCore.EnableDmc4015AbortMech();
                 if (!_noShims)
                 {
                     if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
@@ -188,8 +194,8 @@ namespace AprVisual.Test
                     if (_oamDmaPpuBusShim && !WireCore.M4P1Enabled) WireCore.EnableOamDmaPpuBusShim();   // $4014-from-PPU-I/O-bus OAM write-data hold (superseded by M4_P1 QueuedDrive)
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
-                    if (Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (see System.cs)
-                    if (Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (see System.cs)
+                    if (!WireCore.M3AbortEnabled && Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (superseded by M3_ABORT)
+                    if (!WireCore.M4OeEnabled && Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (superseded by M4_OE)
                     if (!WireCore.M6xEnabled && Environment.GetEnvironmentVariable("NO_BGS_SHIM") == null) WireCore.EnableBgSerialReloadShim();   // $2001-enable reload-delay (BGSerialIn; superseded by M6X)
                     if (WireCore.AleReadMuxShim) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux + node-split (M6; resolves nodes + arms; the cut already happened in LoadSystem)
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see

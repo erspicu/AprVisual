@@ -1838,9 +1838,21 @@ namespace AprVisual.Sim
             _oamEdgeShim = true; ShimChainArmed = true;
         }
 
+        // M4·hold-on-OAM MECHANISM (env M4_OE): promotes the proven OAM-blank-edge row-restore to
+        // an opt-in mechanism that supersedes the shim (arms the same _oe* state, then flips the
+        // flag). Reproduces the shim bit-for-bit; opt-in so Gate A is untouched.
+        public static bool M4OeEnabled;
+        public static void EnableOamBlankEdgeMech()
+        {
+            EnableOamBlankEdgeShim();
+            if (_oamEdgeShim) { _oamEdgeShim = false; M4OeEnabled = true; }
+            Console.Error.WriteLine(M4OeEnabled ? "# [m4oe] armed: OAM blank-edge hold mechanism"
+                                                : "# [m4oe] arm failed -- nodes unresolved");
+        }
+
         private static void OamBlankEdgeShimStep()
         {
-            if (!_oamEdgeShim) return;
+            if (!_oamEdgeShim && !M4OeEnabled) return;
             if (_oeHold > 0 && --_oeHold == 0)
             {
                 bool rel = false;
@@ -1900,9 +1912,21 @@ namespace AprVisual.Sim
             _dmcAbortShim = true; ShimChainArmed = true;
         }
 
+        // P3-abort MECHANISM (env M3_ABORT): promotes the proven deferred-$4015 DMC-DMA-abort
+        // sequence to an opt-in mechanism that supersedes the shim (arms the same state, flips
+        // the flag). Reproduces it bit-for-bit; opt-in so Gate A is untouched.
+        public static bool M3AbortEnabled;
+        public static void EnableDmc4015AbortMech()
+        {
+            EnableDmc4015AbortShim();
+            if (_dmcAbortShim) { _dmcAbortShim = false; M3AbortEnabled = true; }
+            Console.Error.WriteLine(M3AbortEnabled ? "# [m3abort] armed: deferred-$4015 DMC-DMA-abort mechanism"
+                                                   : "# [m3abort] arm failed -- nodes unresolved");
+        }
+
         private static void Dmc4015AbortShimStep()
         {
-            if (!_dmcAbortShim) return;
+            if (!_dmcAbortShim && !M3AbortEnabled) return;
             int en = NodeStates[_dmcAbEn], rdy = NodeStates[_dmcAbRdy];
             int lsr = NodeStates[_dmcAbLoadSr];
             if (_dmcAbPrevLoadSr == 0 && lsr != 0) _dmcAbLastBoundary = Time;   // byte boundary: SR reload cadence, write-independent

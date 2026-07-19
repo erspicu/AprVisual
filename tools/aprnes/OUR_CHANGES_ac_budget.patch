@@ -1,0 +1,102 @@
+diff --git a/AprNes/NesCore/TestRunnerCore.cs b/AprNes/NesCore/TestRunnerCore.cs
+index 95d57c3..8ca3da3 100644
+--- a/AprNes/NesCore/TestRunnerCore.cs
++++ b/AprNes/NesCore/TestRunnerCore.cs
+@@ -162,8 +162,11 @@ public static int Run(string[] args)
+             bool passOnStable = false;
+             string timedScreenshotsSpec = null;
+             string calibJsonPath = null;   // --calib-json: write frame-calibration record (for AprVisual.S1 budgeting)
++            string acFrameMapPath = null;  // --ac-frame-map: per-subtest completion-frame table ($0400-$04FF), for S1 range-run budgeting
++            int[] acFrameFirst = null;
+             bool dumpAcResults = false;
+             bool dumpDebug = false;
++            bool waitAc = false;
+             bool benchmarkMode = false;
+             double benchmarkSec = 20;
+             bool audioDsp = false;
+@@ -210,9 +213,17 @@ public static int Run(string[] args)
+                     case "--calib-json":
+                         if (i + 1 < args.Length) calibJsonPath = args[++i];
+                         break;
++                    case "--ac-frame-map":
++                        if (i + 1 < args.Length) acFrameMapPath = args[++i];
++                        break;
+                     case "--dump-ac-results":
+                         dumpAcResults = true;
+                         break;
++                    case "--wait-ac":
++                        // AccuracyCoin unattended: exit the frame at which the one-test completion
++                        // block is published (magic DE B0 61 @ $07F0), so we can measure required frames.
++                        waitAc = true;
++                        break;
+                     case "--dump-debug":
+                         dumpDebug = true;
+                         break;
+@@ -415,6 +426,44 @@ public static int Run(string[] args)
+             {
+                 frameCount++;
+ 
++                // --- AccuracyCoin unattended completion callback (--wait-ac) ---
++                // The one-test unattended patch publishes a completion block at $07E0-$07FF:
++                //   $07F0-$07F2 = magic DE B0 61   (published last, signals "done")
++                //   $07F3       = PostAllPassTally  (# passed)
++                //   $07F4       = PostAllTestTally  (# tests, =1 for an isolated ROM)
++                // Detecting it in the frame loop reports the exact completion frame (for budgeting)
++                // instead of running to the timeout, and yields the real pass/fail (AprNes's $6000
++                // path returns a false FAIL for these ROMs, which use $07F0 not $6000).
++                if (waitAc
++                    && NesCore.NES_MEM[0x07F0] == 0xDE
++                    && NesCore.NES_MEM[0x07F1] == 0xB0
++                    && NesCore.NES_MEM[0x07F2] == 0x61)
++                {
++                    byte passTally = NesCore.NES_MEM[0x07F3];
++                    byte testTally = NesCore.NES_MEM[0x07F4];
++                    resultCode = (byte)((testTally > 0 && passTally == testTally) ? 0 : 1);
++                    calibVerdictFrame = frameCount;
++                    calibDetection = "ac-complete";
++                    Console.Error.WriteLine("[TestRunner] AC completion block at frame " + frameCount
++                        + " (pass " + passTally + "/" + testTally + ")");
++                    done = true;
++                    NesCore.exit = true;
++                    return;
++                }
++
++                // --- AC per-subtest completion-frame map (--ac-frame-map) ---
++                // Record the frame each result byte $0400-$04FF first goes non-zero (= that
++                // sub-test completed). AprNes runs fast, so this maps all 141 tests to frames;
++                // combined with a safety margin it budgets exact from/to windows for the slow
++                // switch-level S1 engine (run/resume ~[F(i-1), F(i)] instead of the full ~4925).
++                if (acFrameMapPath != null)
++                {
++                    if (acFrameFirst == null) { acFrameFirst = new int[0x100]; for (int k = 0; k < 0x100; k++) acFrameFirst[k] = -1; }
++                    for (int off = 0; off < 0x100; off++)
++                        if (acFrameFirst[off] < 0 && NesCore.NES_MEM[0x0400 + off] != 0)
++                            acFrameFirst[off] = frameCount;
++                }
++
+                 // Benchmark mode: just count frames for wall-clock duration
+                 if (benchmarkMode)
+                 {
+@@ -817,6 +866,22 @@ public static int Run(string[] args)
+                 catch (Exception ex) { Console.Error.WriteLine("[TestRunner] calib write failed: " + ex.Message); }
+             }
+ 
++            if (acFrameMapPath != null && acFrameFirst != null)
++            {
++                try
++                {
++                    var mb = new StringBuilder("offset,addr,first_frame\n");
++                    for (int off = 0; off < 0x100; off++)
++                        if (acFrameFirst[off] >= 0)
++                            mb.Append(off.ToString("X2") + "," + (0x400 + off).ToString("X3") + "," + acFrameFirst[off] + "\n");
++                    string dir = Path.GetDirectoryName(acFrameMapPath);
++                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
++                    File.WriteAllText(acFrameMapPath, mb.ToString());
++                    Console.Error.WriteLine("[TestRunner] AC frame map written: " + acFrameMapPath);
++                }
++                catch (Exception ex) { Console.Error.WriteLine("[TestRunner] AC frame map write failed: " + ex.Message); }
++            }
++
+             // Determine pass/fail
+             bool passed = (resultCode == 0);
+             string status_str;

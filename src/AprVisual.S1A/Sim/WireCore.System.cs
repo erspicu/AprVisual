@@ -605,6 +605,11 @@ namespace AprVisual.Sim
             Dmc4015AbortShimStep();
             OamBlankEdgeShimStep();
             if (LxaMagicShim) LxaMagicShimStep();
+            if (M4P1Enabled) M4P1Step();   // M4.P1 merge-clamp mechanism (supersedes Dbl2007 shim).
+                                           // Runs right after LxaMagicShimStep — the exact point the
+                                           // shim ran at (its nested FrameIrq->Dbl2007 tail), so it is
+                                           // decoupled from LxaMagic/FrameIrq being armed, and mechanism
+                                           // -on reproduces shim-on bit-for-bit.
         }
 
         internal static void DmcLatchShimStep()
@@ -2573,6 +2578,35 @@ namespace AprVisual.Sim
                 _d27Prev = ReadBits(_d27Inbuf);
             }
             _d27Phi2Prev = phi2;
+        }
+
+        // ── M4·P1 pass-gate merge-clamp MECHANISM (env M4_P1) ────────────────────────────────
+        // The P1 family: a pass-gate sample/write must capture the value at its intended phase,
+        // and a mid-settle change on the SOURCE must not leak into the SINK. Two realizations,
+        // same abstraction, different action + scale (see the ledger comparison):
+        //   ClampBus    = the $2007 read-buffer merge (Dbl2007). Source=inbuf, sink=cpu.db;
+        //                 clamp the risen db bits low through the sample window, release at the
+        //                 phi2 fall. Single sample, no queue. Reuses the proven Dbl2007 logic.
+        //   QueuedDrive = OamDmaPpuBus (folds in next). Same "hold the intended value against a
+        //                 mid-settle race", but forwards 256 batched DMA $2004 writes into OAM,
+        //                 so it needs a queue (capture on the put cycle, drive on the later /WE).
+        // When armed it SUPERSEDES the corresponding shim (gated in TestRunner) and runs at the
+        // exact chain position the shim did (LxaMagic tail), so mechanism-on == shim-on bit-for
+        // -bit. Opt-in; the benchmark/golden path never arms it, so Gate A is untouched.
+        public static bool M4P1Enabled;
+        private static bool _m4p1Clamp;   // ClampBus row active (Dbl2007)
+        public static void EnableM4P1()
+        {
+            EnableDbl2007Shim();               // resolve + arm the ClampBus (_d27*) node state
+            if (Dbl2007Shim) { Dbl2007Shim = false; _m4p1Clamp = true; M4P1Enabled = true; ShimChainArmed = true; }
+            Console.Error.WriteLine(M4P1Enabled
+                ? "# [m4p1] armed: ClampBus row (Dbl2007 $2007 read-buffer merge)"
+                : "# [m4p1] ClampBus arm failed -- nodes unresolved");
+        }
+        internal static void M4P1Step()
+        {
+            if (_m4p1Clamp) Dbl2007ShimStep();
+            // if (_m4p1Queue) OamDmaPpuBusShimStep();   // QueuedDrive (OamDmaPpuBus) -- folds in next
         }
 
         // ── OAM-DMA from PPU I/O bus write-data hold shim (test mode only, opt-in) ───────────

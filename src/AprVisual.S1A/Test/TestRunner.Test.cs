@@ -166,6 +166,10 @@ namespace AprVisual.Test
                 // so M6xEnabled gates them off below.
                 if (Environment.GetEnvironmentVariable("M6X") is { Length: > 0 } m6x && m6x != "0")
                     WireCore.EnableM6xPhase();
+                // M4·P1 merge-clamp MECHANISM (env M4_P1): supersedes the Dbl2007 shim below
+                // (ClampBus row = the $2007 read-buffer merge). OamDmaPpuBus folds in as a second row.
+                if (Environment.GetEnvironmentVariable("M4_P1") is { Length: > 0 } m4p1 && m4p1 != "0")
+                    WireCore.EnableM4P1();
                 if (!_noShims)
                 {
                     if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
@@ -180,7 +184,7 @@ namespace AprVisual.Test
                         WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
                     if (!WireCore.M6xEnabled)   // dot-339 superseded by M6X
                         WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
-                    if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (documented analog-propagation shim; zero-footprint)
+                    if (!_noDbl2007Shim && !WireCore.M4P1Enabled) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (superseded by M4_P1)
                     if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();   // $4014 from PPU I/O bus: hold $2004 write data through OAM /WE (GLOBAL, default on)
                     if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
                     if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim

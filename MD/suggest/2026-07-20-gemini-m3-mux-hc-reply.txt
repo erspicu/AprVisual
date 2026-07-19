@@ -1,0 +1,72 @@
+This is a fascinating problem. Bridging a discrete, event-driven switch-level simulator to the continuous-time realities of inter-chip analog signaling is notoriously difficult. Congratulations on hitting 141/141 bit-exactness—that is no small feat with NMOS.
+
+Here is my quantitative assessment of your `MUX_HC = {13, 13, 25, 44, 52}` constants, what you can derive, where your current RC models will fail, and how to rigorously anchor this behavior.
+
+---
+
+### 1. The Reality Check: Physical Delay vs. Architectural Artifacts
+Let’s look at the magnitudes. Assuming your engine’s half-cycle (hc) is tied to the master clock (~21.48 MHz NTSC, $t_{hc} \approx 23.2\text{ ns}$), 52 hc is roughly $1.2\text{ }\mu\text{s}$. 
+
+On-die NMOS delays (even with weak depletion loads) are in the 10–50 ns range. The 74LS373 propagation delay (LE to Q) is nominally 12–18 ns. The settling time of an externally loaded pad is perhaps 50–100 ns. 
+
+**Verdict:** The constants `25, 44, 52` **cannot** be derived from RC Elmore delays because they are not physical signal path delays. They are **macro-architectural scheduling artifacts**. 
+Because your CPU scheduling is essentially 1 CPU cycle ($\sim 12\text{ to }24\text{ hc}$) out of phase with the physical reality of the PPU’s analog multiplexing, these larger constants act as a discrete-time FIFO/synchronization buffer. They hold the simulation state hostage until the virtual clock catches up to the data's availability. 
+
+The `13, 13` constants ($\sim 300\text{ ns}$ total), however, likely map to the physical setup/hold and pad-settling times (PPU drive $\rightarrow$ bus capacitance $\rightarrow$ '373 latching). These are the only ones you can anchor physically.
+
+### 2. Can Elmore Pin an Integer HC? (No.)
+**In principle:** Elmore delay yields a continuous-time $\tau$ that acts as a conservative upper bound for the 50% threshold crossing of an RC tree. 
+**In practice (and specifically for your M3):** Elmore fails to pin an absolute integer hc for three reasons:
+1.  **Depletion-Load Asymmetry:** Depletion loads act as constant-current sources initially, then transition to resistive. Elmore assumes linear $R$. Your 6.4x / 3.9x rise/fall ratio proves your M3 is seeing this, but a linear RC model will inherently mispredict the absolute time of the threshold crossing.
+2.  **Grid Aliasing:** If physical delay is $1.8\text{ hc}$, a discrete event engine must schedule it at $1\text{ hc}$ or $2\text{ hc}$. Elmore cannot tell you which way the simulator's internal race conditions will resolve when quantized.
+3.  **Missing Board Parasitics:** Your M2 extracts die polygons. The PCB trace, the package lead frame, and the 74LS373 input pin add roughly $15\text{pF}$ to $20\text{pF}$ of bulk capacitance. On-die nets are in femtofarads. The PPU's pad driver is spending 95% of its effort driving the board, which M3 doesn't see.
+
+**How to use M3 properly here:** You can only use M3 for **on-die ratios**. You cannot use it to validate the absolute 13:13:25:44:52 ratios, because the latter three are architectural, and the first two are dominated by off-die capacitance.
+
+### 3. Are Better-than-Elmore Models Worth It?
+Given your constraints (only die polygons, no parasitic extraction like coupling/fringing $C$ or precise contact $R$), **AWE (Asymptotic Waveform Evaluation) or moment-matching is a waste of time.** They will give you highly precise calculations of inaccurate data ("garbage in, pristine garbage out"). Logical Effort is a synthesis/design tool, not a post-layout timing extraction tool.
+
+**What *is* worth it:** A localized, transient Shichman-Hodges numerical integration step. You do not need this for the whole chip, *only* for the pad drivers. (See section 6).
+
+### 4. The Cross-Domain Composition Problem
+You have: PPU Die (M3) $\rightarrow$ PCB $\rightarrow$ 74LS373 (M5) $\rightarrow$ PCB $\rightarrow$ CPU Die (M3).
+To compose these without a unified extraction, use standard STA boundary practices:
+1.  **Extract the PPU Pad Driver:** Identify the W/L of the final enhancement pull-down and depletion pull-up transistors driving `AD[7:0]`. 
+2.  **Lump the Board:** Inject a synthetic capacitor $C_{board} \approx 20\text{pF}$ at the PPU output node.
+3.  **Datasheet the Latch:** Do not use M3 on the 74LS373. Use the Texas Instruments datasheet. LE to Q delay is fixed (max $18\text{ ns}$). Input capacitance is $C_i = 5\text{pF}$.
+4.  **Add Linearly:** The path delay is $T_{pad\_settle}(C_{board}) + T_{373\_prop} + T_{cpu\_pad\_setup}$. 
+
+### 5. Converting RC to Integer HC with a Threshold Model
+To convert an RC $\tau$ to your discrete hc grid defensibly, you must define the logic thresholds. Assuming $5V$ NMOS:
+*   $V_{IL} \approx 0.8V$
+*   $V_{IH} \approx 2.0V$ to $2.4V$
+
+The mapping equation for a falling edge (enhancement pull-down):
+$t_{fall} = -R_{PD} \cdot C_{board} \cdot \ln(V_{IL} / V_{DD})$
+
+The mapping equation for a rising edge (depletion pull-up, simplified):
+$t_{rise} = -R_{PU} \cdot C_{board} \cdot \ln(1 - (V_{IH} / V_{DD}))$
+
+Convert $t_{rise}$ (in seconds) to hc: $HC = \lceil t_{rise} / t_{hc\_period} \rceil$. 
+Because of discrete time steps, you should use the ceiling ($\lceil \rceil$) to ensure the signal is valid before the engine samples it.
+
+### 6. The Actionable Alternative: Boundary SPICE Resimulation
+Because this specific `$2007` ALERead mux is a notorious corner case bridging two chips and a board, I strongly suggest abandoning the pure analytical M3 derivation for this one boundary. 
+
+**Here is the concrete proposal:**
+1.  **Extract the Boundary Sub-circuit:** Export *only* the PPU ALE pad driver, the PPU AD[7:0] pad drivers, your switch-level '373 (or just a behavioral substitute), and the CPU data pad receivers into a standard SPICE netlist.
+2.  **Add Realistic Board Parasitics:** Manually add $20\text{pF}$ caps on the nets connecting the chips.
+3.  **Run an Analog Transient Sim (ngspice):** Stimulate the internal PPU ALE signal and watch the analog voltage arrive at the internal CPU data node. 
+4.  **Measure $\Delta T$:** Measure the exact continuous time from the PPU ALE triggering to the CPU internal node crossing $2.0V$. 
+5.  **Quantize to HC:** Divide that $\Delta T$ by your engine's clock tick. This gives you the *actual physical delay* in hc.
+
+**Reconstructing your test-mode model:**
+Once you have the physical hc delay (let's say it turns out to be $10\text{ hc}$), you compare it to your engine's scheduling. 
+If the CPU reads at $T=0$, but the physical data doesn't arrive until $T=50\text{ hc}$, and your SPICE physical delay is $10\text{ hc}$, then you mathematically define your windows as:
+*   **Physical Settling Window (The 13s):** Replaced by the exact HC derived from the SPICE sub-circuit.
+*   **Architectural Wait State (The 25/44/52s):** Formally defined in your codebase as `CPU_EARLY_PHASE_OFFSET_HC - PHYSICAL_SETTLING_HC`. 
+
+### Summary
+Stop trying to derive 25, 44, and 52 from RC constants—they are artifacts of your discrete event scheduler misaligning with the continuous-time PPU/CPU clock dividers. You cannot derive integer hc from Elmore accurately due to depletion-load nonlinearities and missing board parasitics. 
+
+Instead, extract the multi-chip boundary, insert $20\text{pF}$ board capacitors, and run a micro-SPICE simulation to find the *true* physical delay. Use that single grounded number to formally split your `MUX_HC` arrays into "Real Physics" and "Engine Alignment Padding."

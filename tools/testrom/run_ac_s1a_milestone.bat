@@ -54,14 +54,21 @@ if not exist "%EXE%" ( echo Build S1A first: dotnet build src\AprVisual.S1A -c R
 if not exist "%SNAP%" mkdir "%SNAP%"
 if not exist "%OUT%"  mkdir "%OUT%"
 
+REM --- crash/reboot recovery: auto-resume from the NEWEST snapshot if one exists.
+REM     Same config (this bat) -> fingerprint matches; a torn newest is caught by CRC
+REM     (then delete it and re-run to fall back one). To force a FRESH run: clear %SNAP%.
+set RESUME=
+for /f "delims=" %%F in ('dir /b /o-n "%SNAP%\state_*.sav" 2^>nul') do if not defined RESUME set RESUME=--resume "%SNAP%\%%F"
+
 echo ============================================================
 echo   S1A MILESTONE retirement proof (all mechanisms) -^> core %PIN%  (~8h)
 echo   M4_EDGE M6X M4_P1 M1_LXA M4_FI M4_OE M3_ABORT PPU_ALE_FB
+if defined RESUME echo   ** RESUMING from newest snapshot: %RESUME% **
 echo   verdict -^> %OUT%\AccuracyCoin.json   (expect 141/141)
 echo ============================================================
 
 "%EXE%" --test AprAccuracyCoinUnattended\AccuracyCoin.nes --ac-verdict --joypad ^
-  --callback-drain-limit 2000 --reset-hold-extra 1 --pin %PIN% ^
+  --callback-drain-limit 2000 --reset-hold-extra 1 --pin %PIN% %RESUME% ^
   --system-def-dir "%SDD%" --max-frames 12000 ^
   --snapshot-frames 10 --snapshot-dir "%SNAP%" ^
   --progress-frames 600 --progress-dir "%OUT%" ^

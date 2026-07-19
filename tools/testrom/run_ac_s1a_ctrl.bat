@@ -47,15 +47,22 @@ if not exist "%EXE%" ( echo Build S1A first & exit /b 1 )
 if not exist "%SNAP%" mkdir "%SNAP%"
 if not exist "%OUT%"  mkdir "%OUT%"
 
+REM --- crash/reboot recovery: auto-resume from the NEWEST snapshot in THIS arm's own
+REM     %SNAP% (isolated per arm) if one exists. Same config (this bat + name) ->
+REM     fingerprint matches; a torn newest is caught by CRC. Fresh run: clear %SNAP%.
+set RESUME=
+for /f "delims=" %%F in ('dir /b /o-n "%SNAP%\state_*.sav" 2^>nul') do if not defined RESUME set RESUME=--resume "%SNAP%\%%F"
+
 echo ============================================================
 echo   S1A CONTROL arm [%NAME%]  -^>  core %PIN%  (~8h)
 echo   %OFFDESC%   (everything else = certified baseline)
 echo   records:  %OUT%\   +   %SNAP%\   (isolated)
+if defined RESUME echo   ** RESUMING from newest snapshot: %RESUME% **
 echo   verdict -^> %OUT%\AccuracyCoin.json
 echo ============================================================
 
 "%EXE%" --test AprAccuracyCoinUnattended\AccuracyCoin.nes --ac-verdict --joypad ^
-  --callback-drain-limit 2000 --reset-hold-extra 1 --pin %PIN% %EXTRA% ^
+  --callback-drain-limit 2000 --reset-hold-extra 1 --pin %PIN% %EXTRA% %RESUME% ^
   --system-def-dir "%SDD%" --max-frames 12000 ^
   --snapshot-frames 10 --snapshot-dir "%SNAP%" ^
   --progress-frames 600 --progress-dir "%OUT%" ^

@@ -294,6 +294,21 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   s1a.html shim 總帳(even_odd 改 PROVEN、暫定 banner 改「K=1 已重驗」、OamDmaPpuBus/Dbl2007 註記、
   時間線 + 2026-07-19 條)。**待辦**:decidability.html 換 K=1 資料;MD/memory/04 標記完成。
   **這是「階段驗收」里程碑** —— 孤立重驗乾淨,可考慮 milestone 全 141(M4_EDGE+M6X 退役證明)。
+- **2026-07-19 中午:鑑別 ROM 獵捕 + M4·P1 機制**(使用者發令「省驗證時間、優先簡單明確」)。
+  **① 獵捕(task #14):** 6 顆 UNDECIDABLE 各配候選鑑別 ROM 跑 control 臂(找像 even_odd 09→10 的
+  「更好孤立測試」)。**翻 2 顆**:**BGSerialIn → PROVEN**(AccuracyCoin_BGSerialInReal:base PASS /
+  NO_BGS_SHIM ctrl FAIL 0/1 / M6X mech PASS —— AccuracyCoin_BGSerialIn 鑑別不了、Real 可以);
+  **Dbl2007 → 可判**(double_2007_read:ctrl 拔 shim CRC 85CFD627→D84F6815,**秒級**取代 #67 的 2h)。
+  **4 顆撐住**(DL/OamBlankEdge/dot-339/Dmc4015Abort:候選 control 全過)→ 認定真・需套內。
+  **② M4·P1 機制(task #15):** 使用者洞察「Dbl2007 與 OamDmaPpuBus 同 M4·P1?」→ 定案「同家族、
+  不同動作/呼叫點,同 env 兩 row」。env `M4_P1`:**ClampBus**(Dbl2007,在 M4P1Step=TestShimChainStep 尾)
+  + **QueuedDrive**(OamDmaPpuBus,在 Recalc.cs:838 原點,閘 `OamDmaPpuBusShim || _m4p1Queue`)。
+  各在自己 shim 原點跑 → 逐位重現。**Dbl2007 已驗 PROVEN**(double_2007_read 三臂:base/mech PASS
+  **hc 逐位相同 9,946,280** / ctrl FAIL;Gate A 金 0x794A 不變)。**OamDmaPpuBus**:Gate A + 武裝確認
+  (ClampBus=True QueuedDrive=True、OAM queue live),**#67 權威三臂跑中**(b30r8kc0m,~2h,同時驗兩 member)
+  → 結果一到翻 PROVEN。commit:M4·P1 ClampBus(Dbl2007)、QueuedDrive fold-in。
+  **蓋牌狀態**:PROVEN = DmcLatch/AluLatch/even_odd/BGSerialIn/Dbl2007(+OamDmaPpuBus 確認中);
+  M4_EDGE+M6X+M4_P1 三機制齊,晚上 141 可一次證掉 7 顆退役。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

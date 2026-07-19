@@ -176,16 +176,22 @@ namespace AprVisual.Test
                     WireCore.EnableOamBlankEdgeMech();
                 if (Environment.GetEnvironmentVariable("M3_ABORT") is { Length: > 0 } m3ab && m3ab != "0")
                     WireCore.EnableDmc4015AbortMech();
+                // M1·strength LXA (env M1_LXA) + M4·P6 FrameIrq (env M4_FI): promote those shims to
+                // opt-in mechanisms that supersede them below.
+                if (Environment.GetEnvironmentVariable("M1_LXA") is { Length: > 0 } m1lxa && m1lxa != "0")
+                    WireCore.EnableLxaMagicMech();
+                if (Environment.GetEnvironmentVariable("M4_FI") is { Length: > 0 } m4fi && m4fi != "0")
+                    WireCore.EnableFrameIrqMech();
                 if (!_noShims)
                 {
                     if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
                         WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (superseded by M4_EDGE)
                     if (!_noAluShim && !WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_ALU_SHIM") == null)
                         WireCore.EnableAluLatchShim();   // ALU input-latch hold (superseded by M4_EDGE)
-                    if (Environment.GetEnvironmentVariable("NO_LXA_SHIM") == null)
-                        WireCore.EnableLxaMagicShim();   // LXA $AB magic=$FF (documented analog bus-fight shim)
-                    if (Environment.GetEnvironmentVariable("NO_FRAMEIRQ_SHIM") == null)
-                        WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (documented intra-settle-transient shim)
+                    if (!WireCore.M1LxaEnabled && Environment.GetEnvironmentVariable("NO_LXA_SHIM") == null)
+                        WireCore.EnableLxaMagicShim();   // LXA $AB magic (superseded by M1_LXA)
+                    if (!WireCore.M4FiEnabled && Environment.GetEnvironmentVariable("NO_FRAMEIRQ_SHIM") == null)
+                        WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (superseded by M4_FI)
                     if (!WireCore.M6xEnabled)   // even_odd superseded by M6X (DelayTransition rows)
                         WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
                     if (!WireCore.M6xEnabled)   // dot-339 superseded by M6X

@@ -604,7 +604,7 @@ namespace AprVisual.Sim
             DlShimStep();             // (this was the block hosted at the top of LxaMagicShimStep)
             Dmc4015AbortShimStep();
             OamBlankEdgeShimStep();
-            if (LxaMagicShim) LxaMagicShimStep();
+            if (LxaMagicShim || M1LxaEnabled) LxaMagicShimStep();
             if (M4P1Enabled) M4P1Step();   // M4.P1 merge-clamp mechanism (supersedes Dbl2007 shim).
                                            // Runs right after LxaMagicShimStep — the exact point the
                                            // shim ran at (its nested FrameIrq->Dbl2007 tail), so it is
@@ -2038,6 +2038,18 @@ namespace AprVisual.Sim
             LxaMagicShim = true; ShimChainArmed = true;
         }
 
+        // M1·strength LXA MECHANISM (env M1_LXA): promotes the proven LXA/ANE magic-merge to an
+        // opt-in mechanism that supersedes the shim (arms the same state, flips the flag).
+        // Reproduces it bit-for-bit; opt-in so Gate A is untouched.
+        public static bool M1LxaEnabled;
+        public static void EnableLxaMagicMech()
+        {
+            EnableLxaMagicShim();
+            if (LxaMagicShim) { LxaMagicShim = false; M1LxaEnabled = true; }
+            Console.Error.WriteLine(M1LxaEnabled ? "# [m1lxa] armed: LXA/ANE magic-merge mechanism"
+                                                 : "# [m1lxa] arm failed -- nodes unresolved");
+        }
+
         // ── M2 charge-decay mechanism (the timestamp half of M2; replaces the runner-level
         // _io_db decay shim). Physics: a dynamic latch bit leaks its charge to 0 in ~600 ms of
         // real time when not refreshed (ppu_open_bus readme; "some decay sooner"). Engine model:
@@ -2275,7 +2287,7 @@ namespace AprVisual.Sim
                 _laeDbPrevFall = dbv;   // becomes "previous fall's db" for the next fall
             }
             _lxaPrevPhi2 = ph;
-            if (FrameIrqShim) FrameIrqShimStep();
+            if (FrameIrqShim || M4FiEnabled) FrameIrqShimStep();
         }
 
         // ── Frame-IRQ flag hold shim (test mode only) ────────────────────────────────────────
@@ -2301,6 +2313,18 @@ namespace AprVisual.Sim
             { Console.Error.WriteLine("# [shim] frame-IRQ shim: nodes unresolved — disabled"); FrameIrqShim = false; return; }
             _fiPrev = NodeStates[_fiFlag];
             FrameIrqShim = true;
+        }
+
+        // M4·P6 FrameIrq MECHANISM (env M4_FI): promotes the proven frame-IRQ flag-hold (guarded
+        // restore) to an opt-in mechanism that supersedes the shim. Reproduces it bit-for-bit;
+        // opt-in so Gate A is untouched.
+        public static bool M4FiEnabled;
+        public static void EnableFrameIrqMech()
+        {
+            EnableFrameIrqShim();
+            if (FrameIrqShim) { FrameIrqShim = false; M4FiEnabled = true; }
+            Console.Error.WriteLine(M4FiEnabled ? "# [m4fi] armed: frame-IRQ flag-hold mechanism"
+                                                : "# [m4fi] arm failed -- nodes unresolved");
         }
 
         private static void FrameIrqShimStep()

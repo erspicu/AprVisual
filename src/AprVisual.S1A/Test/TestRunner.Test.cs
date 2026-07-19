@@ -133,7 +133,11 @@ namespace AprVisual.Test
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
             // Must be selected before LoadSystem: the CHR handler needs ALE and /RD in its callback
             // trigger so it refreshes immediately after the analog-feedback window closes.
-            WireCore.PpuAleReadFeedbackShim = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
+            // M4·P4 MECHANISM (env PPU_ALE_FB): the analog-feedback break promoted to an opt-in
+            // mechanism that supersedes the shim. Both are load-time (the flag is read in
+            // RegisterCallback), so arm here; when the mechanism is on the shim yields (bit-identical).
+            WireCore.PpuAleReadFeedbackMechEnabled = Environment.GetEnvironmentVariable("PPU_ALE_FB") is { Length: > 0 } pfb && pfb != "0";
+            WireCore.PpuAleReadFeedbackShim = !WireCore.PpuAleReadFeedbackMechEnabled && _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
             // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
             // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
             // path heuristic, silently dropped the $6000 RAM, and made every class-A test report
@@ -156,6 +160,8 @@ namespace AprVisual.Test
                 loadSecs = swLoad.Elapsed.TotalSeconds;
                 if (WireCore.PpuAleReadFeedbackShim)
                     Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
+                if (WireCore.PpuAleReadFeedbackMechEnabled)
+                    Console.Error.WriteLine("# [m4p4] armed: PPU ALE/read analog-feedback break mechanism");
                 // M4 edge-latch MECHANISM (not a shim; independent of --no-shims): env M4_EDGE arms
                 // the generic edge-capture primitive with the built-in annotation rows (DMC pcm_latch
                 // data-wins + ALU input-latch hold). When armed it supersedes those two shims below.

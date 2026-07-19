@@ -85,6 +85,10 @@ namespace AprVisual.Sim
         // Test-mode model for the PPU's documented ALE+Read analog feedback window. Set before
         // LoadSystem so AttachRamLikeHandler can include both control nodes in the CHR callback.
         internal static bool PpuAleReadFeedbackShim;
+        // M4·P4 MECHANISM: the same load-time trigger add + runtime analog-feedback break, promoted
+        // to an opt-in mechanism (env PPU_ALE_FB) that supersedes the shim. Bit-identical code path
+        // (the runtime hold at HandleMemRead keys off cb.PpuAle != EmptyNode, set by either flag).
+        internal static bool PpuAleReadFeedbackMechEnabled;
         internal static long PpuAleReadFeedbackHoldCount;
         private static long _ppuAleReadFeedbackLastLogTime;
         internal static int PpuMemoryTracePcLo = -1, PpuMemoryTracePcHi = -1;
@@ -605,7 +609,7 @@ namespace AprVisual.Sim
             if (!readOnly) trigger.AddRange(dataBusL);
 
             int ppuAle = EmptyNode, ppuRead = EmptyNode;
-            if (readOnly && isRom && prefix == "cart.chr." && PpuAleReadFeedbackShim)
+            if (readOnly && isRom && prefix == "cart.chr." && (PpuAleReadFeedbackShim || PpuAleReadFeedbackMechEnabled))
             {
                 ppuAle = LookupNode("ppu.ale");
                 ppuRead = LookupNode("ppu.rd");       // physical /RD: low means external read active
@@ -613,6 +617,7 @@ namespace AprVisual.Sim
                 {
                     Console.Error.WriteLine("# [shim] PPU ALE/read feedback: ppu.ale or ppu.rd unresolved -- disabled");
                     PpuAleReadFeedbackShim = false;
+                    PpuAleReadFeedbackMechEnabled = false;
                     ppuAle = ppuRead = EmptyNode;
                 }
                 else

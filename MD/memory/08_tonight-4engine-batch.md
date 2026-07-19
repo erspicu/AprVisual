@@ -44,6 +44,15 @@ wrapper(`Stop-Process -Id` 不帶 /T → 子 EXE 存活)→ 3 個 ctrl 變 orpha
 AC verdict json 格式:`status`/`resultText`("N/141 passed"),**無 per-subtest 陣列**;per-subtest PASS/FAIL 在
 **stdout log**(`# [ac] result table at exit` + 每位址 `$XXX=$YY PASS/FAIL variant`)→ ctrl 判 FAIL 子測試要 grep log。
 
+## ctrl 結果(陸續)
+- **ppualefb ctrl(`--no-ppu-ale-read-feedback-shim`)= 決定性判定(2026-07-20 ~02:5x)**:引擎在 ~f4350
+  丟 `InvalidOperationException: non-converging callback drain (limit=2000, batches=1000)`(Handlers.cs:304)。
+  這正是 PpuAleReadFeedback 防的:拔掉 guard → CHR-ROM 讀取在 PPU 多工 AD 匯流排形成不收斂回授環。
+  → **PpuAleReadFeedback load-bearing、可判(比 sub-test FAIL 更強)+ milestone mech 臂(PPU_ALE_FB→141/141)
+  = PROVEN**。⚠️ 不用 resume(不收斂是決定性、每次同點崩,崩潰即答案)。本質是 inertial-delay/feedback-break
+  guard,跟 DL 同家族;差別:拔 PpuAleReadFeedback→硬崩(強決定),拔 DL→錯但收斂的 glitch(孤立不可判)。
+- dot339 + oamedge ctrl:續跑中(~f4470/4540 → f4925)。
+
 ## 當機/重開恢復(已驗證可行)
 - 4 個 run 都 `--snapshot-frames 10`(在 quiescent 存),快照含 **MEMS(全行為記憶體=含 AC $0400+ 結果)+
   NODE/FLAG + RUNR(runner 判定狀態)+ SHIM live 狀態**(Snapshot.cs:89-170)→ 恢復不丟進度。

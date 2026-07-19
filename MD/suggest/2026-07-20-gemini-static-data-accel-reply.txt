@@ -1,0 +1,58 @@
+You are operating near the speed-of-light for a pure data-driven switch-level simulator. At 80k half-cycles/s on a 26k transistor netlist, your single-core execution time is ~12 microseconds per half-cycle. Given your strict (and correct) rule that adding per-node inner-loop checks almost always loses to branch-prediction/i-cache bloat, the only way forward is **data-driven topological demotion** and **queue-cost elimination**. 
+
+Here is the concrete assessment of your static analysis (M1-M7) and whether it unlocks real speedups.
+
+---
+
+### 1. STRENGTH-PRIORITY Early-Out (M1)
+**Verdict: WILL LOSE (Work Added/Relocated).**
+*Concept:* Stop BFS/ORing if a >2x dominant driver is found.
+*Why it fails:* Your mean conducting group size is ~1.4. This means the vast majority of groups are size 1 (which you already fast-path) or 2. If a group is size 2, the BFS only loops twice. To early-out, you must add an M1-strength fetch, a comparison, and a conditional branch into the tightest inner loop. The pipeline flush cost from mispredicting the early-out on a 2-node group will utterly dwarf the cost of just blindly ORing two bytes and indexing the 256-entry LUT. It violates your core rule: it adds a per-node check.
+
+### 2. STATIC GROUP CLASSIFICATION (M1/M4) -> Unidirectional Relaxation
+**Verdict: REAL NET SPEEDUP (Est. ~10–15% net).**
+*Concept:* You asked if you can pre-label groups. Group formation is dynamic, but **transistor directionality can now be proven static**. 
+*The Technique:* **Unidirectional Edge Relaxation**. In MOS, switches are bidirectional, which requires your BFS/LUT. But using M1 (strength) and M4 (latch/cap topologies), you can statically prove that hundreds/thousands of pass-transistors are *strictly unidirectional* (e.g., they connect a strong driver to a pure gate-cap, or a strong driver to a demonstrably weaker pull-down). 
+*How to implement without i-cache bloat:* 
+Do not branch in the inner loop. Add a new data-driven event class. You already have a "tagged turn-on gate list". Segregate your `TransistorList` into two separate arrays/queues: `BiDirTransistors` (the current BFS engine) and `UniDirTransistors`. 
+For the `UniDir` queue, the "group resolution" is reduced to a scalar move:
+`NodeStates[dst] = NodeStates[src];`
+`Enqueue(dst_fanout);`
+*Why it wins:* It completely removes the BFS, flag-OR, and LUT for a massive subset of the netlist. It is purely data-driven, keeping the instruction cache footprint identical to your current fast-paths.
+
+### 3. PHASE / LATCH GATING for Early-Return (M4/M6)
+**Verdict: MARGINAL TO NEGATIVE (Work Relocated).**
+*Concept:* Skip enqueuing subsystems quiescent in the current clock phase.
+*Why it fails:* An event-driven engine is *already* an optimal phase-gater. If a subsystem's inputs do not toggle, it is never enqueued. The only time clock phases generate work is when the clock tree itself toggles. If you add a static phase check (M6) to the fan-out enqueue loop to prevent enqueuing an opaque latch, you are adding an inner-loop branch. 
+*Exception:* If you can fold the phase-gate into the dynamic fanout list (i.e., when CLK is low, swap the fanout pointer of the driver to a pre-culled list), that removes work. But managing pointer swaps per phase usually costs more than just enqueuing the blocked transistor, letting it evaluate as "off", and naturally dying.
+
+### 4. CAPACITANCE-INDEXED Tiebreak (M2)
+**Verdict: MARGINAL POSITIVE (~1–2%).**
+*Concept:* Replace connection-count proxy with O(1) M2 capacitance for floating tiebreaks.
+*How to implement correctly:* **Do not put this in the BFS loop.** Floating charge-sharing (where node logic levels actually fight without a driver) is dynamically rare. Let the BFS do its blind flag-OR. Only if the LUT returns the "Floating" class do you drop into a cold-path loop over the collected group array to find `max(M2)`. 
+*Why it wins:* It completely removes the complex graph-walk currently used for connection-counting, replacing it with a localized O(N) array scan of the already-collected group (where N is usually 2 or 3). Small cost removal.
+
+### 5. New Engine Shapes: Canonical Scheduling (M7) + Latch Topologies (M4)
+**Verdict: REAL NET SPEEDUP (Est. 15–25%).**
+*Concept:* **Levelized Event-Driven Simulation using Bit-Vectors**.
+Right now, you "enqueue nodes whose transistors' gates changed [and] Iterate to quiescence." A standard FIFO/double-buffered event queue is prone to *redundant evaluations* (glitches) within the same half-cycle if a node is reached by multiple paths of different lengths.
+*The Technique:* 
+You now have M7 (Canonical Node Ordering). You can topologically sort the netlist from drivers to M4 latches (which break the cycles). 
+1. Throw away the double-buffered queue arrays. 
+2. Replace them with a single 10,000-bit bit-vector (just ~1.25 KB, stays hot in L1).
+3. The bit index *is* the M7 topological canonical ID. 
+4. To enqueue a node, you execute a bitwise OR: `QueueBits[node_id / 64] |= (1ULL << (node_id % 64))`. This is branchless and O(1).
+5. The scheduler replaces the `while(queue_not_empty)` loop with a forward scan of the bit-vector using `__builtin_ctzll()` (Count Trailing Zeros) to find the next scheduled node. 
+*Why it wins:*
+*   **Zero queue overflow logic:** No bounds checks.
+*   **Zero duplicate entries:** Setting a bit twice is a no-op.
+*   **Perfect evaluation order:** By scanning the bit-vector linearly from lowest M7 ID to highest, you guarantee that upstream drivers are resolved before downstream receivers. This flattens the "iterate to quiescence" loop, drastically reducing the number of settles per half-cycle.
+*   **Cross-coupled handling:** For the M4 latches (which form cycles), you assign them to the same topological level, or keep a tiny secondary bit-vector for back-edges that you scan until empty (which resolves quickly since you proved they are tight closing-edge races).
+
+### Summary of Actionable Architecture
+To beat your current 80k half-cycles/s without i-cache blowup, use the static data to restructure the engine's memory and dispatch, not its logic:
+1. **Topological Bit-Vector Queue (M7):** Eliminates double-buffer overhead, eliminates duplicate evaluations, ensures single-pass quiescence.
+2. **Unidirectional Pass-Gate Demotion (M1/M4):** Routes proved one-way switches to a scalar-move fast path, bypassing the BFS/LUT.
+3. **Out-of-band Cap Tiebreak (M2):** Simplifies the rare floating-tiebreak case to a linear scan.
+
+Do not add early-outs to the BFS. Do not add phase-checks to the enqueue. Remove the FIFO queue entirely in favor of an M7-ordered bit-set.

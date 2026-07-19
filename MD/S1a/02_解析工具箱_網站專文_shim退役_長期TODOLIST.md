@@ -269,6 +269,31 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   141/141 = 五顆可退役;掉分 = per-sub-test 表點名不足機制。**「階段驗收」全套,使用者許可。**
   ③ milestone 綠 → 五顆預設翻轉(機制轉 default、移除 shim)+ commit;非綠 → 保留 + 記錄邊界。
   ⚠️ 教訓:長背景批次**絕不接 `| head`**(SIGPIPE 殺 worker;本夜踩過、已乾淨重發)。
+- **2026-07-19 上午:28 臂 K=1 孤立重驗完成(bl6leo6s7)—— 判決全數確認,一個實質翻案**。
+  過程備註:程序重啟殺過批次兩次 → harness 加 `--resume`(跳過已完成臂)+ worker-owned cores
+  (每 worker 固定一核,消除 cached 臂讓 worker 搶前造成的撞核);jobs 檔移 repo 內穩定路徑
+  (`temp/s1a_reverify/reverify_all.json`,不依賴會漂移的 $CLAUDE_JOB_DIR)。**完整 K=1 對照表**:
+  | shim | K=0 | **K=1** | 證據 |
+  |---|---|---|---|
+  | DmcLatch | PROVEN | PROVEN ✓ | dmc_ctrl FAIL#19 / dmc_mech(M4_EDGE)PASS |
+  | AluLatch | PROVEN | PROVEN ✓ | alu_ctrl FAIL#1 / alu_mech PASS |
+  | **even_odd** | UNDECIDABLE | **PROVEN ⭐** | eo10_base PASS / eo10_ctrl(--ppu-write-delay 0)**FAIL#3** / eo10_mech(M6X)PASS;09 仍不可判 |
+  | dot-339 | UNDECIDABLE | UNDECIDABLE ✓ | dot339_ctrl(--ppu-write-delay-global 0)PASS;mech bit-safe |
+  | BGSerialIn | UNDECIDABLE | UNDECIDABLE ✓ | bgs_ctrl(NO_BGS_SHIM)PASS;mech bit-safe |
+  | Dbl2007 | UNDECIDABLE(hc-同) | UNDECIDABLE(**非 hc-同**) | dbl_ctrl PASS 但軌跡位移(跑 166min vs base；「旁觀者」說法也是 K=0 假象) |
+  | **OamDmaPpuBus** | 待定 | **DECIDABLE ⭐** | odp_ctrl(--no-oam-dma-ppu-bus-shim)**FAIL#67**(修正對照如預期) |
+  | OpenBus | CEILING | CEILING ✓ | ob_ac_ctrl(NO_OB,AC OpenBus)**FAIL#1**;**但 ob_ctrl(ppu_open_bus)K=1 竟 PASS** = 該測試 K=1 下不鑑別 OB,AC OpenBus 才是鑑別者 |
+  | DL | UNDECIDABLE | UNDECIDABLE ✓ | dl_ac_ctrl(NO_DL,AC OpenBus)PASS |
+  | OamBlankEdge | UNDECIDABLE | UNDECIDABLE ✓ | oam_ctrl(NO_OAMEDGE)PASS |
+  | Dmc4015Abort | UNDECIDABLE | UNDECIDABLE ✓ | abort_exp/imp_ctrl(NO_ABORT)皆 PASS |
+  | FrameIrq | DECIDABLE | DECIDABLE ✓ | fi_ctrl(NO_FRAMEIRQ)FAIL#6(重建 release 確 honors 此 env) |
+  | LXA | DECIDABLE | DECIDABLE ✓ | lxa_ctrl(NO_LXA)FAIL#1「AB ATX」 |
+  | io_db | RETIRED | RETIRED ✓ | io_ctrl(NO_M2DECAY+NO_IODECAY)FAIL#3「Decay value should become zero」 |
+  **兩個 K=0≠K=1 點**:(a)**even_odd 翻案 UNDECIDABLE→PROVEN**(核心產出;K=0 只看 09、漏 10);
+  (b)ppu_open_bus 對 OB 的鑑別力 K=1 消失(但 AC OpenBus 仍鑑別 → CEILING 不變)。已更新
+  s1a.html shim 總帳(even_odd 改 PROVEN、暫定 banner 改「K=1 已重驗」、OamDmaPpuBus/Dbl2007 註記、
+  時間線 + 2026-07-19 條)。**待辦**:decidability.html 換 K=1 資料;MD/memory/04 標記完成。
+  **這是「階段驗收」里程碑** —— 孤立重驗乾淨,可考慮 milestone 全 141(M4_EDGE+M6X 退役證明)。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

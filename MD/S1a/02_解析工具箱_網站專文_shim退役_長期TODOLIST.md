@@ -317,6 +317,16 @@ Phase 表(M6/M7 先行),**兩序不同不衝突**:工具箱先鋪參數與證據
   **AprNes frame-budget 工具**(使用者設計):`--ac-frame-map` 逐子測試完成幀(納 tools/aprnes/);
   range-run campaign 用它省時驗 UNDECIDABLE(DL@OpenBus f52 試金石過=方法通;f52 不鑑別 DL;
   DL@ControllerClocking f1481 + Abort@ExplicitAbort f1347 跑中 bj0za0z71 ~17:00)。
+- **2026-07-19 傍晚:LXA(M1_LXA)+ FrameIrq(M4_FI)雙雙 PROVEN(便宜孤立三臂)**。
+  兩顆 shim 本來就在快速孤立 ROM 上可判,所以用 env-gate 模板便宜地建機制 + 秒級驗:
+  **LXA** @ `03-immediate` — base PASS / `NO_LXA_SHIM` ctrl **FAIL(AB ATX #n)** / `M1_LXA` mech **PASS**;
+  **FrameIrq** @ `3-irq_flag` — base PASS / `NO_FRAMEIRQ_SHIM` ctrl **FAIL#6** / `M4_FI` mech **PASS**。
+  兩機制 build 0 錯、Gate A 金 `0x794A43ABDF169ADA` 不變、arming 正常。s1a.html 兩列 ACTIVE→PROVEN。
+  commit:LXA/FrameIrq 機制 + 總帳翻牌。**蓋牌 PROVEN 共 9 顆**:DmcLatch/AluLatch(M4_EDGE)、
+  even_odd/BGSerialIn(M6X)、Dbl2007/OamDmaPpuBus(M4_P1)、LXA(M1_LXA)、FrameIrq(M4_FI)、
+  + dot-339/OamBlankEdge/Dmc4015Abort 待今晚 141 milestone-mech 一次證。
+  **PpuAleReadFeedback 評估**:載入期觸發清單建構(近正確物理模型),非行為 shim,不適合便宜推;
+  詳 `MD/memory/06_ppualereadfeedback-not-a-behavioral-shim.md`。
 - (待續)
 
 ## 六、風險與提醒(承 00/01,長線必讀)

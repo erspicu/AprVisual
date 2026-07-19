@@ -1,5 +1,17 @@
 # S1a 退役判決:S1 基礎重驗完成後,全部要重新確認
 
+> **✅ 完成(2026-07-19):S1 基礎重驗 + S1a 判決 K=1 重驗全部做完。**
+> S1 基礎 = **AC 141/141 + 147 146/1**(最新 build eff4534,見 [[banked-136-of-141]] / MD/memory/00)。
+> S1a = **28 臂孤立 K=1 三段論**(harness `tools/testrom/s1a_arms.py`,rebuilt S1A + per-ROM catalog 旗標)。
+> **判決全數確認,一個實質翻案:even_odd UNDECIDABLE → PROVEN**(K=0 只測 09、漏 10;K=1 下
+> 10-even_odd_timing 拔延遲 FAIL#3、M6X 取代 PASS);OamDmaPpuBus 可判確認(#67 FAIL);其餘 11 顆維持
+> K=0 分類(另一 K=0≠K=1 細節:ppu_open_bus 在 K=1 不再鑑別 OB,但 AC OpenBus 仍鑑別 → CEILING 不變)。
+> 完整對照表 → `MD/S1a/02` 的 2026-07-19 條。網站已更新:s1a.html shim 總帳(even_odd→PROVEN、
+> 暫定 banner 改「K=1 已重驗」、OamDmaPpuBus/Dbl2007 註記)、decidability.html(K=1 資料 + 更正敘事)。
+> ⚠️ **仍待做:milestone 全 141 退役證明**(`tools/testrom/run_ac_s1a_retire.bat`,M4_EDGE+M6X,~8h,
+> 晚上跑)—— 過 141/141 才能把 5 顆(DmcLatch/AluLatch/even_odd/dot-339/BGSerialIn)預設翻轉正式退役。
+> 以下為 2026-07-18 的原始重驗指示,留作紀錄。
+
 **使用者裁示(2026-07-18):S1a 網站/總帳上的那些退役判決,有些是 Fable 失憶期做的,
 當時可能像 AC 漏 ALEREAD_MUX 一樣「參數沒開完整」就下了結論。等 S1 驗證基礎打穩
 (AC 141 + 147 全量重跑,現在進行中),S1a 的東西全部要在乾淨的地基上重新確認驗證過。**

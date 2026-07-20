@@ -32,9 +32,9 @@
 ## 4. 對 AprVisual 的實作路線
 1. **在 PPU 網表截斷**:找到驅動 Video DAC 傳輸閘的控制節點 —— `Luma 0-3` / `Chroma 0-15(→12 相位)` / `Sync` / `Colorburst Enable` / `Emphasis R/G/B`,把這些數位控制訊號拉出來。
 2. **21.477MHz 取樣 sidecar**:主時脈每 tick 呼叫 `get_composite_voltage(luma, chroma, phase_counter, emphasis, sync)`(查表)。**不要**電晶體級/SPICE 模擬類比放大器(效能崩、精度不成比例)。
-3. **NTSC 解碼**:把 21.477MHz float 陣列餵給 **`nes_ntsc`(blargg)** 或參考 **Mesen `VideoFilterNtsc.cpp`**;或自寫簡單 FIR:LP→Y、乘 sin/cos colorburst + LP→I/Q、YIQ→RGB 矩陣、降取樣(如 602×240 / 1204×480 顯示 artifacts)。
+3. **NTSC 解碼 —— ⚠️ 自己寫(使用者拍板 2026-07-20,不用 `nes_ntsc`/blargg、不抄 Mesen `VideoFilterNtsc.cpp`)**:自寫 FIR/DSP:LP→Y、乘 sin/cos colorburst + LP→I/Q、YIQ→RGB 矩陣、降取樣(如 602×240 / 1204×480 顯示 artifacts)。Gemini 給的原理配方(§3-C)就是自寫的基礎。
 
-**必看**:Visual2C02(Quietust,JS 源碼有 DAC 電阻比例算 VOUT)· Mesen `VideoFilterNtsc.cpp` · Nesdev Wiki「NTSC video」(Color phases / Emphasis 章)。
+**參考(讀懂原理用,不 vendor 程式碼)**:Visual2C02(Quietust,JS 源碼有 DAC 電阻比例算 VOUT)· Nesdev Wiki「NTSC video」(Color phases / Emphasis 章)· Mesen `VideoFilterNtsc.cpp`(只當演算法對照,不抄)。
 
 **一句話**:在「數位控制訊號驅動 DAC 的前一刻」截斷 switch-level 2C02,轉成查表行為模型生成 21.477MHz 類比電壓樣本,再用 DSP 濾波解碼 → bit-exact 邏輯 + 逼真 NTSC 類比畫面。
 

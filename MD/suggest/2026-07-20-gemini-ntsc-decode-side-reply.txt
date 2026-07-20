@@ -1,0 +1,185 @@
+這是一個非常硬核且極具挑戰性的工程任務。自己寫軟體 NTSC 解碼器（Software NTSC Decoder）不僅考驗 DSP 功底，還需要對類比電視的歷史與物理限制有深刻理解。
+
+我們以你的取樣率 **21.477272 MHz**（恰好為 NTSC 副載波 $f_{sc}$ 3.579545 MHz 的 6 倍）作為基準。這個取樣率會讓後續的數學運算非常漂亮。
+
+以下是資深視訊工程師為你拆解的「從 Composite 到 RGB 螢幕」完整實作指南。
+
+---
+
+### 1. 真實電視/解碼晶片的完整解碼鏈
+
+一個 Composite Video Baseband Signal (CVBS) 進入電視後，會經過以下關卡：
+
+#### A. 同步分離 (Sync Separation)
+*   **功能**：從 CVBS 中切出水平同步 (H-Sync) 與垂直同步 (V-Sync)。CVBS 訊號的電壓通常是 1Vpp（0.286V 是消隱電平 Blanking level，低於此即為 Sync 脈衝，通常到 0V）。
+*   **真實晶片**：**National Semiconductor LM1881** 是最經典的視訊同步分離 IC。它利用內部電壓比較器 (Comparator) 設定一個閾值（Slice level），抓出低於消隱電平的脈衝。再透過 RC 積分電路（Low-pass）區分出寬度僅 4.7µs 的 H-Sync 與極寬的 V-Sync。
+
+#### B. 亮色分離 (Y/C Separation)
+*   **功能**：將 CVBS 拆成 Luma (Y, 黑白與同步) 與 Chroma (C, 色彩)。
+*   **真實作法 1：Notch/Bandpass (早期的平價電視)**
+    *   用帶通濾波器 (BPF) 擷取 3.58MHz ± 0.5MHz 作為 C。
+    *   用陷波器 (Notch) 在 Y 訊號中挖掉 3.58MHz 的頻段。
+*   **真實作法 2：梳形濾波器 (Comb Filter, 中高階電視)**
+    *   **原理**：標準 NTSC 每行的 $f_{sc}$ 相位會反轉 180 度。如果把「本行」與「上一行」相加，色度會互相抵銷，只剩亮度 (Y)；相減則亮度抵銷，只剩色度 (C)。
+    *   **真實晶片/零件**：早期使用**玻璃延遲線 (Glass Delay Line)** 利用超音波在玻璃內反射產生約 63.5µs 的延遲。後來進步到 CCD 延遲線（如 Panasonic **MN3101** clock generator + CCD）。數位時代則內建於 Video Decoder IC（如 **Philips SAA7118**，具備 2D/3D Comb Filter 甚至動態適應能力）。
+
+#### C. 色彩解調與 PLL (Color Demodulation)
+*   **功能**：將 Chroma (3.58MHz AM/PM 調變訊號) 還原為 I/Q 或 U/V 兩個色差訊號。
+*   **為什麼需要 PLL**：色彩是靠「相位角」決定的。廣播傳輸或錄影帶會有時間抖動 (Jitter)，如果電視端用自己的固定石英震盪器，相位稍微一跑掉，全螢幕顏色都會變（綠色變藍色等）。因此，每行 H-Sync 後面的 **Colorburst (色彩同步訊號，約 9 個週期的 3.58MHz)** 就是基準點。電視的 PLL 會在 Burst 期間「鎖定」相位與頻率，並在該掃描行維持這個震盪頻率去解調。
+
+#### D. 色差矩陣 (Matrix)
+*   **功能**：Y, I, Q 經過硬體電阻網路或運算放大器 (Op-Amp) 比例相加，轉換成 R, G, B 去推動映像管的電子槍。
+*   **經典全能解碼晶片**：**Sony CXA1621S**、**Philips TDA3562A**、**Toshiba TA7698AP**。這些晶片通常包辦了 Y/C 分離（需外掛延遲線）、PLL 副載波恢復、解調與 RGB 矩陣。
+
+---
+
+### 2. 每階段自己寫的演算法 (DSP 虛擬碼)
+
+假設你的輸入是一維浮點數陣列 `composite[n]`，取樣率 $F_s = 21.477$ MHz。每個 $f_{sc}$ 週期正好有 6 個樣本。
+
+#### A. 尋找 Sync 與 Colorburst (Phase Extraction)
+因為是純軟體且處理 2C02 訊號，我們不需要寫超複雜的 PLL 來對抗 Jitter（軟體時鐘是完美的），我們只需要**測量每一行的 Burst 相位**。
+
+```c
+// 1. 找 H-Sync 下降沿
+float threshold = -0.1; // 假設 Blanking=0, Sync=-0.286
+int sync_edge_index = find_next_crossing(composite, threshold);
+
+// 2. 定位 Colorburst
+// H-Sync 結束後約 53 取樣點(2.5us)開始，持續約 53 取樣點(9個週期)
+int burst_start = sync_edge_index + 100; // 需根據實際 CVBS 微調
+int burst_length = 54; // 9 cycles * 6 samples/cycle
+
+// 3. 測量 Burst 相位 (IQ 解調 Burst)
+float burst_I = 0, burst_Q = 0;
+// 完美的 3.58MHz Sine/Cosine 表 (長度6)
+float sin_table[6] = {0, 0.866, 0.866, 0, -0.866, -0.866}; // sin(2*pi*n/6)
+float cos_table[6] = {1, 0.5, -0.5, -1, -0.5, 0.5};        // cos(2*pi*n/6)
+
+for(int i = 0; i < burst_length; i++) {
+    burst_I += composite[burst_start + i] * cos_table[i % 6];
+    burst_Q += composite[burst_start + i] * sin_table[i % 6];
+}
+// 算出這行的基準相位角 (Colorburst 定義為 180度 或 -U 軸)
+float burst_phase = atan2(burst_Q, burst_I); 
+```
+
+#### B. Y/C 分離 (以 Notch/Bandpass 為例)
+對於 2C02，**千萬先不要用標準 Comb Filter**（見第 3 點）。我們先用 FIR 濾波器。
+
+```c
+// FIR Bandpass filter 擷取 Chroma (中心 3.58MHz)
+// 取樣率 21.47MHz，歸一化頻率為 3.58/21.47 = 0.166
+// 你可以用 MATLAB/Python 產生約 15-31 階的 FIR 係數
+float bpf_taps[] = { ... }; 
+
+float Y[N], C[N];
+for(int i = 0; i < N; i++) {
+    C[i] = apply_FIR(composite, i, bpf_taps); // 抽出高頻色彩
+    Y[i] = composite[i] - C[i];               // Notch 效果：Y = 原始 - 色彩
+}
+```
+
+#### C. 色彩解調 (Demodulation)與低通濾波
+有了 Chroma 與該行的 `burst_phase`，即可解調。
+
+```c
+float I[N], Q[N];
+// Burst 定義為 -180度，我們需要將參考震盪器對齊
+float phase_offset = burst_phase + M_PI; 
+
+for(int i = 0; i < N; i++) {
+    // 產生對齊後的副載波
+    float sub_cos = cos((2 * M_PI * i / 6) - phase_offset);
+    float sub_sin = sin((2 * M_PI * i / 6) - phase_offset);
+    
+    I[i] = C[i] * sub_cos;
+    Q[i] = C[i] * sub_sin;
+}
+
+// 必須加上 Low-Pass Filter 去除高頻倍頻 (乘法會產生 2倍頻 7.16MHz)
+// LPF 截止頻率: I 通常切在 1.5MHz，Q 切在 0.5MHz。簡單實作可全切 1.5MHz。
+float lpf_taps[] = { ... }; // 截止頻率 1.5/21.47 = 0.07
+I_filtered = apply_FIR(I, lpf_taps);
+Q_filtered = apply_FIR(Q, lpf_taps);
+```
+
+#### D. YIQ to RGB Matrix
+FCC 標準矩陣（注意 YIQ 的縮放範圍，通常 Y 為 0~1）：
+
+```c
+for(int i = 0; i < N; i++) {
+    float r = Y[i] + 0.9563 * I_filtered[i] + 0.6210 * Q_filtered[i];
+    float g = Y[i] - 0.2721 * I_filtered[i] - 0.6474 * Q_filtered[i];
+    float b = Y[i] - 1.1070 * I_filtered[i] + 1.7046 * Q_filtered[i];
+    
+    // 輸出前需做 Clamp (0.0 ~ 1.0)
+    RGB[i] = { clamp(r), clamp(g), clamp(b) };
+}
+```
+
+---
+
+### 3. Comb Filter 與 Dot Crawl (NES 的致命陷阱)
+
+**標準 NTSC vs. 紅白機 NTSC：**
+*   **標準 NTSC**：525 條掃描線，交錯掃描 (Interlaced)。每一行的 $f_{sc}$ 相位比上一行偏移 **180 度**。所以 `Line[n] + Line[n-1]` 可以完美抵銷 C。
+*   **NES (2C02)**：262 條掃描線，漸進掃描 (240p)。為了硬體簡化，NES 每一行的 $f_{sc}$ 相位偏移是 **120 度** (或者說 227.33 個副載波週期，小數部分 0.33 * 360 = 120度)。
+
+**發生了什麼事？**
+1.  **如果你實作標準 1-line delay Comb Filter**：相加不會抵銷色度，相減也不會抵銷亮度。顏色會嚴重混疊，邊緣出現極其難看的斜向干擾。當年很多搭載 2D Comb Filter 的高階 CRT 電視，看 NES 畫面反而比廉價電視（只用 Notch Filter）還糟糕！
+2.  **Dot Crawl (點狀蠕動)**：因為 NES 相位每行差 120 度，3 行（360度）為一個循環。但在畫面上，同一個像素在「下一個 Frame」的相位會改變。這導致亮度訊號 Y 中殘留的 3.58MHz 能量，在螢幕邊緣看起來像一串螞蟻在爬。
+3.  **如何模擬真實**：
+    *   **務必使用 Notch Filter (Bandpass 減法) 來做 Y/C 分離**，這最忠實於當年 80/90 年代 90% 的電視機，且能完美重現「色彩溢出 (Color Bleeding)」與「Dot Crawl」。
+    *   不要嘗試寫 Comb Filter，除非你想實作能偵測非標準訊號並自動降級回 Notch 的現代 Video Decoder IC 模型。
+
+---
+
+### 4. CRT/顯示端要不要模擬？哪些值得做？
+
+如果沒有 CRT 特效，解出來的 RGB 畫面會極其銳利、像素化，且帶著醜陋的 Dot Crawl（這在 LCD 上看很刺眼，但在 CRT 上會被物理模糊掉）。
+
+**優先級別與貢獻度：**
+
+1.  **Scanline (Blanking) - 貢獻度 40% [必須]**
+    *   *原理*：NES 是 240p，只畫奇數場 (Odd fields)，偶數場是黑的。
+    *   *實作*：每一行有畫面的像素之間，留黑或降低亮度（例如插入一行 30% 亮度的黑色）。這能立刻消除 LCD 的塊狀感。
+2.  **Phosphor Blur (水平頻寬限制與餘暉) - 貢獻度 30% [強烈建議]**
+    *   *原理*：電子束打在螢光粉上光點不是方形的，而是高斯分佈，且有水平拖影。
+    *   *實作*：對解出的 RGB 畫面做一維 (水平向) 的 Gaussian Blur，這剛好也能柔化 Notch Filter 留下來的高頻 Dot Crawl 噪音。
+3.  **Gamma 校正 - 貢獻度 15% [容易且必要]**
+    *   *原理*：CRT 物理特性 Gamma 約 2.2 ~ 2.5。你的解碼器算出的 RGB 是線性 (Linear) 的。
+    *   *實作*：輸出前做 `Output = pow(RGB, 1.0 / 2.2)`。不做的話暗部會死黑。
+4.  **Shadow Mask / Aperture Grille - 貢獻度 10% [看個人口味]**
+    *   *實作*：覆蓋一層微小的 RGB 交錯網格遮罩。通常用 Shader 實作比較合理，軟體做太耗 CPU。
+5.  **Bloom (高光擴散) - 貢獻度 5% [錦上添花]**
+    *   *原理*：高亮度區域會導致電子束變粗。
+    *   *實作*：萃取亮度 > 0.8 的像素，做較大範圍的 Blur 後 AddITIVE 疊加回去。
+
+---
+
+### 5. 實作優先序建議 (MVP 最小可行性版本)
+
+如果你要從零手寫，請按照這個順序「偷懶」，最不容易失敗：
+
+#### 階段一：作弊版 MVP (不含 Sync 解析，寫死相位)
+*   **偷懶點**：既然 CVBS 是你的 2C02 產生的，你**絕對知道**每一行的起點(Index)和這行的基礎相位。
+*   **流程**：
+    1. 不寫 LM1881，直接用你生成器裡的 H-Sync 計數器切分行陣列。
+    2. 寫一個簡單的 FIR 帶通濾波器抽出 C，Y = CVBS - C。
+    3. 不寫 PLL，直接根據 `(Frame_Count + Line_Count) % 3` 的規則，推算出 2C02 該行的理想 Phase 去解調。
+    4. YIQ 乘上矩陣變 RGB。
+*   **結果**：你已經能看到彩色的瑪利歐了，只是邊緣有彩色毛刺。
+
+#### 階段二：軟體 PLL 導入 (真實解碼器行為)
+*   **加入**：寫出上述 `find_next_crossing()` 與 Burst Phase 計算邏輯。
+*   **驗證**：把你的產生器相位故意亂調（加上隨機 Jitter），看你的解碼器能不能靠 Colorburst 抓回正確的顏色（如果鎖相失敗，瑪利歐會變藍色或綠色）。
+
+#### 階段三：DSP 濾波器優化
+*   調整 Y/C 分離的 FIR 階數。階數越低（例如 7 階），畫面越糊（像 RF 天線輸入）；階數越高（31 階），畫面越銳利（像 AV 端子輸入）。
+*   調整 I/Q 的 Low-pass filter。
+
+#### 階段四：CRT 顯示濾鏡
+*   加上 Scanline、水平 Gaussian Blur、Gamma 校正。此時畫面就會產生完美的「復古類比感」，Dot Crawl 會被完美地揉合成材質感。
+
+**總結**：實作 NTSC 軟體解碼，**數學很簡單，難在時序跟濾波器的設計**。利用 $6 \times f_{sc}$ 的取樣率能省去所有插值運算，建議先從「作弊版 MVP」開始驗證 YIQ 矩陣的正確性，再一步步加入真實物理世界的缺陷（如 PLL 鎖相與 FIR 延遲）。

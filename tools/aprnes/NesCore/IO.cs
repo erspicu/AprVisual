@@ -11,7 +11,7 @@ namespace AprNes
                 if      (addr == 0x2002) return ppu_r_2002();
                 else if (addr == 0x2004) return ppu_r_2004();
                 else if (addr == 0x2007) return ppu_r_2007();
-                else                     return openbus;  // write-only PPU regs return PPU open bus
+                else                     return OpenBusDecayed();  // write-only PPU regs return the decaying PPU open bus
             }
             else  // APU/IO $4015-$4017
             {
@@ -30,7 +30,7 @@ namespace AprNes
             {
                 if      (addr == 0x2000) ppu_w_2000(val);
                 else if (addr == 0x2001) ppu_w_2001(val);
-                else if (addr == 0x2002) { openbus = val; }
+                else if (addr == 0x2002) { DriveOpenBus(val); }
                 else if (addr == 0x2003) ppu_w_2003(val);
                 else if (addr == 0x2004) ppu_w_2004(val);
                 else if (addr == 0x2005) ppu_w_2005(val);

@@ -658,8 +658,6 @@ namespace AprNes
 
         #endregion
 
-        static int open_bus_decay_timer = 77777;
-
         // Pre-computed sprite 0 data for per-pixel hit detection during BG rendering
         static int sprite0_eval_addr;  // OAMADDR at start of sprite evaluation (dot 65), for next scanline's sprite 0
         static bool spriteSizeLatchedForFetch; // Spritesize8x16 latched at dot 261 (sprite 0 CHR fetch timing)
@@ -989,7 +987,7 @@ namespace AprNes
 
             nestedTick7Fn();
 
-            openbus = (byte)(vblBit | ((isSprite0hit_Delayed ? 0x40 : 0) | (isSpriteOverflow_Delayed ? 0x20 : 0)) | (openbus & 0x1f));
+            openbus = (byte)(vblBit | ((isSprite0hit_Delayed ? 0x40 : 0) | (isSpriteOverflow_Delayed ? 0x20 : 0)) | (OpenBusDecayed() & 0x1f));
 
             vram_latch = false;
             // TriCNES refreshes PPUBusDecay[5..7] (per-bit). AprNes uses single timer — don't refresh here.
@@ -1009,7 +1007,7 @@ namespace AprNes
                 int palAddr = vram_addr & 0x3F1F;
                 if ((palAddr & 3) == 0) palAddr &= 0x3F0F;
                 int palMask = ppuGreyscale ? 0x30 : 0x3F;
-                result = (byte)((openbus & 0xC0) | (ppu_ram[0x3F00 + (palAddr & 0x1F)] & palMask));
+                result = (byte)((OpenBusDecayed() & 0xC0) | (ppu_ram[0x3F00 + (palAddr & 0x1F)] & palMask));
             }
             else
             {
@@ -1017,8 +1015,7 @@ namespace AprNes
             }
             if (dmcTrace) DmcTr($"R2007 val=${result:X2} v=${vram_addr:X4}");
 
-            openbus = result;
-            open_bus_decay_timer = 77777;
+            DriveOpenBus(result);
 
             // TriCNES line 9059: EmulateUntilEndOfRead — advance 7 master clocks
             nestedTick7Fn();
@@ -1030,6 +1027,54 @@ namespace AprNes
         }
 
         static byte openbus;
+
+        // ==== Open-bus temperature-dependent decay (physical model) ==============
+        // The PPU I/O open-bus latch (returned by write-only PPU regs and as the low
+        // 5 bits of $2002) is held only by parasitic capacitance. With nothing driving
+        // it, it bleeds to 0 through constant-current junction leakage — a LINEAR
+        // discharge — and that leakage current is Arrhenius in temperature:
+        //     I_leak ∝ exp(-Ea/kT)   ⇒   t(T) = t0 · exp( Ea/k · (1/T − 1/Tref) )
+        // At Tref = 25 °C the latch survives ~600 ms. Temperature is a hard-coded knob
+        // for now (OpenBusTempCelsius); wire it to a UI/config later.
+        // NOTE: only the PPU latch decays. The CPU external bus (cpubus) is re-driven by
+        // every instruction fetch, so it never observably decays — which is exactly why
+        // an on-die "thermometer" must read the PPU latch via $2002, not the CPU bus.
+        public static double OpenBusTempCelsius = 25.0;   // die/ambient temperature knob (°C)
+        const double OB_Ea   = 0.56;         // activation energy (eV) — generation-limited (~Eg/2)
+        const double OB_k    = 8.617e-5;     // Boltzmann constant (eV/K)
+        const double OB_Tref = 298.15;       // 25 °C reference (K)
+        const double OB_BaseDecaySec = 0.600;             // latch lifetime at Tref
+        const double PPU_DOT_HZ_NTSC = 5369318.0;         // NTSC PPU dot clock (Hz)
+        const long   DOTS_PER_FRAME_NTSC = 341L * 262L;   // 89,342 dots/frame (odd-frame skip ignored)
+        static long   openBusDecayPeriodDots = (long)(OB_BaseDecaySec * PPU_DOT_HZ_NTSC);
+        static long   openBusRefreshStampDots;            // dot-timestamp of last full-latch drive
+        static double openBusLastTemp = 25.0;             // last T the period was computed for
+
+        // Monotonic PPU time in dots since power-on — the lazy-timestamp clock (no hot-loop cost).
+        static long NowDots() => (long)frame_count * DOTS_PER_FRAME_NTSC + (long)scanline * 341 + ppu_cycles_x;
+
+        // Recompute the decay period from the temperature knob (Arrhenius scaling).
+        static void RecomputeOpenBusDecay()
+        {
+            double T = OpenBusTempCelsius + 273.15;
+            double scale = System.Math.Exp(OB_Ea / OB_k * (1.0 / T - 1.0 / OB_Tref));
+            long p = (long)(OB_BaseDecaySec * PPU_DOT_HZ_NTSC * scale);
+            openBusDecayPeriodDots = p < 1 ? 1 : p;
+            openBusLastTemp = OpenBusTempCelsius;
+        }
+
+        // Drive the PPU open-bus latch (all 8 bits) and refresh its decay clock.
+        // Call from every PPU register access that drives the I/O latch.
+        static void DriveOpenBus(byte v) { openbus = v; openBusRefreshStampDots = NowDots(); }
+
+        // The open-bus latch as seen NOW, after temperature-dependent decay (0 once expired).
+        static byte OpenBusDecayed()
+        {
+            if (OpenBusTempCelsius != openBusLastTemp) RecomputeOpenBusDecay();
+            return (NowDots() - openBusRefreshStampDots >= openBusDecayPeriodDots) ? (byte)0 : openbus;
+        }
+        // ========================================================================
+
         static public byte cpubus;  // EXTERNAL data bus — last byte on the 2A03 external bus.
                                     // Updated by CPU reads/writes (except $4015 reads) AND DMA fetches.
                                     // This is the value seen by open-bus reads ($4016/$4017 upper bits, unmapped reads, FDS).
@@ -1041,7 +1086,7 @@ namespace AprNes
 
         static void ppu_w_2000(byte value)
         {
-            openbus = value;
+            DriveOpenBus(value);
 
             // TriCNES line 9453-9477: $2000 write handler
             // P3-1: DataBus glitch — t register uses cpubus (dataBus) initially
@@ -1061,7 +1106,7 @@ namespace AprNes
 
         static void ppu_w_2001(byte value)
         {
-            openbus = value;
+            DriveOpenBus(value);
 
             // Tier 1: Instant flags — take effect immediately
             ShowBackGround_Instant = (value & 0x08) != 0;
@@ -1115,14 +1160,14 @@ namespace AprNes
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static void ppu_w_2003(byte value) //ok
         {
-            openbus = value;
+            DriveOpenBus(value);
             spr_ram_add = value;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static void ppu_w_2004(byte value) //ok
         {
-            openbus = value;
+            DriveOpenBus(value);
             // During rendering (visible + pre-render), writes don't modify OAM; OAMADDR increments by 4 and aligns to 4-byte boundary
             if ((scanline < 240 || scanline == preRenderLine) && scanline >= 0 && (ShowBackGround_Instant || ShowSprites_Instant))
             {
@@ -1153,13 +1198,13 @@ namespace AprNes
                 val = spr_ram[spr_ram_add];
                 if ((spr_ram_add & 3) == 2) val &= 0xE3;
             }
-            open_bus_decay_timer = 77777;
-            return openbus = val;
+            DriveOpenBus(val);
+            return openbus;
         }
 
         static void ppu_w_2005(byte value) //ok
         {
-            openbus = value;
+            DriveOpenBus(value);
             // Delayed scroll update (TriCNES: PPU_Update2005Delay = 1-2 cycles)
             ppu2005PendingValue = value;
             // TriCNES: alignment 0,1,3=1cycle; alignment 2=2cycles
@@ -1181,7 +1226,7 @@ namespace AprNes
         }
         static void ppu_w_2006(byte value)
         {
-            openbus = value;
+            DriveOpenBus(value);
             if (!vram_latch) //first
                 vram_addr_internal = (vram_addr_internal & 0x00FF) | ((value & 0x3F) << 8);
             else
@@ -1201,8 +1246,7 @@ namespace AprNes
         static void ppu_w_2007(byte value)
         {
             // TriCNES line 9670-9678: $2007 write handler — simple SR latch trigger
-            openbus = value;
-            open_bus_decay_timer = 77777;
+            DriveOpenBus(value);
             ppu2007SM_writeValue = value;
 
             // TriCNES line 9675: EmulateNMasterClockCycles(7)

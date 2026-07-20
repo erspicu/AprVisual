@@ -322,7 +322,7 @@ namespace AprNes
             ppu2007_DB_PAR = false; ppu2007_TStep_Latch = false; ppu2007_TStep = false;
             readLatch = 0x0A; writeLatch = 0x0A;  // idle: {F,T,F,T,F} = 0x0A
             ppu2006UpdateDelay = 0; ppu2006PendingAddr = 0;
-            openbus = 0; open_bus_decay_timer = 77777;
+            openbus = 0; openBusRefreshStampDots = 0; RecomputeOpenBusDecay();
 
             // PPU scan position & frame state (TriCNES power-on values)
             ppu_cycles_x = 7; scanline = 0; frame_count = 0;  // TriCNES: PPU_Dot=7, PPU_Scanline=0

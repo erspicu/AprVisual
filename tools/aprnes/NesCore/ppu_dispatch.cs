@@ -183,7 +183,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             // (Scroll ops skipped — entry cx ∉ {256, 257} in this zone.)
 
@@ -433,7 +433,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             // (No scroll ops, no wrap, no events.)
 
@@ -480,7 +480,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             ppu_cycles_x = ++cx;
 
@@ -516,7 +516,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             ppu_cycles_x = ++cx;
 
@@ -545,7 +545,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             // Visible tail slots keep only the two scroll side effects.
             if (ShowBackGround || ShowSprites)
@@ -601,7 +601,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             // Scroll + vert reset (preRender specific).
             if (ShowBackGround || ShowSprites)
@@ -724,7 +724,7 @@ namespace AprNes
             if (ppu2006UpdateDelay != 0 || ppu2005UpdateDelay != 0)
                 PpuPhase2_DeferredUpdates(cx);
 
-            if (--open_bus_decay_timer == 0) { open_bus_decay_timer = 77777; openbus = 0; }
+            // open-bus decay is now handled lazily & temperature-dependently in OpenBusDecayed()
 
             // No scroll ops — gated on active scanline which is false here.
 

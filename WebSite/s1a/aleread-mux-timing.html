@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The ALERead mux — where does MUX_HC = 13,13,25,44,52 come from?</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:880px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(940px, 76vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  .eq{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:12px 0;font-family:Consolas,"SF Mono",monospace;font-size:14px;overflow-x:auto;line-height:1.9;}
+  .eq b{color:var(--acc2);} .eq .c{color:var(--mut);}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .phys{color:var(--acc2);font-weight:700;} .phase{color:var(--warn);font-weight:700;} .arch{color:var(--acc);font-weight:700;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;} figure svg{max-width:100%;height:auto;} figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(940px, 76vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#special-cases"><span class="en">Special cases</span><span class="zh">特殊個案</span></a>
+  <a class="sec" href="../index.html"><span class="en">Main site</span><span class="zh">主站</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The ALERead mux</span><span class="zh">ALERead mux</span></h1>
+  <p class="tag en">Deep dive #1. Buried in the AccuracyCoin recipe is one line of magic numbers — <code>MUX_HC = 13, 13, 25, 44, 52</code> — five hand-tuned constants without which the ALERead test drops the suite to 140/141. This article asks the honest question: <b>where do those five numbers come from?</b> We reconstruct the physics from scratch, verify the engine's own clock, and show that four of the five are not free knobs at all — they are a settle time you can compute and a phase error you can name. Full worked arithmetic, every step, with diagrams.</p>
+  <p class="tag zh">深入專文 #1。AccuracyCoin 配方裡藏著一行魔術數字 —— <code>MUX_HC = 13, 13, 25, 44, 52</code> —— 五個手調常數,少了它 ALERead 測試就把套件從 141/141 拉到 140/141。這篇問一個誠實的問題:<b>這五個數字到底從哪來?</b>我們從頭重建物理、驗證引擎自己的時鐘,並證明五個裡有四個根本不是自由旋鈕 —— 它們是一段你算得出來的 settle 時間、和一個你叫得出名字的相位誤差。完整算式、每一步、附圖。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive</span><span class="pill">ALERead mux</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="problem">
+  <h2><span class="kick"><span class="en">The problem</span><span class="zh">問題</span></span><span class="en">One set of pins, two jobs</span><span class="zh">一組接腳,兩份工作</span></h2>
+  <p class="en">To save pins, the 2C02 PPU multiplexes its <b>address</b> and its <b>data</b> onto the same eight external pins, <code>AD[7:0]</code>. A single control line, <b>ALE</b> (Address Latch Enable), says which is on the bus right now: while ALE is high the pins carry the low byte of the address; a board-level octal latch (a <b>74LS373</b>, modelled in S1 at the transistor level) grabs that address on ALE's falling edge and holds it; then the pins flip to carrying data for the rest of the cycle.</p>
+  <p class="zh">為了省接腳,2C02 PPU 把它的<b>位址</b>和<b>資料</b>多工在同一組八根外部接腳 <code>AD[7:0]</code> 上。一條控制線 <b>ALE</b>(Address Latch Enable)說明現在匯流排上是哪個:ALE 為高時,接腳承載位址的低位元組;板上一顆八位元閂鎖(<b>74LS373</b>,在 S1 裡用電晶體級建模)在 ALE 下降沿抓住那個位址並保持;接著接腳翻成承載資料,度過該週期剩下的時間。</p>
+  <p class="en">The CPU's <code>$2007</code> read — the way software reads PPU video memory — has to sample the returned data at exactly the right instant in that dance. In real silicon the analog rise/fall times, the '373's propagation delay, and the CPU/PPU clock phases all line up so the data is valid when the CPU latches it. The figure below is that dance:</p>
+  <p class="zh">CPU 的 <code>$2007</code> 讀取 —— 軟體讀 PPU 影像記憶體的方式 —— 必須在這支舞的<b>正確一瞬間</b>取樣回傳的資料。在真矽上,類比的上升/下降時間、'373 的傳播延遲、CPU/PPU 的時鐘相位全都對齊,讓 CPU 閂鎖那一刻資料是有效的。下圖就是這支舞:</p>
+
+  <figure>
+    <svg viewBox="0 0 880 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="330" fill="#141019"/>
+      <!-- time axis phases -->
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">One PPU access — ALE latches the address, then data rides the same pins</text>
+      <!-- phase shading -->
+      <rect x="120" y="42" width="230" height="248" fill="#1d2733" opacity="0.5"/>
+      <rect x="350" y="42" width="410" height="248" fill="#241d31" opacity="0.5"/>
+      <text x="235" y="60" fill="#7fbfe0" font-size="12" text-anchor="middle">ALE high — ADDRESS on AD[7:0]</text>
+      <text x="555" y="60" fill="#c792ea" font-size="12" text-anchor="middle">ALE low — DATA on AD[7:0]</text>
+
+      <!-- Row: ALE -->
+      <text x="112" y="96" fill="#dcd7e3" font-size="13" text-anchor="end">ALE</text>
+      <polyline points="120,80 350,80 350,110 760,110" fill="none" stroke="#7fbfe0" stroke-width="2.5"/>
+      <line x1="350" y1="72" x2="350" y2="120" stroke="#7fbfe0" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="352" y="130" fill="#7fbfe0" font-size="11">falling edge → '373 captures</text>
+
+      <!-- Row: AD bus -->
+      <text x="112" y="164" fill="#dcd7e3" font-size="13" text-anchor="end">AD[7:0]</text>
+      <!-- address block -->
+      <path d="M120,150 L128,140 L342,140 L350,150 L342,160 L128,160 Z" fill="#25333f" stroke="#7fbfe0" stroke-width="1.5"/>
+      <text x="235" y="154" fill="#bfe0f5" font-size="12" text-anchor="middle">address low byte</text>
+      <!-- data block -->
+      <path d="M358,150 L366,140 L752,140 L760,150 L752,160 L366,160 Z" fill="#2b2338" stroke="#c792ea" stroke-width="1.5"/>
+      <text x="560" y="154" fill="#e2c7f5" font-size="12" text-anchor="middle">data byte (valid after rise settles)</text>
+
+      <!-- Row: 373 Q -->
+      <text x="112" y="220" fill="#dcd7e3" font-size="13" text-anchor="end">'373 Q</text>
+      <path d="M358,206 L366,196 L752,196 L760,206 L752,216 L366,216 Z" fill="#25333f" stroke="#7ee0a8" stroke-width="1.5"/>
+      <text x="560" y="210" fill="#a8e6c4" font-size="12" text-anchor="middle">held address</text>
+      <text x="352" y="230" fill="#7ee0a8" font-size="11">capture window opens here</text>
+
+      <!-- Row: CPU $2007 read strobe -->
+      <text x="112" y="278" fill="#dcd7e3" font-size="13" text-anchor="end">$2007 read</text>
+      <!-- the strobe the engine issues, one CPU cycle EARLY -->
+      <rect x="300" y="262" width="46" height="24" rx="3" fill="#3a2323" stroke="#ff6b6b" stroke-width="1.5"/>
+      <text x="323" y="278" fill="#ff9a9a" font-size="11" text-anchor="middle">early!</text>
+      <!-- the correct sample point -->
+      <line x1="560" y1="255" x2="560" y2="292" stroke="#7ee0a8" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="566" y="284" fill="#7ee0a8" font-size="11">correct sample</text>
+      <!-- the gap arrow -->
+      <line x1="346" y1="298" x2="558" y2="298" stroke="#ffb454" stroke-width="1.5" marker-end="url(#ah)" marker-start="url(#ahs)"/>
+      <text x="452" y="314" fill="#ffb454" font-size="12" text-anchor="middle" font-weight="700">≈ 1 CPU cycle = 3 dots early  ⟵ this is the 25</text>
+      <defs>
+        <marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ffb454"/></marker>
+        <marker id="ahs" markerWidth="8" markerHeight="8" refX="2" refY="4" orient="auto"><path d="M8,0 L0,4 L8,8 Z" fill="#ffb454"/></marker>
+      </defs>
+    </svg>
+    <figcaption><span class="en">The multiplexed AD bus. The engine's <code>$2007</code> read strobe lands ~1 CPU cycle before the data has settled and the '373 window is right — the misalignment the mux exists to correct.</span><span class="zh">多工的 AD 匯流排。引擎的 <code>$2007</code> 讀取脈衝落在資料 settle 完、'373 窗對齊之前約 1 個 CPU cycle —— 正是 mux 存在要修的錯位。</span></figcaption>
+  </figure>
+</section>
+
+<section id="whyfix">
+  <h2><span class="kick"><span class="en">Why the engine needs a fix at all</span><span class="zh">為什麼引擎需要修</span></span><span class="en">Discrete time has no inertia</span><span class="zh">離散時間沒有慣性</span></h2>
+  <p class="en">S1 is a <i>discrete</i>, event-driven switch-level simulator. It advances the clock one half-cycle at a time and settles the transistor network to a steady state before moving on. It has no notion of a signal <i>rising over 300 nanoseconds</i>; a node is 0, then on the next settle it is 1. Real silicon does not work that way: a node driven onto 20 picofarads of package-and-board capacitance climbs its voltage as an RC curve, and the '373 and the CPU sample it only once it has crossed a threshold. Those analog delays are exactly what makes the timing line up — and they are exactly what a zero-delay engine throws away.</p>
+  <p class="zh">S1 是一個<i>離散</i>、事件驅動的開關級模擬器。它一次推進時鐘一個半週期,把電晶體網路 settle 到穩態才前進。它沒有「訊號在 300 奈秒內上升」這種概念;一個節點是 0,下一個 settle 就是 1。真矽不是這樣運作:一個節點驅動到 20 皮法的封裝與板電容上,電壓沿 RC 曲線爬升,而 '373 和 CPU 只在它越過閾值後才取樣。那些類比延遲正是讓時序對齊的東西 —— 也正是零延遲引擎丟掉的東西。</p>
+  <p class="en">So on the multiplexed AD bus the engine's CPU-side read fires a full CPU cycle before the data-side settle would have happened in analog reality. The <b>ALERead mux</b> is a test-mode model that re-inserts the missing timing. It does two things: a <b>load-time node-split</b> (it cuts the shared <code>ppu.io_ab</code> ↔ <code>cpu.ab</code> node so the address and data phases can be sampled cleanly), and a small <b>phase multiplexer</b> that holds certain nodes LOW across three timing windows — internally named <i>swallow</i>, <i>replay</i>, and <i>ale-freeze</i> — until the correct instant arrives. Those windows are measured in half-cycles, and their five durations are our <code>MUX_HC = 13, 13, 25, 44, 52</code>.</p>
+  <p class="zh">所以在多工的 AD 匯流排上,引擎的 CPU 側讀取比類比現實裡資料側該 settle 的時刻早了整整一個 CPU cycle。<b>ALERead mux</b> 是一個測試模式模型,把缺掉的時序補回去。它做兩件事:一個<b>載入期 node-split</b>(把共用的 <code>ppu.io_ab</code> ↔ <code>cpu.ab</code> 節點切開,讓位址與資料相位能乾淨取樣),和一個小的<b>相位多工器</b>,在三個時序窗 —— 內部叫 <i>swallow</i>、<i>replay</i>、<i>ale-freeze</i> —— 裡把某些節點壓 LOW,直到正確一瞬間到來。這些窗以半週期計,五個時長就是我們的 <code>MUX_HC = 13, 13, 25, 44, 52</code>。</p>
+  <div class="note"><span class="en"><b>The honest framing.</b> These five values were <i>tuned</i>: adjusted until the ALERead sub-test passed. The question this article answers is not "what does the mux do" (it re-times the read) but "<b>are those five numbers arbitrary, or do they mean something?</b>" To answer that we first have to know what a half-cycle is worth in real time.</span><span class="zh"><b>誠實的定調。</b>這五個值是<i>調</i>出來的:一路調到 ALERead 子測試通過。這篇要答的不是「mux 做什麼」(它重定讀取時序),而是「<b>那五個數字是任意的,還是有意義?</b>」要回答它,得先知道一個半週期值多少真實時間。</span></div>
+</section>
+
+<section id="unit">
+  <h2><span class="kick"><span class="en">Step 1 — the unit</span><span class="zh">第一步 —— 單位</span></span><span class="en">What is one half-cycle worth?</span><span class="zh">一個半週期值多少?</span></h2>
+  <p class="en">Everything downstream depends on converting <b>hc</b> (the engine's half-cycle tick) into nanoseconds. We do not assume it — we measure it from the engine's own run log. A control run recorded, at simulated second 39.93, a half-cycle count of <code>hc = 1,715,304,000</code>. That is a rate:</p>
+  <p class="zh">後面每一步都依賴把 <b>hc</b>(引擎的半週期 tick)換成奈秒。我們不用假設 —— 直接從引擎自己的 run log 量。一個對照 run 記錄到:模擬第 39.93 秒時,半週期計數 <code>hc = 1,715,304,000</code>。這是一個速率:</p>
+  <div class="eq">
+    hc_rate = 1,715,304,000 / 39.93 s = <b>42.96 MHz</b><br>
+    <span class="c">NTSC master clock =</span> 21.477 MHz<br>
+    hc_rate / master = 42.96 / 21.477 = <b>2.0000</b>  <span class="c">→ one hc is exactly half a master-clock cycle</span><br><br>
+    <b>1 hc = 1 / 42.96 MHz = 23.28 ns</b>
+  </div>
+  <p class="en">So the engine ticks at twice the NTSC master clock — one hc per master half-cycle, <b>23.28 ns</b>. From there the NES's fixed divider ladder gives every other unit for free:</p>
+  <p class="zh">所以引擎以 NTSC master clock 的兩倍在 tick —— 每個 master 半週期一個 hc,<b>23.28 ns</b>。從這裡,NES 固定的除頻階梯免費給出其他每個單位:</p>
+  <div class="eq">
+    1 master cycle = 2 hc = 46.6 ns<br>
+    1 <b>PPU dot</b>   = 4 master = <b>8 hc</b>  = 186 ns   <span class="c">(the PPU clock is master/4)</span><br>
+    1 <b>CPU cycle</b> = 12 master = <b>24 hc</b> = 559 ns   <span class="c">(the CPU clock is master/12)</span><br>
+    <span class="c">and therefore</span>  1 CPU cycle = 24 hc = <b>3 PPU dots</b>
+  </div>
+  <p class="en">Keep that last line in view: <b>1 CPU cycle = 3 dots = 24 hc</b>. It is the ruler we are about to lay the five numbers against.</p>
+  <p class="zh">記住最後一行:<b>1 CPU cycle = 3 dots = 24 hc</b>。這就是我們接著要拿五個數字去比對的尺。</p>
+
+  <figure>
+    <svg viewBox="0 0 880 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="250" fill="#141019"/>
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">The five MUX_HC values laid on the hc ruler</text>
+      <!-- ruler: x(hc)=55 + hc*14 ; hc 0..56 -> x 55..839 -->
+      <line x1="55" y1="150" x2="839" y2="150" stroke="#5a5266" stroke-width="2"/>
+      <!-- major ticks every 8 hc (=1 dot), label dots + cpu cycles -->
+      <!-- 0 -->
+      <line x1="55" y1="144" x2="55" y2="156" stroke="#968ba1"/><text x="55" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">0</text>
+      <!-- 8 -->
+      <line x1="167" y1="144" x2="167" y2="156" stroke="#968ba1"/><text x="167" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">8</text><text x="167" y="186" fill="#7fbfe0" font-size="9.5" text-anchor="middle">1 dot</text>
+      <!-- 16 -->
+      <line x1="279" y1="144" x2="279" y2="156" stroke="#968ba1"/><text x="279" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">16</text>
+      <!-- 24 = 1 cpu cycle / 3 dots -->
+      <line x1="391" y1="130" x2="391" y2="170" stroke="#ffb454" stroke-width="1.5" stroke-dasharray="4 3"/><text x="391" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">24</text><text x="391" y="122" fill="#ffb454" font-size="10" text-anchor="middle" font-weight="700">1 CPU cycle = 3 dots</text>
+      <!-- 32 -->
+      <line x1="503" y1="144" x2="503" y2="156" stroke="#968ba1"/><text x="503" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">32</text>
+      <!-- 40 -->
+      <line x1="615" y1="144" x2="615" y2="156" stroke="#968ba1"/><text x="615" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">40</text>
+      <!-- 48 = 2 cpu cycles -->
+      <line x1="727" y1="130" x2="727" y2="170" stroke="#c792ea" stroke-width="1.5" stroke-dasharray="4 3"/><text x="727" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">48</text><text x="727" y="122" fill="#c792ea" font-size="10" text-anchor="middle" font-weight="700">2 CPU cycles</text>
+      <!-- 56 -->
+      <line x1="839" y1="144" x2="839" y2="156" stroke="#968ba1"/><text x="839" y="172" fill="#968ba1" font-size="10.5" text-anchor="middle">56 hc</text>
+      <!-- ns scale -->
+      <text x="447" y="210" fill="#6f6780" font-size="10.5" text-anchor="middle">(1 hc = 23.28 ns · 1 dot = 186 ns · 1 CPU cycle = 559 ns)</text>
+
+      <!-- markers for 13,13,25,44,52 -->
+      <!-- 13 (x=55+13*14=237) physical, doubled -->
+      <line x1="237" y1="150" x2="237" y2="96" stroke="#7ee0a8" stroke-width="2"/><circle cx="237" cy="96" r="4" fill="#7ee0a8"/>
+      <text x="237" y="88" fill="#7ee0a8" font-size="11" text-anchor="middle" font-weight="700">13 ×2</text>
+      <text x="237" y="60" fill="#7ee0a8" font-size="10" text-anchor="middle">physical</text>
+      <!-- 25 (x=55+25*14=405) phase -->
+      <line x1="405" y1="150" x2="405" y2="104" stroke="#ffb454" stroke-width="2"/><circle cx="405" cy="104" r="4" fill="#ffb454"/>
+      <text x="405" y="96" fill="#ffb454" font-size="11" text-anchor="middle" font-weight="700">25</text>
+      <!-- 44 (x=55+44*14=671) arch -->
+      <line x1="671" y1="150" x2="671" y2="96" stroke="#c792ea" stroke-width="2"/><circle cx="671" cy="96" r="4" fill="#c792ea"/>
+      <text x="671" y="88" fill="#c792ea" font-size="11" text-anchor="middle" font-weight="700">44</text>
+      <!-- 52 (x=55+52*14=783) arch -->
+      <line x1="783" y1="150" x2="783" y2="104" stroke="#c792ea" stroke-width="2"/><circle cx="783" cy="104" r="4" fill="#c792ea"/>
+      <text x="783" y="96" fill="#c792ea" font-size="11" text-anchor="middle" font-weight="700">52</text>
+      <text x="727" y="62" fill="#c792ea" font-size="10" text-anchor="middle">architectural</text>
+    </svg>
+    <figcaption><span class="en">Green = physical settle; orange = the phase error, sitting right on the 1-CPU-cycle line; purple = the two architectural windows, straddling 2 CPU cycles. The pattern is the whole argument.</span><span class="zh">綠 = 物理 settle;橙 = 相位誤差,正坐在 1-CPU-cycle 線上;紫 = 兩個架構窗,跨在 2 CPU cycles。這個 pattern 就是整個論證。</span></figcaption>
+  </figure>
+</section>
+
+<section id="decompose">
+  <h2><span class="kick"><span class="en">Step 2 — decompose</span><span class="zh">第二步 —— 拆解</span></span><span class="en">Five numbers, three meanings</span><span class="zh">五個數字,三種意義</span></h2>
+  <p class="en">Now convert each value into physical time, into CPU cycles, and into dots — and a structure jumps out. The five are not one kind of thing; they fall into three groups.</p>
+  <p class="zh">現在把每個值換成物理時間、換成 CPU cycles、換成 dots —— 結構就跳出來了。這五個不是同一種東西;它們分成三組。</p>
+  <table>
+    <tr><th>hc</th><th>ns</th><th>CPU-cyc</th><th>dots</th><th><span class="en">what it is</span><span class="zh">它是什麼</span></th></tr>
+    <tr><td class="n">13</td><td class="n">303</td><td class="n">0.54</td><td class="n">1.6</td><td><span class="phys">physical</span> — <span class="en">AD-bus rising-edge settle (a weak pull-up into ~20 pF)</span><span class="zh">AD 匯流排上升沿 settle(弱上拉驅 ~20pF)</span></td></tr>
+    <tr><td class="n">13</td><td class="n">303</td><td class="n">0.54</td><td class="n">1.6</td><td><span class="phys">physical</span> — <span class="en">the second settle window, same scale</span><span class="zh">第二個 settle 窗,同尺度</span></td></tr>
+    <tr><td class="n">25</td><td class="n">582</td><td class="n"><b>1.04</b></td><td class="n"><b>3.1</b></td><td><span class="phase">the phase error itself</span> — <span class="en">1 CPU cycle = 3 dots = the "$2007 read is one cycle early"</span><span class="zh">1 CPU cycle = 3 dots =「$2007 讀取早一個 cycle」</span></td></tr>
+    <tr><td class="n">44</td><td class="n">1024</td><td class="n">1.83</td><td class="n">5.5</td><td><span class="arch">architectural</span> — <span class="en">a swallow/replay scheduling window (µs-scale)</span><span class="zh">swallow/replay 排程窗(µs 級)</span></td></tr>
+    <tr><td class="n">52</td><td class="n">1210</td><td class="n">2.17</td><td class="n">6.5</td><td><span class="arch">architectural</span> — <span class="en">the second scheduling-window extent</span><span class="zh">第二個排程窗範圍</span></td></tr>
+  </table>
+  <p class="en">The reason a magnitude check settles the whole question is that the three groups live at three utterly different time scales. A wire on this die switches in <b>tens of nanoseconds</b>; a scheduling window at <b>582–1210 ns</b> is not a wire delay, it is a clock-phase count. So each group must be explained by a different mechanism — which is exactly why calling all five "calibration" undersells four of them.</p>
+  <p class="zh">為什麼一個量級檢查就能定案整個問題 —— 因為這三組活在三個天差地遠的時間尺度。這顆晶粒上一條線在<b>幾十奈秒</b>內切換;一個 <b>582–1210 ns</b> 的排程窗不是線延遲,是一個時鐘相位計數。所以每一組都得用不同機制解釋 —— 這正是為什麼把五個全叫「校準」低估了其中四個。</p>
+</section>
+
+<section id="phys13">
+  <h2><span class="kick"><span class="en">Step 3 — the 13 is physics</span><span class="zh">第三步 —— 13 是物理</span></span><span class="en">Computing the rising-edge settle</span><span class="zh">算上升沿 settle</span></h2>
+  <p class="en">The two 13s are a real analog settle time, and we can compute it from first principles. When the PPU drives the AD bus <i>high</i>, the pull-up is a <b>depletion-load NMOS transistor</b> — deliberately weak, always-on. It has to charge the whole external bus capacitance: the die pad, the DIP-40 lead, a few inches of PCB trace, the cartridge edge, and the ROM's input gate. Add those up and you get roughly <b>20 pF</b>. A weak depletion load looks like a resistor of order <b>30 kΩ</b>. The node climbs as a first-order RC charge and is "seen" as high once it crosses the NMOS logic input threshold, ~<b>2.0 V</b> out of a 5 V rail.</p>
+  <p class="zh">兩個 13 是真實的類比 settle 時間,而我們能從第一性原理算出它。當 PPU 把 AD 匯流排驅動<i>高</i>時,上拉是一顆 <b>depletion-load NMOS 電晶體</b> —— 刻意做得弱、常開。它得對整個外部匯流排電容充電:晶粒 pad、DIP-40 引腳、幾吋 PCB 走線、卡帶邊緣、ROM 的輸入閘。加起來大約 <b>20 pF</b>。一個弱 depletion 負載看起來像 <b>30 kΩ</b> 量級的電阻。節點沿一階 RC 充電,一旦越過 NMOS 邏輯輸入閾值(5V 電軌裡的 ~<b>2.0 V</b>)就被「看成」高。</p>
+  <div class="eq">
+    <span class="c">// rising edge through a weak depletion pull-up</span><br>
+    V(t) = V<sub>DD</sub> · (1 − e<sup>−t / RC</sup>)<br>
+    <span class="c">solve for the threshold crossing V(t) = V<sub>IH</sub> = 2.0 V:</span><br>
+    t<sub>rise</sub> = −R · C · ln( 1 − V<sub>IH</sub> / V<sub>DD</sub> )<br><br>
+    = −(30 kΩ)(20 pF) · ln( 1 − 2.0 / 5.0 )<br>
+    = −(600 ns) · ln(0.6)   = −(600 ns)(−0.511)<br>
+    = <b>306 ns</b><br><br>
+    306 ns / 23.28 ns per hc = <b>13.2 hc</b>  <span class="c">→ MUX_HC's 13, to the tick</span>
+  </div>
+  <p class="en">That is the whole point: the calibrated 13 is not free — it is <b>13.2 hc computed</b>, the rising-edge settle of the bus. And it explains why there is a <i>rising</i> window at all and not a symmetric one. The <i>falling</i> edge runs through the strong enhancement pull-down, not the weak load:</p>
+  <p class="zh">這就是重點:校準出的 13 不是自由值 —— 它是<b>算出來的 13.2 hc</b>,匯流排的上升沿 settle。而它解釋了為什麼會有一個<i>上升</i>窗、而非對稱的。<i>下降</i>沿走的是強 enhancement 下拉,不是弱負載:</p>
+  <div class="eq">
+    <span class="c">// falling edge through a strong pull-down (~500 Ω)</span><br>
+    t<sub>fall</sub> = −(500 Ω)(20 pF) · ln( V<sub>IL</sub> / V<sub>DD</sub> ) = −(10 ns) · ln(0.8/5.0)<br>
+    = <b>18 ns = 0.8 hc</b>  <span class="c">→ far too fast to be one of the tuned windows</span>
+  </div>
+  <p class="en">So the asymmetry is real and predicted: the fall is under one hc (invisible to the mux), the rise is ~13 hc (one of the two settle windows). The physics <i>requires</i> a ≈13-hc rising window and forbids a matching falling one — which is exactly the shape of the tuned numbers.</p>
+  <p class="zh">所以這個不對稱是真實且被預測的:下降不到一個 hc(mux 看不見),上升 ~13 hc(兩個 settle 窗之一)。物理<i>要求</i>一個 ≈13-hc 的上升窗,並禁止一個對應的下降窗 —— 這正是那些手調數字的形狀。</p>
+
+  <figure>
+    <svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="300" fill="#141019"/>
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">Why the rise is 13 hc and the fall is not</text>
+      <!-- axes: x = time (hc), y = voltage. plot box 70..820 x, 60..250 y -->
+      <line x1="70" y1="250" x2="830" y2="250" stroke="#5a5266" stroke-width="1.5"/>
+      <line x1="70" y1="60" x2="70" y2="250" stroke="#5a5266" stroke-width="1.5"/>
+      <text x="450" y="286" fill="#968ba1" font-size="11.5" text-anchor="middle">time  (hc,  1 hc = 23.28 ns)</text>
+      <text x="30" y="160" fill="#968ba1" font-size="11.5" text-anchor="middle" transform="rotate(-90 30 160)">node voltage</text>
+      <!-- VDD and threshold lines -->
+      <line x1="70" y1="70" x2="830" y2="70" stroke="#3a3446" stroke-dasharray="3 3"/><text x="836" y="74" fill="#6f6780" font-size="10">5.0 V</text>
+      <line x1="70" y1="174" x2="830" y2="174" stroke="#ffb454" stroke-dasharray="4 3" opacity="0.7"/><text x="836" y="178" fill="#ffb454" font-size="10">2.0 V  V_IH</text>
+      <line x1="70" y1="250" x2="830" y2="250" stroke="#3a3446"/>
+      <!-- x ticks at 0,8,13,16,24 : x = 70 + hc*29 -->
+      <g fill="#6f6780" font-size="9.5" text-anchor="middle">
+        <line x1="70" y1="250" x2="70" y2="255" stroke="#5a5266"/><text x="70" y="268">0</text>
+        <line x1="302" y1="250" x2="302" y2="255" stroke="#5a5266"/><text x="302" y="268">8</text>
+        <line x1="464" y1="250" x2="464" y2="255" stroke="#5a5266"/><text x="464" y="268">16</text>
+        <line x1="696" y1="250" x2="696" y2="255" stroke="#5a5266"/><text x="696" y="268">24</text>
+      </g>
+      <!-- rising RC curve: V=5(1-e^-t/RC), RC=600ns=25.8hc; x=70+hc*29, y=250 -180*(V/5) -->
+      <!-- sample points -->
+      <path d="M70,250 C 150,150 260,100 447,84" fill="none" stroke="#7ee0a8" stroke-width="2.5"/>
+      <text x="300" y="120" fill="#7ee0a8" font-size="12">rise: weak depletion pull-up, RC≈600 ns</text>
+      <!-- threshold crossing at 13.2 hc: x=70+13.2*29=453 -->
+      <circle cx="453" cy="174" r="4.5" fill="#7ee0a8"/>
+      <line x1="453" y1="174" x2="453" y2="250" stroke="#7ee0a8" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="453" y="244" fill="#7ee0a8" font-size="11" text-anchor="middle" font-weight="700">13.2 hc</text>
+      <!-- falling curve (fast) from a high start -->
+      <path d="M560,70 C 575,150 585,220 596,244" fill="none" stroke="#ff6b6b" stroke-width="2.5"/>
+      <text x="640" y="110" fill="#ff6b6b" font-size="12">fall: strong pull-down, RC≈10 ns</text>
+      <circle cx="586" cy="174" r="4.5" fill="#ff6b6b"/>
+      <text x="600" y="200" fill="#ff9a9a" font-size="11" font-weight="700">0.8 hc</text>
+    </svg>
+    <figcaption><span class="en">First-order RC threshold crossings. The rise crawls up a 600 ns time-constant and hits 2.0 V at 13.2 hc; the fall crashes down a 10 ns time-constant in under one hc. The mux only needs the slow one.</span><span class="zh">一階 RC 閾值穿越。上升沿爬 600 ns 時間常數、在 13.2 hc 撞到 2.0 V;下降沿以 10 ns 時間常數在不到一個 hc 內崩落。mux 只需要慢的那個。</span></figcaption>
+  </figure>
+  <div class="note g"><span class="en"><b>What's approximate here.</b> R ≈ 30 kΩ and C ≈ 20 pF are order-of-magnitude estimates (we have no board extraction), and Elmore/first-order RC is a coarse model. So "13.2" is not a proof that the tuned value must be exactly 13 — it is a proof that the tuned 13 sits <i>exactly where the physics puts a rising-edge settle</i>, and nowhere near a wire delay or a clock count. That is the difference between a grounded constant and an arbitrary one.</span><span class="zh"><b>這裡哪些是近似。</b>R ≈ 30 kΩ、C ≈ 20 pF 是量級估計(我們沒有板級萃取),Elmore/一階 RC 是粗模型。所以「13.2」不是證明手調值必須剛好是 13 —— 是證明手調的 13 <i>正好落在物理放上升沿 settle 的位置</i>,而離線延遲或時鐘計數都很遠。這就是「有依據的常數」與「任意常數」的差別。</span></div>
+</section>
+
+<section id="phase25">
+  <h2><span class="kick"><span class="en">Step 4 — the 25 is the error itself</span><span class="zh">第四步 —— 25 就是誤差本身</span></span><span class="en">Not a delay — a phase count</span><span class="zh">不是延遲 —— 是相位計數</span></h2>
+  <p class="en">The 25 is the easiest of all, because we already named it. Recall the ruler: 1 CPU cycle = 24 hc = 3 dots. The 25-hc window is <b>1.04 CPU cycles, 3.1 dots</b> — it sits right on the 1-CPU-cycle line. And the ledger's own description of the bug is "the <code>$2007</code> read access arrives <i>one CPU cycle early</i>", which the campaign notes record independently as "pure M6 phase, <i>3 dots early</i>". Those are the same statement (1 CPU cycle = 3 dots), and the mux window that compensates it is 25 hc ≈ 24 hc.</p>
+  <p class="zh">25 是全部裡最簡單的,因為我們已經幫它命名了。回想那把尺:1 CPU cycle = 24 hc = 3 dots。25-hc 的窗是 <b>1.04 CPU cycles、3.1 dots</b> —— 正坐在 1-CPU-cycle 線上。而總帳自己對這個 bug 的描述是「<code>$2007</code> 讀取存取<i>早一個 CPU cycle</i>」,戰役筆記獨立記成「純 M6 相位、<i>早 3 dots</i>」。那是同一句話(1 CPU cycle = 3 dots),而補償它的 mux 窗就是 25 hc ≈ 24 hc。</p>
+  <p class="en">So the 25 is not a physical delay at all — it is <b>the misalignment itself, expressed as a phase count</b>. In a fully-derived model you would not tune it; you would write it as the known CPU/PPU divider offset. It is the orange arrow in the first figure.</p>
+  <p class="zh">所以 25 根本不是物理延遲 —— 它是<b>錯位本身,以相位計數表示</b>。在完全推導的模型裡你不會調它;你會把它寫成已知的 CPU/PPU 除頻 offset。它就是第一張圖裡那支橙色箭頭。</p>
+</section>
+
+<section id="arch">
+  <h2><span class="kick"><span class="en">Step 5 — the 44 and 52</span><span class="zh">第五步 —— 44 和 52</span></span><span class="en">The genuinely tuned pair</span><span class="zh">真正靠調的一對</span></h2>
+  <p class="en">Which leaves 44 and 52 — the two that are honestly still calibration. At 1024 ns and 1210 ns they are <b>~2 CPU cycles</b>, far above any wire delay. They are the extents of the <i>swallow</i> and <i>replay</i> scheduling windows: how long the mux holds the reconstructed signals while the discrete engine's clocks catch up to the analog reality. They are architectural — a property of how the mux bridges two clock domains, not of any single net — so, unlike the 13 and the 25, there is no clean closed form to compute them from. In a derived model they would be expressed as arithmetic on the phase offset (roughly <code>2 · CPU_cycle ± a settle</code>), but pinning the exact hc still takes a measurement.</p>
+  <p class="zh">剩下 44 和 52 —— 誠實說仍然是校準的兩個。1024 ns 與 1210 ns,是 <b>~2 個 CPU cycles</b>,遠高於任何線延遲。它們是 <i>swallow</i> 與 <i>replay</i> 排程窗的範圍:mux 把重建訊號 hold 多久,好讓離散引擎的時鐘追上類比現實。它們是架構性的 —— 是 mux 如何橋接兩個時鐘域的性質,不是任何單一網的性質 —— 所以不像 13 和 25,沒有乾淨的封閉式可算。在推導模型裡它們會表示成相位 offset 的算術(大致 <code>2 · CPU_cycle ± 一段 settle</code>),但釘死精確 hc 仍需一次量測。</p>
+  <div class="card">
+    <p style="margin:.4em 0"><b><span class="en">Tally</span><span class="zh">結算</span></b></p>
+    <p style="margin:.3em 0"><span class="phys">13, 13</span> — <span class="en">computed physics (RC rising-edge settle, 13.2 hc)</span><span class="zh">計算物理(RC 上升沿 settle,13.2 hc)</span></p>
+    <p style="margin:.3em 0"><span class="phase">25</span> — <span class="en">a named constant (the 1-CPU-cycle phase error)</span><span class="zh">一個命名常數(1-CPU-cycle 相位誤差)</span></p>
+    <p style="margin:.3em 0"><span class="arch">44, 52</span> — <span class="en">architectural window extents, still tuned</span><span class="zh">架構窗範圍,仍靠調</span></p>
+    <p style="margin:.5em 0 0" class="mut"><span class="en">Five hand-tuned knobs reduce to <b>two computed values + one named constant + two architectural extents</b>. Four of the five are no longer free.</span><span class="zh">五個手調旋鈕化約成 <b>兩個計算值 + 一個命名常數 + 兩個架構範圍</b>。五個裡有四個不再自由。</span></p>
+  </div>
+</section>
+
+<section id="derive">
+  <h2><span class="kick"><span class="en">From tuned to derived</span><span class="zh">從調到算</span></span><span class="en">The one measurement that would close it</span><span class="zh">能封閉它的那一次量測</span></h2>
+  <p class="en">Could we remove the tuning entirely? Yes, in principle — but not with the on-die delay model (M3 Elmore). The values that matter here cross a boundary M3 cannot see: the PPU pad driver, the ~20 pF of package + board parasitics, and the '373's own propagation. The right tool is a small, targeted <b>boundary micro-SPICE</b>: export just the PPU AD-pad driver, a lumped 20 pF board capacitor, the '373 (or its datasheet numbers — LE-to-Q ≈ 18 ns), and the CPU receiver into an analog transient simulation (ngspice), stimulate the internal ALE, and measure the true continuous-time delay from ALE to the CPU node crossing 2.0 V. Divide by 23.28 ns and you have the physical windows in hc with no tuning; the architectural windows then fall out as <code>phase_offset − physical_settle</code>. That is the path from a <span class="phase">CALIBRATED</span> fate to a fully computed one — and this article is the map for it.</p>
+  <p class="zh">我們能完全拿掉調參嗎?原則上可以 —— 但不能用晶粒內延遲模型(M3 Elmore)。這裡重要的值跨過一條 M3 看不到的邊界:PPU pad 驅動器、~20 pF 的封裝 + 板寄生、以及 '373 自己的傳播。對的工具是一個小而精準的 <b>boundary micro-SPICE</b>:只把 PPU AD-pad 驅動器、一顆集總 20 pF 板電容、'373(或它 datasheet 的數字 —— LE-to-Q ≈ 18 ns)、和 CPU receiver 匯出到一個類比暫態模擬(ngspice),激勵內部 ALE,量從 ALE 到 CPU 節點過 2.0 V 的真實連續時間延遲。除以 23.28 ns,你就得到不含調參的物理窗(以 hc 計);架構窗則以 <code>phase_offset − physical_settle</code> 掉出來。這就是從 <span class="phase">CALIBRATED</span> 命運走到完全計算的路 —— 而這篇文章就是它的地圖。</p>
+  <div class="note b"><span class="en"><b>Why this stays opt-in.</b> The node-split that makes ALERead work is a <i>load-time graph change</i> — it re-rolls the boot-alignment lottery for every other test if left on globally. So the mux is armed only under <code>ALEREAD_MUX=1</code> for the ALERead sub-test, and the golden benchmark checksum is untouched. It is a required mechanism with a real switch-level '373 behind it — its only impurity is that one line of tuned timing, four-fifths of which this article has now grounded.</span><span class="zh"><b>為什麼它保持 opt-in。</b>讓 ALERead 運作的 node-split 是<i>載入期圖變更</i> —— 若全域開著,會替其他每一顆測試重擲開機對齊的彩票。所以 mux 只在 <code>ALEREAD_MUX=1</code> 下、為 ALERead 子測試武裝,金 benchmark checksum 不受影響。它是一個必需的機制、背後有真開關級的 '373 —— 唯一的不純就是那一行手調時序,而其中五分之四這篇已經幫它接了地。</span></div>
+  <p style="margin-top:20px"><span class="en">← back to the <a href="../s1a.html#special-cases">special cases</a> · <a href="../s1a.html#shimlist">shim ledger</a></span><span class="zh">← 回<a href="../s1a.html#special-cases">特殊個案</a> · <a href="../s1a.html#shimlist">shim 總帳</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · method verified against the engine's own run data + a mixed-signal timing consult (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · 方法對引擎自身 run 資料 + 混合訊號時序諮詢驗證(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">a tuned constant you can compute is no longer a magic number.</span><span class="zh">一個你算得出來的手調常數,不再是魔術數字。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

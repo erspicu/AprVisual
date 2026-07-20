@@ -133,11 +133,14 @@ namespace AprVisual.Test
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
             // Must be selected before LoadSystem: the CHR handler needs ALE and /RD in its callback
             // trigger so it refreshes immediately after the analog-feedback window closes.
-            // M4·P4 MECHANISM (env PPU_ALE_FB): the analog-feedback break promoted to an opt-in
-            // mechanism that supersedes the shim. Both are load-time (the flag is read in
-            // RegisterCallback), so arm here; when the mechanism is on the shim yields (bit-identical).
-            WireCore.PpuAleReadFeedbackMechEnabled = Environment.GetEnvironmentVariable("PPU_ALE_FB") is { Length: > 0 } pfb && pfb != "0";
-            WireCore.PpuAleReadFeedbackShim = !WireCore.PpuAleReadFeedbackMechEnabled && _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
+            // M4·P4 MECHANISM — DEFAULT-ON in AC mode (retired 2026-07-20; bit-identical to the shim).
+            // Both are load-time (read in RegisterCallback), so arm here. Opt-out with NO_PPU_ALE_FB
+            // (mechanism off -> the shim re-arms for A/B); --no-shims or --no-ppu-ale-read-feedback-shim
+            // turns both off. Legacy PPU_ALE_FB=1 stays a harmless no-op.
+            bool ppuAleFbActive = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
+            bool ppuAleFbMechOff = Environment.GetEnvironmentVariable("NO_PPU_ALE_FB") != null;
+            WireCore.PpuAleReadFeedbackMechEnabled = ppuAleFbActive && !ppuAleFbMechOff;
+            WireCore.PpuAleReadFeedbackShim = ppuAleFbActive && ppuAleFbMechOff;   // A/B: NO_PPU_ALE_FB -> old shim
             // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
             // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
             // path heuristic, silently dropped the $6000 RAM, and made every class-A test report
@@ -162,32 +165,28 @@ namespace AprVisual.Test
                     Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
                 if (WireCore.PpuAleReadFeedbackMechEnabled)
                     Console.Error.WriteLine("# [m4p4] armed: PPU ALE/read analog-feedback break mechanism");
-                // M4 edge-latch MECHANISM (not a shim; independent of --no-shims): env M4_EDGE arms
-                // the generic edge-capture primitive with the built-in annotation rows (DMC pcm_latch
-                // data-wins + ALU input-latch hold). When armed it supersedes those two shims below.
-                if (Environment.GetEnvironmentVariable("M4_EDGE") is { Length: > 0 } m4e && m4e != "0")
-                    WireCore.EnableM4EdgeLatch();
-                // M6×M3 unified cross-chip phase arbitration (env M6X): one table-driven mechanism
-                // supersedes the dot-339 + BGSerialIn downstream-clamp shims. Arm before the shims
-                // so M6xEnabled gates them off below.
-                if (Environment.GetEnvironmentVariable("M6X") is { Length: > 0 } m6x && m6x != "0")
-                    WireCore.EnableM6xPhase();
-                // M4·P1 merge-clamp MECHANISM (env M4_P1): supersedes the Dbl2007 shim below
-                // (ClampBus row = the $2007 read-buffer merge). OamDmaPpuBus folds in as a second row.
-                if (Environment.GetEnvironmentVariable("M4_P1") is { Length: > 0 } m4p1 && m4p1 != "0")
-                    WireCore.EnableM4P1();
-                // M4·hold-on-OAM (env M4_OE) + P3-abort (env M3_ABORT): promote the OamBlankEdge /
-                // Dmc4015Abort shims to opt-in mechanisms that supersede them below.
-                if (Environment.GetEnvironmentVariable("M4_OE") is { Length: > 0 } m4oe && m4oe != "0")
-                    WireCore.EnableOamBlankEdgeMech();
-                if (Environment.GetEnvironmentVariable("M3_ABORT") is { Length: > 0 } m3ab && m3ab != "0")
-                    WireCore.EnableDmc4015AbortMech();
-                // M1·strength LXA (env M1_LXA) + M4·P6 FrameIrq (env M4_FI): promote those shims to
-                // opt-in mechanisms that supersede them below.
-                if (Environment.GetEnvironmentVariable("M1_LXA") is { Length: > 0 } m1lxa && m1lxa != "0")
-                    WireCore.EnableLxaMagicMech();
-                if (Environment.GetEnvironmentVariable("M4_FI") is { Length: > 0 } m4fi && m4fi != "0")
-                    WireCore.EnableFrameIrqMech();
+                // ── SHIM RETIREMENT — default-flip (2026-07-20). The seven mechanisms below are now
+                // DEFAULT-ON in test mode, superseding their cleared shims (the shim arming in the
+                // !_noShims block gates on each mechanism's *Enabled flag, so the shims auto-turn-off).
+                // Proven by the all-mechanisms milestone (141/141) + this branch's 141/147 regression.
+                // A/B against a retired shim: set NO_M4_EDGE / NO_M6X / NO_M4_P1 / NO_M4_OE / NO_M3_ABORT
+                // / NO_M1_LXA / NO_M4_FI (that mechanism off -> its shim re-arms). --no-shims turns
+                // both off (pure switch-level engine). The legacy M4_EDGE=1 / M6X=1 / ... envs are now
+                // a no-op (the mechanism is default-on), so existing launchers keep working.
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_EDGE") == null)
+                    WireCore.EnableM4EdgeLatch();       // DmcLatch data-wins + AluLatch hold
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M6X") == null)
+                    WireCore.EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_P1") == null)
+                    WireCore.EnableM4P1();                // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_OE") == null)
+                    WireCore.EnableOamBlankEdgeMech();   // OamBlankEdge M4·hold-on-OAM
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M3_ABORT") == null)
+                    WireCore.EnableDmc4015AbortMech();   // Dmc4015Abort P3
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M1_LXA") == null)
+                    WireCore.EnableLxaMagicMech();       // LXA $AB magic-merge
+                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_FI") == null)
+                    WireCore.EnableFrameIrqMech();       // FrameIrq flag-hold
                 if (!_noShims)
                 {
                     if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)

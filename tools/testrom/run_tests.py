@@ -27,7 +27,10 @@ import argparse, json, os, queue, subprocess, sys, threading, time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO       = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
-DLL        = os.path.join(REPO, "src", "AprVisual.S1", "bin", "Release", "net11.0", "AprVisual.S1.dll")
+# Engine: default AprVisual.S1 (golden); set env S1A_ENGINE=1 to run the S1A campaign fork
+# (shims + mechanisms) instead — used to regress the retire-shims default-flip on the full 147 suite.
+_ENGINE    = "AprVisual.S1A" if os.environ.get("S1A_ENGINE") else "AprVisual.S1"
+DLL        = os.path.join(REPO, "src", _ENGINE, "bin", "Release", "net11.0", _ENGINE + ".dll")
 SYSTEM_DEF = os.path.join(REPO, "AprVisualBenchMark", "data", "system-def")
 CATALOG    = os.path.join(SCRIPT_DIR, "catalog.json")
 OUT_DIR    = os.path.join(SCRIPT_DIR, "out")
@@ -61,7 +64,7 @@ def build_engine():
     # decode dotnet's output as UTF-8 with replacement — the default locale codec (cp950 on
     # this box) chokes on box-drawing/non-ASCII bytes in the build log and crashes the reader
     # thread with a scary (but harmless) traceback.
-    r = subprocess.run(["dotnet", "build", os.path.join(REPO, "src", "AprVisual.S1"), "-c", "Release"],
+    r = subprocess.run(["dotnet", "build", os.path.join(REPO, "src", _ENGINE), "-c", "Release"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print((r.stdout or '')[-2000:], (r.stderr or '')[-2000:])

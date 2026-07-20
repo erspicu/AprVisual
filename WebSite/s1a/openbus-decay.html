@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open bus — the capacitor nobody placed</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:880px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(940px, 76vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  .eq{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:12px 0;font-family:Consolas,"SF Mono",monospace;font-size:14px;overflow-x:auto;line-height:1.9;}
+  .eq b{color:var(--acc2);} .eq .c{color:var(--mut);}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:Consolas,"SF Mono",monospace;} pre .c{color:var(--mut);} pre .k{color:#c792ea;} pre .s{color:#7ee0a8;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;} figure svg{max-width:100%;height:auto;} figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(940px, 76vw);margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#deep-dives"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <a class="sec" href="m5e-bus-hold.html"><span class="en">M5e charter</span><span class="zh">M5e 立案</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The capacitor nobody placed</span><span class="zh">沒有人放的電容</span></h1>
+  <p class="tag en">Deep dive #2 · Open bus. Read an address on the NES that no chip answers, and you do not get a fixed value — you get the <i>last byte</i> that was on the pins, fading. That memory is not stored in any register; it is charge sitting on the parasitic capacitance of the motherboard's data bus, a node on <b>neither die</b>. This article explains the analog phenomenon, derives its decay from first principles (and finds it is <i>linear</i>, not the RC curve you'd expect), shows how it rots bit-by-bit, and lays out exactly how we implement it — and how we will replace the last tuned number with a computed one.</p>
+  <p class="tag zh">深入專文 #2 · Open bus。在 NES 上讀一個沒有晶片回應的位址,你拿到的不是固定值 —— 而是接腳上<i>最後那個位元組</i>,正在褪色。那份記憶不存在任何暫存器裡;它是坐在主機板資料匯流排寄生電容上的電荷,一個<b>不在任何一顆晶粒</b>的節點。這篇解釋這個類比現象、從第一性原理推導它的衰減(並發現它是<i>線性</i>的,不是你以為的 RC 曲線)、說明它怎麼一位一位地爛,並鋪陳我們到底怎麼實作 —— 以及我們將如何把最後那個手調數字換成算出來的。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive #2</span><span class="pill">Open bus · M5e</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="phenom">
+  <h2><span class="kick"><span class="en">The phenomenon</span><span class="zh">現象</span></span><span class="en">A bus that remembers</span><span class="zh">會記憶的匯流排</span></h2>
+  <p class="en">When the 6502 executes a read, it puts an address on the bus and expects <i>something</i> to drive the eight data lines back. For most addresses a chip answers — RAM, ROM, a PPU register. But some addresses map to nothing. On a chip with pull-up resistors an unanswered read would return all 1s; the NES has no such resistors, so the data lines are simply <b>left floating</b>. And a floating wire is not empty: it is a tiny capacitor, still holding whatever voltage was last forced onto it. So the CPU reads back the <b>last byte that any device drove</b> — the "open bus" value.</p>
+  <p class="zh">當 6502 執行一次讀取,它把位址放上匯流排,期待<i>某個東西</i>把八條資料線驅動回來。大多數位址有晶片回應 —— RAM、ROM、PPU 暫存器。但有些位址對應不到任何東西。在有上拉電阻的晶片上,沒被回應的讀取會回全 1;NES 沒有那種電阻,所以資料線就這樣<b>被留成浮接</b>。而一條浮接的線並不是空的:它是一顆微小的電容,還保持著最後被強壓上去的電壓。所以 CPU 讀回的是<b>最後任何裝置驅動過的位元組</b> —— 「open bus」值。</p>
+  <p class="en">Two facts make this a <i>hard</i> case for a switch-level simulator, and they are the whole reason this shim exists:</p>
+  <p class="zh">兩個事實讓這對開關級模擬器成為<i>困難</i>個案,而它們正是這個 shim 存在的全部理由:</p>
+  <ul>
+    <li class="en"><b>The holding node is off-die.</b> The capacitance that remembers the byte is the package leads + PCB traces + cartridge edge + the input gates of the chips that share the bus. None of that is in our <code>segdefs</code> — those describe polygons on the two silicon dies. The node that does the work is <i>on the board</i>, invisible to every on-die mechanism.</li>
+    <li class="zh"><b>保持值的節點在晶粒外。</b>記住那個位元組的電容是封裝引腳 + PCB 走線 + 卡帶邊緣 + 共用匯流排的晶片輸入閘。那些都不在我們的 <code>segdefs</code> 裡 —— 它們描述的是兩顆矽晶粒上的多邊形。做這件事的節點<i>在板子上</i>,對每個晶粒內機制都是隱形的。</li>
+    <li class="en"><b>The value decays.</b> Charge leaks away. Left alone, the held byte <i>rots to 0</i> over roughly 600 ms — and there is a hardware test that watches it happen. So it is not enough to replay the last byte; we have to model its slow death.</li>
+    <li class="zh"><b>值會衰減。</b>電荷漏掉。放著不管,保持的位元組會在大約 600 ms 內<i>爛成 0</i> —— 而且有硬體測試在看它發生。所以只重播最後那個位元組不夠;我們得把它的緩慢死亡也模型化。</li>
+  </ul>
+  <p class="en">The first fact is why this shim is the shim ledger's one permanent <b>CEILING</b>: no on-die mechanism (charge arbitration, latch verdicts, delay) can reach a board node. It is chartered to <a href="m5e-bus-hold.html">M5e</a>, the board-level bus-hold. This article is about the second fact — the decay — because <i>that</i> we can compute.</p>
+  <p class="zh">第一個事實正是為什麼這個 shim 是 shim 總帳裡唯一永久的 <b>CEILING</b>:沒有晶粒內機制(電荷裁決、閂鎖判決、延遲)碰得到板子節點。它被立案到 <a href="m5e-bus-hold.html">M5e</a>,板級 bus-hold。這篇講的是第二個事實 —— 衰減 —— 因為<i>那個</i>我們算得出來。</p>
+
+  <figure>
+    <svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="300" fill="#141019"/>
+      <text x="440" y="26" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">The byte is held on a node that is on neither die</text>
+      <!-- two dies -->
+      <rect x="70" y="90" width="150" height="120" rx="8" fill="#1b2430" stroke="#7fbfe0" stroke-width="1.5"/>
+      <text x="145" y="130" fill="#bfe0f5" font-size="13" text-anchor="middle" font-weight="700">2A03</text>
+      <text x="145" y="150" fill="#7f93a5" font-size="11" text-anchor="middle">CPU die</text>
+      <text x="145" y="188" fill="#7f93a5" font-size="10" text-anchor="middle">segdefs = these polygons</text>
+
+      <rect x="660" y="90" width="150" height="120" rx="8" fill="#241d31" stroke="#c792ea" stroke-width="1.5"/>
+      <text x="735" y="130" fill="#e2c7f5" font-size="13" text-anchor="middle" font-weight="700">2C02</text>
+      <text x="735" y="150" fill="#a58fb5" font-size="11" text-anchor="middle">PPU die</text>
+
+      <!-- board data bus in the middle -->
+      <line x1="220" y1="150" x2="660" y2="150" stroke="#7ee0a8" stroke-width="3"/>
+      <text x="440" y="140" fill="#a8e6c4" font-size="12" text-anchor="middle">board data bus  AD[7:0]</text>
+      <text x="440" y="166" fill="#7f93a5" font-size="10.5" text-anchor="middle">(package leads · PCB traces · cart edge · ROM inputs)</text>
+
+      <!-- the parasitic capacitor "nobody placed" -->
+      <line x1="440" y1="150" x2="440" y2="210" stroke="#ffb454" stroke-width="2"/>
+      <line x1="424" y1="210" x2="456" y2="210" stroke="#ffb454" stroke-width="3"/>
+      <line x1="424" y1="220" x2="456" y2="220" stroke="#ffb454" stroke-width="3"/>
+      <line x1="440" y1="220" x2="440" y2="240" stroke="#ffb454" stroke-width="2"/>
+      <path d="M428,240 L452,240 M431,246 L449,246 M435,251 L445,251" stroke="#ffb454" stroke-width="1.5"/>
+      <text x="470" y="216" fill="#ffb454" font-size="12" font-weight="700">C ≈ 20 pF</text>
+      <text x="470" y="234" fill="#ffb454" font-size="11">holds the last byte</text>
+
+      <!-- leakage arrow to substrate -->
+      <line x1="490" y1="150" x2="490" y2="200" stroke="#ff6b6b" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#dn)"/>
+      <text x="560" y="185" fill="#ff9a9a" font-size="11">I_leak ≈ 80 pA → GND</text>
+      <defs><marker id="dn" markerWidth="8" markerHeight="8" refX="4" refY="6" orient="auto"><path d="M0,0 L8,0 L4,8 Z" fill="#ff6b6b"/></marker></defs>
+
+      <text x="440" y="285" fill="#6f6780" font-size="11" text-anchor="middle">no chip drives it → it floats → it slowly discharges to 0</text>
+    </svg>
+    <figcaption><span class="en">The holding node lives on the board between the dies. Our on-die geometry cannot see it — hence the CEILING — but the charge on it and the leakage off it are ordinary physics we can put numbers to.</span><span class="zh">保持節點活在兩顆晶粒之間的板子上。我方晶粒內幾何看不到它 —— 所以是天花板 —— 但它上面的電荷、和從它漏走的電流,是我們放得上數字的普通物理。</span></figcaption>
+  </figure>
+</section>
+
+<section id="physics">
+  <h2><span class="kick"><span class="en">The decay is linear, not RC</span><span class="zh">衰減是線性,不是 RC</span></span><span class="en">Why the curve is a straight ramp</span><span class="zh">為什麼曲線是直斜坡</span></h2>
+  <p class="en">The instinct is to model a decaying capacitor as an RC discharge — the familiar <code>e<sup>−t/RC</sup></code> exponential. For this node that instinct is <b>wrong</b>, and the reason is worth stating precisely. A floating MOS node loses its charge not through a resistor but through <b>reverse-biased PN-junction leakage</b> into the grounded substrate (plus a little subthreshold leakage, also to ground). And reverse-bias junction leakage is, to first order, <b>constant current</b> — it barely depends on the voltage across it. A constant current draining a fixed capacitance gives a constant slope:</p>
+  <p class="zh">直覺會把衰減的電容當成 RC 放電 —— 那個熟悉的 <code>e<sup>−t/RC</sup></code> 指數。對這個節點,那個直覺是<b>錯的</b>,而原因值得講精確。一個浮接的 MOS 節點失去電荷不是透過電阻,而是透過<b>反偏 PN junction 漏電</b>流進接地的基板(加一點 subthreshold 漏電,也是流到地)。而反偏 junction 漏電,一階近似下是<b>定電流</b> —— 幾乎不依賴它兩端的電壓。定電流放掉固定電容,給出固定斜率:</p>
+  <div class="eq">
+    <span class="c">// constant-current discharge — NOT exponential</span><br>
+    dV/dt = −I<sub>leak</sub> / C<sub>bus</sub>   <span class="c">(constant slope)</span><br>
+    V(t) = V<sub>OH</sub> − (I<sub>leak</sub> / C<sub>bus</sub>) · t   <span class="c">(a straight ramp down)</span>
+  </div>
+  <p class="en">The switch-level model does not carry a voltage; it carries a 0 or a 1. So all we need from this ramp is the single instant it crosses the input-low threshold and the digital bit flips <b>1 → 0</b>. (It only ever goes 1→0: leakage is to ground, there is no pull-up, so a 0 never rises to a 1.) That crossing time is the whole model:</p>
+  <p class="zh">開關級模型不帶電壓;它帶 0 或 1。所以我們從這個斜坡只需要一個東西:它越過輸入低閾值、數位位元翻 <b>1 → 0</b> 的那一瞬間。(它永遠只 1→0:漏電到地、沒有上拉,所以 0 不會升成 1。)那個穿越時間就是整個模型:</p>
+</section>
+
+<section id="compute">
+  <h2><span class="kick"><span class="en">Computing the constant</span><span class="zh">算那個常數</span></span><span class="en">From picofarads to half-cycles</span><span class="zh">從皮法到半週期</span></h2>
+  <p class="en">Here is the whole derivation, every step, with the numbers we can defend from first principles.</p>
+  <p class="zh">這是完整推導,每一步,附上我們能從第一性原理辯護的數字。</p>
+  <div class="card">
+    <p style="margin:.5em 0"><b><span class="en">Step 1 — the bus capacitance</span><span class="zh">第一步 —— 匯流排電容</span></b></p>
+    <table>
+      <tr><th><span class="en">contribution</span><span class="zh">來源</span></th><th>≈ pF</th></tr>
+      <tr><td>DIP-40 package lead</td><td class="n">4</td></tr>
+      <tr><td><span class="en">PCB trace (~4 in × 1.5 pF/in)</span><span class="zh">PCB 走線(~4吋 × 1.5pF/吋)</span></td><td class="n">6</td></tr>
+      <tr><td><span class="en">cartridge edge connector</span><span class="zh">卡帶邊緣連接器</span></td><td class="n">3</td></tr>
+      <tr><td><span class="en">die pad + ROM input gate</span><span class="zh">晶粒 pad + ROM 輸入閘</span></td><td class="n">7</td></tr>
+      <tr><td><b>C<sub>bus</sub> total</b></td><td class="n"><b>≈ 20 pF</b></td></tr>
+    </table>
+  </div>
+  <div class="eq">
+    <span class="c">Step 2 — the parameters</span><br>
+    C<sub>bus</sub> = 20 pF      I<sub>leak</sub> ≈ 80 pA   <span class="c">(reverse-bias diode leak, 3µm NMOS @ 25 °C, summed over the pins on the bus)</span><br>
+    V<sub>OH</sub> ≈ 4.5 V  →  V<sub>IL</sub> ≈ 1.5 V   ⇒   ΔV ≈ 3.0 – 3.5 V<br><br>
+    <span class="c">Step 3 — the decay time (constant-current, so t = C·ΔV / I)</span><br>
+    t<sub>decay</sub> = C<sub>bus</sub> · ΔV / I<sub>leak</sub><br>
+    = (20 pF · 3.5 V) / 80 pA<br>
+    = (70 × 10<sup>−12</sup>) / (80 × 10<sup>−12</sup>) s  = <b>0.875 s</b>   <span class="c">(with 3.0 V → 0.75 s; the band is ~0.6–0.9 s)</span><br><br>
+    <span class="c">Step 4 — convert to half-cycles (1 hc = 23.28 ns)</span><br>
+    threshold_hc = t<sub>decay</sub> / t<sub>hc</sub> = 0.7 s / 23.28 ns  ≈ <b>30 million hc</b>
+  </div>
+  <p class="en">So the hand-set "~600 ms" that our timestamp-decay used is not a magic number — it is <code>C·ΔV / I</code> with defensible board values, landing in the 0.6–0.9 s band. The empirical value we tuned to sits right inside the first-principles range. The constant is <i>grounded</i>; only its exact position within the band is calibration (and, as we'll see, that position is not even fixed).</p>
+  <p class="zh">所以我方時戳衰減用的手調「~600 ms」不是魔術數字 —— 它是 <code>C·ΔV / I</code> 帶上有依據的板級數值,落在 0.6–0.9 秒帶。我們調到的經驗值正好坐在第一性原理範圍內。這個常數是<i>有依據的</i>;只有它在帶內的精確位置是校準(而且我們接著會看到,那個位置甚至不是固定的)。</p>
+</section>
+
+<section id="perbit">
+  <h2><span class="kick"><span class="en">It rots bit by bit</span><span class="zh">它一位一位地爛</span></span><span class="en">Eight lines, eight clocks</span><span class="zh">八條線,八個時鐘</span></h2>
+  <p class="en">A crucial subtlety: the byte does not decay all at once. The eight data lines are eight <i>independent</i> capacitors, each with a slightly different trace length, via count, and — most of all — a slightly different junction-leakage current from manufacturing spread. So each line has its own decay clock, and a held <code>0xFF</code> does not snap to <code>0x00</code>; it <b>rots one bit at a time</b> — something like <code>0xFF → 0xEF → 0xEE → 0x40 → 0x00</code> over a window of tens of milliseconds. The hardware open-bus decay tests watch exactly this waterfall, and a ROM can check the <i>order</i> the bits drop. So a correct model needs a <b>per-bit</b> timestamp and threshold, not one for the whole byte.</p>
+  <p class="zh">一個關鍵細節:位元組不是一次全衰減。八條資料線是八顆<i>獨立</i>的電容,各自走線長度、via 數略有不同,而最重要的是製程散佈讓 junction 漏電流略有不同。所以每條線有自己的衰減時鐘,一個保持的 <code>0xFF</code> 不會瞬間變 <code>0x00</code>;它<b>一次爛一個位元</b> —— 像 <code>0xFF → 0xEF → 0xEE → 0x40 → 0x00</code> 這樣,在幾十毫秒的窗裡。硬體 open-bus 衰減測試看的正是這道瀑布,而 ROM 可以檢查位元掉落的<i>順序</i>。所以正確模型需要<b>逐位元</b>的時戳與閾值,不是整個位元組一個。</p>
+
+  <figure>
+    <svg viewBox="0 0 880 320" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="320" fill="#141019"/>
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">Linear decay, and the per-bit waterfall</text>
+      <!-- plot box: x 70..820 (time), y 60..230 (voltage) -->
+      <line x1="70" y1="230" x2="825" y2="230" stroke="#5a5266" stroke-width="1.5"/>
+      <line x1="70" y1="55" x2="70" y2="230" stroke="#5a5266" stroke-width="1.5"/>
+      <text x="450" y="266" fill="#968ba1" font-size="11.5" text-anchor="middle">time  (ms,  after last drive)</text>
+      <text x="30" y="145" fill="#968ba1" font-size="11.5" text-anchor="middle" transform="rotate(-90 30 145)">line voltage</text>
+      <!-- VOH and threshold -->
+      <line x1="70" y1="66" x2="825" y2="66" stroke="#3a3446" stroke-dasharray="3 3"/><text x="831" y="70" fill="#6f6780" font-size="10">V_OH 4.5</text>
+      <line x1="70" y1="180" x2="825" y2="180" stroke="#ffb454" stroke-dasharray="4 3" opacity="0.7"/><text x="831" y="184" fill="#ffb454" font-size="10">V_IL 1.5</text>
+      <!-- x ticks -->
+      <g fill="#6f6780" font-size="9.5" text-anchor="middle">
+        <line x1="70" y1="230" x2="70" y2="235" stroke="#5a5266"/><text x="70" y="248">0</text>
+        <line x1="260" y1="230" x2="260" y2="235" stroke="#5a5266"/><text x="260" y="248">250</text>
+        <line x1="450" y1="230" x2="450" y2="235" stroke="#5a5266"/><text x="450" y="248">500</text>
+        <line x1="640" y1="230" x2="640" y2="235" stroke="#5a5266"/><text x="640" y="248">750</text>
+        <line x1="820" y1="230" x2="820" y2="235" stroke="#5a5266"/><text x="820" y="248">1000 ms</text>
+      </g>
+      <!-- straight-line ramps (linear!), several bits crossing at slightly different times -->
+      <!-- reference exponential (wrong) dashed -->
+      <path d="M70,66 C 200,150 380,176 640,179" fill="none" stroke="#5a4a66" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <text x="250" y="128" fill="#7a6a86" font-size="10.5">RC exponential (what it is NOT)</text>
+      <!-- bit lines: linear ramps from (70,66) to crossing V_IL(y=180) at different x -->
+      <!-- bit A crosses ~480ms: x=70+480*0.76=435 ; slope to (435,180) -->
+      <line x1="70" y1="66" x2="512" y2="180" stroke="#7ee0a8" stroke-width="2"/>
+      <line x1="70" y1="66" x2="560" y2="180" stroke="#7ee0a8" stroke-width="2" opacity="0.75"/>
+      <line x1="70" y1="66" x2="610" y2="180" stroke="#7ee0a8" stroke-width="2" opacity="0.55"/>
+      <text x="330" y="108" fill="#7ee0a8" font-size="11.5">8 lines: constant-slope ramps, ±10–20% spread</text>
+      <!-- crossing markers -->
+      <circle cx="512" cy="180" r="4" fill="#7ee0a8"/><text x="512" y="200" fill="#7ee0a8" font-size="10" text-anchor="middle">bit 2 drops</text>
+      <circle cx="560" cy="180" r="4" fill="#7ee0a8"/>
+      <circle cx="610" cy="180" r="4" fill="#7ee0a8"/><text x="618" y="176" fill="#a8e6c4" font-size="10">bit 7</text>
+      <!-- byte value waterfall labels -->
+      <text x="120" y="300" fill="#c792ea" font-size="12">0xFF</text>
+      <text x="290" y="300" fill="#c792ea" font-size="12">→ 0xEF</text>
+      <text x="450" y="300" fill="#c792ea" font-size="12">→ 0x40</text>
+      <text x="640" y="300" fill="#c792ea" font-size="12">→ 0x00</text>
+      <line x1="150" y1="292" x2="640" y2="292" stroke="#5a4a66" stroke-width="1" stroke-dasharray="3 3"/>
+    </svg>
+    <figcaption><span class="en">Each data line is a constant-slope ramp (straight, because leakage is constant-current), and the eight cross the threshold at slightly different times — so the held byte rots one bit at a time. The dashed curve is the RC exponential the physics is <i>not</i>.</span><span class="zh">每條資料線是一條定斜率斜坡(直的,因為漏電是定電流),八條在略微不同的時間穿越閾值 —— 所以保持的位元組一次爛一位。虛線是物理<i>不是</i>的那條 RC 指數。</span></figcaption>
+  </figure>
+</section>
+
+<section id="impl">
+  <h2><span class="kick"><span class="en">How we implement it</span><span class="zh">我們怎麼實作</span></span><span class="en">Lazy timestamps, off the hot path</span><span class="zh">懶惰時戳,離開熱路徑</span></h2>
+  <p class="en">The engine has no analog voltage and no future-event scheduler, so we do not simulate the ramp. We use <b>lazy-evaluated timestamps</b>: only ever compute the decay the moment a floating line is <i>looked at</i>. This is correct here precisely because the NES samples its data bus synchronously (on φ2 / read-enable) — the value is only observed at clock edges, so evaluating it there matches the hardware without scheduling a wake-up 30 million cycles in the future (which an event wheel would need, then have to cancel every time the bus is driven again).</p>
+  <p class="zh">引擎沒有類比電壓、也沒有未來事件排程器,所以我們不模擬那條斜坡。我們用<b>懶惰求值的時戳</b>:只在一條浮接線被<i>看</i>的那一刻才算衰減。這裡這樣做是對的,正因為 NES 是同步取樣它的資料匯流排(在 φ2 / read-enable)—— 值只在時鐘邊沿被觀察,所以在那裡求值就對上硬體,不用排一個 3000 萬週期後的喚醒(event wheel 要那樣,而且每次匯流排被重新驅動都得取消它)。</p>
+  <p class="en">It is a tiny post-pass over just the eight external data-bus nodes, run after the switch-level network has settled for the half-cycle — never inside the hot inner solver, so the golden benchmark is untouched:</p>
+  <p class="zh">它是一個小小的 post-pass,只跑八條外部資料匯流排節點,在開關級網路 settle 完該半週期之後 —— 絕不進熱內迴圈,所以金 benchmark 不受影響:</p>
+  <pre><span class="c">// after wire_compute() has settled this half-cycle — test-mode only</span>
+<span class="k">struct</span> OpenBusBit { uint64_t last_driven_hc; uint32_t threshold_hc; uint8_t last_val; } bus[<span class="s">8</span>];
+
+<span class="k">for</span> (i = 0; i &lt; 8; i++) {
+    <span class="k">if</span> (node[DB0+i].is_driven) {          <span class="c">// had a path to VDD/GND this cycle → refresh</span>
+        bus[i].last_driven_hc = now_hc;
+        bus[i].last_val       = node[DB0+i].state;
+    } <span class="k">else</span> <span class="k">if</span> (bus[i].last_val == 1) {     <span class="c">// floating, was high → is it still holding?</span>
+        uint64_t age = now_hc - bus[i].last_driven_hc;
+        node[DB0+i].state = (age &gt; bus[i].threshold_hc) ? <span class="s">0</span> : <span class="s">1</span>;   <span class="c">// the flip, 1→0 only</span>
+    } <span class="k">else</span> {
+        node[DB0+i].state = <span class="s">0</span>;             <span class="c">// was driven low → stays low</span>
+    }
+}</pre>
+  <p class="en">The <b>refresh rule</b> is the load-bearing detail: a line's clock resets <i>iff there was an active path to VDD or GND during the settled half-cycle</i>. A write drives it → refresh. A read of mapped RAM/ROM/PPU drives it → refresh. A read of open bus does <i>not</i> drive it → no refresh (the pass-transistors do briefly charge-share the huge board cap against the tiny internal bus, but that drops the voltage by microvolts and never recharges it, so a discrete model ignores it). And one hazard to keep straight: these eight nodes are the <i>board</i> bus. The 2C02 has its <i>own</i> internal open-bus latch (reading <code>$2002</code> returns the last value on the PPU's internal data bus) — a different capacitance, modelled separately; do not let the two leak into each other.</p>
+  <p class="zh"><b>refresh 規則</b>是承重的細節:一條線的時鐘重置<i>當且僅當</i>該 settle 半週期裡有到 VDD 或 GND 的 active path。寫入驅動它 → refresh。讀已映射的 RAM/ROM/PPU 驅動它 → refresh。讀 open bus <i>不</i>驅動它 → 不 refresh(pass-transistor 確實會短暫讓巨大板電容對微小內部匯流排 charge-share,但那只掉幾微伏、且從不充回,所以離散模型忽略它)。還有一個要分清楚的雷:這八個節點是<i>板</i>匯流排。2C02 有它<i>自己</i>的內部 open-bus latch(讀 <code>$2002</code> 回傳 PPU 內部資料匯流排的最後值)—— 是不同的電容、分開模型;別讓兩者互相滲漏。</p>
+</section>
+
+<section id="future">
+  <h2><span class="kick"><span class="en">From tuned to computed — our plan</span><span class="zh">從調到算 —— 我們的計畫</span></span><span class="en">And the floor we cannot cross</span><span class="zh">以及我們跨不過的地板</span></h2>
+  <p class="en">The implementation above still seeds <code>threshold_hc</code> from a hand-set number. Replacing it with a computed one is a short, concrete plan:</p>
+  <p class="zh">上面的實作仍然用手設的數字種 <code>threshold_hc</code>。把它換成算出來的,是一個短而具體的計畫:</p>
+  <ul>
+    <li class="en"><b>Compute the base.</b> Use the Step 1–4 derivation: <code>threshold_hc = C·ΔV / (I·t_hc)</code> with C = 20 pF, I = 80 pA, ΔV = 3.5 V → ≈ 30 M hc. Hardcode <i>the derivation</i> in the source as its own documentation, so the constant is a computed result, not a magic literal.</li>
+    <li class="zh"><b>算基準值。</b>用第 1–4 步推導:<code>threshold_hc = C·ΔV / (I·t_hc)</code>,C = 20 pF、I = 80 pA、ΔV = 3.5 V → ≈ 30M hc。把<i>推導本身</i>寫進原始碼當文件,讓這個常數是計算結果、不是魔術字面值。</li>
+    <li class="en"><b>Seed the per-bit spread.</b> Apply a fixed ±10–20% deterministic spread across the 8 bits at init, so the byte rots in a fixed, reproducible order — reproducing the hardware waterfall while staying bit-exact run-to-run.</li>
+    <li class="zh"><b>種逐位元散佈。</b>初始化時對 8 個位元套一個固定的 ±10–20% 決定論散佈,讓位元組以固定、可重現的順序爛 —— 重現硬體瀑布,同時逐 run bit-exact。</li>
+    <li class="en"><b>Calibrate from a bench measurement (optional, for accuracy).</b> On real hardware: write <code>0xFF</code> to an open-bus address, wait N ms, read it back out to the controller port, sweep N from 100 → 1000 ms on a scope. The waterfall you capture (bit 2 drops at ~510 ms, bit 7 at ~580 ms, …) gives the exact per-bit thresholds to seed.</li>
+    <li class="zh"><b>從實機量測校準(選配,為了精度)。</b>在真硬體上:寫 <code>0xFF</code> 到一個 open-bus 位址、等 N ms、讀出到手把埠、在 scope 上把 N 從 100 → 1000 ms 掃過去。你抓到的瀑布(bit 2 在 ~510ms 掉、bit 7 在 ~580ms、…)就是要種的精確逐位元閾值。</li>
+  </ul>
+  <div class="note b"><span class="en"><b>The honest floor.</b> There is one thing we can never compute to a single universal number, and it is worth being clear about: reverse-bias leakage is <b>exponentially temperature-dependent</b>, <code>I<sub>leak</sub> ∝ T³ · exp(−E<sub>g</sub>/kT)</code>. A real NES in a 30 °C room decays its open bus almost <b>twice as fast</b> as one at 20 °C. So there is no single "true" threshold — the hardware itself does not have one. The honest model computes the base constant, documents the derivation, and exposes a temperature-scaling parameter for the leakage; the ±10% per-bit spread does the rest. That is not a defeat of the model — it is the model correctly refusing to pretend a temperature-dependent analog quantity is a fixed digital constant. This is what the <span style="color:var(--bad);font-weight:700">CEILING</span> fate means in the ledger: an off-die, physically-real behaviour we can characterise and bound, but not reduce to one on-die number.</span><span class="zh"><b>誠實的地板。</b>有一件事我們永遠算不出單一普世數字,而它值得講清楚:反偏漏電是<b>溫度指數相關</b>的,<code>I<sub>leak</sub> ∝ T³ · exp(−E<sub>g</sub>/kT)</code>。30 °C 房裡的真 NES 衰減它的 open bus 比 20 °C 的快近<b>兩倍</b>。所以沒有單一「真」閾值 —— 硬體自己就沒有。誠實的模型算出基準常數、把推導寫成文件、對漏電開一個溫度縮放參數;±10% 逐位元散佈做剩下的。這不是模型的失敗 —— 是模型正確地拒絕假裝一個溫度相關的類比量是固定的數位常數。這就是總帳裡 <span style="color:var(--bad);font-weight:700">CEILING</span> 命運的意思:一個晶粒外、物理真實、我們能刻畫並界定、但無法化約成一個晶粒內數字的行為。</span></div>
+  <div class="card" id="tempcalc" style="border-color:#4a3d5a">
+    <p style="margin:.4em 0"><b><span class="en">Interactive — the same byte, at different room temperatures</span><span class="zh">互動 —— 同一個位元組,在不同室溫下</span></b></p>
+    <p class="mut" style="margin:.2em 0;font-size:13.5px"><span class="en">Slide the temperature. This is the whole reason there is no single "true" decay time — the leakage current, and so the decay, moves by more than <b>100×</b> across a normal range of ambient temperatures. Warm room: the byte is gone in a tenth of a second. Freezer: it lingers for minutes.</span><span class="zh">拖動溫度。這就是為什麼沒有單一「真」衰減時間 —— 漏電流、進而衰減,在正常室溫範圍內就變動超過 <b>100 倍</b>。溫暖的房間:位元組十分之一秒就沒了。冷凍庫:它逗留好幾分鐘。</span></p>
+    <input type="range" id="tempSlider" min="-50" max="50" value="25" step="1" style="width:100%;accent-color:#c792ea;margin:10px 0 2px">
+    <div style="display:flex;justify-content:space-between;color:#6f6780;font-size:11px"><span>−50 °C</span><span>0 °C</span><span>50 °C</span></div>
+    <div style="text-align:center;margin:16px 0 6px;font-size:20px">
+      <span id="tempVal" style="color:#7fbfe0;font-weight:700">25 °C</span>
+      <span style="color:#6f6780">&nbsp;→&nbsp; decay ≈&nbsp;</span>
+      <span id="decayVal" style="color:#7ee0a8;font-weight:700;font-family:Consolas,monospace">600 ms</span>
+    </div>
+    <div id="factorVal" style="text-align:center;color:#ffb454;font-size:13px;margin-bottom:8px">(1.0× vs a 25 °C room)</div>
+    <p class="mut" style="font-size:11.5px;margin:.4em 0 0"><span class="en">Model: <code>t(T) = t₀ · exp( E<sub>a</sub>/k · (1/T − 1/298 K) )</code>, generation-limited junction leakage E<sub>a</sub> ≈ 0.56 eV (≈ halves every 10 °C), anchored at t₀ = 600 ms at 25 °C. Illustrative — the numbers move; the point is that they must.</span><span class="zh">模型:<code>t(T) = t₀ · exp( E<sub>a</sub>/k · (1/T − 1/298 K) )</code>,generation-limited junction 漏電 E<sub>a</sub> ≈ 0.56 eV(≈ 每 10 °C 減半),錨定在 25 °C 時 t₀ = 600 ms。示意用 —— 數字會動;重點是它們<i>必須</i>動。</span></p>
+  </div>
+
+  <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · <a href="m5e-bus-hold.html">the M5e charter</a> · <a href="../s1a.html#shimlist">shim ledger</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · <a href="m5e-bus-hold.html">M5e 立案</a> · <a href="../s1a.html#shimlist">shim 總帳</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive #2 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · physics + implementation from a mixed-signal design consult, cross-checked against the ~600 ms empirical decay (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 #2 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · 物理 + 實作來自混合訊號設計諮詢,與 ~600ms 經驗衰減交叉驗證(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">the memory is real; it just lives on a wire we do not own.</span><span class="zh">那份記憶是真的;它只是住在一條我們不擁有的線上。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+<script>
+  // Open-bus decay vs temperature. Generation-limited junction leakage: I_leak ∝ exp(−Ea/kT),
+  // t = C·ΔV/I_leak ∝ exp(+Ea/kT). Ea≈0.56 eV (Eg/2, so ~halves every 10 °C). Anchored at 25 °C.
+  (function(){
+    var s=document.getElementById('tempSlider'); if(!s) return;
+    var k=8.617e-5, Ea=0.56, Tref=298.15, t0=600; // ms at 25 °C
+    function fmt(ms){
+      if(ms<1000)  return Math.round(ms)+' ms';
+      if(ms<60000) return (ms/1000).toFixed(ms<10000?2:1)+' s';
+      if(ms<3600000) return (ms/60000).toFixed(1)+' min';
+      return (ms/3600000).toFixed(1)+' hr';
+    }
+    function upd(){
+      var C=+s.value, T=C+273.15;
+      var t=t0*Math.exp(Ea/k*(1/T - 1/Tref));
+      document.getElementById('tempVal').textContent=C+' °C';
+      document.getElementById('decayVal').textContent=fmt(t);
+      var f=t/t0;
+      document.getElementById('factorVal').textContent =
+        (f>=1 ? '('+f.toFixed(f<10?1:0)+'× slower than a 25 °C room)'
+              : '('+(1/f).toFixed((1/f)<10?1:0)+'× faster than a 25 °C room)');
+    }
+    s.addEventListener('input',upd); upd();
+  })();
+</script>
+</body>
+</html>

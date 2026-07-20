@@ -1,0 +1,99 @@
+This is an absolutely beautiful, unhinged, and theoretically sound hack. You are looking at the NES not just as a logic state machine, but as a lump of doped silicon governed by Fermi-Dirac statistics and thermal agitation. I love it. 
+
+To answer your premise right out of the gate: **Yes, this is physically viable.** In fact, measuring parasitic capacitor discharge time is a standard technique for on-die thermal sensors in modern mixed-signal ASICs. Doing it via the open-bus decay on a 40-year-old NMOS Ricoh 2A03/2C02 is a phenomenal demoscene-tier trick.
+
+Here is the rigorous breakdown of how to build your 8-bit thermometer, the physics that govern it, and the brutal realities of retro-hardware metrology.
+
+---
+
+### 1. Feasibility & Sensitivity (The Physics)
+The decay time $t$ of the bus capacitance $C$ discharging through a reverse-biased p-n junction is $t \propto C \cdot \Delta V / I_{leak}$. 
+Because $I_{leak} \propto \exp(-E_a/kT)$, we can write:
+$$t(T) = A \exp\left(\frac{E_a}{kT}\right)$$
+Given your activation energy $E_a \approx 0.56\text{ eV}$ (which is exactly what we'd expect for silicon generation-recombination current, $E_g/2$), let's look at the sensitivity near room temperature ($T = 300\text{ K}$, $k = 8.617 \times 10^{-5}\text{ eV/K}$).
+
+The fractional sensitivity is $\frac{1}{t} \frac{dt}{dT} = -\frac{E_a}{kT^2}$. 
+Plugging in the numbers gives **$-0.0722\text{ K}^{-1}$**, or **-7.2% per °C**. 
+This perfectly matches your "halves every 10°C" rule of thumb ($1.072^{10} \approx 2$).
+
+**Temperature Resolution:** 
+At 25°C, $t \approx 600\text{ ms}$. If we use a tight 6502 spin-loop (say, 10 cycles $\approx 5.6\text{ }\mu\text{s}$ per poll), the quantization error is $5.6 \times 10^{-6} / 0.6 \approx 10^{-5}$. 
+Translating that timing resolution to temperature ($10^{-5} / 0.072$), the CPU's cycle-accurate polling could theoretically resolve **$\approx 0.0001\text{ }^\circ\text{C}$**. 
+In reality, thermodynamic noise (kT/C noise), 60Hz hum coupling, and VDD ripple will dominate, but *quantization* is absolutely not your bottleneck. 
+
+### 2. Measurement Procedure (The Hack)
+**The Trap:** You cannot use the CPU's external data bus! On a 6502, every instruction fetch drives the data bus. If you write `0xFF` to `$4020` and then execute a loop to poll it, the opcode bytes for `LDA`, `CMP`, and `BNE` will overwrite the bus capacitance on every single clock cycle. 
+
+**The Solution:** You must use the **PPU's internal data latch**. 
+Writing to any PPU register (`$2000-$2007`) fills a parasitic capacitance inside the Ricoh 2C02. Reading from a read-only PPU address—specifically `$2002` (PPUSTATUS)—returns the status flags in the top 3 bits, but **leaks the decaying PPU latch into the bottom 5 bits**. Because this latch is inside the PPU, the 6502 fetching instructions on the CPU bus doesn't disturb it!
+
+**The Procedure:**
+1. Disable interrupts (NMI/IRQ) and turn off PPU rendering.
+2. Write `$FF` to `$2000` (primes the internal PPU latch with 1s).
+3. Initialize a 24-bit zero-page counter.
+4. **Poll:** Read `$2002`. Mask with `$1F`. 
+5. **Event to Time:** Compare to `$1F`. Time *until the very first bit flips to 0*. 
+6. Loop until the comparison fails, incrementing the counter. 
+
+Timing the first bit to drop isolates the measurement to the single "leakiest" junction on those 5 bits. Averaging 16 successive runs will filter out electrical noise. 
+
+### 3. The Calibration Problem (The Crux)
+The absolute decay time $t(T)$ depends on the pre-exponential factor $A$, which contains the capacitance $C$ and the baseline leakage area. This varies wildly between different NES motherboard revisions, chip fabs, and even individual pins.
+
+However, the activation energy $E_a \approx 0.56\text{ eV}$ is a fundamental property of the silicon crystal lattice. It is virtually identical across all NES consoles. Therefore, the **slope of the log-curve is fixed**.
+
+You only need a **One-Point Calibration**. 
+Take the natural log of the decay equation:
+$$\ln(t) = \ln(A) + \frac{E_a}{kT}$$
+If the user boots the ROM in a room known to be 25°C ($T_{cal} = 298.15\text{ K}$) and presses "Calibrate," the console measures $t_{cal}$. It then solves for the console's unique $\ln(A)$:
+$$\ln(A) = \ln(t_{cal}) - \frac{E_a}{k T_{cal}}$$
+From then on, temperature is an absolute calculation:
+$$T = \frac{E_a/k}{\ln(t) - \ln(A)}$$
+
+### 4. Confounds & Limits 
+Here is where reality kicks in.
+*   **Self-Heating (The Fatal Flaw):** The NES draws about 1 Amp at 5V. The PPU dissipates roughly 1 Watt. In a standard 40-pin DIP package with a thermal resistance ($\theta_{JA}$) of ~40 °C/W, the PPU die will heat up by **+30°C to +40°C above room temperature** after 10 minutes of operation. *You have not built a room thermometer; you have built a die thermometer.* To get room temperature, the user must cold-boot the console after it has been off for an hour, and take the reading within the first 5 seconds.
+*   **VDD Variation:** NMOS logic `0` thresholds depend on the 5V rail. A sloppy 7805 voltage regulator fluctuating by $\pm 5\%$ will shift the threshold voltage $\Delta V$, causing apparent temperature swings of $\pm 1^\circ\text{C}$.
+*   **Realistic Accuracy:** If measured at a true cold boot immediately after calibration, you might achieve **$\pm 1^\circ\text{C}$**. If measured after playing *Super Mario Bros 3*, the decay time will have plummeted to ~40ms, and your ROM will proudly display **65°C**. 
+
+### 5. Prior Art
+You have stumbled into a rich field. 
+*   **DRAM Retention PUFs/Sensors:** Modern security researchers use DRAM data-retention times as a localized temperature sensor (e.g., for thermal side-channel attacks). The famous "Cold Boot Attack" (Halderman et al., 2008) exploits this exact physics: chilling RAM to -50°C to freeze the leakage, increasing retention time from milliseconds to hours.
+*   **Leakage-based On-Die Sensors:** Many modern microcontrollers (like some ATmegas and STM32s) have internal temperature sensors that are literally just a parasitic capacitor discharging through a characterized diode.
+*   **NES Open Bus Art:** The NES demoscene relies heavily on open-bus behavior (e.g., *Micro Mages* uses it to detect controllers), but turning it into a quantitative thermometer is a novel, top-tier hardware abuse.
+
+### 6. A Concrete Design (The ROM)
+Doing floating-point math and natural logs on a 6502 is miserable. Let's use a beautiful mathematical approximation. 
+We know the decay time halves every ~9.6°C. We can linearize this around our 25°C calibration point:
+$$T \approx 25^\circ\text{C} - 9.6 \cdot \log_2\left(\frac{t}{t_{cal}}\right)$$
+
+Calculating $\log_2(x)$ on a 6502 is incredibly easy! The integer part is just finding the highest set bit (which you find by shifting), and the fractional part is just linear interpolation of the next few bits.
+
+**The ROM Flow:**
+1.  **Boot:** Display "PRESS A TO CALIBRATE AT 25C".
+2.  **Calibrate:** Run the loop.
+    ```assembly
+        LDX #0       ; cycle counter low
+        LDY #0       ; cycle counter high
+        LDA #$FF
+        STA $2000    ; Prime PPU latch
+    loop:
+        LDA $2002    ; Read PPU latch (4 cycles)
+        AND #$1F     ; Mask top 3 bits (2 cycles)
+        CMP #$1F     ; Check if any bit dropped (2 cycles)
+        BNE done     ; (2/3 cycles)
+        INX          ; (2 cycles)
+        BNE loop     ; (3 cycles)
+        INY          ; (2 cycles, rarely hits)
+        JMP loop     ; (3 cycles)
+    done:
+    ```
+    *Store the 16-bit count in Zero Page as `T_CAL`.*
+3.  **Measure:** Run the exact same loop. Store as `T_CUR`.
+4.  **Math:** 
+    Divide `T_CUR` / `T_CAL` using a simple bit-shift division routine to yield an 8.8 fixed-point ratio. 
+    Use a pre-calculated 256-byte Lookup Table (LUT) mapping the ratio to $\Delta T$. (Since memory is practically free in NES ROMs, just throw a LUT at it rather than doing $\log_2$ logic).
+5.  **Display:** Add/subtract $\Delta T$ from 25, convert to decimal, write to PPU nametable. Loop at 1Hz.
+
+**Final Verdict:** 
+As an ambient room thermometer, it is a fun party trick limited by the fact that the NES heats itself up. As a **PPU Silicon Die Thermometer**, it is a genuinely legitimate, high-resolution sensor. You could map the exact thermal time-constant of the Ricoh 2C02 package heating up in real-time on a CRT. Code it up.

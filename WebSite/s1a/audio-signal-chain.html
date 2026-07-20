@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The other last mile — APU channel values to the speaker (NES audio chain)</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--blu:#7fbfe0;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:900px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(960px, 78vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.4em 0 .8em;padding-left:22px;} li{margin:.3em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  .eq{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:12px 0;font-family:Consolas,"SF Mono",monospace;font-size:13.5px;overflow-x:auto;line-height:1.9;}
+  .eq b{color:var(--acc2);} .eq .c{color:var(--mut);}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:Consolas,"SF Mono",monospace;} pre .c{color:var(--mut);} pre .k{color:#c792ea;} pre .s{color:#7ee0a8;} pre .l{color:#ffb454;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13px;}
+  th,td{border:1px solid var(--bd);padding:6px 9px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;} figure svg{max-width:100%;height:auto;} figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(960px, 78vw);margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#deep-dives"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <a class="sec" href="video-signal-chain.html"><span class="en">The video chain</span><span class="zh">視訊鏈</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The other last mile: channel values → sound</span><span class="zh">另一條最後一哩:聲道值 → 聲音</span></h1>
+  <p class="tag en">Deep dive #6 · the audio counterpart to the <a href="video-signal-chain.html">video chain</a> — still a <b>roadmap</b>, not a build. Our switch-level 2A03 is bit-exact, but it stops at <i>five channel values</i> — two pulses, a triangle, noise, a DMC sample. A real NES doesn't output numbers; it drains a little current out of two pins, mixes them through a famously <b>non-linear</b> network, forces a logic inverter to act as an amplifier, and sends line-level audio to the TV's speaker. This maps that whole stretch — the on-die non-linear DAC, the board's resistor mix and 74HCU04 amp, the filters — and how we'd model it: tap the DAC gate nodes, run a 1.789 MHz behavioural sidecar, and <b>write our own DSP</b> (no borrowed audio libraries). One hardware-engineer consult; honest caveats throughout.</p>
+  <p class="tag zh">深入專文 #6 · <a href="video-signal-chain.html">視訊鏈</a>的音訊對應 —— 一樣是<b>路線圖</b>、不是實作。我們的開關級 2A03 是 bit-exact,但它停在<i>五個聲道值</i> —— 兩個 pulse、一個 triangle、noise、一個 DMC 樣本。真的 NES 不輸出數字;它從兩支腳吸一點電流出去、經一個著名的<b>非線性</b>網路混音、逼一顆邏輯反相器當放大器,再把 line-level 音訊送到電視喇叭。這篇把那整段標出來 —— 晶片內非線性 DAC、主機板電阻混音與 74HCU04 放大器、濾波器 —— 以及我們會怎麼模擬:接出 DAC 閘極節點、跑一個 1.789MHz 行為 sidecar、然後<b>自己寫 DSP</b>(不借用音訊函式庫)。一次硬體工程師諮詢;誠實但書貫穿。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive #6</span><span class="pill">roadmap</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="chain">
+  <h2><span class="kick"><span class="en">The whole chain</span><span class="zh">整條鏈</span></span><span class="en">Two pins, mixed, filtered, amplified</span><span class="zh">兩支腳,混音、濾波、放大</span></h2>
+  <p class="en">The 2A03 exposes audio on <b>two pins</b>, and — unlike a normal DAC — they don't output a voltage. They are <b>open-drain NMOS current sinks</b>: they only pull current toward ground. The board turns that into a voltage, mixes the two, and amplifies it. As with video, the <b>RF path is optional</b> — the composite/AV output is plain line-level baseband, so we can tap it directly.</p>
+  <p class="zh">2A03 在<b>兩支腳</b>上輸出音訊,而且 —— 跟一般 DAC 不同 —— 它們不輸出電壓。它們是<b>開漏極 NMOS 電流下拉</b>:只把電流拉向地。主機板把它變成電壓、把兩支混起來、再放大。跟視訊一樣,<b>RF 路徑是選配</b> —— composite/AV 輸出就是純 line-level baseband,可以直接接。</p>
+
+  <figure>
+    <svg viewBox="0 0 940 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="940" height="220" fill="#141019"/>
+      <text x="470" y="22" fill="#e8dcff" font-size="14" font-weight="700" text-anchor="middle">2A03 channel values → speaker (RF audio subcarrier skipped)</text>
+      <text x="12" y="72" fill="#c792ea" font-size="10.5" font-weight="700">ON-DIE</text>
+      <text x="12" y="150" fill="#7ee0a8" font-size="10.5" font-weight="700">BOARD</text>
+      <g font-size="11">
+        <!-- on-die: 5 channels into 2 pins -->
+        <rect x="60" y="46" width="132" height="58" rx="6" fill="#241d31" stroke="#c792ea"/>
+        <text x="126" y="64" fill="#e2c7f5" text-anchor="middle" font-weight="700" font-size="10.5">5 channels (digital)</text>
+        <text x="126" y="80" fill="#a58fb5" text-anchor="middle" font-size="9">Pulse1·2 · Tri · Noise · DMC</text>
+        <text x="126" y="94" fill="#a58fb5" text-anchor="middle" font-size="9">← we stop here</text>
+        <rect x="212" y="42" width="120" height="32" rx="5" fill="#241d31" stroke="#c792ea"/>
+        <text x="272" y="62" fill="#e2c7f5" text-anchor="middle" font-size="10">Pin 1 (Pulse)</text>
+        <rect x="212" y="80" width="120" height="32" rx="5" fill="#241d31" stroke="#c792ea"/>
+        <text x="272" y="100" fill="#e2c7f5" text-anchor="middle" font-size="10">Pin 2 (TND)</text>
+        <text x="272" y="126" fill="#6f6780" text-anchor="middle" font-size="8.5">open-drain NMOS sinks</text>
+        <!-- board -->
+        <rect x="366" y="60" width="120" height="40" rx="6" fill="#1c2a22" stroke="#7ee0a8"/>
+        <text x="426" y="78" fill="#a8e6c4" text-anchor="middle" font-weight="700" font-size="10">100Ω pull-ups</text>
+        <text x="426" y="92" fill="#7f9d88" text-anchor="middle" font-size="9">R7·R8 → +5V</text>
+        <rect x="500" y="60" width="120" height="40" rx="6" fill="#1c2a22" stroke="#7ee0a8"/>
+        <text x="560" y="78" fill="#a8e6c4" text-anchor="middle" font-weight="700" font-size="10">R-mix + 1µF</text>
+        <text x="560" y="92" fill="#7f9d88" text-anchor="middle" font-size="9">20k·12k · C21 HPF</text>
+        <rect x="634" y="60" width="120" height="40" rx="6" fill="#1c2a22" stroke="#7ee0a8"/>
+        <text x="694" y="78" fill="#a8e6c4" text-anchor="middle" font-weight="700" font-size="10">74HCU04 amp</text>
+        <text x="694" y="92" fill="#7f9d88" text-anchor="middle" font-size="9">U7 + 100k fb (R12)</text>
+        <rect x="768" y="60" width="112" height="40" rx="6" fill="#1b2430" stroke="#7fbfe0"/>
+        <text x="824" y="78" fill="#bfe0f5" text-anchor="middle" font-weight="700" font-size="10">RC filter</text>
+        <text x="824" y="92" fill="#7f93a5" text-anchor="middle" font-size="9">440Hz/14kHz → RCA</text>
+      </g>
+      <!-- arrows -->
+      <g stroke="#5a5266" stroke-width="1.6" fill="none" marker-end="url(#a)">
+        <line x1="192" y1="58" x2="210" y2="58"/><line x1="192" y1="96" x2="210" y2="96"/>
+        <path d="M332,58 C 348,58 350,80 364,80"/><path d="M332,96 C 348,96 350,80 364,80"/>
+        <line x1="486" y1="80" x2="498" y2="80"/><line x1="620" y1="80" x2="632" y2="80"/><line x1="754" y1="80" x2="766" y2="80"/>
+      </g>
+      <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#5a5266"/></marker></defs>
+      <text x="470" y="205" fill="#6f6780" font-size="10.5" text-anchor="middle">tap the DAC gate nodes → 1.789 MHz sidecar (non-linear DAC + IIR filters) → our own decimator → 48 kHz</text>
+    </svg>
+    <figcaption><span class="en">The audio chain. Two open-drain pins become voltages via 100 Ω pull-ups, mix through 20 k (pulse) + 12 k (TND), high-pass through a 1 µF cap, get amplified by a logic inverter abused as an op-amp, then filtered to line level.</span><span class="zh">音訊鏈。兩支開漏極腳經 100Ω 上拉變成電壓、經 20k(pulse)+ 12k(TND)混音、經 1µF 高通、被一顆當 op-amp 用的邏輯反相器放大,再濾到 line level。</span></figcaption>
+  </figure>
+</section>
+
+<section id="nonlinear">
+  <h2><span class="kick"><span class="en">The famous non-linear mix</span><span class="zh">著名的非線性混音</span></span><span class="en">Why louder isn't proportional</span><span class="zh">為什麼越大聲不成正比</span></h2>
+  <p class="en">There is <b>no R-2R DAC</b>. Each channel's level opens a bank of parallel <b>NMOS-to-ground switches</b>, so a bigger digital value lowers the pin's effective resistance to ground. With the board's 100 Ω pull-up to 5 V that forms a voltage divider — and because conductances (not resistances) add in parallel, the output is a <b>compressive, non-linear</b> curve: the step from 0→1 is loud, the step from 14→15 barely moves. Blargg fit it precisely (output normalised 0…1):</p>
+  <p class="zh">這裡<b>沒有 R-2R DAC</b>。每個聲道的音量開一排並聯的<b>對地 NMOS 開關</b>,所以數位值越大,腳對地的等效電阻越小。配主機板 100Ω 上拉到 5V 就成了分壓 —— 而因為並聯相加的是電導(不是電阻),輸出是一條<b>壓縮式、非線性</b>曲線:0→1 那一步很大聲,14→15 那一步幾乎不動。Blargg 精確擬合(輸出正規化 0…1):</p>
+  <div class="eq">
+    pulse_out = <b>95.88</b> / ( 8128 / (pulse1 + pulse2) + <b>100</b> )     <span class="c">// Pin 1</span><br>
+    tnd_out   = <b>159.79</b> / ( 1 / (tri/8227 + noise/12241 + dmc/22638) + <b>100</b> )   <span class="c">// Pin 2</span>
+  </div>
+  <p class="en">The <code>100</code> in each denominator <i>is</i> that external 100 Ω pull-up; the other constants are the NMOS array's per-process on-resistances. Two consequences fall straight out: channels are <b>not independent</b> (two pulses at half volume ≠ one at full), and the whole thing is quieter and warmer than a naive linear sum.</p>
+  <p class="zh">每個分母裡的 <code>100</code> <i>就是</i>那顆外部 100Ω 上拉;其餘常數是 NMOS 陣列的製程導通電阻。兩個結果直接掉出來:聲道<b>不獨立</b>(兩個半音量 pulse ≠ 一個全音量),而且整體比天真的線性相加更小聲、更溫暖。</p>
+
+  <figure>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="720" height="300" fill="#141019"/>
+      <text x="360" y="24" fill="#e8dcff" font-size="14" font-weight="700" text-anchor="middle">Pulse mix: non-linear (real) vs linear (naive)</text>
+      <line x1="70" y1="250" x2="660" y2="250" stroke="#5a5266"/>
+      <line x1="70" y1="60" x2="70" y2="250" stroke="#5a5266"/>
+      <text x="365" y="285" fill="#968ba1" font-size="11" text-anchor="middle">pulse1 + pulse2   (0 … 30)</text>
+      <text x="28" y="155" fill="#968ba1" font-size="11" text-anchor="middle" transform="rotate(-90 28 155)">output (0 … ~0.26)</text>
+      <!-- x ticks -->
+      <g fill="#6f6780" font-size="9" text-anchor="middle"><text x="70" y="266">0</text><text x="266" y="266">10</text><text x="462" y="266">20</text><text x="660" y="266">30</text></g>
+      <!-- linear reference (to same endpoint 0.2585 at sum=30) -->
+      <line x1="70" y1="250" x2="660" y2="60" stroke="#5f5568" stroke-dasharray="5 4" stroke-width="1.4"/>
+      <text x="600" y="80" fill="#8b7f9c" font-size="10">linear (naive)</text>
+      <!-- non-linear curve: points at sum=0,5,10,15,20,25,30 -> out 0,.0556,.105,.149,.189,.226,.2585 -->
+      <!-- map: x=70+sum*19.667 ; y=250-out/0.2585*190 -->
+      <path d="M70,250 L168,209 L266,173 L365,140 L463,111 L561,84 L660,60" fill="none" stroke="#7ee0a8" stroke-width="2.4"/>
+      <circle cx="168" cy="209" r="3" fill="#7ee0a8"/><circle cx="266" cy="173" r="3" fill="#7ee0a8"/><circle cx="365" cy="140" r="3" fill="#7ee0a8"/><circle cx="463" cy="111" r="3" fill="#7ee0a8"/><circle cx="561" cy="84" r="3" fill="#7ee0a8"/>
+      <text x="300" y="120" fill="#7ee0a8" font-size="11" font-weight="700">non-linear (real)</text>
+      <text x="150" y="195" fill="#5f7d68" font-size="9">0→1 is a big step…</text>
+      <text x="470" y="150" fill="#5f7d68" font-size="9">…14→15 barely moves</text>
+    </svg>
+    <figcaption><span class="en">The pulse mix compresses: early steps are loud, later steps flatten. A naive linear DAC (dashed) would be wrong at every point but the endpoints.</span><span class="zh">Pulse 混音會壓縮:前面的步階大聲、後面的步階變平。天真的線性 DAC(虛線)除了端點之外每一點都錯。</span></figcaption>
+  </figure>
+</section>
+
+<section id="board">
+  <h2><span class="kick"><span class="en">The board circuit</span><span class="zh">主機板電路</span></span><span class="en">A logic gate pretending to be an op-amp</span><span class="zh">一顆假裝成 op-amp 的邏輯閘</span></h2>
+  <p class="en">On an NES-CPU-11 board, after the two pins:</p>
+  <p class="zh">在 NES-CPU-11 板上,兩支腳之後:</p>
+  <ul>
+    <li class="en"><b>100 Ω pull-ups (R7, R8) to +5 V</b> — turn each pin's sink current into a voltage.</li>
+    <li class="zh"><b>100Ω 上拉(R7、R8)到 +5V</b> —— 把每支腳的下拉電流變成電壓。</li>
+    <li class="en"><b>Mixing resistors: 20 kΩ (R9) on pulse, 12 kΩ (R10) on TND</b>, joined at a mixing node. (The Famicom uses different values — that's why US and JP consoles have a different square-vs-triangle balance.)</li>
+    <li class="zh"><b>混音電阻:pulse 串 20kΩ(R9)、TND 串 12kΩ(R10)</b>,接在一個混音節點。(Famicom 數值不同 —— 這就是美版/日版方波對三角波音量比不一樣的原因。)</li>
+    <li class="en"><b>1 µF coupling cap (C21)</b> — DC-blocks the mix, a ~90 Hz high-pass.</li>
+    <li class="zh"><b>1µF 耦合電容(C21)</b> —— 隔掉混音的直流,~90Hz 高通。</li>
+    <li class="en"><b>74HCU04 (U7) unbuffered inverter as the amplifier</b> — the NES uses no op-amp; it wraps a 100 kΩ feedback resistor (R12) around one logic inverter to force it into its linear region.</li>
+    <li class="zh"><b>74HCU04(U7)無緩衝反相器當放大器</b> —— NES 沒用 op-amp;它在一顆邏輯反相器上跨 100kΩ 回授(R12)硬逼進線性區。</li>
+    <li class="en"><b>Output RC filter</b> — roughly a 440 Hz high-pass and a 14 kHz low-pass, out to the RCA jack. Cartridge expansion audio (VRC6, FDS, Sunsoft 5B…) mixes in here on the Famicom via edge pins 45/46; the NES routed it to an unused expansion pin.</li>
+    <li class="zh"><b>輸出 RC 濾波</b> —— 約 440Hz 高通 + 14kHz 低通,到 RCA。卡帶擴充音訊(VRC6、FDS、Sunsoft 5B…)在 Famicom 經金手指 pin 45/46 混進這裡;NES 把它接到一支沒用的擴充腳。</li>
+  </ul>
+</section>
+
+<section id="ours">
+  <h2><span class="kick"><span class="en">Doing it ourselves</span><span class="zh">自己做</span></span><span class="en">A 1.789 MHz sidecar, our own DSP</span><span class="zh">1.789MHz sidecar,自己寫的 DSP</span></h2>
+  <p class="en">As with video, we'll <b>write the DSP ourselves</b> — not blargg's <code>Nes_Snd_Emu</code>, not a copy of Mesen's filters. The whole analog chain reduces to a handful of first-order IIR filters at the CPU clock:</p>
+  <p class="zh">跟視訊一樣,我們會<b>自己寫 DSP</b> —— 不用 blargg 的 <code>Nes_Snd_Emu</code>、不抄 Mesen 的濾波器。整條類比鏈化簡成 CPU 時脈上的幾個一階 IIR 濾波器:</p>
+  <pre><span class="c">// per CPU cycle (Fs = 1.789773 MHz) — read the 5 channel values, mix non-linearly</span>
+s = 95.88/(8128/(p1+p2)+100) + 159.79/(1/(tri/8227.+noise/12241.+dmc/22638.)+100);
+
+<span class="c">// analog board = cascaded first-order IIR:  y = a0·x + a1·x1 + b1·y1</span>
+s = hpf(s, 90);      <span class="c">// 1µF coupling  (DC block)</span>
+s = hpf(s, 440);     <span class="c">// NES amp/output net (Famicom: a single ~37 Hz)</span>
+s = lpf(s, 14000);   <span class="c">// RC output low-pass</span>
+
+<span class="c">// down-sample 1.789 MHz → 48 kHz (ratio 37.286, NON-integer). Never decimate raw —</span>
+<span class="c">// a square wave has infinite harmonics and would alias horribly. Band-limit first:</span>
+out48k = polyphase_FIR_decimate(s);   <span class="c">// FIR LPF (cut ~20 kHz) then fractional resample</span></pre>
+  <p class="en">Build order, each step audible: non-linear DAC + naive resample (you already hear <i>SMB</i>, a bit harsh) → add the three IIR filters (it warms up) → replace the resampler with a proper band-limited polyphase decimator (the aliasing hiss goes away) → optional expansion-audio mix.</p>
+  <p class="zh">建置順序,每步都能聽:非線性 DAC + 天真重採樣(已能聽到<i>瑪利歐</i>,有點刺) → 加三個 IIR 濾波器(暖起來) → 把重採樣換成正規帶限 polyphase decimator(混疊嘶聲消失) → 選配擴充音訊混音。</p>
+</section>
+
+<section id="plug">
+  <h2><span class="kick"><span class="en">Where it plugs in</span><span class="zh">接在哪</span></span><span class="en">The AprVisual integration — a plan</span><span class="zh">AprVisual 整合 —— 一個計畫</span></h2>
+  <ol>
+    <li class="en"><b>Tap the DAC gate nodes.</b> In the switch-level 2A03, find the digital lines from the five channel output latches to their NMOS DAC gates; each CPU cycle, read the five integers (0–15, or 0–127 for DMC). That is the clean cut between "bit-exact digital" and "analog behavioural" — no SPICE for the 100 Ω divider.</li>
+    <li class="zh"><b>接出 DAC 閘極節點。</b>在開關級 2A03 裡找五個聲道輸出 latch 到 NMOS DAC 閘極的數位線;每 CPU cycle 讀五個整數(0–15,DMC 0–127)。那就是「bit-exact 數位」與「類比行為」的乾淨切點 —— 100Ω 分壓不跑 SPICE。</li>
+    <li class="en"><b>A 1.789773 MHz audio sidecar</b> — the non-linear DAC + the IIR chain + our own polyphase decimator to 48 kHz, exactly as above.</li>
+    <li class="zh"><b>1.789773MHz 音訊 sidecar</b> —— 非線性 DAC + IIR 鏈 + 我們自己的 polyphase decimator 到 48kHz,如上。</li>
+  </ol>
+  <p class="note"><span class="en"><b>Honest status.</b> A roadmap, not built — nothing here exists in the switch-level engine yet, and like the video chain it's a <i>presentation</i> layer that changes what you <i>hear</i>, not a bit of the golden-checksum logic. The AprNes reference emulator already has a working APU + filter path (<code>APU.cs</code>, <code>WaveOutPlayer</code>) to compare against; what's new here is generating the analog audio from the transistor-level APU and writing the DSP ourselves. Pairs with the <a href="video-signal-chain.html">video chain</a> to complete the mixed-signal picture.</span><span class="zh"><b>誠實狀態。</b>路線圖、還沒做 —— 開關級引擎裡一點都還沒有,而且跟視訊鏈一樣是<i>呈現</i>層:改變你<i>聽到</i>什麼,不動金 checksum 的邏輯。AprNes 參考模擬器已有能用的 APU + 濾波路徑(<code>APU.cs</code>、<code>WaveOutPlayer</code>)可比對;這裡新的是從電晶體級 APU 產生類比音訊、並自己寫 DSP。與<a href="video-signal-chain.html">視訊鏈</a>成對,補完整個混合訊號圖。</span></p>
+  <p style="margin-top:16px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · the other half: <a href="video-signal-chain.html">the video chain</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · 另一半:<a href="video-signal-chain.html">視訊鏈</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive #6 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · from a hardware/audio consult (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 #6 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · 來自一次硬體/音訊諮詢(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">five numbers, drained through a non-linear network into a sound.</span><span class="zh">五個數字,經非線性網路流成一個聲音。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

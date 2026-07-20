@@ -62,13 +62,27 @@ argument (the `:` looks like a unix path-list separator).
 
 Screenshots: `c_0.png`, `c_25.png`, `c_50.png`, …
 
+## Running on other emulators
+
+The ROM initialises its own palette (`$3F00` = black, `$3F01` = white) **and clears the
+attribute table to palette 0**, so the text renders correctly regardless of each emulator's
+undefined power-on palette RAM (an earlier version left some glyphs on an uninitialised
+palette → invisible/black on some emulators).
+
+More importantly, the thermometer **needs a model of PPU open-bus decay** — it times how long
+the `$2002` low bits take to fall. Most emulators (and the custom AprNes with this build's
+temperature model) have it; **an emulator that never decays open bus has nothing to measure**,
+so the poll loop would run forever. The ROM guards against that: after ~2M loops with no bit
+dropping it gives up and shows **`--.- DEGREE CELSIUS`** instead of hanging on a black screen.
+The same `--.-` appears for temperatures below the calibrated range (colder than ~0 °C).
+
 ## Honest limits (this is a technical demo, not a precision instrument)
 
 - **Warm-end resolution.** When decay is fast (warm), the loop runs few times, so the count
   is coarse. Above ~40 °C, adjacent degrees can share a count, so the 0.1 digit there is not
   real resolution (≈ ±0.5 °C — 43 and 44 °C both read `43.5`). The cold end (0–~30 °C) is
   genuinely ~0.1 °C.
-- **Range.** The table covers 0.0–51.1 °C; outside it clamps.
+- **Range.** The table covers 0.0–51.1 °C; outside it clamps (and reads `--.-` when colder).
 - **Per-model calibration.** The count depends on the emulator's exact loop timing, so the
   table is calibrated to *this* build (`tools/aprnes`). On real hardware the absolute offset
   differs per console (a one-point calibration fixes it; the Arrhenius *slope* is universal).

@@ -153,6 +153,21 @@ ntclr:
     dex
     bne ntclr
 
+    ; ---- clear the attribute table $23C0-$23FF to 0 (every quadrant -> palette 0) ----
+    ; Power-on palette RAM is undefined and differs per emulator, so if a glyph landed
+    ; on a palette we never wrote, its colour 1 could be black -> invisible text. Forcing
+    ; all attributes to palette 0 (whose colour 1 we DID set to white) fixes that.
+    lda #$23
+    sta $2006
+    lda #$C0
+    sta $2006
+    lda #$00
+    ldx #$40             ; 64 attribute bytes
+attrclr:
+    sta $2007
+    dex
+    bne attrclr
+
 ; ============================================================================
 ;  MEASURE  —  time the open-bus decay as a loop count
 ; ============================================================================
@@ -175,7 +190,24 @@ measure:
     inc cnt1
     bne measure
     inc cnt2
+    lda cnt2             ; timeout guard: ~2M loops with no bit ever dropping means
+    cmp #$20             ; this emulator does NOT model open-bus decay (nothing to
+    bcs no_decay         ; measure) -> bail out instead of hanging on a black screen
     jmp measure
+no_decay:
+    ; This emulator has no open-bus decay: show "--.-" instead of a bogus reading.
+    lda #$21             ; name-table row 14, col 6 = $21C6
+    sta $2006
+    lda #$C6
+    sta $2006
+    lda #$2D             ; '-'
+    sta $2007
+    sta $2007
+    lda #$2E             ; '.'
+    sta $2007
+    lda #$2D             ; '-'
+    sta $2007
+    jmp put_suffix       ; print " DEGREE CELSIUS" then enable rendering
 measured:
     ; cnt2:cnt1:cnt0 now holds the decay time in loop iterations.
 
@@ -296,6 +328,7 @@ put_tens:
     ora #$30             ; '0' + frac
     sta $2007
 
+put_suffix:
     lda #<suffix_str     ; then the literal " DEGREE CELSIUS" (via a zp pointer,
     sta ptr              ; which avoids absolute,X addressing-mode ambiguity)
     lda #>suffix_str

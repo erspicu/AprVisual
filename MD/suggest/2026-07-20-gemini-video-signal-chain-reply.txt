@@ -1,0 +1,122 @@
+這是一個非常硬核且極具價值的專案！將 NES 從電晶體級別一路推向真實的類比 Composite 訊號，是目前硬體保存與精確模擬的聖杯之一。
+
+作為硬體與訊號工程師，我會把這個過程拆解為 **「晶片內部 DAC 產生」**、**「主機板類比放大與緩衝」**、以及 **「軟體模擬的 NTSC 編解碼」** 三大塊來為你詳細解答。
+
+---
+
+### 1. 完整訊號鏈盤點 (從 2C02 到 RCA 接頭)
+
+要得到正確的 Composite 波形，你**不需要**模擬 RF 調變器（如 Mitsumi 鐵殼模組內的 RF 振盪電路），因為 Composite Baseband 訊號在進入 RF 模組前/旁就已經成型了。
+
+**完整訊號鏈（按順序）：**
+
+1. **[2C02 內部] 數位色彩/同步邏輯 (Digital Logic)**：你目前做到的階段。輸出 Sync、Luma (亮度階)、Chroma (色彩相位)、Colorburst 致能、Emphasis 控制。
+2. **[2C02 內部] 相位產生器與多工器 (Phase Generator & MUX)**：利用 21.477MHz 主時脈，產生 12 個相位的方波。
+3. **[2C02 內部] 視訊 DAC (Video DAC)**：由矽晶片上的電阻分壓網路 (Resistor Divider) 與 NMOS 傳輸閘 (Pass Transistors) 組成，直接將電壓輸出到 Pin 21 (VOUT)。
+4. **[主機板上] 視訊放大與緩衝電路 (Video Amplifier / Buffer)**：
+   * 2C02 的 VOUT 驅動能力很弱（輸出阻抗高），不能直接推動 75 歐姆的電視負載。
+   * **關鍵元件 (以最常見的 NES-CPU-04 ~ 11 主機板為例)**：
+     * **Q1 (PNP 電晶體, 型號 `2SA937` 或等效 `2SA1015`)**：做第一級放大/位準平移。
+     * **Q2 (NPN 電晶體, 型號 `2SC2021` 或等效 `2SC1815`)**：射極隨耦器 (Emitter Follower)，提供電流驅動能力。
+     * **被動元件**：周圍的偏壓電阻（如 220Ω, 510Ω）、隔直流電容 (220µF)。
+5. **[電視端/擷取卡] NTSC 解碼器**：將 Composite 訊號透過帶通/低通濾波器拆分出 Y (亮度) 與 C (色彩)，再經由 3.58MHz 震盪器解調出 U/V (或 I/Q)，最後轉為 RGB。
+
+**結論**：要得到完美的 Composite 波形，你必須精確模擬 **(3) 的等效電阻網路** 與 **(4) 的雙電晶體放大電路**。
+
+---
+
+### 2. 2C02 視訊輸出如何運作 (硬體機制)
+
+NES **沒有**傳統的 R-2R DAC，也沒有真正的類比正弦波產生器。它的 Composite 波形是「粗暴地切換不同直流電壓」拼湊出來的方波組合，靠電視端的低通濾波器將其平滑化。
+
+#### A. 電壓階層 (Voltage Levels)
+2C02 內部有一條串聯的電阻網路連接著 VCC (5V) 和 GND。透過數位邏輯，打開對應的 NMOS，將特定節點的電壓導通到 VOUT。
+* **Luma (亮度)**：有 4 階 (0, 1, 2, 3)。
+* **Chroma (色彩)**：每個顏色由「高電壓」和「低電壓」以 3.58MHz 切換形成方波。
+根據 Nesdev 上的精確量測 (由 lidnariq 等人提供)，正規化後的電壓階（約略值，相對於 Sync = 0V）：
+* `$0D` (黑於黑)：-0.11V (導致電視 Sync 分離器誤判的元凶)
+* Sync (同步訊號)：0.00V
+* Colorburst L / 黑階：約 0.30V
+* Colorburst H / 白階：約 1.00V ~ 1.30V 之間（依 Luma 階度而定）
+
+#### B. 色彩相位編碼 (Phase Encoding)
+* NTSC 的 Colorburst 是 3.579545 MHz。
+* NES 主時脈是 `21.477272 MHz` (剛好是 Colorburst 的 6 倍)。
+* 2C02 內部有一個 12 步的環形計數器 (Ring Counter)，運作在 21.477MHz。這提供了 12 個相位 (Phase 0 ~ 11)。
+* **每個像素 (Pixel) 佔用 4 個主時脈週期**。
+* 當需要輸出某個顏色 (例如調色盤 `$1x` 到 `$Cx`)，2C02 會將該像素時脈內的電壓，依照選定的相位，在 Luma 對應的 High / Low 電壓之間切換。
+* **Dot Crawl (網點爬行) 的成因**：因為一個像素長度是 4 個主時脈，而一個色彩週期是 6 個主時脈。兩者無法整除，導致下一條掃描線的相位會偏移（每條線偏移 4 個 PPU 時脈），這就是硬體層面必然產生的 NTSC 假影，**只要你以 21.477MHz 輸出樣本，Dot crawl 會自動完美產生！**
+
+#### C. Emphasis (強調位元)
+$2001 暫存器的 Red, Green, Blue 位元。
+* **物理機制**：當 Emphasis 開啟時，2C02 會在「非該顏色的相位期間」，導通額外的接地電阻（Pull-down），導致電壓**整體下降約 20%**。
+* **結果**：不是增強某顏色，而是「衰減其他顏色與整體亮度」，讓該顏色相對凸顯。
+
+---
+
+### 3. 關鍵元件建模與軟體實作
+
+要銜接你的 `AprVisual` 電晶體級模擬器，我建議採用 **「Sidecar 類比行為模型」**。不要用 SPICE 模擬外部電晶體（太慢），而是用數學公式/查找表算出電壓，然後丟給數位 NTSC 濾波器。
+
+#### A. 內部 DAC 的等效與建模
+你可以直接使用 Nesdev 社群已經測量好的「輸出電壓查找表 (Lookup Table)」。
+* 取樣率：**絕對必須是 21.477272 MHz**。這是 NES 類比模擬的黃金頻率。
+* 每個像素產生 4 個樣本 (Samples)。
+* 模型邏輯 (每 1/21.477M 秒執行一次)：
+  1. 從 PPU 數位端讀取：`Sync_out`, `Color_Phase_Select` (0-11), `Luma_Select` (0-3), `Emphasis_bits`。
+  2. 讀取當前 PPU 的 Master Clock 計數器 (對除以 12 取餘數，得到 `Current_Phase`)。
+  3. 如果是 Sync 期間 -> 輸出 Sync 電壓。
+  4. 如果是 Colorburst 期間 -> 依照 `Current_Phase` 輸出 Colorburst 波形電壓。
+  5. 畫面期間 -> 如果 `Current_Phase` 落在該顏色的半波內，輸出 `Level_High`，否則輸出 `Level_Low`。
+  6. 套用 Emphasis 衰減係數。
+
+#### B. 外部電路 (NES-CPU-11 放大器)
+* **等效電路 (供參考)**：
+  * VOUT -> `Q1 (2SA937)` 基極。
+  * `Q1` 射極接 220Ω 到 5V；集極接 510Ω 到 GND。
+  * `Q1` 射極同時接 `Q2 (2SC2021)` 基極。
+  * `Q2` 集極接 5V；射極串聯 110Ω 電阻與 220µF 電容，輸出到電視 (負載 75Ω 接地)。
+* **模擬實作**：這其實是一個非線性的放大器。如果你追求極致，可以跑一個極簡的 Ebers-Moll 電晶體模型；但**務實的做法**是，直接使用經過這層電路後的「最終類比電壓值」。大多數高階模擬器（如 Mesen）內部建有一張預先算好（或測量好）的陣列，直接將內部數位狀態 mapping 到最終 RCA 端子的電壓值（約 0V ~ 1V 之間）。
+
+#### C. 將 Composite 訊號解碼為 RGB
+產生了 21.477MHz 的 Composite 樣本陣列後，你需要模擬電視機將其變回螢幕上的 RGB。
+* **推薦方案**：直接整合 **`nes_ntsc` (by blargg)** 函式庫，或是參考 **Mesen 的 NTSC 濾波器實作**。
+* **解碼原理（簡述，軟體實作方式）**：
+  1. **低通濾波 (Y/亮度)**：將 Composite 樣本通過一個 ~3MHz 的低通濾波器，得到亮度 Y。
+  2. **帶通濾波與解調 (C/色彩)**：將 Composite 乘上 `sin(2π * f_colorburst * t)` 和 `cos(...)`，然後通過低通濾波器（約 0.5MHz ~ 1.5MHz），得到 I 和 Q (或 U 和 V) 色差訊號。
+  3. **YIQ 轉 RGB**：套用標準 NTSC YIQ to RGB 矩陣。
+  4. **降取樣 (Downsampling)**：將 21.477MHz 的訊號降取樣到標準的顯示解析度（例如 602x240 或 1204x480 以顯示 artifacts）。
+
+---
+
+### 4. 實作路線建議 (給 AprVisual 的具體建議)
+
+考量到你已經有了 bit-exact 的 2C02 網表，這是我的建議整合步驟：
+
+1. **攔截 PPU 數位訊號 (邊界點)**：
+   在你目前的 PPU 網表中，找到驅動 Video DAC 傳輸閘的那些控制節點。包含：`Luma 0-3`、`Chroma 0-15` (用來對應 12 相位)、`Sync`、`Colorburst Enable`、`Emphasis R/G/B`。
+
+2. **建立 21.477MHz 的取樣 Sidecar**：
+   * 主時脈每 Tick (21.477MHz) 呼叫一次類比產生函數。
+   * **不要**在 SPICE/電晶體層級模擬類比放大器，效能會崩潰，且對畫面的精確度提升不成比例。
+   * 使用查表法 (Lookup Table)。建立一個函數 `float get_composite_voltage(luma, chroma, phase_counter, emphasis, sync)`。
+
+3. **查表數據參考 (Lidnariq 的測量值)**：
+   你可以參考 Nesdev Wiki 上的 "NTSC video" 頁面，裡面有精確的電壓位準。
+   簡單的基準 (相對於 1Vpp 的標準 Composite)：
+   * Sync: -0.285V (相對於 Blanking)
+   * Blanking: 0V (基準)
+   * Black (Luma 0D): -0.11V (黑於黑)
+   * Luma 0x: 0.22V (低), 0.61V (高)
+   * Luma 3x: 0.71V (低), 1.09V (高)
+   *(註：這些值已經包含了外部電晶體放大器的非線性影響，直接套用最為逼真)*。
+
+4. **NTSC 濾波器套用**：
+   將上述產生的 21.477MHz `float` 陣列（每條掃描線約 341 * 4 = 1364 個樣本），分批餵給 `nes_ntsc` 的客製化版本，或者自己寫一個簡單的 FIR 濾波器來解調 YIQ。
+
+**必看參考資源**：
+* **Visual2C02**：Quietust 的實作中有 DAC 的電阻比例，你可以從其 JavaScript 源碼中看到他如何計算 VOUT 電壓。
+* **Mesen Source Code**：目前最精確的 NES 模擬器，其 `VideoFilterNtsc.cpp` 完美示範了如何從 PPU 狀態產生 21.477MHz 的 composite wave 並解碼成 RGB。
+* **Nesdev Wiki "NTSC video"**：必讀，特別是 "Color phases" 和 "Emphasis" 章節。
+
+**總結**：將你的 Switch-level 2C02 在「數位控制訊號驅動 DAC 的前一刻」截斷，轉換為 C++ 的行為模型（查表法）來生成 21.477MHz 類比電壓樣本，最後用 DSP 濾波器解碼。這能在保證 Bit-exact 邏輯的同時，完美還原最真實的類比 NTSC 畫面！

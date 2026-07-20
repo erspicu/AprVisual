@@ -6,14 +6,16 @@ it headlessly. This is the runnable companion to `WebSite/s1a/nes-thermometer.ht
 
 ## What it does
 
-The PPU I/O open-bus latch (`$2002` low 5 bits) is held only by parasitic capacitance and
-bleeds to 0 through junction leakage. That leakage is Arrhenius in temperature
-(`I_leak ∝ exp(-Ea/kT)`), so the **decay time** scales strongly with temperature. The ROM:
+The PPU I/O open-bus latch (read via a write-only register) is held only by parasitic
+capacitance and bleeds to 0 through junction leakage. That leakage is Arrhenius in
+temperature (`I_leak ∝ exp(-Ea/kT)`), so the **decay time** scales strongly with
+temperature. The ROM:
 
-1. primes the latch to `$1F` (writes `$FF` to `$2003` / OAMADDR — drives all 8 latch bits
-   without enabling NMI or rendering),
-2. tight-polls `$2002`, keeping the low 5 bits, and counts loop iterations until the first
-   bit drops (a 24-bit decay count in zero page `$10..$12`),
+1. primes the latch to `$FF` by **writing `$2002`** (PPUSTATUS is read-only, so the write is
+   ignored as a register op but still fills the latch — with no side effect),
+2. tight-polls a **write-only register (`$2001`)**, which returns the full 8-bit open bus,
+   and counts loop iterations until the first bit drops (a 24-bit decay count in zero page
+   `$10..$12`),
 3. inverts count → temperature with a precomputed **0.1 °C lookup table** and a 9-step
    power-of-two binary search (no 6502 multiply/divide/float), and
 4. prints `NN.N DEGREE CELSIUS` on screen (the temperature tenths are also at `$0013`).
@@ -58,7 +60,7 @@ argument (the `:` looks like a unix path-list separator).
 | 0  | `0.0`  | | 30 | `30.0` |
 | 10 | `10.0` | | 40 | `40.0` |
 | 20 | `20.0` | | 43 | `43.5` |
-| 25 | `25.0` | | 50 | `50.5` |
+| 25 | `25.0` | | 50 | `50.0` |
 
 Screenshots: `c_0.png`, `c_25.png`, `c_50.png`, …
 
@@ -70,7 +72,7 @@ undefined power-on palette RAM (an earlier version left some glyphs on an uninit
 palette → invisible/black on some emulators).
 
 More importantly, the thermometer **needs a model of PPU open-bus decay** — it times how long
-the `$2002` low bits take to fall. Most emulators (and the custom AprNes with this build's
+the open-bus latch takes to fall. Most emulators (and the custom AprNes with this build's
 temperature model) have it; **an emulator that never decays open bus has nothing to measure**,
 so the poll loop would run forever. The ROM guards against that: after ~2M loops with no bit
 dropping it gives up and shows **`--.- DEGREE CELSIUS`** instead of hanging on a black screen.

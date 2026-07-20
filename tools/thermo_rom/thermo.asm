@@ -28,10 +28,18 @@
 ;  ---------------------------------------------------------------------------
 ;  THE ONE TRICK: read the PPU latch, NOT the CPU bus
 ;  ---------------------------------------------------------------------------
-;  You cannot poll a CPU open-bus address: every instruction fetch re-drives the
-;  CPU's external data bus, re-charging that capacitor, so it never decays. The
-;  PPU's internal I/O latch is on the other die and the CPU's fetches never touch
-;  it — that is why we poll $2002 and mask the low 5 bits.
+;  "Open bus" IS the data bus itself, not separate storage. You cannot poll a CPU
+;  open-bus address: the polling instructions have to travel over that same bus, so
+;  each fetch drives its own opcode/operand bytes onto it and OVERWRITES whatever you
+;  wrote (which also, incidentally, refreshes it and staves off decay). The PPU's
+;  internal I/O latch is on the other die and the CPU's fetches never touch it.
+;
+;  We seed and read it the idiomatic way: WRITE $2002 (a read-only register — the
+;  write is ignored as a register op but still fills the PPU I/O latch, with NO side
+;  effect), then READ $2001 (a write-only register — reading it returns the full
+;  8-bit open-bus latch, since the PPU drives nothing). (Reading $2002 instead would
+;  work too but only exposes the low 5 bits — the PPU drives the top 3 status bits.)
+;  With thanks to a NESdev reviewer who corrected the earlier $2003/$2002 version.
 ;
 ;  ---------------------------------------------------------------------------
 ;  FROM COUNT TO CELSIUS (done with NO 6502 multiply / divide / float)
@@ -171,19 +179,19 @@ attrclr:
 ; ============================================================================
 ;  MEASURE  —  time the open-bus decay as a loop count
 ; ============================================================================
-    ; Prime the PPU open-bus latch to $1F. Writing ANY PPU register drives the
-    ; latch; we use $2003 (OAMADDR) because it has no NMI/rendering side effects.
+    ; Prime the PPU open-bus latch to $FF by writing a read-only register ($2002).
+    ; The write is ignored as a register operation but still fills the PPU I/O latch,
+    ; with no side effect at all (unlike $2003, which would also set OAMADDR).
     lda #$FF
-    sta $2003
+    sta $2002
 
     lda #$00
     sta cnt0
     sta cnt1
     sta cnt2
 measure:
-    lda $2002            ; read status; low 5 bits = the decaying open-bus latch
-    and #$1F             ; keep only the open-bus bits (mask out vblank/sprite flags)
-    cmp #$1F             ; still all-ones?
+    lda $2001            ; read a write-only register -> the FULL 8-bit open-bus latch
+    cmp #$FF             ; still all-ones? (all 8 bits are open bus; nothing to mask)
     bne measured         ; a bit dropped -> the latch has decayed -> stop timing
     inc cnt0             ; else count this iteration (24-bit increment)
     bne measure

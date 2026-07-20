@@ -77,10 +77,10 @@
 
 <section id="trap">
   <h2><span class="kick"><span class="en">The one non-obvious trick</span><span class="zh">那個不明顯的訣竅</span></span><span class="en">You cannot use the CPU's own bus</span><span class="zh">你不能用 CPU 自己的匯流排</span></h2>
-  <p class="en">Here is the trap that sinks the naive version. If you write <code>0xFF</code> to an open-bus address and then run a loop to poll it, it will read back <code>0xFF</code> <i>forever</i> — the decay never seems to happen. Why? Because <b>every instruction fetch drives the CPU's external data bus</b>. The opcode bytes of your <code>LDA</code>, <code>CMP</code>, <code>BNE</code> loop land on those same pins every single clock cycle, re-charging the capacitance faster than it can leak. You would be refreshing the very thing you are trying to watch decay.</p>
-  <p class="zh">這是讓天真版本沉船的陷阱。如果你寫 <code>0xFF</code> 到一個 open-bus 位址、然後跑迴圈輪詢它,它會<i>永遠</i>讀回 <code>0xFF</code> —— 衰減好像從沒發生。為什麼?因為<b>每一次指令抓取都會驅動 CPU 的外部資料匯流排</b>。你 <code>LDA</code>、<code>CMP</code>、<code>BNE</code> 迴圈的 opcode 位元組每一個時鐘週期都落在那同一組接腳上,充電比漏電快,你會一直 refresh 你正想看它衰減的那個東西。</p>
-  <p class="en">The way out is to watch a bus the CPU's instruction fetches do <i>not</i> touch: the <b>PPU's internal data latch</b>. Writing any PPU register (<code>$2000</code>–<code>$2007</code>) fills a parasitic capacitance <i>inside</i> the 2C02. Reading <code>$2002</code> (PPUSTATUS) returns the three real status flags in the top bits — but the <b>bottom 5 bits leak the decaying PPU latch</b>. Because that latch is on the PPU die, the 6502 fetching opcodes on the CPU bus never disturbs it. So the procedure is:</p>
-  <p class="zh">出路是去看一條 CPU 指令抓取<i>不會</i>碰到的匯流排:<b>PPU 的內部資料閂鎖</b>。寫任何 PPU 暫存器(<code>$2000</code>–<code>$2007</code>)會填滿 2C02 <i>內部</i>一顆寄生電容。讀 <code>$2002</code>(PPUSTATUS)高位元回傳三個真狀態旗標 —— 但<b>低 5 位漏出衰減中的 PPU 閂鎖</b>。因為那個閂鎖在 PPU 晶粒上,6502 在 CPU 匯流排上抓 opcode 從不會擾動它。所以流程是:</p>
+  <p class="en">Here is the trap that sinks the naive version. If you write <code>0xFF</code> to a CPU open-bus address and then run a loop to poll it, you never see it decay. The key insight (corrected by a NESdev reviewer — see the note at the end): <b>"open bus" IS the data bus itself, not storage that is separate from it.</b> The polling instructions have to travel over that same bus, so every fetch drives its own opcode and operand bytes onto the pins, <b>overwriting whatever you wrote</b> — you would be reading the last opcode, not your decaying byte. (That also, incidentally, refreshes the bus and staves off decay, but the operative reason is the overwrite.)</p>
+  <p class="zh">這是讓天真版本沉船的陷阱。如果你寫 <code>0xFF</code> 到一個 CPU open-bus 位址、然後跑迴圈輪詢它,你永遠看不到它衰減。關鍵洞見(經一位 NESdev 審閱者更正 —— 見文末說明):<b>「open bus」就是資料匯流排本身,不是跟它分開的儲存。</b>輪詢用的指令必須走同一條匯流排,所以每次抓取都把自己的 opcode 與運算元位元組驅上接腳,<b>把你寫的東西整個覆蓋掉</b> —— 你讀到的是最後那個 opcode,不是你那個衰減中的位元組。(這順帶也刷新了匯流排、延後衰減,但真正的原因是覆寫。)</p>
+  <p class="en">The way out is to watch a bus the CPU's instruction fetches do <i>not</i> touch: the <b>PPU's internal I/O latch</b>. Writing any PPU register (<code>$2000</code>–<code>$2007</code>) fills a parasitic capacitance <i>inside</i> the 2C02. The idiomatic way to seed and read it: <b>write <code>$2002</code></b> (PPUSTATUS is read-only, so the write is ignored as a register op but still fills the latch — with <i>no</i> side effect), then <b>read a write-only register</b> such as <code>$2001</code>, which the PPU doesn't drive, so you get the <b>full 8-bit</b> decaying latch. (You <i>can</i> read <code>$2002</code> instead, but the PPU drives its top 3 status bits, so you'd only see the low 5 bits decay — and you'd have to mask them.) Because that latch is on the PPU die, the 6502's opcode fetches never disturb it. So the procedure is:</p>
+  <p class="zh">出路是去看一條 CPU 指令抓取<i>不會</i>碰到的匯流排:<b>PPU 的內部 I/O 閂鎖</b>。寫任何 PPU 暫存器(<code>$2000</code>–<code>$2007</code>)會填滿 2C02 <i>內部</i>一顆寄生電容。慣例的 seed + 讀法:<b>寫 <code>$2002</code></b>(PPUSTATUS 是唯讀,所以寫入被當暫存器操作忽略、但仍填進閂鎖 —— 而且<i>無</i>副作用),再<b>讀一個寫入專用暫存器</b>(如 <code>$2001</code>),PPU 不驅動它,於是你拿到<b>完整 8 位</b>的衰減閂鎖。(你<i>也可以</i>改讀 <code>$2002</code>,但 PPU 會驅動它高 3 個狀態位元,所以只看得到低 5 位衰減、還得遮罩。)因為那個閂鎖在 PPU 晶粒上,6502 抓 opcode 從不擾動它。所以流程是:</p>
 
   <figure>
     <svg viewBox="0 0 880 260" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
@@ -90,17 +90,17 @@
       <g font-size="12.5">
         <rect x="40" y="60" width="150" height="60" rx="7" fill="#241d31" stroke="#c792ea" stroke-width="1.4"/>
         <text x="115" y="84" fill="#e2c7f5" text-anchor="middle" font-weight="700">write $FF</text>
-        <text x="115" y="102" fill="#a58fb5" text-anchor="middle" font-size="11">to $2000 → primes</text>
-        <text x="115" y="115" fill="#a58fb5" text-anchor="middle" font-size="11">PPU latch = 11111</text>
+        <text x="115" y="102" fill="#a58fb5" text-anchor="middle" font-size="11">to $2002 → primes</text>
+        <text x="115" y="115" fill="#a58fb5" text-anchor="middle" font-size="11">PPU latch = $FF</text>
 
         <rect x="240" y="60" width="170" height="60" rx="7" fill="#1b2430" stroke="#7fbfe0" stroke-width="1.4"/>
         <text x="325" y="84" fill="#bfe0f5" text-anchor="middle" font-weight="700">poll loop</text>
-        <text x="325" y="102" fill="#7f93a5" text-anchor="middle" font-size="11">LDA $2002 · AND #$1F</text>
-        <text x="325" y="115" fill="#7f93a5" text-anchor="middle" font-size="11">CMP #$1F · count cycles</text>
+        <text x="325" y="102" fill="#7f93a5" text-anchor="middle" font-size="11">LDA $2001 (write-only reg)</text>
+        <text x="325" y="115" fill="#7f93a5" text-anchor="middle" font-size="11">CMP #$FF · count loops</text>
 
         <rect x="460" y="60" width="170" height="60" rx="7" fill="#1c2a22" stroke="#7ee0a8" stroke-width="1.4"/>
         <text x="545" y="84" fill="#a8e6c4" text-anchor="middle" font-weight="700">first bit drops</text>
-        <text x="545" y="102" fill="#7f9d88" text-anchor="middle" font-size="11">latch ≠ 11111</text>
+        <text x="545" y="102" fill="#7f9d88" text-anchor="middle" font-size="11">latch ≠ $FF</text>
         <text x="545" y="115" fill="#7f9d88" text-anchor="middle" font-size="11">→ stop, read counter</text>
 
         <rect x="680" y="60" width="160" height="60" rx="7" fill="#2a2417" stroke="#ffb454" stroke-width="1.4"/>
@@ -116,11 +116,11 @@
       <!-- CPU bus warning -->
       <rect x="40" y="160" width="800" height="70" rx="8" fill="#211417" stroke="#ff6b6b" stroke-width="1.2"/>
       <text x="60" y="186" fill="#ff9a9a" font-size="13" font-weight="700">✗ the trap:</text>
-      <text x="140" y="186" fill="#dcd7e3" font-size="12.5">polling a CPU open-bus address (e.g. $4020) fails — every LDA/CMP/BNE opcode fetch re-drives</text>
-      <text x="140" y="206" fill="#dcd7e3" font-size="12.5">the external data bus and refreshes the capacitor. It reads $FF forever; the decay is invisible.</text>
-      <text x="140" y="222" fill="#7ee0a8" font-size="12">✓ the PPU internal latch ($2002 low bits) is on the PPU die — CPU fetches never touch it.</text>
+      <text x="140" y="186" fill="#dcd7e3" font-size="12.5">polling a CPU open-bus address (e.g. $4020) fails — the LDA/CMP/BNE opcodes travel over that same</text>
+      <text x="140" y="206" fill="#dcd7e3" font-size="12.5">bus, so each fetch OVERWRITES it with its own bytes. You read the last opcode, not the decay.</text>
+      <text x="140" y="222" fill="#7ee0a8" font-size="12">✓ the PPU internal latch (write $2002, read a write-only reg) is on the PPU die — fetches can't touch it.</text>
     </svg>
-    <figcaption><span class="en">The measurement lives on the PPU's internal open-bus latch, read through the low 5 bits of <code>$2002</code> — the one place the CPU's own instruction traffic cannot refresh.</span><span class="zh">量測活在 PPU 的內部 open-bus 閂鎖上,透過 <code>$2002</code> 的低 5 位讀出 —— 唯一 CPU 自己的指令流量刷不到的地方。</span></figcaption>
+    <figcaption><span class="en">The measurement lives on the PPU's internal open-bus latch: write <code>$2002</code> to seed it (no side effect), read a write-only register (<code>$2001</code>) for the full 8 bits — the one place the CPU's own instruction traffic can't overwrite.</span><span class="zh">量測活在 PPU 的內部 open-bus 閂鎖上:寫 <code>$2002</code> seed(無副作用)、讀寫入專用暫存器(<code>$2001</code>)取完整 8 位 —— 唯一 CPU 自己的指令流量覆寫不到的地方。</span></figcaption>
   </figure>
 </section>
 
@@ -208,13 +208,12 @@
   <p class="zh">而 <code>log₂</code> 在 6502 上不費力:整數部分是最高設定位的位置(移位找到),小數部分是接下來幾位的線性內插。整個程式就是一個校準迴圈、一個量測迴圈、一次除法、一張小查表、和一次十進位輸出。</p>
   <pre><span class="c">; ---- the measurement loop (identical for calibrate and measure) ----</span>
     <span class="k">LDA</span> #$FF
-    <span class="k">STA</span> $2000        <span class="c">; prime the PPU internal latch to 11111</span>
+    <span class="k">STA</span> $2002        <span class="c">; write a read-only reg -> seeds the latch, no side effect</span>
     <span class="k">LDX</span> #0
     <span class="k">LDY</span> #0           <span class="c">; 16-bit cycle counter in X (lo) / Y (hi)</span>
 <span class="l">poll:</span>
-    <span class="k">LDA</span> $2002        <span class="c">; read PPU status + decaying latch  (4 cyc)</span>
-    <span class="k">AND</span> #$1F         <span class="c">; keep only the 5 open-bus bits         (2)</span>
-    <span class="k">CMP</span> #$1F         <span class="c">; still all-ones?                       (2)</span>
+    <span class="k">LDA</span> $2001        <span class="c">; read a write-only reg -> full 8-bit open bus (4 cyc)</span>
+    <span class="k">CMP</span> #$FF         <span class="c">; still all-ones? (no masking needed)   (2)</span>
     <span class="k">BNE</span> done         <span class="c">; first bit dropped → stop             (2/3)</span>
     <span class="k">INX</span>              <span class="c">;                                       (2)</span>
     <span class="k">BNE</span> poll         <span class="c">;                                       (3)</span>
@@ -244,6 +243,24 @@
   </div>
 
   <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · <a href="openbus-decay.html">the open-bus decay it inverts</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · <a href="openbus-decay.html">它反轉的 open-bus 衰減</a></span></p>
+</section>
+
+<section id="corrections">
+  <h2><span class="kick"><span class="en">Corrections &amp; thanks</span><span class="zh">更正與致謝</span></span><span class="en">What a NESdev reviewer got right</span><span class="zh">一位 NESdev 審閱者指對的地方</span></h2>
+  <p class="en">After publishing, a NESdev community reviewer raised several sharp, correct objections. With thanks, the fixes are folded in above and summarised here:</p>
+  <p class="zh">發表後,一位 NESdev 社群審閱者提出了幾點犀利且正確的質疑。致謝之餘,更正已併入上文,並在此彙整:</p>
+  <ul>
+    <li class="en"><b>The CPU-bus mechanism.</b> The earlier text said instruction fetches "re-charge the capacitor / refresh the $FF". More precisely: <b>open bus is the bus itself</b>, and the polling opcodes travel over it and <i>overwrite</i> the value — you'd read the last opcode. (Corrected above.)</li>
+    <li class="zh"><b>CPU-bus 機制。</b>先前寫指令抓取「re-charge 那顆電容 / 刷新 $FF」。更精確地說:<b>open bus 就是匯流排本身</b>,輪詢的 opcode 走過它、把值<i>覆寫</i>掉 —— 你會讀到最後那個 opcode。(已於上文更正。)</li>
+    <li class="en"><b>$2002 was backward.</b> The clean idiom is <b>write $2002</b> (read-only → no side effect) and <b>read a write-only register</b> ($2000/$2001/$2003/$2005/$2006) for the full 8-bit open bus — not write $2003 (OAMADDR side effect) and read $2002 (only 5 bits). (Corrected in the diagrams and code above.)</li>
+    <li class="zh"><b>$2002 用反了。</b>乾淨的慣例是<b>寫 $2002</b>(唯讀 → 無副作用)+ <b>讀寫入專用暫存器</b>($2000/$2001/$2003/$2005/$2006)取完整 8 位 open bus —— 而非寫 $2003(OAMADDR 副作用)+ 讀 $2002(只 5 位)。(圖與程式碼已更正。)</li>
+    <li class="en"><b>Arrhenius is a first-order model, not the whole story.</b> <code>Ea ≈ 0.56 eV</code> ≈ Eg/2 is the depletion-region generation–recombination current that dominates <i>near room temperature</i>; well above it (≳80–100 °C) diffusion current takes over with <code>Ea ≈ Eg ≈ 1.12 eV</code> — a slope kink. And the measured decay <i>time</i> also depends on the junction capacitance's voltage dependence <code>C(V)</code>, the read buffer's threshold voltage drift (~−2 mV/°C), and V<sub>DD</sub>. The single-Arrhenius fit is a good local model, not a complete one.</li>
+    <li class="zh"><b>Arrhenius 是一階模型、不是全部。</b><code>Ea ≈ 0.56 eV</code> ≈ Eg/2 是空乏區 generation–recombination 電流,在<i>室溫附近</i>主導;遠高於室溫(≳80–100 °C)擴散電流接手,<code>Ea ≈ Eg ≈ 1.12 eV</code> —— 斜率折點。而量到的衰減<i>時間</i>還取決於接面電容的電壓相依 <code>C(V)</code>、讀取緩衝的閾值電壓漂移(~−2 mV/°C)、以及 V<sub>DD</sub>。單一 Arrhenius 擬合是不錯的局部模型,不是完整模型。</li>
+    <li class="en"><b>Calibration has no ground truth.</b> The die self-heats and the NES has no on-chip thermal sensor, so software can never read the true junction temperature to check its own calibration against. External package/ambient temperature is only a proxy (a thermal-gradient error away). This is a fundamental limit, not a tuning problem — the honest framing is a <i>relative</i> instrument, best-effort anchored at a careful cold boot.</li>
+    <li class="zh"><b>校準沒有 ground truth。</b>晶粒會自體發熱,而 NES 沒有片上溫度感測器,所以軟體永遠讀不到真實接面溫度去檢驗自己的校準。外部封裝/環境溫度只是 proxy(隔著一層熱梯度誤差)。這是根本限制、不是調校問題 —— 誠實的定位是一把<i>相對</i>儀器,盡力錨在小心的冷開機。</li>
+    <li class="en"><b>The emulator "round-trip" is circular.</b> The companion build (<a href="aprnes-thermometer-tool.html">deep dive #4</a>) sets decay = f(T) in the emulator and then inverts it — so recovering T proves only that the software math is right, <i>not</i> that the model holds on real silicon. That article now says so explicitly.</li>
+    <li class="zh"><b>模擬器「round-trip」是循環的。</b>配套實作(<a href="aprnes-thermometer-tool.html">深入專文 #4</a>)在模擬器裡設 decay = f(T) 再反推 —— 所以拿回 T 只證明軟體數學對,<i>不</i>證明模型在真矽晶成立。那篇現在已明講。</li>
+  </ul>
 </section>
 
 </main>

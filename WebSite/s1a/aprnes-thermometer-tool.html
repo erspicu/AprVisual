@@ -57,7 +57,7 @@
 
 <header class="hero">
   <h1><span class="en">Running the thermometer</span><span class="zh">把溫度計跑起來</span></h1>
-  <p class="tag en">Deep dive #4 · the buildable companion to <a href="nes-thermometer.html">deep dive #3</a>. That article argued, on paper, that the PPU open-bus decay is a thermometer. This one <i>builds it</i>: we taught our reference emulator (AprNes) to model the open-bus decay with a temperature knob, wrote a real NES test ROM that measures the decay and prints the temperature in Celsius, and ran it headlessly across a range of temperatures. It works — <code>25.0 DEGREE CELSIUS</code> on a black screen — and this write-up shows how, plus, honestly, where it is rough. It is a technical validation, not a precision instrument.</p>
+  <p class="tag en">Deep dive #4 · the buildable companion to <a href="nes-thermometer.html">deep dive #3</a>. That article argued, on paper, that the PPU open-bus decay is a thermometer. This one <i>builds it</i>: we taught our reference emulator (AprNes) to model the open-bus decay with a temperature knob, wrote a real NES test ROM that measures the decay and prints the temperature in Celsius, and ran it headlessly. It runs — <code>25.0 DEGREE CELSIUS</code> on a black screen. But be clear about what that proves: the emulator sets decay = f(T) and the ROM inverts it, so recovering the temperature is a <b>circular</b> check — it validates the <i>software pipeline</i> (measure → invert → display), <b>not</b> that the physical model holds on real silicon. This write-up shows how it's built, and — with thanks to a NESdev reviewer — is honest about that limit and several others.</p>
   <p class="tag zh">深入專文 #4 · <a href="nes-thermometer.html">深入專文 #3</a> 的可執行版。那篇在紙上論證 PPU open-bus 衰減是一把溫度計;這篇把它<i>做出來</i>:我們教參考模擬器(AprNes)用一個溫度旋鈕模擬 open-bus 衰減、寫了一顆真的 NES test ROM 去量衰減並印出攝氏溫度、再無頭地跨溫度範圍跑它。它成功了 —— 黑畫面上一行 <code>25.0 DEGREE CELSIUS</code> —— 這篇說明怎麼做的,也誠實說它哪裡粗糙。這是技術驗證,不是精密儀器。</p>
   <p style="margin-top:14px"><span class="pill">S1a · deep dive #4</span><span class="pill">AprNes + test ROM</span><span class="pill">2026-07-20</span></p>
 </header>
@@ -101,17 +101,17 @@
   <p class="en">The ROM (<code>tools/thermo_rom/</code>, a plain NROM cart assembled with WLA-DX) is a five-step pipeline:</p>
   <p class="zh">這顆 ROM(<code>tools/thermo_rom/</code>,用 WLA-DX 組譯的一般 NROM 卡帶)是一條五步管線:</p>
   <ol>
-    <li class="en"><b>Prime</b> — write <code>$FF</code> to <code>$2003</code> (OAMADDR). Writing any PPU register drives the open-bus latch to all-ones; <code>$2003</code> does it with no NMI or rendering side effects.</li>
-    <li class="zh"><b>充電</b> —— 寫 <code>$FF</code> 到 <code>$2003</code>(OAMADDR)。寫任何 PPU 暫存器都會把 open-bus 閂鎖驅到全 1;<code>$2003</code> 沒有 NMI/渲染副作用。</li>
-    <li class="en"><b>Poll &amp; count</b> — tight-loop <code>LDA $2002 / AND #$1F / CMP #$1F</code>, incrementing a 24-bit counter until the first of the five open-bus bits drops. That count <i>is</i> the decay time, measured in loop iterations.</li>
-    <li class="zh"><b>輪詢計數</b> —— 緊迴圈 <code>LDA $2002 / AND #$1F / CMP #$1F</code>,遞增一個 24-bit 計數器,直到五個 open-bus 位元中第一個掉下來。那個計數<i>就是</i>衰減時間,以迴圈次數為單位。</li>
+    <li class="en"><b>Prime</b> — write <code>$FF</code> to <code>$2002</code> (PPUSTATUS is read-only, so the write is ignored as a register op but still fills the open-bus latch, with <i>no</i> side effect).</li>
+    <li class="zh"><b>充電</b> —— 寫 <code>$FF</code> 到 <code>$2002</code>(PPUSTATUS 唯讀,所以寫入被當暫存器操作忽略、但仍填進 open-bus 閂鎖,<i>無</i>副作用)。</li>
+    <li class="en"><b>Poll &amp; count</b> — tight-loop <code>LDA $2001 / CMP #$FF</code> (reading a write-only register returns the full 8-bit open bus), incrementing a 24-bit counter until the first bit drops. That count <i>is</i> the decay time, measured in loop iterations.</li>
+    <li class="zh"><b>輪詢計數</b> —— 緊迴圈 <code>LDA $2001 / CMP #$FF</code>(讀寫入專用暫存器回傳完整 8 位 open bus),遞增一個 24-bit 計數器,直到第一個位元掉下來。那個計數<i>就是</i>衰減時間,以迴圈次數為單位。</li>
     <li class="en"><b>Invert</b> — turn the count into a temperature (see §<a href="#invert">below</a>).</li>
     <li class="zh"><b>反推</b> —— 把計數轉成溫度(見<a href="#invert">下節</a>)。</li>
     <li class="en"><b>Print</b> — write <code>NN.N DEGREE CELSIUS</code> to the name table and turn rendering on.</li>
     <li class="zh"><b>印出</b> —— 把 <code>NN.N DEGREE CELSIUS</code> 寫進 nametable、打開渲染。</li>
   </ol>
-  <p class="en">The one non-obvious thing (the whole reason the trick works) is that we poll <b>$2002 on the PPU</b>, not a CPU open-bus address — a CPU bus poll would be refreshed to <code>$FF</code> forever by the loop's own instruction fetches. The ROM's source is heavily commented as a tutorial.</p>
-  <p class="zh">唯一不明顯、也是整個訣竅成立的關鍵:我們輪詢的是 <b>PPU 的 $2002</b>,不是 CPU open-bus 位址 —— 輪詢 CPU 匯流排會被迴圈自己的指令抓取永遠刷新回 <code>$FF</code>。ROM 原始碼有大量教學註解。</p>
+  <p class="en">The one non-obvious thing (the whole reason the trick works) is that we watch the <b>PPU's I/O latch</b>, not a CPU open-bus address — the polling opcodes travel over the CPU bus and would <i>overwrite</i> it every fetch, so you'd read the last opcode, never the decay. The ROM's source is heavily commented as a tutorial.</p>
+  <p class="zh">唯一不明顯、也是整個訣竅成立的關鍵:我們看的是 <b>PPU 的 I/O 閂鎖</b>,不是 CPU open-bus 位址 —— 輪詢的 opcode 走 CPU 匯流排、每次抓取都會把它<i>覆寫</i>掉,你會讀到最後那個 opcode、永遠讀不到衰減。ROM 原始碼有大量教學註解。</p>
 </section>
 
 <section id="usage">
@@ -132,16 +132,16 @@ AprNes.exe --rom thermo.nes <span class="k">--openbus-temp 25</span> --time 6 \
   <div class="shots">
     <figure><img src="img/c_0.png" alt="0.0 DEGREE CELSIUS"><figcaption>--openbus-temp 0</figcaption></figure>
     <figure><img src="img/c_25.png" alt="25.0 DEGREE CELSIUS"><figcaption>--openbus-temp 25</figcaption></figure>
-    <figure><img src="img/c_50.png" alt="50.5 DEGREE CELSIUS"><figcaption>--openbus-temp 50</figcaption></figure>
+    <figure><img src="img/c_50.png" alt="50.0 DEGREE CELSIUS"><figcaption>--openbus-temp 50</figcaption></figure>
   </div>
   <p class="en">Real frame captures from the headless emulator: feed the knob a temperature, and the ROM — which only ever <i>measured a decay count</i> — reads it back on screen. The round-trip (set °C → displayed °C):</p>
   <p class="zh">來自無頭模擬器的真實幀截圖:給旋鈕一個溫度,而這顆只<i>量了一個衰減計數</i>的 ROM,就把它讀回螢幕上。Round-trip(設定 °C → 顯示 °C):</p>
   <table>
     <tr><th>set °C</th><td class="n">0</td><td class="n">10</td><td class="n">20</td><td class="n">25</td><td class="n">30</td><td class="n">40</td><td class="n">43</td><td class="n">50</td></tr>
-    <tr><th><span class="en">displayed</span><span class="zh">顯示</span></th><td class="n">0.0</td><td class="n">10.0</td><td class="n">20.0</td><td class="n">25.0</td><td class="n">30.0</td><td class="n">40.0</td><td class="n">43.5</td><td class="n">50.5</td></tr>
+    <tr><th><span class="en">displayed</span><span class="zh">顯示</span></th><td class="n">0.0</td><td class="n">10.0</td><td class="n">20.0</td><td class="n">25.0</td><td class="n">30.0</td><td class="n">40.0</td><td class="n">43.5</td><td class="n">50.0</td></tr>
   </table>
-  <p class="en">Exact from 0 to 40 °C; the 43 and 50 wobble is the honest measurement limit discussed below.</p>
-  <p class="zh">0 到 40 °C 精確;43 和 50 的偏差是下面討論的誠實量測極限。</p>
+  <p class="en">Exact at the marked points; the 43 °C wobble (43 and 44 both read 43.5) is the honest warm-end measurement limit discussed below. And remember: this "round-trip" only inverts the emulator's own model — see the note on circularity below.</p>
+  <p class="zh">標出的點都精確;43 °C 的偏差(43 和 44 都讀 43.5)是下面討論的暖端量測極限。也別忘了:這個「round-trip」只是把模擬器自己的模型反過來 —— 見下方關於循環的說明。</p>
 
   <figure>
     <img src="img/emulators.png" alt="the same thermo.nes running in Mesen, AprNes, TriCNES and FCEUX" style="width:100%;max-width:100%;image-rendering:pixelated;border:1px solid var(--bd);border-radius:8px;background:#000">
@@ -176,11 +176,17 @@ rx_loop:
     <li class="zh"><b>範圍會 clamp。</b>表涵蓋 0.0–51.1 °C;更冷或更熱都夾到端點。</li>
     <li class="en"><b>It's a per-model calibration.</b> The count depends on the emulator's exact loop timing, so the lookup table is calibrated to <i>this</i> build of AprNes. On real silicon the absolute offset differs per console (a one-point calibration fixes it — the Arrhenius <i>slope</i> is universal, only the offset moves).</li>
     <li class="zh"><b>這是逐模型校準。</b>計數依賴模擬器確切的迴圈時序,所以查表是對<i>這個</i> AprNes build 校準的。真矽晶上絕對 offset 逐台不同(一點校準即可修正 —— Arrhenius <i>斜率</i>普世,只有 offset 會動)。</li>
-    <li class="en"><b>Emulator ambient ≠ hardware room.</b> Here the knob is literal ambient temperature. On a real NES the PPU self-heats +30–40 °C, so the same ROM would read the <i>die</i> temperature unless cold-booted and read within seconds. The emulator sidesteps that — which is the point: it lets us validate the mechanism cleanly.</li>
-    <li class="zh"><b>模擬器的環境溫度 ≠ 硬體室溫。</b>這裡旋鈕是字面的環境溫度。真 NES 上 PPU 自體發熱 +30–40 °C,同一顆 ROM 會讀到<i>晶粒</i>溫度,除非冷開機幾秒內讀。模擬器繞過這點 —— 而這正是重點:它讓我們乾淨地驗證機制。</li>
+    <li class="en"><b>Emulator ambient ≠ hardware room.</b> Here the knob is literal ambient temperature. On a real NES the PPU self-heats +30–40 °C, so the same ROM would read the <i>die</i> temperature unless cold-booted and read within seconds. The emulator sidesteps that — which lets us exercise the software mechanism cleanly (but doesn't prove the real-hardware model — see below).</li>
+    <li class="zh"><b>模擬器的環境溫度 ≠ 硬體室溫。</b>這裡旋鈕是字面的環境溫度。真 NES 上 PPU 自體發熱 +30–40 °C,同一顆 ROM 會讀到<i>晶粒</i>溫度,除非冷開機幾秒內讀。模擬器繞過這點 —— 這讓我們乾淨地跑通軟體機制(但不證明真硬體模型 —— 見下)。</li>
+    <li class="en"><b>The round-trip is circular — this is the key caveat.</b> The emulator sets decay = f(T); the ROM computes T = f⁻¹(decay). Recovering the input temperature is therefore guaranteed by construction — it proves the <i>software</i> (measure → invert → display) is correct, and <b>nothing about whether the model is right on real silicon</b>. A real validation needs real hardware and an external reference thermometer, which is future work.</li>
+    <li class="zh"><b>round-trip 是循環的 —— 這是最關鍵的但書。</b>模擬器設 decay = f(T);ROM 算 T = f⁻¹(decay)。拿回輸入溫度是<i>先天保證</i>的 —— 它只證明<i>軟體</i>(量測 → 反推 → 顯示)正確,<b>完全不證明模型在真矽晶上對不對</b>。真正的驗證需要實機 + 外部參考溫度計,是未來的工作。</li>
+    <li class="en"><b>Arrhenius is a first-order model.</b> <code>Ea ≈ 0.56 eV</code> ≈ Eg/2 is the generation–recombination leakage that dominates near room temperature; above ~80–100 °C diffusion current (<code>Ea ≈ Eg</code>) kinks the slope, and the measured time also depends on <code>C(V)</code>, the read-buffer threshold-voltage drift (~−2 mV/°C), and V<sub>DD</sub>. Our emulator uses the single-Arrhenius law; a faithful model would layer these in.</li>
+    <li class="zh"><b>Arrhenius 是一階模型。</b><code>Ea ≈ 0.56 eV</code> ≈ Eg/2 是室溫附近主導的 generation–recombination 漏電;~80–100 °C 以上擴散電流(<code>Ea ≈ Eg</code>)讓斜率折點,量到的時間還取決於 <code>C(V)</code>、讀取緩衝閾值電壓漂移(~−2 mV/°C)、V<sub>DD</sub>。我們模擬器用單一 Arrhenius;忠實模型要把這些疊進去。</li>
+    <li class="en"><b>No ground truth for calibration.</b> On real hardware the die self-heats and there's no on-chip thermal sensor, so software can never read the true junction temperature to check its calibration against — external package temperature is only a thermal-gradient-error proxy. This is a fundamental limit; the honest framing is a <i>relative</i> instrument.</li>
+    <li class="zh"><b>校準沒有 ground truth。</b>真硬體上晶粒自體發熱、又沒片上溫度感測器,軟體永遠讀不到真接面溫度去對照校準 —— 外部封裝溫度只是隔著熱梯度誤差的 proxy。這是根本限制;誠實的定位是一把<i>相對</i>儀器。</li>
   </ul>
-  <p class="en">None of this undermines the result. The point was never a shippable thermometer — it was to take a physical model of an emulator "bug" (open-bus decay), give it a temperature dependence, and show that a stock 6502 program can read that dependence back out as a number. It can.</p>
-  <p class="zh">這些都不動搖結果。重點從來不是一把可出貨的溫度計 —— 而是拿一個模擬器「bug」(open-bus 衰減)的物理模型、給它溫度相依、再證明一支原廠 6502 程式能把那個相依讀回成一個數字。它做到了。</p>
+  <p class="en">So, honestly: this shows a physical model of an emulator "bug" (open-bus decay) given a temperature dependence, and a stock 6502 program reading that dependence back out as a number. The <i>software pipeline</i> works end-to-end. Whether the underlying model matches real silicon is a separate, unproven question — one <a href="nes-thermometer.html#corrections">deep dive #3's corrections</a> now spells out, with thanks to the NESdev reviewer who pushed on exactly these points.</p>
+  <p class="zh">所以,誠實地說:這展示了一個模擬器「bug」(open-bus 衰減)的物理模型被給了溫度相依,以及一支原廠 6502 程式把那個相依讀回成一個數字。<i>軟體管線</i>端到端可運作。底層模型是否符合真矽晶,是另一個、還沒被證明的問題 —— <a href="nes-thermometer.html#corrections">深入專文 #3 的更正</a>現在把它講清楚了,並感謝那位正好戳中這些點的 NESdev 審閱者。</p>
 
   <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · the theory: <a href="nes-thermometer.html">deep dive #3</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · 理論篇:<a href="nes-thermometer.html">深入專文 #3</a></span></p>
 </section>

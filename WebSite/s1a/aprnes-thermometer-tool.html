@@ -142,6 +142,11 @@ AprNes.exe --rom thermo.nes <span class="k">--openbus-temp 25</span> --time 6 \
   </table>
   <p class="en">Exact from 0 to 40 °C; the 43 and 50 wobble is the honest measurement limit discussed below.</p>
   <p class="zh">0 到 40 °C 精確;43 和 50 的偏差是下面討論的誠實量測極限。</p>
+
+  <figure>
+    <img src="img/emulators.png" alt="the same thermo.nes running in Mesen, AprNes, TriCNES and FCEUX" style="width:100%;max-width:100%;image-rendering:pixelated;border:1px solid var(--bd);border-radius:8px;background:#000">
+    <figcaption><span class="en">The exact same <code>thermo.nes</code> in four emulators. The text renders in <b>all</b> of them (the ROM sets its own palette + attributes). <b>AprNes</b> reads the calibrated <b>25.0</b>; <b>Mesen</b> (51.1) and <b>TriCNES</b> (32.8) also model open-bus decay, so they show a real temperature — but with a different timing offset, uncalibrated to our table. <b>FCEUX</b> doesn't decay open bus at all, so the ROM's no-hang guard shows <b>--.-</b> instead of freezing on black. This one screenshot is the whole portability story: same ROM, one calibrated reading, and graceful behaviour everywhere else.</span><span class="zh">同一顆 <code>thermo.nes</code> 在四個模擬器。文字在<b>每一個</b>都顯示得出(ROM 自己設調色盤 + 屬性)。<b>AprNes</b> 讀出校準值 <b>25.0</b>;<b>Mesen</b>(51.1)與 <b>TriCNES</b>(32.8)也模擬 open-bus 衰減,所以顯示真的溫度 —— 但時序 offset 不同、沒對我們的表校準。<b>FCEUX</b> 完全不衰減 open bus,所以 ROM 的防卡死保護顯示 <b>--.-</b> 而不是凍在黑畫面。這一張截圖就是整個可攜性故事:同一顆 ROM、一個校準讀值、其餘地方都優雅降級。</span></figcaption>
+  </figure>
 </section>
 
 <section id="invert">

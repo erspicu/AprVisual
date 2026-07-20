@@ -147,6 +147,20 @@ AprNes.exe --rom thermo.nes <span class="k">--openbus-temp 25</span> --time 6 \
     <img src="img/emulators.png" alt="the same thermo.nes running in Mesen, AprNes, TriCNES and FCEUX" style="width:100%;max-width:100%;image-rendering:pixelated;border:1px solid var(--bd);border-radius:8px;background:#000">
     <figcaption><span class="en">The exact same <code>thermo.nes</code> in four emulators — which turns it into an accidental <b>survey of how each one models PPU open-bus decay</b>. The text renders in all of them (the ROM sets its own palette + attributes), but only <b>AprNes</b>, whose decay is calibrated to our table, reads the true <b>25.0</b>. The other three land <i>outside</i> our range, in three different ways: <b>TriCNES (32.8)</b> decays within our range but with different timing — an in-range but uncalibrated reading; <b>Mesen (51.1)</b> pins to the very top of our range — its open bus decays <i>far faster</i> than our ~600 ms calibration covers (consistent with a coarse fixed-tick decay counter, like the ~14 ms one our own AprNes had before we replaced it), so the count falls below our table and clamps hot; <b>FCEUX (--.-)</b> never decays open bus at all, so the count never terminates and the ROM's no-hang guard fires. In other words <b>51.1 and --.- are not temperatures</b> — they're the two out-of-range signatures: <i>too-fast decay</i> and <i>no decay</i>.</span><span class="zh">同一顆 <code>thermo.nes</code> 在四個模擬器 —— 這讓它變成一份意外的<b>「各家怎麼模擬 PPU open-bus 衰減」調查</b>。文字在每一個都顯示得出(ROM 自己設調色盤 + 屬性),但只有<b>衰減對我們的表校準過的 AprNes</b> 讀出真值 <b>25.0</b>。另外三個都落在我們範圍<i>之外</i>,而且方式不同:<b>TriCNES(32.8)</b>的衰減在我們範圍內、只是時序不同 —— 範圍內但未校準的讀值;<b>Mesen(51.1)</b>頂到我們範圍的正上限 —— 它的 open bus 衰減<i>遠快於</i>我們 ~600ms 的校準(符合一個粗略的固定-tick 衰減計數器,像我們自己 AprNes 換掉前那個 ~14ms 的),計數掉到表最小值以下、夾到最熱;<b>FCEUX(--.-)</b>完全不衰減,計數永不結束、觸發 ROM 的防卡死保護。換句話說 <b>51.1 與 --.- 不是溫度</b> —— 是兩個超出範圍的簽名:<i>衰減太快</i>與<i>不衰減</i>。</span></figcaption>
   </figure>
+
+  <div class="note g" style="margin-top:18px">
+    <p style="margin:.3em 0"><b><span class="en">Bonus use — a one-ROM open-bus decay probe</span><span class="zh">附帶用途 —— 一顆 ROM 的 open-bus 衰減探針</span></b></p>
+    <p style="margin:.3em 0;font-size:14px"><span class="en">Flip the intent around and this test ROM becomes a tiny <b>accuracy probe</b>: run it on any emulator and what it prints classifies that emulator's PPU open-bus decay model into four buckets — no source access needed.</span><span class="zh">把用途反過來,這顆 test ROM 就成了一支迷你<b>準確度探針</b>:在任何模擬器上跑,它印出的東西就把那個模擬器的 PPU open-bus 衰減模型分成四類 —— 不用看原始碼。</span></p>
+    <ul style="margin:.3em 0 .2em;font-size:13.5px">
+      <li class="en"><b>A plausible number</b> in range → decay is modelled with timing near real hardware (~600 ms). Exactly right only on the build the table was calibrated for (AprNes → 25.0); otherwise it's a real but offset reading (TriCNES → 32.8).</li>
+      <li class="zh"><b>範圍內合理數字</b> → 有模擬衰減、時序接近真實硬體(~600ms)。只有在校準表所屬的 build 上才完全準(AprNes → 25.0);其他是真實但有 offset 的讀值(TriCNES → 32.8)。</li>
+      <li class="en"><b>Clamped to <code>51.1</code></b> (the top of our range) → decays <i>far too fast</i>, e.g. a coarse fixed-tick counter (Mesen here; also our own AprNes before we replaced its ~14 ms <code>77777</code>-tick timer).</li>
+      <li class="zh"><b>夾到 <code>51.1</code></b>(我們範圍上限)→ 衰減<i>快太多</i>,例如粗略的固定-tick 計數器(這裡是 Mesen;也包括我們自己 AprNes 換掉那個 ~14ms 的 <code>77777</code>-tick timer 之前)。</li>
+      <li class="en"><b><code>--.-</code></b> → open bus <i>never</i> decays (the value is held forever, or not modelled), so the count never terminates and the no-hang guard fires (FCEUX here).</li>
+      <li class="zh"><b><code>--.-</code></b> → open bus <i>完全不</i>衰減(值被永久 hold,或沒建模),計數永不結束、防卡死保護觸發(這裡是 FCEUX)。</li>
+    </ul>
+    <p style="margin:.2em 0 .3em;font-size:13px" class="mut"><span class="en">So without any instrumentation, one ROM tells you at a glance whether an emulator models open-bus decay at all, and roughly how fast — a genuinely useful little accuracy diff.</span><span class="zh">所以不需要任何儀器,一顆 ROM 一眼就告訴你某個模擬器有沒有模擬 open-bus 衰減、大概多快 —— 一個蠻實用的小小準確度差異檢查。</span></p>
+  </div>
 </section>
 
 <section id="calibration">

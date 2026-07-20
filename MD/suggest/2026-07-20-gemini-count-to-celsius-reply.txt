@@ -1,0 +1,239 @@
+這是一個非常經典的復古硬體開發問題！在 6502 上處理非線性、大範圍數值且要求精度的轉換，與現代 CPU 的思維完全不同。我們必須極力避免執行期的複雜數學運算。
+
+針對你的需求（24-bit 輸入、非線性轉換、0.1°C 精度、執行速度需合理），以下是具體的分析與推薦實作。
+
+### 1. 各種方法的具體比較
+
+*   **(a) 預先算好的查表 + 二分搜尋 (邊界表法)**
+    *   **優點：** **絕對精確**（沒有 6502 運算的截斷誤差）、**運算成本極低**（只有單純的記憶體讀取和比較）、開發最簡單。
+    *   **缺點：** 佔用 ROM 空間。若範圍是 -5.0°C 到 +46.1°C，共 512 個點，每個點 3 bytes，總共 **1.5 KB**。
+    *   **評價：** 對 NES PRG ROM（通常至少 16KB/32KB）來說 1.5KB 根本微不足道。**這是 6502 上最完美的做法。**
+*   **(b) 直接算 Log + 倒數**
+    *   **優點：** 節省 ROM 空間。
+    *   **缺點：** 6502 的惡夢。要用移位和多項式/Cordic 實作 24-bit 定點 log2，還要實作 24-bit 除法。程式碼大小可能就佔了幾百 bytes，執行速度慢（數千 cycle），且極容易遇到定點數截斷導致的精度崩潰（尤其在斜率兩端）。
+    *   **評價：** 強烈不建議。開發成本太高且毫無必要。
+*   **(c) 分段線性 (Piecewise Linear)**
+    *   **優點：** 傳統低階常用手法。
+    *   **缺點：** 你需要對 $\ln(count)$ 做，這代表你還是要先算 $\ln(count)$；或者直接對 $(T, count)$ 做，但因為指數衰減曲線極度彎曲，為了維持 0.1°C 精度，你可能需要切分數十段，最後還是要查「分段表」並做乘除法。
+    *   **評價：** 既然都要查表，不如直接查 (a) 的終極結果，省去 6502 的乘除運算。
+*   **(d) Log2 + 小查表/內插**
+    *   **評價：** 算 Log2 整數部（找最高位 1）很快，但小數部還是要算。這通常用於沒有 ROM 空間的環境（例如 Atari 2600 的 4KB 限制），在 NES 上實屬殺雞用牛刀。
+
+---
+
+### 2. 綜合推薦：基於「陣列結構 (SoA)」的二進制搜尋 (Radix Search)
+
+考量到「一輩子跑一次、要準、程式短」，我強烈推薦 **(a) 預算查表法**，並配合 **二進制搜尋 (Power-of-2 Radix Search)**。
+
+**核心設計：**
+1.  **資料範圍設計成 2 的冪次：** 假設涵蓋 -5.0°C 到 46.1°C，總共 **512 點**（0.1°C 一階）。
+2.  **SoA (Structure of Arrays)：** 不要把 24-bit 寫成連續的 `L, M, H, L, M, H...`，這樣 6502 尋址會瘋掉。把它拆成三個 512 bytes 的獨立陣列：`Table_H`、`Table_M`、`Table_L`。
+3.  **單調遞減特性：** 溫度越高，Count 越小。所以 `Table[0]` (-5.0°C) 的 Count 最大，`Table[511]` (46.1°C) 的 Count 最小。
+4.  **免除法的二分搜：** 不需要 `(L+R)/2`。我們從最高位元 (Bit 8，即跨度 256) 開始測試，依序測試到 Bit 0，像組裝積木一樣把 9-bit Index 組出來。這只需要一個 9 次的緊迴圈！
+
+#### 6502 組合語言實作骨架
+
+假設你的 PC 端 Python 腳本已經產生了三個對齊的表（數值為對應溫度的 threshold）：
+```assembly
+; ROM Data (1.5 KB total)
+Table_H: .res 512 ; 高 8-bit
+Table_M: .res 512 ; 中 8-bit
+Table_L: .res 512 ; 低 8-bit
+```
+
+我們要把量測到的 `Count_H, Count_M, Count_L` 轉換成 9-bit 的 `Index_H, Index_L` (值為 0~511)。
+
+```assembly
+; 變數定義 (Zero Page)
+Count_L  = $00
+Count_M  = $01
+Count_H  = $02
+Index_L  = $03  ; 最終溫度的 Index (0~511)
+Index_H  = $04
+Step_L   = $05
+Step_H   = $06
+Test_L   = $07
+Test_H   = $08
+
+ConvertCountToTemp:
+    ; 1. 初始化 Index = 0
+    LDA #0
+    STA Index_L
+    STA Index_H
+
+    ; 2. 初始化 Step = 256 (Bit 8)
+    STA Step_L
+    LDA #$01
+    STA Step_H
+
+SearchLoop:
+    ; 3. Test_Index = Index + Step
+    LDA Index_L
+    CLC
+    ADC Step_L
+    STA Test_L
+    LDA Index_H
+    ADC Step_H
+    STA Test_H
+
+    ; 4. 讀取 Table[Test_Index]
+    ; 由於表大小為 512，我們可以用 Test_H (0 或 1) 來決定讀取前半還是後半
+    ; 這裡為了簡潔，展示一種通用讀法 (Indirect Indexed)
+    ; (實務上如果你將 512 切成兩個 256 的 array 會更快，但這裡用通用寫法)
+    
+    ; 設定指標讀取 High byte
+    LDA #<Table_H
+    CLC
+    ADC Test_L
+    STA ptr
+    LDA #>Table_H
+    ADC Test_H
+    STA ptr+1
+    LDY #0
+    LDA (ptr), Y
+    TAX             ; X = Table_H[Test]
+
+    ; --- 24-bit 比較：Table 與 Count ---
+    ; 因為 Table 是遞減的，如果 Table_Value >= Count，
+    ; 代表實際溫度比 Test_Index 還熱（或剛好），我們應該把 Index 推進
+    ; 比較順序：先比 High, 再比 Mid, 最後比 Low
+    CPX Count_H
+    BCC +           ; Table_H < Count_H -> 實際溫度較冷，不要加 Step
+    BNE KeepStep    ; Table_H > Count_H -> 實際溫度較熱，保留 Step
+    
+    ; High 相等，比 Mid (需自行展開指標讀取 Table_M，此處略過重複程式碼)
+    LDA (ptr_M), Y
+    CMP Count_M
+    BCC +
+    BNE KeepStep
+    
+    ; Mid 相等，比 Low
+    LDA (ptr_L), Y
+    CMP Count_L
+    BCC +           ; 若 Table_L < Count_L 則不保留
+
+KeepStep:
+    ; Table >= Count，將 Test_Index 正式寫入 Index
+    LDA Test_L
+    STA Index_L
+    LDA Test_H
+    STA Index_H
+
++   ; 準備下一個 Step (Step = Step >> 1)
+    LSR Step_H
+    ROR Step_L
+    
+    ; 若 Step 尚未歸零，繼續迴圈
+    LDA Step_H
+    ORA Step_L
+    BNE SearchLoop
+
+    ; 結束！此時 Index_H, Index_L 就是結果 (0 ~ 511)
+    RTS
+```
+*這段演算法在 6502 上大約只需幾百個 Cycle 就能找到精確的落點，且完全沒有乘除法！*
+
+---
+
+### 3. 顯示格式拆解 (0.1°C 轉字串)
+
+現在我們有了 `Index` (0 ~ 511)。
+假設 `Index = 0` 代表 `-5.0°C`，`Index = 50` 代表 `0.0°C`，`Index = 303` 代表 `25.3°C`。
+
+**步驟 A：處理負數與平移 (Offset)**
+```assembly
+    ; 檢查 Index 是否 < 50 (代表小於 0°C)
+    LDA Index_H
+    BNE IsPositive  ; Index >= 256，絕對是正數
+    LDA Index_L
+    CMP #50
+    BCS IsPositive  ; Index >= 50，是正數
+
+IsNegative:
+    ; 處理負數：印出 '-' 字元
+    LDA #'-'
+    JSR PrintChar
+    
+    ; 計算絕對值： Value = 50 - Index
+    SEC
+    LDA #50
+    SBC Index_L
+    STA Value_L
+    LDA #0
+    STA Value_H
+    JMP DoBCD
+
+IsPositive:
+    ; 處理正數：可印出 ' ' (對齊) 或略過
+    ; 計算 Value = Index - 50
+    SEC
+    LDA Index_L
+    SBC #50
+    STA Value_L
+    LDA Index_H
+    SBC #0
+    STA Value_H
+```
+
+**步驟 B：減法轉換 BCD (提取百、十、個位數)**
+因為 `Value` 最大只到 461 (代表 46.1°C)，我們只需要提 100 和 10 即可，無需複雜的除法。
+
+```assembly
+DoBCD:
+    ; 1. 算十位數 (即 Value 裡有多少個 100)
+    LDX #$FF
+Count100:
+    INX
+    SEC
+    LDA Value_L
+    SBC #100
+    TAY            ; 暫存 A
+    LDA Value_H
+    SBC #0
+    BCC +          ; 若減過頭 (Carry clear)，跳出
+    STA Value_H    ; 沒減過頭，寫回
+    TYA
+    STA Value_L
+    JMP Count100
++   
+    ; X 現在是十位數字 (0~4)
+    ; 可在此處判斷：若 X=0 且非負數，可印空白(Leading zero blanking)
+    TXA
+    ORA #'0'       ; 轉 ASCII
+    JSR PrintChar
+
+    ; 2. 算個位數 (即 Value 裡有多少個 10)
+    LDX #$FF
+Count10:
+    INX
+    SEC
+    LDA Value_L
+    SBC #10
+    BCC +
+    STA Value_L
+    JMP Count10
++   
+    ; X 現在是個位數字 (0~9)
+    TXA
+    ORA #'0'
+    JSR PrintChar
+
+    ; 3. 印小數點
+    LDA #'.'
+    JSR PrintChar
+
+    ; 4. 印小數第一位 (剩下的 Value_L 就是個位數，0~9)
+    LDA Value_L
+    ORA #'0'
+    JSR PrintChar
+
+    ; 5. 印後綴字元
+    ; 這裡可以用迴圈印出 " degree Celsius" 字串
+    RTS
+```
+
+### 總結
+1. **查表+二分搜** 是在 NES 上兼具極致效能與開發友善的最佳解。
+2. 用 **Python 生成預運算的 3 bytes SoA 門檻表**，將所有浮點運算留在 PC 端。
+3. 顯示時運用 **Base Offset 加減法** 與 **連減法 BCD 轉換**，避開所有的 6502 除法。
+這樣你的 Test ROM 既能保持 6502 的極簡優雅，又能精準輸出諸如 `-3.5 degree Celsius` 這種漂亮的數值了！

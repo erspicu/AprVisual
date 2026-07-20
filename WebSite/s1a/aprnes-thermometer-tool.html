@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Running the thermometer — the AprNes tool + test ROM</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:880px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(940px, 76vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:Consolas,"SF Mono",monospace;} pre .c{color:var(--mut);} pre .k{color:#c792ea;} pre .s{color:#7ee0a8;} pre .l{color:#ffb454;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;}
+  .shots{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;}
+  .shots figure{margin:6px 0;flex:0 0 auto;}
+  .shots img{width:256px;max-width:44vw;image-rendering:pixelated;border:1px solid var(--bd);border-radius:6px;background:#000;display:block;}
+  figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(940px, 76vw);margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#deep-dives"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <a class="sec" href="nes-thermometer.html"><span class="en">The thermometer study</span><span class="zh">溫度計專文</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Running the thermometer</span><span class="zh">把溫度計跑起來</span></h1>
+  <p class="tag en">Deep dive #4 · the buildable companion to <a href="nes-thermometer.html">deep dive #3</a>. That article argued, on paper, that the PPU open-bus decay is a thermometer. This one <i>builds it</i>: we taught our reference emulator (AprNes) to model the open-bus decay with a temperature knob, wrote a real NES test ROM that measures the decay and prints the temperature in Celsius, and ran it headlessly across a range of temperatures. It works — <code>25.0 DEGREE CELSIUS</code> on a black screen — and this write-up shows how, plus, honestly, where it is rough. It is a technical validation, not a precision instrument.</p>
+  <p class="tag zh">深入專文 #4 · <a href="nes-thermometer.html">深入專文 #3</a> 的可執行版。那篇在紙上論證 PPU open-bus 衰減是一把溫度計;這篇把它<i>做出來</i>:我們教參考模擬器(AprNes)用一個溫度旋鈕模擬 open-bus 衰減、寫了一顆真的 NES test ROM 去量衰減並印出攝氏溫度、再無頭地跨溫度範圍跑它。它成功了 —— 黑畫面上一行 <code>25.0 DEGREE CELSIUS</code> —— 這篇說明怎麼做的,也誠實說它哪裡粗糙。這是技術驗證,不是精密儀器。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive #4</span><span class="pill">AprNes + test ROM</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="tool">
+  <h2><span class="kick"><span class="en">The tool</span><span class="zh">工具</span></span><span class="en">A temperature knob in a real emulator</span><span class="zh">在真模擬器裡裝一個溫度旋鈕</span></h2>
+  <p class="en">The AprVisual switch-level engine is bit-exact but far too slow to <i>run</i> a 600 ms decay — so for this experiment we used <b>AprNes</b>, the user's fast, cycle-accurate (master-clock) NES emulator, as the test bench. AprNes already tracked an open-bus latch but never actually decayed it (a leftover countdown that expired in ~14 ms, far too fast). We replaced that with the physical model from deep dive #3:</p>
+  <p class="zh">AprVisual 的開關級引擎 bit-exact,但太慢、跑不動一個 600ms 的衰減 —— 所以這個實驗改用<b>AprNes</b>(使用者那顆快速、cycle-accurate 的 master-clock NES 模擬器)當測試台。AprNes 本來就追蹤一個 open-bus 閂鎖,但從沒真的讓它衰減(一段殘留的倒數 ~14ms 就到期、太快)。我們把它換成深入專文 #3 的物理模型:</p>
+  <ul>
+    <li class="en">a <b>lazy-timestamp</b> decay: the latch is stamped with the current PPU-dot time whenever a PPU access drives it, and reads back as 0 once the elapsed time passes the decay period — zero cost in the hot loop;</li>
+    <li class="zh"><b>懶惰時戳</b>衰減:每次 PPU 存取驅動閂鎖時蓋上當下的 PPU-dot 時間,一旦經過的時間超過衰減週期,讀回就是 0 —— 熱路徑零成本;</li>
+    <li class="en">the decay period follows the Arrhenius law <code>t(T) = t0·exp(Ea/k·(1/T − 1/Tref))</code>, with <code>t0 = 600 ms</code> at 25 °C — so it is temperature-controlled;</li>
+    <li class="zh">衰減週期依 Arrhenius <code>t(T) = t0·exp(Ea/k·(1/T − 1/Tref))</code>,25 °C 時 <code>t0 = 600ms</code> —— 所以受溫度控制;</li>
+    <li class="en">only the PPU latch decays — the CPU external bus is re-driven by every instruction fetch, exactly as on hardware.</li>
+    <li class="zh">只有 PPU 閂鎖衰減 —— CPU 外部匯流排每次取指都被重驅動,和硬體一模一樣。</li>
+  </ul>
+  <p class="en">Then two headless CLI flags expose it:</p>
+  <p class="zh">再用兩個無頭 CLI 旗標把它露出來:</p>
+  <pre><span class="k">--openbus-temp</span> &lt;°C&gt;   <span class="c">; set the die/ambient temperature for the run (default 25)</span>
+<span class="k">--dump-mem</span> &lt;hexaddr&gt;   <span class="c">; print 8 bytes + the little-endian u24 at that CPU address at exit</span></pre>
+  <p class="en">So the temperature is a literal knob (hard-coded 25 °C by default; wire it to a UI later), and <code>--dump-mem</code> lets us read the ROM's result numerically instead of squinting at a screenshot.</p>
+  <p class="zh">於是溫度就是一個字面的旋鈕(預設寫死 25 °C,以後可接 UI),而 <code>--dump-mem</code> 讓我們用數值讀出 ROM 的結果,不用瞇著眼看截圖。</p>
+</section>
+
+<section id="rom">
+  <h2><span class="kick"><span class="en">The test ROM</span><span class="zh">Test ROM</span></span><span class="en">Prime, poll, count, invert, print</span><span class="zh">充電、輪詢、計數、反推、印出</span></h2>
+  <p class="en">The ROM (<code>tools/thermo_rom/</code>, a plain NROM cart assembled with WLA-DX) is a five-step pipeline:</p>
+  <p class="zh">這顆 ROM(<code>tools/thermo_rom/</code>,用 WLA-DX 組譯的一般 NROM 卡帶)是一條五步管線:</p>
+  <ol>
+    <li class="en"><b>Prime</b> — write <code>$FF</code> to <code>$2003</code> (OAMADDR). Writing any PPU register drives the open-bus latch to all-ones; <code>$2003</code> does it with no NMI or rendering side effects.</li>
+    <li class="zh"><b>充電</b> —— 寫 <code>$FF</code> 到 <code>$2003</code>(OAMADDR)。寫任何 PPU 暫存器都會把 open-bus 閂鎖驅到全 1;<code>$2003</code> 沒有 NMI/渲染副作用。</li>
+    <li class="en"><b>Poll &amp; count</b> — tight-loop <code>LDA $2002 / AND #$1F / CMP #$1F</code>, incrementing a 24-bit counter until the first of the five open-bus bits drops. That count <i>is</i> the decay time, measured in loop iterations.</li>
+    <li class="zh"><b>輪詢計數</b> —— 緊迴圈 <code>LDA $2002 / AND #$1F / CMP #$1F</code>,遞增一個 24-bit 計數器,直到五個 open-bus 位元中第一個掉下來。那個計數<i>就是</i>衰減時間,以迴圈次數為單位。</li>
+    <li class="en"><b>Invert</b> — turn the count into a temperature (see §<a href="#invert">below</a>).</li>
+    <li class="zh"><b>反推</b> —— 把計數轉成溫度(見<a href="#invert">下節</a>)。</li>
+    <li class="en"><b>Print</b> — write <code>NN.N DEGREE CELSIUS</code> to the name table and turn rendering on.</li>
+    <li class="zh"><b>印出</b> —— 把 <code>NN.N DEGREE CELSIUS</code> 寫進 nametable、打開渲染。</li>
+  </ol>
+  <p class="en">The one non-obvious thing (the whole reason the trick works) is that we poll <b>$2002 on the PPU</b>, not a CPU open-bus address — a CPU bus poll would be refreshed to <code>$FF</code> forever by the loop's own instruction fetches. The ROM's source is heavily commented as a tutorial.</p>
+  <p class="zh">唯一不明顯、也是整個訣竅成立的關鍵:我們輪詢的是 <b>PPU 的 $2002</b>,不是 CPU open-bus 位址 —— 輪詢 CPU 匯流排會被迴圈自己的指令抓取永遠刷新回 <code>$FF</code>。ROM 原始碼有大量教學註解。</p>
+</section>
+
+<section id="usage">
+  <h2><span class="kick"><span class="en">Usage</span><span class="zh">用法</span></span><span class="en">Build it, run it, read it</span><span class="zh">建置、執行、讀取</span></h2>
+  <pre><span class="c"># build the ROM (generates the lookup table, assembles, wraps as iNES)</span>
+python tools/thermo_rom/build.py
+
+<span class="c"># run headless at 25 °C, dump the result, screenshot frame 120 (~2.0 s)</span>
+AprNes.exe --rom thermo.nes <span class="k">--openbus-temp 25</span> --time 6 \
+           <span class="k">--dump-mem 0013</span> --timed-screenshots <span class="s">"c_25.png:2.0"</span>
+<span class="c">;  MEM_DUMP 0013: ...  u24_le=250     -> 250 tenths = 25.0 °C</span></pre>
+  <p class="note en"><b>Two gotchas.</b> (1) Cold runs decay slowly, so the measurement may not finish by frame 120 — the screen stays black until it does; screenshot a later frame for cold temperatures. (2) Under Git Bash, MSYS mangles the <code>path:seconds</code> argument (the <code>:</code> looks like a unix path-list separator) — use PowerShell for <code>--timed-screenshots</code>.</p>
+  <p class="note zh"><b>兩個雷。</b>(1) 冷溫衰減慢,量測可能到 frame 120 還沒完成 —— 沒完成前螢幕是黑的;冷溫請截更晚的幀。(2) Git Bash 下 MSYS 會搞壞 <code>path:秒數</code> 參數(<code>:</code> 被當成 unix 路徑清單分隔符)—— 截圖那類指令請用 PowerShell。</p>
+</section>
+
+<section id="results">
+  <h2><span class="kick"><span class="en">It works</span><span class="zh">它成功了</span></span><span class="en">The readout, across temperatures</span><span class="zh">跨溫度的讀值</span></h2>
+  <div class="shots">
+    <figure><img src="img/c_0.png" alt="0.0 DEGREE CELSIUS"><figcaption>--openbus-temp 0</figcaption></figure>
+    <figure><img src="img/c_25.png" alt="25.0 DEGREE CELSIUS"><figcaption>--openbus-temp 25</figcaption></figure>
+    <figure><img src="img/c_50.png" alt="50.5 DEGREE CELSIUS"><figcaption>--openbus-temp 50</figcaption></figure>
+  </div>
+  <p class="en">Real frame captures from the headless emulator: feed the knob a temperature, and the ROM — which only ever <i>measured a decay count</i> — reads it back on screen. The round-trip (set °C → displayed °C):</p>
+  <p class="zh">來自無頭模擬器的真實幀截圖:給旋鈕一個溫度,而這顆只<i>量了一個衰減計數</i>的 ROM,就把它讀回螢幕上。Round-trip(設定 °C → 顯示 °C):</p>
+  <table>
+    <tr><th>set °C</th><td class="n">0</td><td class="n">10</td><td class="n">20</td><td class="n">25</td><td class="n">30</td><td class="n">40</td><td class="n">43</td><td class="n">50</td></tr>
+    <tr><th><span class="en">displayed</span><span class="zh">顯示</span></th><td class="n">0.0</td><td class="n">10.0</td><td class="n">20.0</td><td class="n">25.0</td><td class="n">30.0</td><td class="n">40.0</td><td class="n">43.5</td><td class="n">50.5</td></tr>
+  </table>
+  <p class="en">Exact from 0 to 40 °C; the 43 and 50 wobble is the honest measurement limit discussed below.</p>
+  <p class="zh">0 到 40 °C 精確;43 和 50 的偏差是下面討論的誠實量測極限。</p>
+</section>
+
+<section id="invert">
+  <h2><span class="kick"><span class="en">Count → Celsius, on a 6502</span><span class="zh">6502 上 count → 攝氏</span></span><span class="en">No multiply, no divide, no float</span><span class="zh">不乘、不除、不浮點</span></h2>
+  <p class="en">Inverting an Arrhenius curve means a logarithm and a reciprocal — miserable on a 6502. So we do none of it at runtime. On the PC side, <code>build.py</code> precomputes the whole curve as a <b>0.1 °C lookup table</b>: <code>thr[i]</code> = the count you would measure at temperature <code>i·0.1 − 0.05 °C</code>, for <code>i = 0..511</code> (so the index <i>is</i> the temperature in tenths of a degree, 0.0–51.1 °C). The table decreases (cold = big count).</p>
+  <p class="zh">反推 Arrhenius 曲線要對數和倒數 —— 在 6502 上很痛苦。所以我們在執行期一個都不做。PC 端 <code>build.py</code> 把整條曲線預先算成一張 <b>0.1 °C 查表</b>:<code>thr[i]</code> = 在溫度 <code>i·0.1 − 0.05 °C</code> 會量到的計數,<code>i = 0..511</code>(所以 index <i>就是</i>溫度的十分之一度,0.0–51.1 °C)。表遞減(冷 = 計數大)。</p>
+  <p class="en">The ROM then finds "the largest index whose threshold is still ≥ our count" with a <b>9-step power-of-two binary search</b> — building the 9-bit index one bit at a time, no division. Finally it formats the index as <code>N.N</code> with repeated-subtraction BCD (subtract 10s and 100s, count the subtractions). The approach — lookup + radix search + subtraction BCD — was the division-free path recommended by a 6502 consult.</p>
+  <p class="zh">ROM 再用 <b>9 步 2 的冪次二分搜</b>找「門檻仍 ≥ 我們計數的最大 index」—— 一次組一個 bit 出 9-bit index,不用除法。最後用連減法 BCD(反覆減 10、100 數次數)把 index 格式化成 <code>N.N</code>。這條路 —— 查表 + radix 搜尋 + 連減 BCD —— 是一次 6502 諮詢推薦的免除法做法。</p>
+  <pre><span class="c">; the whole search — 9 iterations, no MUL/DIV</span>
+    <span class="k">ldx</span> #0 ...            <span class="c">; idx = 0, step = 256</span>
+rx_loop:
+    <span class="c">; test = idx + step ; if thr[test] &gt;= count: idx = test</span>
+    <span class="k">jsr</span> read_thr          <span class="c">; fetch the 24-bit threshold (SoA: thr_lo/mid/hi)</span>
+    <span class="k">lda</span> tblL / <span class="k">cmp</span> cnt0     <span class="c">; 24-bit compare via CMP + SBC chain</span>
+    <span class="k">bcc</span> rx_next           <span class="c">; thr &lt; count -> don't set this bit</span>
+    ...                     <span class="c">; else idx = test</span>
+    <span class="k">lsr</span> stpH / <span class="k">ror</span> stpL   <span class="c">; step >>= 1, loop until 0</span>
+    <span class="c">; idx (0..511) == temperature in tenths</span></pre>
+</section>
+
+<section id="rough">
+  <h2><span class="kick"><span class="en">Where it's rough</span><span class="zh">哪裡粗糙</span></span><span class="en">Honest limits — it's a validation, not a product</span><span class="zh">誠實極限 —— 這是驗證,不是產品</span></h2>
+  <ul>
+    <li class="en"><b>Warm-end resolution is real physics, not a bug.</b> When the die is warm the decay is fast, so the loop runs few times and the count is coarse. Above ~40 °C neighbouring degrees can land on the <i>same</i> count (43 and 44 °C both measure the same value), so the 0.1 digit there is false precision — the table maps them both to the midpoint (43.5). The cold end (0–~30 °C), where the count is tens of thousands, is genuinely ~0.1 °C. This is exactly the "resolution degrades as decay speeds up" caveat from the study.</li>
+    <li class="zh"><b>暖端解析度是真物理、不是 bug。</b>晶粒熱時衰減快,迴圈跑得少、計數就粗。~40 °C 以上相鄰度可能落在<i>同一個</i>計數(43 和 44 °C 量到相同值),所以那裡的 0.1 位是假精度 —— 表把兩者都對到中點(43.5)。冷端(0–~30 °C)計數是幾萬,才是真的 ~0.1 °C。這正是專文說的「衰減越快、解析度越差」。</li>
+    <li class="en"><b>Range is clamped.</b> The table covers 0.0–51.1 °C; anything colder or warmer pins to the ends.</li>
+    <li class="zh"><b>範圍會 clamp。</b>表涵蓋 0.0–51.1 °C;更冷或更熱都夾到端點。</li>
+    <li class="en"><b>It's a per-model calibration.</b> The count depends on the emulator's exact loop timing, so the lookup table is calibrated to <i>this</i> build of AprNes. On real silicon the absolute offset differs per console (a one-point calibration fixes it — the Arrhenius <i>slope</i> is universal, only the offset moves).</li>
+    <li class="zh"><b>這是逐模型校準。</b>計數依賴模擬器確切的迴圈時序,所以查表是對<i>這個</i> AprNes build 校準的。真矽晶上絕對 offset 逐台不同(一點校準即可修正 —— Arrhenius <i>斜率</i>普世,只有 offset 會動)。</li>
+    <li class="en"><b>Emulator ambient ≠ hardware room.</b> Here the knob is literal ambient temperature. On a real NES the PPU self-heats +30–40 °C, so the same ROM would read the <i>die</i> temperature unless cold-booted and read within seconds. The emulator sidesteps that — which is the point: it lets us validate the mechanism cleanly.</li>
+    <li class="zh"><b>模擬器的環境溫度 ≠ 硬體室溫。</b>這裡旋鈕是字面的環境溫度。真 NES 上 PPU 自體發熱 +30–40 °C,同一顆 ROM 會讀到<i>晶粒</i>溫度,除非冷開機幾秒內讀。模擬器繞過這點 —— 而這正是重點:它讓我們乾淨地驗證機制。</li>
+  </ul>
+  <p class="en">None of this undermines the result. The point was never a shippable thermometer — it was to take a physical model of an emulator "bug" (open-bus decay), give it a temperature dependence, and show that a stock 6502 program can read that dependence back out as a number. It can.</p>
+  <p class="zh">這些都不動搖結果。重點從來不是一把可出貨的溫度計 —— 而是拿一個模擬器「bug」(open-bus 衰減)的物理模型、給它溫度相依、再證明一支原廠 6502 程式能把那個相依讀回成一個數字。它做到了。</p>
+
+  <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · the theory: <a href="nes-thermometer.html">deep dive #3</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · 理論篇:<a href="nes-thermometer.html">深入專文 #3</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive #4 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · ROM + tool in <code>tools/thermo_rom/</code> &amp; <code>tools/aprnes/</code> (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 #4 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · ROM + 工具在 <code>tools/thermo_rom/</code> 與 <code>tools/aprnes/</code>(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">a modelled bug, read back as a temperature.</span><span class="zh">一個被建模的 bug,被讀回成一個溫度。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

@@ -32,3 +32,36 @@
   證快過 S1 + bit-exact** 才動。風險:working set 稀疏時,掃 156 個 64-bit word(多半 0)未必贏小 FIFO ——
   這正是要先原型量的東西。
 - 兩個大點子**互相獨立**,可分別原型;unidirectional demotion 較低風險(純多一條 scalar-move 隊,不動佇列結構)。
+
+---
+
+## 實測評估結果(2026-07-20,`tools/eval_*.py`)
+
+兩個點子都在真實網表上用 Python 實測過。**兩個的主賣點都被網表結構打掉**(重新確認「沒有可自動導出的靜態 DAG」那道結束效能時代的牆):
+
+### ① 單向 pass-gate 降級 → **死路**(`tools/eval_unidir_demotion.py`)
+27,790 顆電晶體:**PURE-SINK leaf = 0%**。Gemini 的乾淨案例「強驅動→純 gate-cap」根本不存在 —— 這是
+NMOS 網表,幾乎每個輸出節點都掛 depletion 負載(segdefs `+`),永遠不是「無 pull 葉節點」。65% 是 supply
+(早已 fast-path)、真雙向 pass gate 只 5.4%、其餘 29.7% 是鬆散強度啟發式且與 LUT pull 優先重疊。→ 不做。
+
+### ② 拓撲 bit-vector 佇列 → **主賣點垮、但保留一角**(`tools/eval_bitvector_queue.py`)
+完整相依圖(channel 雙向 + gate 有向)+ 真 SCC:**最大 SCC = 80.9%**(2c02 95.4% = 印證「94% SCC」記憶,
+2a03 58.1%)。→ **拓撲順序(15-25% 的主來源)只適用 ~19%**;81% 無靜態拓撲序。去重 + L1 那半 order-independent
+還活著,但稀疏 bitset 掃 word 可能輸小 FIFO。
+
+## ★ 待辦記錄:19% levelizable 的加速機會(使用者 2026-07-20 提出保留)
+**使用者觀察**:19% 不小 —— 若能只對這 19%(SCC 之外、可分層的部分)加速,效益不小;主要顧慮是**別破壞正確性**。
+
+**技術面(可行且可正確)**:
+- 這 19% 節點**不在巨大 SCC 裡**,所以相對 SCC 要嘛**純前驅**(只餵 SCC、SCC 不回餵)、要嘛**純後繼**(只受 SCC 影響)
+  → **可安全拓撲排序**:levelized 前驅 → SCC 事件驅動 → levelized 後繼。這是標準的 **levelized + event-driven 混合**。
+- 潛在收益:那 19% 用拓撲序**一次算完**,取代事件驅動可能的多次重評估。
+- ⚠️ **誠實的量級保留**:19% 是**節點比例**、不是**執行時間比例**(runtime 由 81% SCC 主導);而且 mean BFS/settle
+  depth ~1.13(settle 本來就 ~1 pass 收斂),所以「省下的重評估」可能不多。**需 runtime 探針**量:levelizable
+  節點每次 settle 實際被重評估幾次 → 才知道值不值。
+- **正確性關卡(硬性)**:任何實作**必須 bit-exact** —— golden checksum 不變 + AC 141/141 + 147 146/1 全過才算數
+  (見 [[golden-checksum-recipe]]、[[beat-s1-rule-and-ir-reattempt-plan]])。混合的風險在「前驅/後繼相對 SCC 的
+  排序」若有細微耦合錯位就會破 bit-exact,所以**先 minimal prototype 證快 + 證等價**再談。
+
+→ **結論**:先記錄,不急著做。若哪天要撿效能,這是「還沒完全死」的一角(比 ① 有救),但要先跑 runtime 探針
+量真收益、且過 bit-exact 閘。關聯 [[hotpath-ceiling-and-antipatterns]]、[[four-direction-optim-framework]]。

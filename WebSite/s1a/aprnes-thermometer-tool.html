@@ -64,6 +64,17 @@
 
 <main>
 
+<div class="card" id="download" style="border-color:#7fbfe0;background:#141a22">
+  <p style="margin:.4em 0 .3em"><b><span class="en">⬇ Download &amp; run</span><span class="zh">⬇ 下載與執行</span></b></p>
+  <p class="mut" style="font-size:13.5px;margin:.2em 0 .7em"><span class="en">The ROM runs in any NES emulator, but the Celsius read-out is calibrated to <b>this build of AprNes</b> (the count depends on its exact loop timing) — in another emulator it will still show a number that tracks temperature, just with a different offset. To reproduce the temperature knob, build AprNes from <code>tools/aprnes/</code> and run with <code>--openbus-temp</code>.</span><span class="zh">這顆 ROM 在任何 NES 模擬器都能跑,但攝氏讀值是對<b>這個 AprNes build</b> 校準的(計數依賴它確切的迴圈時序)—— 換別的模擬器仍會顯示一個隨溫度變化的數字,只是 offset 不同。要重現溫度旋鈕,請從 <code>tools/aprnes/</code> 建 AprNes 並用 <code>--openbus-temp</code> 執行。</span></p>
+  <p style="margin:.2em 0">
+    <a href="thermo/thermo.nes" download style="display:inline-block;background:#1c2a22;border:1px solid var(--acc2);color:var(--acc2);border-radius:7px;padding:7px 14px;margin:3px 8px 3px 0;font-size:14px"><b>thermo.nes</b> <span class="mut" style="font-size:12px">— <span class="en">ROM, 24 KB</span><span class="zh">ROM,24 KB</span></span></a>
+    <a href="thermo/thermo-src.zip" download style="display:inline-block;background:#251d31;border:1px solid var(--acc);color:var(--acc);border-radius:7px;padding:7px 14px;margin:3px 8px 3px 0;font-size:14px"><b>thermo-src.zip</b> <span class="mut" style="font-size:12px">— <span class="en">asm + build.py + table + measurements</span><span class="zh">asm + build.py + 表 + 量測</span></span></a>
+    <a href="thermo/thermo.asm" style="display:inline-block;background:#211d29;border:1px solid var(--bd);color:var(--fg);border-radius:7px;padding:7px 14px;margin:3px 8px 3px 0;font-size:14px"><b>thermo.asm</b> <span class="mut" style="font-size:12px">— <span class="en">view the source</span><span class="zh">直接看原始碼</span></span></a>
+  </p>
+  <p class="mut" style="font-size:12px;margin:.5em 0 .2em"><span class="en">Full tree + AprNes patch on GitHub: <a href="https://github.com/erspicu/AprVisual/tree/main/tools/thermo_rom">tools/thermo_rom/</a> · <a href="https://github.com/erspicu/AprVisual/tree/main/tools/aprnes">tools/aprnes/</a></span><span class="zh">完整目錄 + AprNes 修改在 GitHub:<a href="https://github.com/erspicu/AprVisual/tree/main/tools/thermo_rom">tools/thermo_rom/</a> · <a href="https://github.com/erspicu/AprVisual/tree/main/tools/aprnes">tools/aprnes/</a></span></p>
+</div>
+
 <section id="tool">
   <h2><span class="kick"><span class="en">The tool</span><span class="zh">工具</span></span><span class="en">A temperature knob in a real emulator</span><span class="zh">在真模擬器裡裝一個溫度旋鈕</span></h2>
   <p class="en">The AprVisual switch-level engine is bit-exact but far too slow to <i>run</i> a 600 ms decay — so for this experiment we used <b>AprNes</b>, the user's fast, cycle-accurate (master-clock) NES emulator, as the test bench. AprNes already tracked an open-bus latch but never actually decayed it (a leftover countdown that expired in ~14 ms, far too fast). We replaced that with the physical model from deep dive #3:</p>

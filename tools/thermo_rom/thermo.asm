@@ -3,64 +3,54 @@
 ;
 ;  A teaching / demonstration ROM for the AprVisual study
 ;  "Can the NES tell you the room temperature?" (WebSite/s1a/nes-thermometer.html).
-;  It reads the PPU open-bus decay time and prints the temperature in Celsius,
-;  e.g.  "25.0 DEGREE CELSIUS".
+;  It reads the PPU open-bus decay time and prints the temperature in whole
+;  degrees Celsius over 0–100 °C, e.g.  "25 DEGREE CELSIUS".
 ;
 ;  ---------------------------------------------------------------------------
 ;  WHY THIS WORKS (the physics)
 ;  ---------------------------------------------------------------------------
-;  The PPU I/O "open bus" latch — the value you read back from the low 5 bits of
-;  $2002, or from a write-only PPU register — is not driven by anything once you
-;  stop writing to it. It is held only by a tiny parasitic capacitance, and it
-;  slowly bleeds to 0 through reverse-bias junction leakage.
-;
-;  That leakage current is exponential in temperature (Arrhenius):
-;         I_leak  ~  exp(-Ea / kT)
-;  so the time the latch survives scales the same way:
-;         t(T)    =  t0 * exp( Ea/k * (1/T - 1/Tref) )
-;  Warmer die -> more leakage -> FASTER decay -> the latch dies sooner.
-;
-;  So if we PRIME the latch to all-ones and then time how long it takes to fall,
-;  that time is a thermometer. We do not have a real clock, so we "time" it by
-;  counting how many times a tight polling loop runs before the latch decays.
-;  Warmer -> fewer loops (smaller count); colder -> more loops (bigger count).
+;  The PPU I/O "open bus" latch — the value you read back from a write-only PPU
+;  register — is not driven by anything once you stop writing to it. It is held
+;  only by a tiny parasitic capacitance, and it slowly bleeds to 0 through
+;  reverse-bias junction leakage. That leakage current is exponential in
+;  temperature (Arrhenius), so the survival time is a thermometer. We prime the
+;  latch to all-ones and count how many times a tight polling loop runs before
+;  it decays: warmer -> faster decay -> smaller count; colder -> bigger count.
 ;
 ;  ---------------------------------------------------------------------------
 ;  THE ONE TRICK: read the PPU latch, NOT the CPU bus
 ;  ---------------------------------------------------------------------------
 ;  "Open bus" IS the data bus itself, not separate storage. You cannot poll a CPU
-;  open-bus address: the polling instructions have to travel over that same bus, so
-;  each fetch drives its own opcode/operand bytes onto it and OVERWRITES whatever you
-;  wrote (which also, incidentally, refreshes it and staves off decay). The PPU's
-;  internal I/O latch is on the other die and the CPU's fetches never touch it.
-;
+;  open-bus address: the polling instructions travel over that same bus, so each
+;  fetch drives its own opcode bytes onto it and OVERWRITES whatever you wrote.
+;  The PPU's internal I/O latch is on the other die and CPU fetches never touch it.
 ;  We seed and read it the idiomatic way: WRITE $2002 (a read-only register — the
-;  write is ignored as a register op but still fills the PPU I/O latch, with NO side
+;  write is ignored as a register op but still fills the PPU I/O latch, no side
 ;  effect), then READ $2001 (a write-only register — reading it returns the full
-;  8-bit open-bus latch, since the PPU drives nothing). (Reading $2002 instead would
-;  work too but only exposes the low 5 bits — the PPU drives the top 3 status bits.)
-;  With thanks to a NESdev reviewer who corrected the earlier $2003/$2002 version.
+;  8-bit open-bus latch). With thanks to a NESdev reviewer for these corrections.
 ;
 ;  ---------------------------------------------------------------------------
-;  FROM COUNT TO CELSIUS (done with NO 6502 multiply / divide / float)
+;  COUNT -> CELSIUS (integer, 0–100 °C, no 6502 multiply / divide / float)
 ;  ---------------------------------------------------------------------------
-;  count -> temperature is a non-linear (Arrhenius) inversion. Instead of doing
-;  logarithms on the 6502, we precompute the whole curve on the PC (build.py) as
-;  a lookup table: thr[i] = the count you would measure at temperature
-;  (i*0.1 - 0.05) C, for i = 0..511 (so index i == temperature in TENTHS of a
-;  degree, 0.0 .. 51.1 C). The table decreases (cold = big count), so the answer
-;  is simply "the largest index i whose threshold is still >= our count" — found
-;  with a 9-step power-of-two binary search (no division). Then we format the
-;  index as N.N and print " DEGREE CELSIUS".
+;  The count -> temperature inversion (an Arrhenius log) is precomputed on the PC
+;  (build.py) as a 128-entry lookup table: thr[i] = the count you'd measure at
+;  (i - 0.5) °C, for i = 0..100 (indices 101..127 are 0 padding). The table
+;  decreases (cold = big count), so the answer is "the largest index i whose
+;  threshold is still >= our count" — a 7-step power-of-two binary search, no
+;  division. Then print i as a decimal number.
 ;
-;  Honest limits (this is a technical demo, not a precision instrument):
-;   * When the decay is fast (warm), the loop runs few times, so the count is
-;     coarse — around 40 C and up, neighbouring degrees can share a count, so the
-;     0.1 digit there is not real resolution (~+-0.5 C). Cold end (0..~30 C) is
-;     genuinely ~0.1 C.
-;   * The table covers 0.0 .. 51.1 C; outside that it clamps.
-;   * The count also depends on the emulator's exact loop timing, so the table is
-;     calibrated to THIS build (tools/aprnes) — it is a per-model calibration.
+;  Honest limits (a technical demo, not a precision instrument):
+;   * Integer only — 0.1 °C would be false precision. Across 0–100 °C every whole
+;     degree maps to a DISTINCT decay count (587× span, strictly monotonic), so the
+;     round-trip is per-degree exact end to end; the only residual error is the
+;     ±0.5 °C of rounding an analogue temperature to an integer display. (An earlier
+;     build blurred above ~44 °C — that was a non-monotonic host clock in the
+;     emulator, since fixed; see the study.) The absolute method ceiling is far
+;     hotter, where the decay shrinks to one loop iteration.
+;   * Below 0 °C clamps to 0; above 100 °C clamps to 100; an emulator whose open
+;     bus never decays makes the count run away, and the ROM shows "--" instead.
+;   * The count depends on the emulator's exact loop timing, so the table is
+;     calibrated to THIS build (tools/aprnes) — a per-model calibration.
 ; ============================================================================
 
 .MEMORYMAP
@@ -73,34 +63,33 @@ SLOT 0 $C000 $4000
 .EMPTYFILL $00
 
 ; ------------------------------------------------------------------ zero page
-.DEFINE cnt0 $10      ; measured decay count, 24-bit little-endian (lo/mid/hi)
+.DEFINE cnt0 $10      ; measured decay count, 24-bit little-endian
 .DEFINE cnt1 $11
 .DEFINE cnt2 $12
-.DEFINE idxL $13      ; binary-search result = temperature in tenths (0..511)
-.DEFINE idxH $14
-.DEFINE stpL $15      ; search step (256,128,...,1)
-.DEFINE stpH $16
-.DEFINE tstL $17      ; candidate index = idx + step ; later reused as BCD work
-.DEFINE tstH $18
-.DEFINE tblL $19      ; thr_*[test] fetched here (24-bit)
-.DEFINE tblM $1A
-.DEFINE tblH $1B
-.DEFINE ptr  $1C      ; 16-bit table pointer ($1C/$1D)
-.DEFINE intP $1E      ; integer part of the temperature (0..51)
-.DEFINE frac $1F      ; fractional digit (0..9)
-.DEFINE tens $20      ; tens digit of the integer part (0..5)
-.DEFINE ones $21      ; ones digit of the integer part (0..9)
+.DEFINE idx  $13      ; binary-search result = temperature in whole °C (0..100)
+.DEFINE stp  $14      ; search step (64,32,...,1)
+.DEFINE tst  $15      ; candidate index = idx + step (0..127)
+.DEFINE tblL $16      ; thr_*[tst] fetched here (24-bit)
+.DEFINE tblM $17
+.DEFINE tblH $18
+.DEFINE hund $19      ; hundreds digit (0 or 1)
+.DEFINE tensd $1A     ; tens digit
+.DEFINE onesd $1B     ; ones digit
+.DEFINE ptr  $1C      ; 16-bit pointer for the suffix string ($1C/$1D)
 
 .BANK 0 SLOT 0
 .ORG $0000
 
-; Read-only text, placed first so the code below sees it as a 16-bit address
-; (a forward reference would make WLA guess zero-page and fail to fix it).
+; Read-only data first, so the code below sees these as 16-bit addresses
+; (a forward reference would make WLA guess zero-page and mis-size the opcode).
 suffix_str:
     .db " DEGREE CELSIUS", $00
 
+; the 128x3 count->temperature lookup table (generated by build.py)
+.INCLUDE "thermo_table.inc"
+
 ; ============================================================================
-;  RESET  —  power-on / init
+;  RESET
 ; ============================================================================
 RESET:
     sei
@@ -108,16 +97,14 @@ RESET:
     ldx #$FF
     txs
     lda #$00
-    sta $2000            ; NMI off (we run without interrupts)
-    sta $2001            ; rendering off (blank screen while we measure)
+    sta $2000            ; NMI off
+    sta $2001            ; rendering off
 
-    ; the PPU needs ~1 frame to warm up; wait for the first vblank
 vwait1:
     bit $2002
     bpl vwait1
 
-    ; clear the 2KB internal RAM ($0000-$07FF)
-    lda #$00
+    lda #$00             ; clear the 2KB internal RAM
     tax
 clrram:
     sta $0000,x
@@ -131,28 +118,27 @@ clrram:
     inx
     bne clrram
 
-    ; second warm-up vblank (PPU is now stable enough for $2006/$2007 writes)
 vwait2:
     bit $2002
     bpl vwait2
 
-    ; ---- palette: universal background = black, colour 1 = white ----
+    ; ---- palette: bg = black, colour 1 = white ----
     lda #$3F
     sta $2006
     lda #$00
     sta $2006
     lda #$0F
-    sta $2007            ; $3F00 = black
+    sta $2007
     lda #$30
-    sta $2007            ; $3F01 = white  (our text colour)
+    sta $2007
 
     ; ---- clear name table $2000-$23FF to the blank tile ($20 = space) ----
     lda #$20
     sta $2006
     lda #$00
     sta $2006
-    lda #$20             ; blank/space tile
-    ldx #$04             ; 4 * 256 = 1024 bytes
+    lda #$20
+    ldx #$04
     ldy #$00
 ntclr:
     sta $2007
@@ -161,16 +147,15 @@ ntclr:
     dex
     bne ntclr
 
-    ; ---- clear the attribute table $23C0-$23FF to 0 (every quadrant -> palette 0) ----
-    ; Power-on palette RAM is undefined and differs per emulator, so if a glyph landed
-    ; on a palette we never wrote, its colour 1 could be black -> invisible text. Forcing
-    ; all attributes to palette 0 (whose colour 1 we DID set to white) fixes that.
+    ; ---- clear the attribute table $23C0-$23FF to palette 0 ----
+    ; (undefined power-on palette RAM differs per emulator; force palette 0 so text
+    ;  never lands on an uninitialised palette and turns invisible).
     lda #$23
     sta $2006
     lda #$C0
     sta $2006
     lda #$00
-    ldx #$40             ; 64 attribute bytes
+    ldx #$40
 attrclr:
     sta $2007
     dex
@@ -179,9 +164,7 @@ attrclr:
 ; ============================================================================
 ;  MEASURE  —  time the open-bus decay as a loop count
 ; ============================================================================
-    ; Prime the PPU open-bus latch to $FF by writing a read-only register ($2002).
-    ; The write is ignored as a register operation but still fills the PPU I/O latch,
-    ; with no side effect at all (unlike $2003, which would also set OAMADDR).
+    ; Prime the latch to $FF by writing $2002 (read-only -> no side effect).
     lda #$FF
     sta $2002
 
@@ -190,216 +173,151 @@ attrclr:
     sta cnt1
     sta cnt2
 measure:
-    lda $2001            ; read a write-only register -> the FULL 8-bit open-bus latch
-    cmp #$FF             ; still all-ones? (all 8 bits are open bus; nothing to mask)
-    bne measured         ; a bit dropped -> the latch has decayed -> stop timing
-    inc cnt0             ; else count this iteration (24-bit increment)
+    lda $2001            ; read a write-only register -> full 8-bit open-bus latch
+    cmp #$FF             ; still all-ones?
+    bne measured         ; a bit dropped -> stop timing
+    inc cnt0             ; 24-bit increment
     bne measure
     inc cnt1
     bne measure
     inc cnt2
-    lda cnt2             ; timeout guard: ~2M loops with no bit ever dropping means
-    cmp #$20             ; this emulator does NOT model open-bus decay (nothing to
-    bcs no_decay         ; measure) -> bail out instead of hanging on a black screen
+    lda cnt2             ; timeout: ~2M loops with no decay = this emulator doesn't
+    cmp #$20             ; model open-bus decay -> bail out instead of hanging
+    bcs no_decay
     jmp measure
+
 no_decay:
-    ; This emulator has no open-bus decay: show "--.-" instead of a bogus reading.
-    lda #$21             ; name-table row 14, col 6 = $21C6
+    lda #$21             ; show "--" (no valid measurement)
     sta $2006
     lda #$C6
     sta $2006
-    lda #$2D             ; '-'
+    lda #$2D
     sta $2007
     sta $2007
-    lda #$2E             ; '.'
-    sta $2007
-    lda #$2D             ; '-'
-    sta $2007
-    jmp put_suffix       ; print " DEGREE CELSIUS" then enable rendering
+    jmp put_suffix
+
 measured:
-    ; cnt2:cnt1:cnt0 now holds the decay time in loop iterations.
 
 ; ============================================================================
-;  CONVERT  —  count -> temperature index via power-of-two binary search
-;
-;  The table thr_*[] decreases with index (index 0 = coldest = biggest count).
-;  We want the largest index i such that thr[i] >= count. We build that 9-bit
-;  index one bit at a time, testing 256,128,...,1 — no division needed.
+;  CONVERT  —  count -> °C via a 7-step power-of-two binary search
+;  thr[] decreases with index; find the largest index i where thr[i] >= count.
+;  128-entry table, index 0..127 (0..100 real, rest padding), so no bound check.
 ; ============================================================================
     lda #$00
-    sta idxL
-    sta idxH
-    sta stpL
-    lda #$01
-    sta stpH             ; step = 256
-
+    sta idx
+    lda #$40             ; step = 64
+    sta stp
 rx_loop:
-    ; test = idx + step
-    lda idxL
+    lda idx              ; test = idx + step
     clc
-    adc stpL
-    sta tstL
-    lda idxH
-    adc stpH
-    sta tstH
-    ; the table only has 512 entries; if test >= 512, this bit can't be set
-    lda tstH
-    cmp #$02
-    bcs rx_next
-
-    jsr read_thr         ; tblH:tblM:tblL = thr[test]
-
-    ; if thr[test] >= count  -> keep this bit (idx = test)
-    ; compute thr - count and look at the final borrow (carry)
-    lda tblL
+    adc stp
+    sta tst
+    jsr read_thr         ; tblH:tblM:tblL = thr[tst]
+    lda tblL             ; if thr[tst] >= count -> keep this bit
     cmp cnt0
     lda tblM
     sbc cnt1
     lda tblH
     sbc cnt2
-    bcc rx_next          ; borrow => thr < count => do not set this bit
-    lda tstL
-    sta idxL
-    lda tstH
-    sta idxH
+    bcc rx_next          ; borrow => thr < count => don't set the bit
+    lda tst
+    sta idx
 rx_next:
-    lsr stpH             ; step >>= 1
-    ror stpL
-    lda stpH
-    ora stpL
+    lsr stp              ; step >>= 1
     bne rx_loop
-    ; idxH:idxL (0..511) == temperature in tenths of a degree C.
+    ; idx (0..100) = temperature in whole degrees C
 
 ; ============================================================================
-;  FORMAT  —  split the tenths value into  tens '.' ones '.' frac  digits
-;  (all with repeated subtraction; the 6502 has no divide)
+;  FORMAT  —  idx (0..100) -> hundreds / tens / ones  (repeated subtraction)
 ; ============================================================================
-    ; work = idx (16-bit) ; frac = work mod 10 ; intP = work / 10
-    lda idxL
-    sta tstL
-    lda idxH
-    sta tstH
+    lda idx
     ldx #$00
-div10:
-    lda tstL             ; work -= 10 (16-bit)
+    cmp #100
+    bcc fmt_h
+    sec
+    sbc #100
+    inx                  ; hundreds = 1 (only value 100)
+fmt_h:
+    stx hund
+    ; A = 0..99
+    ldy #$FF
+fmt_t:
+    iny
     sec
     sbc #10
-    tay
-    lda tstH
-    sbc #$00
-    bcc div10_done       ; went negative -> quotient complete
-    sta tstH
-    sty tstL
-    inx
-    jmp div10
-div10_done:
-    stx intP             ; intP = idx / 10   (integer degrees, 0..51)
-    lda tstL
-    sta frac             ; frac = idx mod 10 (the 0.1 digit)
-
-    ; split intP (0..51) into tens and ones
-    ldx #$FF
-    lda intP
-t10:
-    inx
-    sec
-    sbc #10
-    bcs t10
-    adc #10              ; undo the last (overshoot) subtraction -> ones digit
-    sta ones
-    stx tens             ; tens (0..5)
+    bcs fmt_t
+    adc #10              ; undo overshoot -> ones digit
+    sta onesd
+    sty tensd
 
 ; ============================================================================
-;  DISPLAY  —  write  "<tens><ones>.<frac> DEGREE CELSIUS"  to the name table
-;  Tiles are ASCII-indexed (the CHR font places each glyph at tile == its ASCII
-;  code), so we just store ASCII bytes straight into $2007.
+;  DISPLAY  —  "<digits> DEGREE CELSIUS" with leading-zero blanking
 ; ============================================================================
-    lda #$21             ; name table $2000 + row 14 * 32 + col 6 = $21C6
+    lda #$21             ; name table row 14, col 6 = $21C6
     sta $2006
     lda #$C6
     sta $2006
+    lda hund
+    beq disp_tens        ; no hundreds digit for < 100
+    ora #$30
+    sta $2007
+    lda tensd            ; hundreds present -> tens is not a leading zero
+    ora #$30
+    sta $2007
+    jmp disp_ones
+disp_tens:
+    lda tensd
+    beq disp_ones        ; blank a leading-zero tens
+    ora #$30
+    sta $2007
+disp_ones:
+    lda onesd
+    ora #$30
+    sta $2007
 
-    lda tens             ; leading-zero blanking: show a space instead of '0'
-    bne show_tens
-    lda #$20             ; ' '
-    jmp put_tens
-show_tens:
-    ora #$30             ; '0' + tens
-put_tens:
-    sta $2007
-    lda ones
-    ora #$30             ; '0' + ones
-    sta $2007
-    lda #$2E             ; '.'
-    sta $2007
-    lda frac
-    ora #$30             ; '0' + frac
-    sta $2007
-
+; ----------------------------------------------------------------------------
+;  put_suffix: print " DEGREE CELSIUS", then turn rendering on and idle
+; ----------------------------------------------------------------------------
 put_suffix:
-    lda #<suffix_str     ; then the literal " DEGREE CELSIUS" (via a zp pointer,
-    sta ptr              ; which avoids absolute,X addressing-mode ambiguity)
+    lda #<suffix_str
+    sta ptr
     lda #>suffix_str
     sta ptr+1
     ldy #$00
-suffix:
+sfx:
     lda (ptr),y
-    beq suffix_done
+    beq sfx_done
     sta $2007
     iny
-    bne suffix
-suffix_done:
-
-; ============================================================================
-;  RENDER  —  reset scroll and turn the picture on; then idle forever
-; ============================================================================
+    bne sfx
+sfx_done:
     bit $2002            ; reset the $2005/$2006 write toggle
     lda #$00
     sta $2005
     sta $2005
-    sta $2000            ; NMI off, BG uses pattern table 0 (where our font lives)
+    sta $2000            ; NMI off, BG pattern table 0
     lda #$0A
     sta $2001            ; show background
 forever:
     jmp forever
 
 ; ----------------------------------------------------------------------------
-;  read_thr:  load the 24-bit table entry thr[test] into tblH:tblM:tblL.
-;  The three SoA arrays are contiguous (thr_lo, thr_mid, thr_hi; 512 bytes each),
-;  so thr_mid = thr_lo + 512 and thr_hi = thr_lo + 1024: after pointing at
-;  thr_lo+test we just add 512 (two to the high byte) to walk to the next array.
+;  read_thr: tblH:tblM:tblL = thr[tst].  The three 128-byte SoA arrays are
+;  addressed directly (absolute,Y) because they're defined before this code.
 ; ----------------------------------------------------------------------------
 read_thr:
-    lda #<thr_lo
-    clc
-    adc tstL
-    sta ptr
-    lda #>thr_lo
-    adc tstH
-    sta ptr+1
-    ldy #$00
-    lda (ptr),y          ; thr_lo[test]
+    ldy tst
+    lda thr_lo,y
     sta tblL
-    lda ptr+1            ; += 512  -> thr_mid[test]
-    clc
-    adc #$02
-    sta ptr+1
-    lda (ptr),y
+    lda thr_mid,y
     sta tblM
-    lda ptr+1            ; += 512  -> thr_hi[test]
-    clc
-    adc #$02
-    sta ptr+1
-    lda (ptr),y
+    lda thr_hi,y
     sta tblH
     rts
 
 nmi_isr:
 irq_isr:
     rti
-
-; the 512x3 count->temperature lookup table (generated by build.py)
-.INCLUDE "thermo_table.inc"
 
 ; ---- CPU vectors at $FFFA/$FFFC/$FFFE ----
 .ORG $3FFA

@@ -1051,7 +1051,13 @@ namespace AprNes
         static double openBusLastTemp = 25.0;             // last T the period was computed for
 
         // Monotonic PPU time in dots since power-on — the lazy-timestamp clock (no hot-loop cost).
-        static long NowDots() => (long)frame_count * DOTS_PER_FRAME_NTSC + (long)scanline * 341 + ppu_cycles_x;
+        // Derived from the CPU-cycle counter (mcCycleCount, ++ once per CPU cycle at the top of
+        // MasterClockTickUnrolledNTSC, DMA-steal cycles included) × 3 dots/cycle (NTSC), NOT from
+        // frame_count/scanline/x: frame_count++ fires at SL240 (host-side render boundary, invisible
+        // to games), so the frame/line/x form is NON-monotonic — it jumps a whole frame at SL240 and
+        // would trip the decay early whenever the decay period ≈ 1 frame. mcCycleCount is strictly
+        // monotonic and never touches game-visible timing, so this is AccuracyCoin-safe.
+        static long NowDots() => (long)mcCycleCount * 3;
 
         // Recompute the decay period from the temperature knob (Arrhenius scaling).
         static void RecomputeOpenBusDecay()

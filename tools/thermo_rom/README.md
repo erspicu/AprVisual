@@ -1,8 +1,8 @@
 # NES open-bus thermometer test ROM
 
-A tiny NROM test ROM that turns the PPU open-bus decay into a **thermometer**, plus the
-AprNes CLI hooks to drive it headlessly. This is the runnable companion to the study in
-`WebSite/s1a/nes-thermometer.html`.
+A tiny NROM test ROM that turns the PPU open-bus decay into a **thermometer** and prints
+the temperature in Celsius (e.g. `25.0 DEGREE CELSIUS`), plus the AprNes CLI hooks to drive
+it headlessly. This is the runnable companion to `WebSite/s1a/nes-thermometer.html`.
 
 ## What it does
 
@@ -13,10 +13,12 @@ bleeds to 0 through junction leakage. That leakage is Arrhenius in temperature
 1. primes the latch to `$1F` (writes `$FF` to `$2003` / OAMADDR — drives all 8 latch bits
    without enabling NMI or rendering),
 2. tight-polls `$2002`, keeping the low 5 bits, and counts loop iterations until the first
-   bit drops (a 24-bit counter in zero page `$10..$12`),
-3. renders that count as a 6-digit hex number and leaves it at `$0010` for `--dump-mem`.
+   bit drops (a 24-bit decay count in zero page `$10..$12`),
+3. inverts count → temperature with a precomputed **0.1 °C lookup table** and a 9-step
+   power-of-two binary search (no 6502 multiply/divide/float), and
+4. prints `NN.N DEGREE CELSIUS` on screen (the temperature tenths are also at `$0013`).
 
-Warmer → faster decay → **smaller** count; colder → slower → **bigger** count.
+Warmer → faster decay → smaller count; colder → slower → bigger count.
 
 ## Build
 
@@ -24,46 +26,62 @@ Warmer → faster decay → **smaller** count; colder → slower → **bigger** 
 python tools/thermo_rom/build.py
 ```
 
-Assembles `thermo.asm` with WLA-DX (`tools/wla-dx/wla-6502.exe` + `wlalink.exe`), generates
-an 8 KB CHR font (hex glyphs `0-F` at tiles `$30-$3F`), and wraps it as `thermo.nes`
-(iNES: 16 KB PRG + 8 KB CHR, mapper 0).
+Generates the count→temperature table (`thermo_table.inc`, from `counts_by_degree.json`),
+assembles `thermo.asm` with WLA-DX (`tools/wla-dx/wla-6502.exe` + `wlalink.exe`), builds an
+8 KB CHR font (ASCII-indexed: each glyph sits at tile == its ASCII code), and wraps it as
+`thermo.nes` (iNES: 16 KB PRG + 8 KB CHR, mapper 0).
 
 ## Run (headless AprNes, temperature knob)
 
-Two new AprNes CLI flags (in `tools/aprnes/NesCore/TestRunnerCore.cs`):
+Two AprNes CLI flags (in `tools/aprnes/NesCore/TestRunnerCore.cs`):
 
 - `--openbus-temp <°C>` — sets the PPU open-bus decay temperature (`NesCore.OpenBusTempCelsius`).
-- `--dump-mem <hexaddr>` — prints 8 bytes + the little-endian u24 at that CPU address at end of run.
+- `--dump-mem <hexaddr>` — prints 8 bytes + the little-endian u24 at that CPU address at exit.
 
 ```
-AprNes.exe --rom thermo.nes --openbus-temp 25 --time 8 \
-           --dump-mem 0010 --timed-screenshots "shot_25c.png:2.0"
+AprNes.exe --rom thermo.nes --openbus-temp 25 --time 6 \
+           --dump-mem 0013 --timed-screenshots "c_25.png:2.0"
 ```
 
 `--timed-screenshots "<path>:<seconds>"` captures a specific frame (frame 120 ≈ 2.0 s).
-Note: cold runs decay slowly, so the measurement may not finish by frame 120 (screen stays
-black until it does) — screenshot a later frame for cold temperatures.
+`--dump-mem 0013` reads the temperature-in-tenths result (e.g. `250` = 25.0 °C).
+Note: cold runs decay slowly, so the measurement may not finish by frame 120 (the screen
+stays black until it does) — screenshot a later frame for cold temperatures.
 
-## Verified results (this build)
+⚠️ Use **PowerShell**, not Git Bash, for `--timed-screenshots`: MSYS mangles the `path:sec`
+argument (the `:` looks like a unix path-list separator).
 
-| °C | count (u24) | hex on screen | ratio vs 25 °C | Arrhenius predicted |
-|---:|------------:|:-------------:|---------------:|--------------------:|
-|  0 |     437,249 | `06AC01`      | 7.42 | 7.35 |
-| 10 |     187,803 | `02DD9B`      | 3.19 | 3.17 |
-| 20 |      85,381 | `014D85`      | 1.45 | 1.45 |
-| 25 |      58,950 | `00E646`      | 1.00 | 1.00 |
-| 30 |      40,778 | `009F4A`      | 0.69 | 0.70 |
-| 40 |      19,317 | `004B75`      | 0.33 | 0.35 |
-| 50 |       9,391 | `0024AF`      | 0.16 | 0.19 |
+## Verified round-trip (set °C → displayed °C)
 
-A clean monotonic thermometer — **46× count range across 0–50 °C**, matching the Arrhenius
-law. `shot_25c.png` / `shot_50c.png` / `shot_0c_late.png` are frame captures of the readout.
+| set °C | displayed | | set °C | displayed |
+|---:|:---:|---|---:|:---:|
+| 0  | `0.0`  | | 30 | `30.0` |
+| 10 | `10.0` | | 40 | `40.0` |
+| 20 | `20.0` | | 43 | `43.5` |
+| 25 | `25.0` | | 50 | `50.5` |
+
+Screenshots: `c_0.png`, `c_25.png`, `c_50.png`, …
+
+## Honest limits (this is a technical demo, not a precision instrument)
+
+- **Warm-end resolution.** When decay is fast (warm), the loop runs few times, so the count
+  is coarse. Above ~40 °C, adjacent degrees can share a count, so the 0.1 digit there is not
+  real resolution (≈ ±0.5 °C — 43 and 44 °C both read `43.5`). The cold end (0–~30 °C) is
+  genuinely ~0.1 °C.
+- **Range.** The table covers 0.0–51.1 °C; outside it clamps.
+- **Per-model calibration.** The count depends on the emulator's exact loop timing, so the
+  table is calibrated to *this* build (`tools/aprnes`). On real hardware the absolute offset
+  differs per console (a one-point calibration fixes it; the Arrhenius *slope* is universal).
+- **Die, not room.** On real silicon the PPU self-heats +30–40 °C, so this reads the *die*
+  temperature unless you cold-boot and read within a few seconds. In the emulator the knob is
+  literal ambient. See the study for the full discussion.
 
 ## Files
 
-- `thermo.asm` — the 6502 source (WLA-DX syntax).
-- `build.py` — assemble + font + iNES wrap.
+- `thermo.asm` — the 6502 source (WLA-DX syntax, heavily commented as a tutorial).
+- `build.py` — table generation + assemble + CHR font + iNES wrap.
+- `counts_by_degree.json` — the per-degree emulator measurements the table is built from.
 - `thermo.nes` — the built ROM (committed for convenience).
-- `shot_*.png` — sample frame captures.
+- `c_*.png` — sample frame captures of the Celsius readout.
 
-Build intermediates (`thermo.o`, `link.tmp`, `thermo_prg.bin`) are gitignored.
+Build intermediates (`thermo.o`, `link.tmp`, `thermo_prg.bin`, `thermo_table.inc`) are gitignored.

@@ -1,4 +1,5 @@
-# WLA-DX build intermediates
+# WLA-DX build intermediates + generated table
 thermo.o
 link.tmp
 thermo_prg.bin
+thermo_table.inc

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The last mile — 2C02 pixel to picture (NES video signal chain)</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--blu:#7fbfe0;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:900px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(960px, 78vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul,ol{margin:.4em 0 .8em;padding-left:22px;} li{margin:.3em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:Consolas,"SF Mono",monospace;} pre .c{color:var(--mut);} pre .k{color:#c792ea;} pre .s{color:#7ee0a8;} pre .l{color:#ffb454;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13px;}
+  th,td{border:1px solid var(--bd);padding:6px 9px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;} figure svg{max-width:100%;height:auto;} figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(960px, 78vw);margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#deep-dives"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">The last mile: pixel → picture</span><span class="zh">最後一哩:像素 → 畫面</span></h1>
+  <p class="tag en">Deep dive #5 · a <b>roadmap</b>, not a finished build. Our switch-level 2C02 is bit-exact, but it stops at <i>palette indices</i> — a number per pixel. A real NES doesn't output numbers; it outputs a wobbly analog composite waveform that a 1990 television turns back into a fuzzy, colour-bleeding, dot-crawling picture. This article maps that whole missing stretch — the on-die video DAC, the board amplifier, the composite signal itself, and the television's decode chain — and lays out how we'd model it: intercept the DAC's digital control nodes, synthesise the analog waveform at 21.477 MHz, and <b>write our own NTSC decoder</b> from first principles (no borrowed libraries). Two hardware-engineer consults inform it; the honest caveats are throughout.</p>
+  <p class="tag zh">深入專文 #5 · 這是<b>路線圖</b>,不是已完成的實作。我們的開關級 2C02 是 bit-exact,但它停在<i>調色盤索引</i> —— 每像素一個數字。真的 NES 不輸出數字;它輸出一段搖搖晃晃的類比 composite 波形,由一台 1990 年的電視變回一張模糊、色彩溢出、點狀蠕動的畫面。這篇把那整段缺的路標出來 —— 晶片內視訊 DAC、主機板放大器、composite 訊號本身、電視的解碼鏈 —— 並鋪陳我們會怎麼模擬:截斷 DAC 的數位控制節點、在 21.477MHz 合成類比波形、然後從第一性原理<b>自己寫 NTSC 解碼器</b>(不借用函式庫)。內容來自兩次硬體工程師諮詢;誠實的但書貫穿全文。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive #5</span><span class="pill">roadmap</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="chain">
+  <h2><span class="kick"><span class="en">The whole chain</span><span class="zh">整條鏈</span></span><span class="en">Where the model stops, and everything after it</span><span class="zh">模型停在哪,以及它之後的一切</span></h2>
+  <p class="en">Four stages sit between the last digital node we simulate and a picture on a screen. Two live on the 2C02 die, one is a handful of parts on the board, and one is the entire television. The good news up front: <b>the RF modulator does not need modelling</b> — the composite baseband signal is fully formed before it, so we can tap the composite directly.</p>
+  <p class="zh">在我們模擬的最後一個數位節點與螢幕上的畫面之間,有四個階段。兩個在 2C02 晶粒上,一個是主機板上幾顆零件,一個是整台電視。先講好消息:<b>RF 調變器不用模擬</b> —— composite baseband 訊號在它之前就完全成型,所以我們可以直接接 composite。</p>
+
+  <figure>
+    <svg viewBox="0 0 940 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="940" height="220" fill="#141019"/>
+      <text x="470" y="22" fill="#e8dcff" font-size="14" font-weight="700" text-anchor="middle">2C02 pixel → picture: the four stages (RF modulator skipped)</text>
+      <!-- lane labels -->
+      <text x="12" y="60" fill="#c792ea" font-size="10.5" font-weight="700">ON-DIE</text>
+      <text x="12" y="120" fill="#7ee0a8" font-size="10.5" font-weight="700">BOARD</text>
+      <text x="12" y="165" fill="#7fbfe0" font-size="10.5" font-weight="700">TV</text>
+      <text x="12" y="200" fill="#ffb454" font-size="10.5" font-weight="700">CRT</text>
+      <g font-size="11.5">
+        <!-- on-die -->
+        <rect x="70" y="42" width="150" height="40" rx="6" fill="#241d31" stroke="#c792ea"/>
+        <text x="145" y="60" fill="#e2c7f5" text-anchor="middle" font-weight="700">digital colour logic</text>
+        <text x="145" y="74" fill="#a58fb5" text-anchor="middle" font-size="10">Sync·Luma·Chroma·Burst·Emph  ← we stop here</text>
+        <rect x="240" y="42" width="140" height="40" rx="6" fill="#241d31" stroke="#c792ea"/>
+        <text x="310" y="60" fill="#e2c7f5" text-anchor="middle" font-weight="700">12-phase + video DAC</text>
+        <text x="310" y="74" fill="#a58fb5" text-anchor="middle" font-size="10">R-divider + NMOS → Pin 21</text>
+        <!-- board -->
+        <rect x="400" y="100" width="150" height="40" rx="6" fill="#1c2a22" stroke="#7ee0a8"/>
+        <text x="475" y="118" fill="#a8e6c4" text-anchor="middle" font-weight="700">board amp Q1+Q2</text>
+        <text x="475" y="132" fill="#7f9d88" text-anchor="middle" font-size="10">2SA937 + 2SC2021 → CVBS</text>
+        <!-- tv -->
+        <rect x="570" y="145" width="180" height="46" rx="6" fill="#1b2430" stroke="#7fbfe0"/>
+        <text x="660" y="163" fill="#bfe0f5" text-anchor="middle" font-weight="700">TV NTSC decoder</text>
+        <text x="660" y="177" fill="#7f93a5" text-anchor="middle" font-size="9.5">sync-sep · Y/C notch · burst-PLL demod · YIQ→RGB</text>
+        <!-- crt -->
+        <rect x="770" y="145" width="150" height="46" rx="6" fill="#2a2417" stroke="#ffb454"/>
+        <text x="845" y="163" fill="#ffd9a0" text-anchor="middle" font-weight="700">CRT</text>
+        <text x="845" y="177" fill="#a89570" text-anchor="middle" font-size="9.5">scanline · blur · gamma</text>
+      </g>
+      <!-- arrows -->
+      <g stroke="#5a5266" stroke-width="1.6" fill="none" marker-end="url(#a)">
+        <line x1="220" y1="62" x2="238" y2="62"/>
+        <path d="M380,62 C 392,62 388,120 398,120"/>
+        <path d="M550,120 C 562,120 558,168 568,168"/>
+        <line x1="750" y1="168" x2="768" y2="168"/>
+      </g>
+      <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#5a5266"/></marker></defs>
+      <text x="470" y="210" fill="#6f6780" font-size="10.5" text-anchor="middle">tap point → synthesise CVBS at 21.477 MHz → our own software decoder</text>
+    </svg>
+    <figcaption><span class="en">The four stages after the digital pixel. We tap between stage 1 and 2 (the DAC control nodes), synthesise the analog composite, and model the rest in software.</span><span class="zh">數位像素之後的四個階段。我們在第 1、2 階段之間(DAC 控制節點)接出、合成類比 composite,其餘用軟體模擬。</span></figcaption>
+  </figure>
+</section>
+
+<section id="generate">
+  <h2><span class="kick"><span class="en">Stage 1 — the 2C02 generates</span><span class="zh">階段一 —— 2C02 產生</span></span><span class="en">A resistor ladder, not a real DAC</span><span class="zh">一條電阻梯,不是真的 DAC</span></h2>
+  <p class="en">The NES has <b>no R-2R DAC and no sine oscillator</b>. Its composite waveform is crude switching between fixed DC voltages — a square-wave stack that the television's low-pass filter smooths into colour. On the die: a series resistor divider between VCC and GND, and NMOS pass transistors that connect one tapped node to the output (Pin 21, VOUT) each moment.</p>
+  <p class="zh">NES <b>沒有 R-2R DAC、也沒有正弦振盪器</b>。它的 composite 波形是粗暴地在固定 DC 電壓間切換 —— 一疊方波,由電視的低通濾波器平滑成色彩。晶粒上:VCC↔GND 間一條串聯電阻分壓,加上 NMOS 傳輸閘,每一刻把某個抽頭節點接到輸出(Pin 21,VOUT)。</p>
+  <ul>
+    <li class="en"><b>Luma</b> has 4 levels; <b>chroma</b> is a square wave that swings between a "high" and "low" voltage at 3.58 MHz, its phase choosing the hue.</li>
+    <li class="zh"><b>亮度</b>有 4 階;<b>色度</b>是在「高」「低」電壓間以 3.58MHz 擺動的方波,相位決定色相。</li>
+    <li class="en"><b>Phase encoding:</b> a 12-step ring counter runs at the 21.477272 MHz master clock — which is exactly <b>6× the 3.579545 MHz colourburst</b>. Each pixel is 4 master clocks; the colour period is 6. They don't divide evenly, so the phase drifts line to line — and that <b>is dot crawl</b>: sample the output at 21.477 MHz and dot crawl appears for free.</li>
+    <li class="zh"><b>相位編碼:</b>一個 12 步環形計數器跑在 21.477272MHz 主時脈 —— 剛好是 <b>3.579545MHz colourburst 的 6 倍</b>。每像素 4 主時脈、色彩週期 6,不整除 → 相位逐行漂移 —— 那<b>就是 dot crawl</b>:用 21.477MHz 取樣輸出,dot crawl 自然出現。</li>
+    <li class="en"><b>Emphasis</b> (the R/G/B bits of <code>$2001</code>) turns on an extra pull-down during the off-colour phases, dropping the whole level ~20% — it <i>attenuates</i> the other colours rather than boosting one.</li>
+    <li class="zh"><b>Emphasis</b>(<code>$2001</code> 的 R/G/B 位元)在非該色相位期間導通額外下拉,整體降 ~20% —— 是<i>衰減</i>其他色,不是增強某色。</li>
+  </ul>
+  <p class="en">Then a tiny board amplifier — the 2C02's VOUT is too weak to drive a 75 Ω TV. On an NES-CPU-11 board that's <b>Q1 (PNP 2SA937 / 2SA1015)</b> for level-shift and <b>Q2 (NPN 2SC2021 / 2SC1815)</b> as an emitter follower, plus 220/510/110 Ω and a 220 µF DC-block. Its non-linearity is already baked into the measured voltage table below, so we can skip a SPICE model of it.</p>
+  <p class="zh">接著一個小小的主機板放大器 —— 2C02 的 VOUT 太弱、推不動 75Ω 電視。NES-CPU-11 板上是 <b>Q1(PNP 2SA937 / 2SA1015)</b> 做位準平移、<b>Q2(NPN 2SC2021 / 2SC1815)</b> 當射極隨耦器,加 220/510/110Ω 與 220µF 隔直流。它的非線性已經含在下面的量測電壓表裡,所以可以省掉它的 SPICE 模型。</p>
+</section>
+
+<section id="signal">
+  <h2><span class="kick"><span class="en">Stage 2 — the composite signal</span><span class="zh">階段二 —— composite 訊號</span></span><span class="en">One scanline, as a waveform</span><span class="zh">一條掃描線,當成波形</span></h2>
+  <figure>
+    <svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="900" height="250" fill="#141019"/>
+      <text x="450" y="22" fill="#e8dcff" font-size="14" font-weight="700" text-anchor="middle">One NTSC scanline of composite (CVBS)</text>
+      <!-- axes -->
+      <line x1="60" y1="200" x2="870" y2="200" stroke="#5a5266"/>
+      <line x1="60" y1="50" x2="60" y2="210" stroke="#5a5266"/>
+      <text x="30" y="130" fill="#968ba1" font-size="10.5" text-anchor="middle" transform="rotate(-90 30 130)">volts</text>
+      <!-- level guides -->
+      <line x1="60" y1="185" x2="870" y2="185" stroke="#3a3446" stroke-dasharray="3 3"/><text x="876" y="189" fill="#6f6780" font-size="9">blank 0</text>
+      <line x1="60" y1="200" x2="870" y2="200" stroke="#3a3446" stroke-dasharray="3 3"/><text x="876" y="204" fill="#6f6780" font-size="9">sync −0.286</text>
+      <line x1="60" y1="90"  x2="870" y2="90"  stroke="#3a3446" stroke-dasharray="3 3"/><text x="876" y="94" fill="#6f6780" font-size="9">white ~1.0</text>
+      <!-- waveform: sync tip, breezeway, colorburst, active video -->
+      <path d="M60,185 L80,185 L80,200 L120,200 L120,185 L150,185" fill="none" stroke="#dcd7e3" stroke-width="2"/>
+      <text x="100" y="222" fill="#7f93a5" font-size="9" text-anchor="middle">H-sync</text>
+      <!-- colorburst (9 cycles) -->
+      <path d="M150,185 q4,-10 8,0 q4,10 8,0 q4,-10 8,0 q4,10 8,0 q4,-10 8,0 q4,10 8,0 q4,-10 8,0 q4,10 8,0 q4,-10 8,0" fill="none" stroke="#7ee0a8" stroke-width="1.6"/>
+      <text x="186" y="222" fill="#7ee0a8" font-size="9" text-anchor="middle">colourburst</text>
+      <text x="186" y="233" fill="#5f7d68" font-size="8" text-anchor="middle">~9 cyc, phase ref</text>
+      <!-- active video: a luma pedestal with chroma oscillation -->
+      <path d="M228,150 L250,150
+               q3,-22 6,0 q3,22 6,0 q3,-22 6,0 q3,22 6,0 q3,-22 6,0 q3,22 6,0
+               L300,150 L320,120
+               q3,-26 6,0 q3,26 6,0 q3,-26 6,0 q3,26 6,0 q3,-26 6,0 q3,26 6,0 q3,-26 6,0 q3,26 6,0
+               L380,120 L400,150 L440,150 L460,105
+               q3,-30 6,0 q3,30 6,0 q3,-30 6,0 q3,30 6,0 q3,-30 6,0 q3,30 6,0
+               L520,105 L560,150" fill="none" stroke="#c792ea" stroke-width="1.6"/>
+      <text x="400" y="240" fill="#a58fb5" font-size="9" text-anchor="middle">active video — luma = pedestal height · chroma = 3.58 MHz swing, phase = hue</text>
+      <!-- amplitude bracket -->
+      <line x1="600" y1="90" x2="600" y2="185" stroke="#ffb454" stroke-width="1"/>
+      <text x="612" y="140" fill="#ffb454" font-size="9">luma</text>
+    </svg>
+    <figcaption><span class="en">A composite scanline: sync tip below blanking, the colourburst phase reference, then active video where the pedestal height is luma and the 3.58 MHz swing's phase is the hue. Measured levels (lidnariq, relative to 1 Vpp): sync −0.286, blank 0, black <code>$0D</code> −0.11, Luma0 0.22/0.61, Luma3 0.71/1.09.</span><span class="zh">一條 composite 掃描線:低於消隱的 sync tip、colourburst 相位基準,然後 active video —— 底座高度是亮度、3.58MHz 擺動的相位是色相。量測電壓(lidnariq,相對 1Vpp):sync −0.286、blank 0、黑 <code>$0D</code> −0.11、Luma0 0.22/0.61、Luma3 0.71/1.09。</span></figcaption>
+  </figure>
+</section>
+
+<section id="decode">
+  <h2><span class="kick"><span class="en">Stage 3 — the television decodes</span><span class="zh">階段三 —— 電視解碼</span></span><span class="en">Sync → Y/C → demodulate → RGB</span><span class="zh">同步 → 亮色分離 → 解調 → RGB</span></h2>
+  <p class="en">A real set runs the composite through four stages, historically discrete chips:</p>
+  <p class="zh">真電視把 composite 過四個階段,以前是分立晶片:</p>
+  <table>
+    <tr><th><span class="en">Stage</span><span class="zh">階段</span></th><th><span class="en">What it does</span><span class="zh">做什麼</span></th><th><span class="en">Classic chip</span><span class="zh">經典晶片</span></th></tr>
+    <tr><td><b><span class="en">Sync separation</span><span class="zh">同步分離</span></b></td><td><span class="en">slice below blanking → H-sync (4.7 µs) &amp; V-sync via RC</span><span class="zh">切低於消隱 → RC 分 H-sync(4.7µs)/ V-sync</span></td><td><code>LM1881</code></td></tr>
+    <tr><td><b>Y/C</b></td><td><span class="en">split luma from chroma — notch/bandpass, or a comb filter using a line-delay (glass → CCD → digital)</span><span class="zh">亮度/色度分離 —— notch/BPF,或用行延遲(玻璃→CCD→數位)的 comb filter</span></td><td><span class="en">delay line / <code>SAA7118</code></span><span class="zh">延遲線 / <code>SAA7118</code></span></td></tr>
+    <tr><td><b><span class="en">Demod + PLL</span><span class="zh">解調 + PLL</span></b></td><td><span class="en">lock a PLL to the colourburst each line, multiply chroma down to I/Q</span><span class="zh">每行用 colourburst 鎖 PLL,乘回 chroma 得 I/Q</span></td><td><code>CXA1621S</code></td></tr>
+    <tr><td><b><span class="en">Matrix</span><span class="zh">矩陣</span></b></td><td><span class="en">YIQ → RGB, drive the electron guns</span><span class="zh">YIQ → RGB,推電子槍</span></td><td><code>TDA3562A</code> · <code>TA7698AP</code></td></tr>
+  </table>
+  <p class="note b"><b><span class="en">The NES comb-filter trap.</span><span class="zh">NES 的 comb-filter 陷阱。</span></b> <span class="en">Standard NTSC flips the subcarrier phase <b>180°</b> per line, so adding two adjacent lines cancels chroma — a comb filter works. But the 2C02, to keep hardware simple, shifts phase only <b>120° per line</b> (a 3-line cycle). A standard 1-line comb filter <i>does not cancel</i> on NES — colour aliases badly. Famously, expensive comb-filter TVs looked <b>worse</b> on a NES than cheap notch-filter sets. So a faithful model must use a <b>notch filter</b>, which is also what ~90% of 1980s–90s televisions used — and it reproduces the colour bleed and dot crawl correctly.</span><span class="zh">標準 NTSC 每行副載波相位翻 <b>180°</b>,相鄰兩行相加即抵銷色度 —— comb filter 有效。但 2C02 為了硬體簡化,每行只偏 <b>120°</b>(3 行一循環)。標準 1-line comb 在 NES 上<i>不抵銷</i> —— 色彩嚴重混疊。有名的是:昂貴的 comb-filter 電視看 NES 反而比廉價 notch 電視<b>更糟</b>。所以忠實模型必須用 <b>notch filter</b> —— 那也是 80/90 年代約 90% 電視的做法 —— 且能正確重現色彩溢出與 dot crawl。</span></p>
+</section>
+
+<section id="ours">
+  <h2><span class="kick"><span class="en">Stage 3, our way</span><span class="zh">階段三,我們的做法</span></span><span class="en">Our own decoder, no borrowed code</span><span class="zh">自己寫解碼器,不借用程式碼</span></h2>
+  <p class="en">We will <b>write the decoder ourselves</b> — not <code>nes_ntsc</code>, not a copy of any emulator's filter. The maths is short; the difficulty is timing and filter design. Sampling at 6× the colourburst makes it clean: every colour cycle is exactly 6 samples, so the sin/cos tables are constant and no interpolation is needed. The stages:</p>
+  <p class="zh">我們會<b>自己寫解碼器</b> —— 不用 <code>nes_ntsc</code>、不抄任何模擬器的濾波器。數學很短,難在時序與濾波器設計。用 colourburst 的 6 倍取樣讓它很乾淨:每個色彩週期正好 6 樣本,sin/cos 表是常數、不用插值。各階段:</p>
+  <pre><span class="c">// 6 samples per colour cycle (Fs = 6·fsc)</span>
+sin6[] = {0, .866, .866, 0, -.866, -.866};   cos6[] = {1, .5, -.5, -1, -.5, .5};
+
+<span class="c">// 1. per-line burst phase (software clock is perfect, so no jitter-fighting PLL needed —</span>
+<span class="c">//    just measure the burst; a "cheat" MVP can derive it from (frame+line)%3 instead)</span>
+burst_phase = atan2( Σ burst·sin6 , Σ burst·cos6 );
+
+<span class="c">// 2. Y/C — NOTCH, never a comb (the 120°/line trap): FIR band-pass around 3.58 MHz</span>
+C = FIR_bandpass(composite);   Y = composite − C;
+
+<span class="c">// 3. demodulate against the locked phase, then low-pass off the 2× (7.16 MHz) image</span>
+I = LPF( C · cos(2πn/6 − (burst_phase+π)) );   Q = LPF( C · sin(...) );   <span class="c">// I~1.5MHz, Q~0.5MHz</span>
+
+<span class="c">// 4. FCC YIQ → RGB, clamp 0..1</span>
+R = Y + 0.956·I + 0.621·Q;  G = Y − 0.272·I − 0.647·Q;  B = Y − 1.106·I + 1.703·Q;</pre>
+  <p class="en">Then the CRT, by contribution: <b>scanlines</b> (~40 %, NES is 240p — leave the even field dark), a <b>horizontal Gaussian phosphor blur</b> (~30 %, also softens the dot-crawl noise), <b>gamma ≈ 2.2</b> (~15 %, or the darks die), and optionally a shadow-mask and bloom. Build order (each step is a working picture): cheat-phase MVP → software burst-lock PLL → tune the FIR orders → CRT filters.</p>
+  <p class="zh">然後 CRT,依貢獻度:<b>scanline</b>(~40%,NES 是 240p —— 偶數場留黑)、<b>水平高斯 phosphor blur</b>(~30%,順便柔化 dot-crawl 噪音)、<b>gamma ≈ 2.2</b>(~15%,否則暗部死黑),以及選配的 shadow mask 與 bloom。建置順序(每步都是能看的畫面):作弊相位 MVP → 軟體 burst-lock PLL → 調 FIR 階數 → CRT 濾鏡。</p>
+</section>
+
+<section id="plug">
+  <h2><span class="kick"><span class="en">Where it plugs in</span><span class="zh">接在哪</span></span><span class="en">The AprVisual integration — honestly, a plan</span><span class="zh">AprVisual 的整合 —— 誠實說,是個計畫</span></h2>
+  <ol>
+    <li class="en"><b>Tap the DAC control nodes.</b> In the switch-level 2C02, find the digital nodes driving the video-DAC pass transistors: <code>Luma 0–3</code>, the <code>Chroma</code> / 12-phase select, <code>Sync</code>, <code>Colourburst enable</code>, <code>Emphasis R/G/B</code>. That is the clean cut between "bit-exact digital" and "analog behavioural".</li>
+    <li class="zh"><b>接出 DAC 控制節點。</b>在開關級 2C02 裡找到驅動視訊 DAC 傳輸閘的數位節點:<code>Luma 0–3</code>、<code>Chroma</code> / 12 相位選擇、<code>Sync</code>、<code>Colourburst enable</code>、<code>Emphasis R/G/B</code>。那就是「bit-exact 數位」與「類比行為」之間的乾淨切點。</li>
+    <li class="en"><b>A 21.477 MHz sidecar</b> — a lookup <code>get_composite_voltage(luma, chroma, phase, emphasis, sync)</code> called once per master-clock tick, using lidnariq's measured voltages. <b>No SPICE</b> for the board amp — its non-linearity is in the table.</li>
+    <li class="zh"><b>21.477MHz sidecar</b> —— 一個查表 <code>get_composite_voltage(luma, chroma, phase, emphasis, sync)</code>,每主時脈 tick 呼叫一次,用 lidnariq 的量測電壓。板上放大器<b>不跑 SPICE</b> —— 非線性在表裡。</li>
+    <li class="en"><b>Our own decoder</b> on the resulting ~1364-sample-per-line stream, as above.</li>
+    <li class="zh">在得到的每行 ~1364 樣本流上跑<b>我們自己的解碼器</b>,如上。</li>
+  </ol>
+  <p class="note"><span class="en"><b>Honest status.</b> This is a roadmap, not a shipped feature — none of it is built in the switch-level engine yet. It is also strictly a <i>presentation</i> layer: it changes how the picture <i>looks</i>, not a single bit of the logic the golden checksum guards. For comparison, the AprNes reference emulator already has a CRT-side (<code>NesCore/NTSC_CRT/</code>) we can check against; what's new here is modelling the analog signal <i>generation</i> from the transistor-level PPU, and decoding it with code we wrote ourselves.</span><span class="zh"><b>誠實狀態。</b>這是路線圖、不是已出貨功能 —— 開關級引擎裡一點都還沒做。它也純粹是<i>呈現</i>層:改變畫面<i>長相</i>,不動金 checksum 守護的任何一個邏輯位元。對照:AprNes 參考模擬器已有 CRT 端(<code>NesCore/NTSC_CRT/</code>)可比對;這裡新的是從電晶體級 PPU 模擬類比訊號<i>產生</i>,並用我們自己寫的碼解碼。</span></p>
+  <p style="margin-top:16px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive #5 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · from two hardware/signal consults (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 #5 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · 來自兩次硬體/訊號諮詢(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">the last stretch from a number to a picture.</span><span class="zh">從一個數字到一張畫面的最後一段。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

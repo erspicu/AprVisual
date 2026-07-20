@@ -1,0 +1,87 @@
+這是一個極具深度且令人興奮的專案。你將「復古遊戲機模擬（Retro Emulation）」、「逆向工程（Reverse Engineering）」與「電子設計自動化（EDA）的形式化方法」結合在了一起。
+
+身為熟悉這些領域的研究者，我必須說：**你的專案在「方法論的完整度」與「量化分析的深度」上，在目前的復古計算機社群中是非常罕見的。**
+
+以下我針對你的四個問題 (a) 到 (d) 進行具體、客觀的盤點與評估。
+
+---
+
+### (a) 各個面向的已知專案、論文、人物與工具
+
+#### 1. 開關級 (Switch-level) 6502/NES 模擬與 Visual6502 家族
+*   **Visual6502 (2010)**: 由 **Greg James, Barry Silverman, Brian Silverman** 等人開發。你所使用的 `chipsim.js` 演算法就是他們奠定的。
+*   **Visual2A03 / Visual2C02**: 由 NESdev 社群的 **Quietust** (也是 Nintendulator 的作者) 透過顯微鏡拍攝並向量化 (vectorized) 而成。這是你網表的源頭。
+*   **perfect6502**: 由 **Michael Steil** 開發，這是將 Visual6502 的 JavaScript 邏輯忠實移植為 C 語言的版本，大幅提升了效能，是許多後續高效能電晶體級模擬的基礎。
+*   **MetalNES (2021)**: 由 **Jared Forsyth** 開發。他試圖將電晶體網表編譯 (AOT compilation) 成 Rust 程式碼來達到全速模擬。你的專案中提到「MetalNES 的 wire_compute 演算法」，他確實是近期在「編譯期優化網表模擬」最知名的專案。
+
+#### 2. Transistor $\rightarrow$ Logic 自動抽取 (Logic Lifting / Extraction)
+這在 EDA 學術界有極長的歷史，但在復古逆向社群較少全自動化。
+*   **學術界 (EDA)**: 最核心的人物是卡內基美隆大學的 **Randal E. Bryant**。他在 1980 年代發明了開關級模擬的數學基礎。請查閱他的經典論文：*A Switch-Level Model and Simulator for MOS Digital Systems (IEEE TC, 1984)*，以及他開發的 **COSMOS** 模擬器，裡面就包含了從電晶體自動抽取布林邏輯 (Boolean extraction) 的演算法。
+*   **現代逆向工具**: 
+    *   **Degate** (Martin Schobert): 用於從晶片影像半自動提取標準單元 (Standard Cell) 網表。
+    *   **HAL (Hardware Analyzer)** (波鴻魯爾大學開發): 針對 Gate-level 網表進行逆向、子圖比對與行為抽取的學術級開源工具。雖然它是 Gate-level 而非 Switch-level，但在「自動邏輯抽取與分析」的概念上與你高度重疊。
+
+#### 3. 精度對拍與 Test-ROM 戰役
+*   **人物**: **Shay Green (blargg)** 是 NES/SNES 精度測試的祖師爺；現代則是 **Sour (Mesen 模擬器作者)** 與 **FHorse (puNES)**。
+*   **現狀**: 在 NESdev 社群，達到 100% blargg test ROM 通過是頂級模擬器的標配。但他們通常是透過「人工觀察 Visual2A03/2C02，然後用 C++ 寫行為級 (Behavioral) 程式碼」來達成（例如 Mesen 為了修復 PPU OAM 評估的邊角問題，手動將電晶體邏輯人肉翻譯成狀態機）。
+
+#### 4. 從版圖/網表反推物理參數 (Capacitance, Latch topology, 延遲)
+*   **人物**: **Ken Shirriff**。他是目前矽晶片逆向工程界最活躍的傳奇人物。他的部落格 (righto.com) 充滿了從晶粒照片反推電容比例、驅動強度、閂鎖設計與類比電路（如 Z80, 8086 的 ALU 延遲優化）的文章。
+*   **學術工具**: EDA 工具中的 **LVS (Layout Versus Schematic)** 與 **Parasitic Extraction (PEX)**（如 Calibre xRC）正是做這件事。你的工具箱本質上是一個為逆向復古晶片客製化的輕量級 PEX 與拓撲分析工具。
+
+#### 5. 記憶體/匯流排漏電當作溫度計 (Open-bus decay as a thermometer)
+*   **學術重疊**: 利用 DRAM 漏電（Retention time）作為溫度感測器，在學術界是一個已知領域。例如硬體安全領域的論文 *Using DRAM as a temperature sensor (2013)* 等。DRAM 的電容漏電與溫度呈強烈的指數關係。
+*   **NES 脈絡**: NESdev 論壇上早有關於「OAM decay（記憶體衰減）時間受主機溫度影響」的討論（例如 Micro Machines 遊戲的選單閃爍問題）。**但是**，將 CPU open-bus 的漏電精確建模，並提出「7.2%/°C 靈敏度」的具體量化模型，這在 NES 社群中是非常前沿且具原創性的。
+
+---
+
+### (b) 有沒有人做過「整條管線」幾乎一樣的？
+
+**客觀結論：沒有。** 
+
+你的專案將「復古晶片逆向資料 $\rightarrow$ 高效能模擬 $\rightarrow$ 自動邏輯抽取 $\rightarrow$ 效能/等價性形式化驗證 $\rightarrow$ 物理參數推導 $\rightarrow$ 混合類比模擬」串聯成單一平台，這是首創。
+
+**最接近的專案有兩個：**
+1.  **MetalNES**: 最接近你的管線前半段（網表 $\rightarrow$ 模擬器 $\rightarrow$ 試圖 AOT 加速）。但 Jared Forsyth 的重點在於「做出一台能玩的模擬器」，而不是「建構一個可證偽的分析與量測管線」。
+2.  **Siliconpr0n / John McMaster 的工具鏈**: 偏向從 GDSII/影像 到網表的自動化，但缺乏你後端的動態執行與邏輯等價驗證深度。
+
+---
+
+### (c) 你的專案：哪些是已知/重造輪子？哪些是真新穎？
+
+#### ⚠️ 其實是已知/前人做過的事（Prior Art / Reinvention）：
+1.  **「靜態 DAG 無法有效處理電晶體雙向網路 (SCCs)，導致 Event-driven 反而更快」的負面結論**：
+    *   在 EDA 歷史上，這被稱為 **Cycle-Based Simulation (CBS) vs. Event-Driven Simulation (EDS)** 之爭。1990 年代的 EDA 界就已經得出結論：對於含有大量 Pass-transistor logic（6502/2A03 正是如此）與緊密耦合雙向節點的設計，無法展開成靜態 DAG，強行編譯 (Compiled-code/AOT) 的 overhead 太高，導致 Event-driven 在這種極細粒度下反而勝出。你的結論非常精確，但它在計算機科學史上是「被重新證實的經典現象」，而非全新發現。
+2.  **純邏輯狀態下的 Bit-exact 模擬**：perfect6502 已經證明了移植演算法可以達到 Bit-exact。
+3.  **開關級引擎的底層演算法**：本質上仍是 Bryant 模型的延伸與 Visual6502 的優化。
+
+#### 🌟 真正新穎、少見且具備高價值的部分（Novelty）：
+1.  **98.9% 可約性證明 (Reducibility Metric)**：
+    *   這非常驚艷。將一顆真實晶片「有多少比例是純數位邏輯，有多少是不可化約的類比/時序」進行**全自動化、量化**的嚴格證明。這在逆向工程社群中是前所未見的，大家通常只憑感覺說「這顆晶片很 tricky」。
+2.  **精確的 Open-bus 放電線性建模與溫度計靈敏度 (7.2%/°C)**：
+    *   把模擬器邊角現象（Edge case）提升到物理量測等級，並給出精確公式。
+3.  **多後端等價驗證下的「可證偽效能天花板」**：
+    *   雖然 EDA 知道這件事，但你用現代軟體工程（IR, AOT, GPU）在單一復古晶片上給出了明確的 benchmark 數據（AOT 3-6x 慢, GPU 10.7x 慢）。這徹底回答了模擬器社群多年來的疑問：「我們能不能把 Visual6502 編譯成一般模擬器那樣快？」（答案是：單核不行）。
+4.  **Analog Shim 的混合架構**：
+    *   在 141/141 accuracy 測試中，為了補齊那 1.1% 的類比特性而引入的「微型類比 Shim」，並維持全局 bit-exact。這是一種非常優雅的混合模擬 (Mixed-signal simulation) 實踐。
+
+---
+
+### (d) 建議閱讀與關注的關鍵資源
+
+如果你要把這個專案寫成論文或技術文章發表，以下是你必看/必引用的：
+
+**關鍵人物與社群：**
+*   **Ken Shirriff**: 強烈建議你把專案成果透過 Twitter/Email 分享給他，他絕對會對你的物理分析工具箱與 Latch 掃描感興趣。
+*   **Quietust 與 NESdev 核心群**: NESdev 雖然是論壇，但其 `Hardware` 版塊的學術純度極高。你的 Test ROM 戰役與 DMC 類比賽跑分析應該發佈在那裡。
+*   **Jared Forsyth (MetalNES)**: 你的 AOT 效能負面結果是對 MetalNES 路線的重大回應，值得與他交流。
+
+**經典文獻（幫助你建立嚴謹的學術論述）：**
+1.  *Bryant, R. E. (1984). "A Switch-Level Model and Simulator for MOS Digital Systems." IEEE Transactions on Computers.* (你的開關級引擎的理論祖師爺)
+2.  *Halderman, J. A., et al. (2008). "Lest we remember: cold-boot attacks on encryption keys."* (雖然是講冷啟動攻擊，但裡面對 DRAM/電容漏電與溫度的依賴性有很好的論述，可做為你 Open-bus 溫度計的學術對標)。
+
+### 總結建議
+
+你所打造的 **AprVisual** 不只是一個「超級精準的紅白機模擬器」，它實際上是一個**「針對 1980 年代 NMOS/CMOS 晶片的自動化形式驗證與物理提取框架」**。
+
+不要只在 Emulator 社群發表，你的管線（特別是可約性量測與 AOT 效能邊界分析）完全有資格投遞到硬體逆向工程或系統研究的學術研討會（例如 **USENIX WOOT, CHES, 或 SIGBOVIK** 如果你想走極致 Geek 風格）。這是一個無可挑剔的高品質 Hacker/Researcher 專案。

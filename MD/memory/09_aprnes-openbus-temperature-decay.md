@@ -17,7 +17,17 @@
 就衰減完、且 vblank 期間不動 = 太快且不均。新模型用 `NowDots()`(frame_count/scanline/ppu_cycles_x
 算的單調 dot 時鐘,跨 vblank,零熱路徑成本)。
 
-## 程式位置(commit `f1b949c`,本機 master,**未 push**)
+## 版控正式版 = `tools/aprnes`(AprVisual 追蹤,已推 commit `463f33c`)
+真正被 AprVisual git 管理當工具的是 **`tools/aprnes/`**(141 檔,非 gitignored;`AprNesRef/` 才是
+gitignored 的完整工作副本)。相同的 open-bus 改寫已套到 `tools/aprnes/`(逐行與 AprNesRef 版一致,
+IO/Main/ppu_dispatch 三檔位元組相同,PPU 僅差一行既有 dmcTrace 診斷),並**移除 unittest 相依**讓它可獨立建置:
+- csproj 拔掉 5 個 `..\unittest\NesTestFramework\*.cs` / `AprNesAdapter.cs` 的 `<Compile Include>`;
+- `TestRunner.cs` 移除唯一消費者 —— 選用的 `--use-framework` demo(`TryFrameworkPath` + `using NesTestFramework;`);
+  完整 `TestRunnerCore` 路徑(--rom/--test/--benchmark/screenshot)不動。
+- 建置:net48 x64,需先 NuGet restore(`System.Runtime.CompilerServices.Unsafe` 是 PackageReference,
+  這份快照沒 restore 過);之後 `MSBuild /t:Restore` + build 乾淨。ppu_open_bus + 5/5 PPU 回歸綠。
+
+## 程式位置(AprNesRef 本機鏡像 commit `f1b949c`,**未 push**;正式版見上方 tools/aprnes)
 - `AprNes/NesCore/PPU.cs`:新增 `OpenBusTempCelsius`(public static double = 25.0,**溫度旋鈕**)、
   `OB_Ea/OB_k/OB_Tref/OB_BaseDecaySec`、`NowDots()`、`RecomputeOpenBusDecay()`、
   `DriveOpenBus(v)`(驅動閂鎖 + 蓋時戳)、`OpenBusDecayed()`(讀時套衰減,過期回 0)。

@@ -98,8 +98,8 @@
   <h1>S1a CLI reference</h1>
   <p class="tag en">S1a = S1 + physics mechanisms. Every S1 flag, plus the M2 / M4 / M6X mechanism toggles that walk past the netlist's edge.</p>
   <p class="tag zh">S1a = S1 + 物理機制。S1 的每個旗標,加上走出網表邊緣的 M2 / M4 / M6X 機制開關。</p>
-  <p class="sub en"><b>71 CLI flags (identical to S1 today) · 16 shared env vars · 11 S1a-only env vars.</b> The authoritative parser is <code>src/AprVisual.S1A/Test/TestRunner.cs</code>; the mechanisms live in <code>Test/TestRunner.Test.cs</code> and <code>Sim/WireCore.System.cs</code>. Run as <code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>.</p>
-  <p class="sub zh"><b>71 個 CLI 旗標(目前與 S1 相同)· 16 個共用環境變數 · 11 個 S1a 專屬環境變數。</b>權威解析器是 <code>src/AprVisual.S1A/Test/TestRunner.cs</code>;機制在 <code>Test/TestRunner.Test.cs</code> 與 <code>Sim/WireCore.System.cs</code>。執行方式:<code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>。</p>
+  <p class="sub en"><b>71 CLI flags (identical to S1 today) · 16 shared env vars · S1a-only mechanism + kill-switch env vars (mechanisms default-ON).</b> The authoritative parser is <code>src/AprVisual.S1A/Test/TestRunner.cs</code>; the mechanisms live in <code>Test/TestRunner.Test.cs</code> and <code>Sim/WireCore.System.cs</code>. Run as <code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>.</p>
+  <p class="sub zh"><b>71 個 CLI 旗標(目前與 S1 相同)· 16 個共用環境變數 · S1a 專屬機制 + 關閉開關環境變數(機制預設開)。</b>權威解析器是 <code>src/AprVisual.S1A/Test/TestRunner.cs</code>;機制在 <code>Test/TestRunner.Test.cs</code> 與 <code>Sim/WireCore.System.cs</code>。執行方式:<code>dotnet run --project src/AprVisual.S1A -- &lt;flags&gt;</code>。</p>
   <div class="hbtns">
     <a class="btn primary" href="s1a.html"><span class="en">← S1a study hub</span><span class="zh">← S1a 研究主站</span></a>
     <a class="btn ghost" href="s1-cli.html"><span class="en">S1 CLI reference</span><span class="zh">S1 CLI 參考</span></a>
@@ -109,14 +109,14 @@
 <main>
 
 <div class="note acc">
-  <span class="en"><b>S1a = S1 + the mechanisms below.</b> Today the 71 CLI flags are identical to S1; this page will track S1a as they diverge. The difference right now is <b>entirely in environment variables</b>: S1a shares S1's 16 env vars and adds 11 of its own — the M2 / M4 / M6X physics mechanisms plus extra per-shim kill switches. The shared 71-flag + 16-env reference is reproduced in full below so this page stands alone.</span>
-  <span class="zh"><b>S1a = S1 + 下面的機制。</b>今天這 71 個 CLI 旗標與 S1 相同;本頁會隨 S1a 分化而追蹤更新。此刻的差異<b>完全在環境變數</b>:S1a 共用 S1 的 16 個環境變數,並加自己的 11 個 —— M2 / M4 / M6X 物理機制,加上額外的 per-shim 關閉開關。共用的 71 旗標 + 16 環境變數參考在下方完整重現,讓本頁自足。</span>
+  <span class="en"><b>S1a = S1 + the mechanisms below.</b> Today the 71 CLI flags are identical to S1; this page will track S1a as they diverge. The difference right now is <b>entirely in environment variables</b>: S1a shares S1's 16 env vars and adds its own — the M1–M6 physics mechanisms (now <b>default-ON</b>, opt out with <code>NO_*</code>) plus per-shim kill switches. The shared 71-flag + 16-env reference is reproduced in full below so this page stands alone.</span>
+  <span class="zh"><b>S1a = S1 + 下面的機制。</b>今天這 71 個 CLI 旗標與 S1 相同;本頁會隨 S1a 分化而追蹤更新。此刻的差異<b>完全在環境變數</b>:S1a 共用 S1 的 16 個環境變數,並加自己的 —— M1–M6 物理機制(現在<b>預設開</b>,用 <code>NO_*</code> 退開)加上 per-shim 關閉開關。共用的 71 旗標 + 16 環境變數參考在下方完整重現,讓本頁自足。</span>
 </div>
 
 <section id="adds">
-  <h2><span class="kick"><span class="en">The S1a difference</span><span class="zh">S1a 的差異</span></span><span class="en">What S1a adds over S1 — the 11 mechanism env vars</span><span class="zh">S1a 比 S1 多的 —— 11 個機制環境變數</span></h2>
-  <p class="en">Each S1a mechanism restores a slice of physics the binary switch-level model cannot express, and lands behind its own switch so S1's golden checksum is never disturbed. <b>M2 charge-decay is the only one ON by default</b> (it retired a shim after a three-arm proof); the rest are opt-in. The mechanisms <i>supersede</i> the hand-written shims they replace — arm the mechanism and its shims auto-disable.</p>
-  <p class="zh">每個 S1a 機制還原一片二值開關級模型表達不了的物理,並躲在自己的開關後面,絕不動到 S1 的金 checksum。<b>只有 M2 電荷衰減預設開</b>(它經三段論證後退役了一個 shim);其餘都是 opt-in。機制會<i>取代</i>它們替換掉的手寫 shim —— 武裝機制,對應的 shim 自動關閉。</p>
+  <h2><span class="kick"><span class="en">The S1a difference</span><span class="zh">S1a 的差異</span></span><span class="en">What S1a adds over S1 — the (default-ON) mechanism env vars</span><span class="zh">S1a 比 S1 多的 —— (預設開的)機制環境變數</span></h2>
+  <p class="en">Each S1a mechanism restores a slice of physics the binary switch-level model cannot express, and lands behind its own switch so S1's golden checksum is never disturbed. <b>As of 2026-07-20 the flip is done: every shim that a mechanism can replace is retired</b> — the mechanisms are now <b>default-ON in test mode</b>, verified against the full regression (AC 141/141 · 147 146/1, Gate A golden <code>0x794A43ABDF169ADA</code> unchanged). You opt <i>out</i> per-mechanism with a <code>NO_*</code> env var (which re-arms that mechanism's old shim, for A/B), or drop all test-mode shims with <code>--no-shims</code>. <b>Only two hand-written shims remain active</b>, because no mechanism replaces them yet: <b>OpenBus</b> (last-transferred-byte replay — a behavioural ceiling) and <b>DL</b> (the <code>$4016/$4017</code> input-data-latch φ2 transparency — deferred; its general form was unsound). See the <a href="s1a.html#shimlist">shim ledger</a> for the full RETIRED status.</p>
+  <p class="zh">每個 S1a 機制還原一片二值開關級模型表達不了的物理,並躲在自己的開關後面,絕不動到 S1 的金 checksum。<b>2026-07-20 翻轉已完成:每個機制能取代的 shim 都退役了</b> —— 機制現在<b>在 test 模式預設開</b>,並過了完整回歸(AC 141/141 · 147 146/1,Gate A 金 <code>0x794A43ABDF169ADA</code> 不變)。你用 <code>NO_*</code> 環境變數<i>逐機制退開</i>(會重新武裝該機制的舊 shim,供 A/B),或用 <code>--no-shims</code> 拿掉全部 test-mode shim。<b>只剩兩個手寫 shim 仍在跑</b>,因為還沒有機制能取代它們:<b>OpenBus</b>(最後傳輸位元組重放 —— 行為層天花板)與 <b>DL</b>(<code>$4016/$4017</code> 輸入資料閂鎖 φ2 透明 —— 延後;它的通則形式不健全)。完整 RETIRED 狀態見 <a href="s1a.html#shimlist">shim 總帳</a>。</p>
 
   <h3><span class="en">Physics mechanisms</span><span class="zh">物理機制</span></h3>
   <div class="tbl-wrap"><table>
@@ -140,10 +140,10 @@
       <td><span class="en">DEBUG-build firing census: shadow the legacy connection-count key and tally, per floating resolve, how often the M2 physical key and the legacy key disagree. <b>Needs <code>M2_CAP</code></b> and a DEBUG build; diagnostic only.</span><span class="zh">DEBUG 版開火普查:影子跑 legacy 連接數鍵,對每次浮接解析統計 M2 物理鍵與 legacy 鍵多常不一致。<b>需 <code>M2_CAP</code></b> 與 DEBUG 版;僅診斷。</span></td>
     </tr>
     <tr>
-      <td class="flag"><code>M4_EDGE</code></td>
-      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
-      <td><span class="pill off"><span class="en">opt-in</span><span class="zh">選用</span></span></td>
-      <td><span class="en">Arm the <b>M4 generic edge-capture latch primitive</b> with its built-in annotation rows (DMC <code>pcm_latch</code> = data-wins; ALU input latches = hold). A mechanism, independent of <code>--no-shims</code>. When armed it <b>supersedes the DmcLatch + AluLatch shims</b> (they auto-disable).</span><span class="zh">武裝 <b>M4 通用邊沿捕捉閂鎖原語</b>,附內建標註列(DMC <code>pcm_latch</code> = 資料贏;ALU 輸入閂鎖 = hold)。這是機制,與 <code>--no-shims</code> 無關。武裝後<b>取代 DmcLatch + AluLatch shim</b>(它們自動關)。</span></td>
+      <td class="flag"><code>NO_M4_EDGE</code><br><span class="mut" style="font-size:11px"><span class="en">(M4 edge-latch)</span><span class="zh">(M4 邊沿閂鎖)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The <b>M4 generic edge-capture latch primitive</b> (DMC <code>pcm_latch</code> = data-wins; ALU input latches = hold). Default-ON in test mode; it has <b>RETIRED the DmcLatch + AluLatch shims</b>. Set <code>NO_M4_EDGE</code> to turn the mechanism off (re-arming those shims, for A/B). Independent of <code>--no-shims</code>.</span><span class="zh"><b>M4 通用邊沿捕捉閂鎖原語</b>(DMC <code>pcm_latch</code> = 資料贏;ALU 輸入閂鎖 = hold)。test 模式預設開;已<b>退役 DmcLatch + AluLatch shim</b>。設 <code>NO_M4_EDGE</code> 關掉機制(重新武裝那些 shim,供 A/B)。與 <code>--no-shims</code> 無關。</span></td>
     </tr>
     <tr>
       <td class="flag"><code>M4_DL</code></td>
@@ -152,10 +152,46 @@
       <td><span class="en">Add the <b>DL/idl transparent-latch row</b> to the M4 mechanism (glitch immunity at <code>$4016/$4017</code>; scoped, ≥2-bit capture signature). Read inside <code>EnableM4EdgeLatch</code>, so it only takes effect when <code>M4_EDGE</code> is armed. Targets the DL shim.</span><span class="zh">為 M4 機制加上 <b>DL/idl 透明閂鎖列</b>(<code>$4016/$4017</code> 毛刺免疫;有範圍、≥2 位元捕捉簽章)。在 <code>EnableM4EdgeLatch</code> 內讀取,只有 <code>M4_EDGE</code> 武裝時才生效。瞄準 DL shim。</span></td>
     </tr>
     <tr>
-      <td class="flag"><code>M6X</code></td>
-      <td class="arg"><span class="en">set, ≠0</span><span class="zh">有設、≠0</span></td>
-      <td><span class="pill off"><span class="en">opt-in</span><span class="zh">選用</span></span></td>
-      <td><span class="en">Arm the <b>M6×M3 unified cross-chip phase-arbitration table</b> — one (trigger, gate, delay, window) mechanism. It <b>supersedes the dot-339 + BGSerialIn + even_odd</b> downstream-clamp shims (they gate off when it is armed).</span><span class="zh">武裝 <b>M6×M3 統一跨晶片相位裁決表</b> —— 一個 (trigger, gate, delay, window) 機制。它<b>取代 dot-339 + BGSerialIn + even_odd</b> 下游 clamp shim(武裝時它們關閉)。</span></td>
+      <td class="flag"><code>NO_M6X</code><br><span class="mut" style="font-size:11px"><span class="en">(M6×M3 phase)</span><span class="zh">(M6×M3 相位)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The <b>M6×M3 unified cross-chip phase-arbitration table</b> — one (trigger, gate, delay, window) mechanism. Default-ON; it has <b>RETIRED the dot-339 + BGSerialIn + even_odd</b> downstream-clamp shims. Set <code>NO_M6X</code> to disable (re-arms them). The old <code>--ppu-write-delay</code> / <code>--ppu-write-delay-global</code> knobs auto-off under it.</span><span class="zh"><b>M6×M3 統一跨晶片相位裁決表</b> —— 一個 (trigger, gate, delay, window) 機制。預設開;已<b>退役 dot-339 + BGSerialIn + even_odd</b> 下游 clamp shim。設 <code>NO_M6X</code> 關掉(重新武裝它們)。舊的 <code>--ppu-write-delay</code> / <code>--ppu-write-delay-global</code> 旋鈕在它下自動關。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_M4_P1</code><br><span class="mut" style="font-size:11px"><span class="en">(M4·P1 merge-clamp)</span><span class="zh">(M4·P1 合併鉗)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The M4·P1 merge-clamp / queued-drive row. Default-ON; it has <b>RETIRED the Dbl2007 (double-<code>$2007</code>) + OamDmaPpuBus shims</b>. Set <code>NO_M4_P1</code> to disable.</span><span class="zh">M4·P1 合併鉗 / 佇列驅動列。預設開;已<b>退役 Dbl2007(雙 <code>$2007</code>)+ OamDmaPpuBus shim</b>。設 <code>NO_M4_P1</code> 關掉。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_M4_OE</code><br><span class="mut" style="font-size:11px"><span class="en">(M4 OAM-blank edge)</span><span class="zh">(M4 OAM 消隱沿)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The M4 rendering-disable-edge OAM guard. Default-ON; it has <b>RETIRED the OamBlankEdge shim</b> (a rendering-disable edge must not write OAM). Set <code>NO_M4_OE</code> to disable.</span><span class="zh">M4 關渲染邊沿 OAM 守門。預設開;已<b>退役 OamBlankEdge shim</b>(關渲染邊沿不得寫 OAM)。設 <code>NO_M4_OE</code> 關掉。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_M4_FI</code><br><span class="mut" style="font-size:11px"><span class="en">(M4 frame-IRQ)</span><span class="zh">(M4 幀 IRQ)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The M4 frame-counter-IRQ latch row. Default-ON; it has <b>RETIRED the FrameIrq shim</b>. Set <code>NO_M4_FI</code> to disable.</span><span class="zh">M4 幀計數器 IRQ 閂鎖列。預設開;已<b>退役 FrameIrq shim</b>。設 <code>NO_M4_FI</code> 關掉。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_M3_ABORT</code><br><span class="mut" style="font-size:11px"><span class="en">(M3 DMC abort)</span><span class="zh">(M3 DMC 廢止)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The M3 mid-transfer abort mechanism (a deferred <code>$4015</code> disable aborts an in-flight DMC DMA). Default-ON; it has <b>RETIRED the Dmc4015Abort shim</b>. Set <code>NO_M3_ABORT</code> to disable.</span><span class="zh">M3 中途廢止機制(延後的 <code>$4015</code> disable 廢止進行中的 DMC DMA)。預設開;已<b>退役 Dmc4015Abort shim</b>。設 <code>NO_M3_ABORT</code> 關掉。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_M1_LXA</code><br><span class="mut" style="font-size:11px"><span class="en">(M1 LXA magic)</span><span class="zh">(M1 LXA magic)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The M1 strength-driven LXA (<code>$AB</code>) bus-fight resolution. Default-ON; it has <b>RETIRED the LxaMagic shim</b>. Set <code>NO_M1_LXA</code> to disable.</span><span class="zh">M1 強度驅動的 LXA(<code>$AB</code>)匯流排對抗解析。預設開;已<b>退役 LxaMagic shim</b>。設 <code>NO_M1_LXA</code> 關掉。</span></td>
+    </tr>
+    <tr>
+      <td class="flag"><code>NO_PPU_ALE_FB</code><br><span class="mut" style="font-size:11px"><span class="en">(PPU ALE feedback)</span><span class="zh">(PPU ALE 回授)</span></span></td>
+      <td class="arg"><span class="en">set = OFF</span><span class="zh">有設 = 關</span></td>
+      <td><span class="pill on"><span class="en">ON by default</span><span class="zh">預設開</span></span></td>
+      <td><span class="en">The PPU ALE-read feedback mechanism (built-in, not a behavioural shim — it is armed load-time under the AC verdict). Default-ON; it supersedes the PpuAleReadFeedback shim. Set <code>NO_PPU_ALE_FB</code> to fall back to the old shim.</span><span class="zh">PPU ALE-read 回授機制(內建、非行為層 shim —— 在 AC 判定下載入期武裝)。預設開;取代 PpuAleReadFeedback shim。設 <code>NO_PPU_ALE_FB</code> 退回舊 shim。</span></td>
     </tr>
   </table></div>
 
@@ -169,8 +205,8 @@
     <tr><td class="flag"><code>NO_IODECAY_SHIM</code></td><td><span class="en">runner-level <code>_io_db</code> decay fallback shim</span><span class="zh">runner 級 <code>_io_db</code> 衰減備援 shim</span></td><td><span class="en">Only relevant when the M2 decay mechanism is OFF (i.e. under <code>NO_M2DECAY</code>); when M2 decay is on, this shim is already superseded.</span><span class="zh">只有 M2 衰減機制關掉時(即 <code>NO_M2DECAY</code> 下)才有意義;M2 衰減開時此 shim 已被取代。</span></td></tr>
   </table></div>
   <div class="note grn">
-    <span class="en"><b>Mechanism ⇄ shim map</b> (see the <a href="s1a.html#shimlist">shim ledger</a> for the full retirement status): <code>NO_M2DECAY</code>→io_db decay · <code>M4_EDGE</code>→DmcLatch + AluLatch · <code>M4_DL</code>→DL · <code>M6X</code>→dot-339 + BGSerialIn + even_odd. Each mechanism keeps the golden checksum unchanged while OFF, and every retirement is gated on AC 141/141 + the 147-ROM regression with it ON.</span>
-    <span class="zh"><b>機制 ⇄ shim 對應</b>(完整退役狀態見<a href="s1a.html#shimlist">shim 總帳</a>):<code>NO_M2DECAY</code>→io_db 衰減 · <code>M4_EDGE</code>→DmcLatch + AluLatch · <code>M4_DL</code>→DL · <code>M6X</code>→dot-339 + BGSerialIn + even_odd。每個機制關閉時金 checksum 不變,每次退役都以機制開時 AC 141/141 + 147 顆回歸為閘。</span>
+    <span class="en"><b>Mechanism ⇄ shim map</b> — every one is a RETIRED shim now replaced by a default-ON mechanism (see the <a href="s1a.html#shimlist">shim ledger</a>): <code>NO_M2DECAY</code>→io_db decay · <code>NO_M4_EDGE</code>→DmcLatch + AluLatch · <code>NO_M4_P1</code>→Dbl2007 + OamDmaPpuBus · <code>NO_M4_OE</code>→OamBlankEdge · <code>NO_M4_FI</code>→FrameIrq · <code>NO_M3_ABORT</code>→Dmc4015Abort · <code>NO_M1_LXA</code>→LxaMagic · <code>NO_M6X</code>→dot-339 + BGSerialIn + even_odd · <code>NO_PPU_ALE_FB</code>→PpuAleReadFeedback. Each keeps the golden checksum unchanged, and the whole flip was gated on AC 141/141 + the 147-ROM regression. <b>Still active shims (no mechanism yet):</b> <code>NO_OB_SHIM</code>→OpenBus (behavioural ceiling) · <code>NO_DL_SHIM</code>→DL (<code>M4_DL</code> is its opt-in mechanism form, but DL's general fix was unsound, so it is deferred).</span>
+    <span class="zh"><b>機制 ⇄ shim 對應</b> —— 每一個都是已 RETIRED、現由預設開機制取代的 shim(見<a href="s1a.html#shimlist">shim 總帳</a>):<code>NO_M2DECAY</code>→io_db 衰減 · <code>NO_M4_EDGE</code>→DmcLatch + AluLatch · <code>NO_M4_P1</code>→Dbl2007 + OamDmaPpuBus · <code>NO_M4_OE</code>→OamBlankEdge · <code>NO_M4_FI</code>→FrameIrq · <code>NO_M3_ABORT</code>→Dmc4015Abort · <code>NO_M1_LXA</code>→LxaMagic · <code>NO_M6X</code>→dot-339 + BGSerialIn + even_odd · <code>NO_PPU_ALE_FB</code>→PpuAleReadFeedback。每個都不動金 checksum,整個翻轉以 AC 141/141 + 147 顆回歸為閘。<b>仍在跑的 shim(還沒機制):</b> <code>NO_OB_SHIM</code>→OpenBus(行為層天花板) · <code>NO_DL_SHIM</code>→DL(<code>M4_DL</code> 是它的 opt-in 機制形式,但 DL 通則修法不健全,故延後)。</span>
   </div>
 </section>
 
@@ -247,8 +283,8 @@
 <section id="shims">
   <h2><span class="kick"><span class="en">7 · Shim toggles &amp; shared env vars</span><span class="zh">7 · Shim 開關與共用環境變數</span></span><span class="en">The analog-race patch surface</span><span class="zh">類比賽跑補丁面</span></h2>
   <div class="note grn">
-    <span class="en"><b>In S1a, most of these shims are superseded by mechanisms.</b> The CLI flags below are identical to S1, but note: arming <code>M4_EDGE</code> auto-disables the ALU + DMC shims, and arming <code>M6X</code> auto-disables the dot-339 / BGSerialIn / even_odd write-delay shims. The 16 shared env vars are identical to S1; the 11 S1a-only mechanism env vars are documented in <a href="#adds">What S1a adds</a> above.</span>
-    <span class="zh"><b>在 S1a,大多數這些 shim 已被機制取代。</b>下方 CLI 旗標與 S1 相同,但注意:武裝 <code>M4_EDGE</code> 會自動關 ALU + DMC shim,武裝 <code>M6X</code> 會自動關 dot-339 / BGSerialIn / even_odd 寫延遲 shim。16 個共用環境變數與 S1 相同;11 個 S1a 專屬機制環境變數見上方 <a href="#adds">S1a 加了什麼</a>。</span>
+    <span class="en"><b>In S1a these shims are RETIRED — their mechanisms are default-ON.</b> The CLI flags below are identical to S1, but note: the ALU + DMC shims are off by default (superseded by the default-on <code>M4_EDGE</code>; re-arm with <code>NO_M4_EDGE</code>), and the dot-339 / BGSerialIn / even_odd write-delay shims are off by default (superseded by the default-on <code>M6X</code>; re-arm with <code>NO_M6X</code>). The 16 shared env vars are identical to S1; the S1a-only mechanism / kill-switch env vars are documented in <a href="#adds">What S1a adds</a> above. Only OpenBus (<code>NO_OB_SHIM</code>) and DL (<code>NO_DL_SHIM</code>) are still active shims.</span>
+    <span class="zh"><b>在 S1a 這些 shim 都已 RETIRED —— 它們的機制預設開。</b>下方 CLI 旗標與 S1 相同,但注意:ALU + DMC shim 預設關(被預設開的 <code>M4_EDGE</code> 取代;用 <code>NO_M4_EDGE</code> 重新武裝),dot-339 / BGSerialIn / even_odd 寫延遲 shim 預設關(被預設開的 <code>M6X</code> 取代;用 <code>NO_M6X</code> 重新武裝)。16 個共用環境變數與 S1 相同;S1a 專屬的機制 / 關閉開關環境變數見上方 <a href="#adds">S1a 加了什麼</a>。只剩 OpenBus(<code>NO_OB_SHIM</code>)與 DL(<code>NO_DL_SHIM</code>)仍是 active shim。</span>
   </div>
 
   <h3><span class="en">CLI shim flags</span><span class="zh">CLI shim 旗標</span> <span class="pill same"><span class="en">identical to S1</span><span class="zh">與 S1 相同</span></span></h3>
@@ -339,13 +375,15 @@
   --extra-ram --system-def-dir AprVisualBenchMark/data/system-def
 # checksum MUST be 0x794A43ABDF169ADA (benchmark path never loads shims OR mechanisms)</code></pre>
 
-  <h3><span class="en">S1a mechanism A/B (arm a mechanism, its shims auto-retire)</span><span class="zh">S1a 機制 A/B(武裝機制,對應 shim 自動退役)</span></h3>
-  <pre><code>M4_EDGE=1  dotnet AprVisual.S1A.dll --test ...   # M4 edge-latch replaces DmcLatch + AluLatch
-M4_EDGE=1 M4_DL=1 dotnet AprVisual.S1A.dll --test ...   # + the DL transparent row ($4016/$4017)
-M6X=1      dotnet AprVisual.S1A.dll --test ...   # M6xM3 phase table replaces dot-339 + BGSerialIn + even_odd
-NO_M2DECAY=1 dotnet AprVisual.S1A.dll --test ... # turn the default-ON M2 decay OFF (restores io_db shim)
+  <h3><span class="en">S1a mechanism A/B (mechanisms are default-ON; opt OUT to re-arm a shim)</span><span class="zh">S1a 機制 A/B(機制預設開;退開以重新武裝 shim)</span></h3>
+  <pre><code>dotnet AprVisual.S1A.dll --test ...              # default: EVERY retirement mechanism ON (AC 141/141)
+NO_M4_EDGE=1  dotnet AprVisual.S1A.dll --test ... # A/B: M4 edge-latch OFF -> re-arms DmcLatch + AluLatch
+NO_M6X=1      dotnet AprVisual.S1A.dll --test ... # A/B: M6xM3 phase OFF -> re-arms dot-339 + BGSerialIn + even_odd
+NO_M2DECAY=1  dotnet AprVisual.S1A.dll --test ... # M2 decay OFF -> restores io_db shim
+M4_DL=1       dotnet AprVisual.S1A.dll --test ... # opt-in: add the DL transparent row ($4016/$4017; DL not retired)
+--no-shims                                        # drop ALL test-mode shims (mechanisms unaffected)
 M2_CAP=1   dotnet AprVisual.S1A.dll --benchmark ...  # physical-capacitance arbitration — CHANGES the checksum by design</code></pre>
-  <p class="mut" style="font-size:12.5px"><span class="en">PowerShell: <code>$env:M4_EDGE=1; dotnet …</code> (set the env var first).</span><span class="zh">PowerShell:<code>$env:M4_EDGE=1; dotnet …</code>(先設環境變數)。</span></p>
+  <p class="mut" style="font-size:12.5px"><span class="en">PowerShell: <code>$env:NO_M4_EDGE=1; dotnet …</code> (set the env var first).</span><span class="zh">PowerShell:<code>$env:NO_M4_EDGE=1; dotnet …</code>(先設環境變數)。</span></p>
 
   <h3><span class="en">AccuracyCoin flagship run (shared surface — same as S1)</span><span class="zh">AccuracyCoin 掛牌跑(共用面 —— 與 S1 相同)</span></h3>
   <div class="note acc">
@@ -387,8 +425,8 @@ NO_DMC_SHIM=1 NO_ALU_SHIM=1 NO_LXA_SHIM=1 NO_FRAMEIRQ_SHIM=1 \
 <footer>
   <p><span class="en">The S1a CLI reference — S1's shared surface plus the M2 / M4 / M6X mechanism env vars. Self-contained, and tracking S1a as it diverges.</span>
      <span class="zh">S1a CLI 參考 —— S1 的共用面加上 M2 / M4 / M6X 機制環境變數。自足,並隨 S1a 分化而追蹤。</span></p>
-  <p class="mut"><span class="en">71 CLI flags (identical to S1 today) · 16 shared env vars · 11 S1a-only env vars. Generated / verified from source on 2026-07-18; authoritative parser = <code>src/AprVisual.S1A/Test/TestRunner.cs</code> (mechanisms: <code>Test/TestRunner.Test.cs</code>, <code>Sim/WireCore.System.cs</code>).</span>
-     <span class="zh">71 個 CLI 旗標(今天與 S1 相同)· 16 個共用環境變數 · 11 個 S1a 專屬環境變數。2026-07-18 由原始碼生成 / 驗證;權威解析器 = <code>src/AprVisual.S1A/Test/TestRunner.cs</code>(機制:<code>Test/TestRunner.Test.cs</code>、<code>Sim/WireCore.System.cs</code>)。</span></p>
+  <p class="mut"><span class="en">71 CLI flags (identical to S1 today) · 16 shared env vars · S1a-only mechanism + kill-switch env vars (mechanisms default-ON). Generated / verified from source on 2026-07-18; authoritative parser = <code>src/AprVisual.S1A/Test/TestRunner.cs</code> (mechanisms: <code>Test/TestRunner.Test.cs</code>, <code>Sim/WireCore.System.cs</code>).</span>
+     <span class="zh">71 個 CLI 旗標(今天與 S1 相同)· 16 個共用環境變數 · S1a 專屬機制 + 關閉開關環境變數(機制預設開)。2026-07-18 由原始碼生成 / 驗證;權威解析器 = <code>src/AprVisual.S1A/Test/TestRunner.cs</code>(機制:<code>Test/TestRunner.Test.cs</code>、<code>Sim/WireCore.System.cs</code>)。</span></p>
   <p><a href="s1a.html"><span class="en">← S1a study hub</span><span class="zh">← S1a 研究主站</span></a> · <a href="s1-cli.html"><span class="en">← S1 CLI reference</span><span class="zh">← S1 CLI 參考</span></a></p>
 </footer>
 

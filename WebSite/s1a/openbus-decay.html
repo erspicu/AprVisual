@@ -246,6 +246,20 @@
     <li class="zh"><b>從實機量測校準(選配,為了精度)。</b>在真硬體上:寫 <code>0xFF</code> 到一個 open-bus 位址、等 N ms、讀出到手把埠、在 scope 上把 N 從 100 → 1000 ms 掃過去。你抓到的瀑布(bit 2 在 ~510ms 掉、bit 7 在 ~580ms、…)就是要種的精確逐位元閾值。</li>
   </ul>
   <div class="note b"><span class="en"><b>The honest floor.</b> There is one thing we can never compute to a single universal number, and it is worth being clear about: reverse-bias leakage is <b>exponentially temperature-dependent</b>, <code>I<sub>leak</sub> ∝ T³ · exp(−E<sub>g</sub>/kT)</code>. A real NES in a 30 °C room decays its open bus almost <b>twice as fast</b> as one at 20 °C. So there is no single "true" threshold — the hardware itself does not have one. The honest model computes the base constant, documents the derivation, and exposes a temperature-scaling parameter for the leakage; the ±10% per-bit spread does the rest. That is not a defeat of the model — it is the model correctly refusing to pretend a temperature-dependent analog quantity is a fixed digital constant. This is what the <span style="color:var(--bad);font-weight:700">CEILING</span> fate means in the ledger: an off-die, physically-real behaviour we can characterise and bound, but not reduce to one on-die number.</span><span class="zh"><b>誠實的地板。</b>有一件事我們永遠算不出單一普世數字,而它值得講清楚:反偏漏電是<b>溫度指數相關</b>的,<code>I<sub>leak</sub> ∝ T³ · exp(−E<sub>g</sub>/kT)</code>。30 °C 房裡的真 NES 衰減它的 open bus 比 20 °C 的快近<b>兩倍</b>。所以沒有單一「真」閾值 —— 硬體自己就沒有。誠實的模型算出基準常數、把推導寫成文件、對漏電開一個溫度縮放參數;±10% 逐位元散佈做剩下的。這不是模型的失敗 —— 是模型正確地拒絕假裝一個溫度相關的類比量是固定的數位常數。這就是總帳裡 <span style="color:var(--bad);font-weight:700">CEILING</span> 命運的意思:一個晶粒外、物理真實、我們能刻畫並界定、但無法化約成一個晶粒內數字的行為。</span></div>
+  <div class="card" id="tempcalc" style="border-color:#4a3d5a">
+    <p style="margin:.4em 0"><b><span class="en">Interactive — the same byte, at different room temperatures</span><span class="zh">互動 —— 同一個位元組,在不同室溫下</span></b></p>
+    <p class="mut" style="margin:.2em 0;font-size:13.5px"><span class="en">Slide the temperature. This is the whole reason there is no single "true" decay time — the leakage current, and so the decay, moves by more than <b>100×</b> across a normal range of ambient temperatures. Warm room: the byte is gone in a tenth of a second. Freezer: it lingers for minutes.</span><span class="zh">拖動溫度。這就是為什麼沒有單一「真」衰減時間 —— 漏電流、進而衰減,在正常室溫範圍內就變動超過 <b>100 倍</b>。溫暖的房間:位元組十分之一秒就沒了。冷凍庫:它逗留好幾分鐘。</span></p>
+    <input type="range" id="tempSlider" min="-50" max="50" value="25" step="1" style="width:100%;accent-color:#c792ea;margin:10px 0 2px">
+    <div style="display:flex;justify-content:space-between;color:#6f6780;font-size:11px"><span>−50 °C</span><span>0 °C</span><span>50 °C</span></div>
+    <div style="text-align:center;margin:16px 0 6px;font-size:20px">
+      <span id="tempVal" style="color:#7fbfe0;font-weight:700">25 °C</span>
+      <span style="color:#6f6780">&nbsp;→&nbsp; decay ≈&nbsp;</span>
+      <span id="decayVal" style="color:#7ee0a8;font-weight:700;font-family:Consolas,monospace">600 ms</span>
+    </div>
+    <div id="factorVal" style="text-align:center;color:#ffb454;font-size:13px;margin-bottom:8px">(1.0× vs a 25 °C room)</div>
+    <p class="mut" style="font-size:11.5px;margin:.4em 0 0"><span class="en">Model: <code>t(T) = t₀ · exp( E<sub>a</sub>/k · (1/T − 1/298 K) )</code>, generation-limited junction leakage E<sub>a</sub> ≈ 0.56 eV (≈ halves every 10 °C), anchored at t₀ = 600 ms at 25 °C. Illustrative — the numbers move; the point is that they must.</span><span class="zh">模型:<code>t(T) = t₀ · exp( E<sub>a</sub>/k · (1/T − 1/298 K) )</code>,generation-limited junction 漏電 E<sub>a</sub> ≈ 0.56 eV(≈ 每 10 °C 減半),錨定在 25 °C 時 t₀ = 600 ms。示意用 —— 數字會動;重點是它們<i>必須</i>動。</span></p>
+  </div>
+
   <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · <a href="m5e-bus-hold.html">the M5e charter</a> · <a href="../s1a.html#shimlist">shim ledger</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · <a href="m5e-bus-hold.html">M5e 立案</a> · <a href="../s1a.html#shimlist">shim 總帳</a></span></p>
 </section>
 
@@ -260,6 +274,31 @@
 <script>
   function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
   (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+<script>
+  // Open-bus decay vs temperature. Generation-limited junction leakage: I_leak ∝ exp(−Ea/kT),
+  // t = C·ΔV/I_leak ∝ exp(+Ea/kT). Ea≈0.56 eV (Eg/2, so ~halves every 10 °C). Anchored at 25 °C.
+  (function(){
+    var s=document.getElementById('tempSlider'); if(!s) return;
+    var k=8.617e-5, Ea=0.56, Tref=298.15, t0=600; // ms at 25 °C
+    function fmt(ms){
+      if(ms<1000)  return Math.round(ms)+' ms';
+      if(ms<60000) return (ms/1000).toFixed(ms<10000?2:1)+' s';
+      if(ms<3600000) return (ms/60000).toFixed(1)+' min';
+      return (ms/3600000).toFixed(1)+' hr';
+    }
+    function upd(){
+      var C=+s.value, T=C+273.15;
+      var t=t0*Math.exp(Ea/k*(1/T - 1/Tref));
+      document.getElementById('tempVal').textContent=C+' °C';
+      document.getElementById('decayVal').textContent=fmt(t);
+      var f=t/t0;
+      document.getElementById('factorVal').textContent =
+        (f>=1 ? '('+f.toFixed(f<10?1:0)+'× slower than a 25 °C room)'
+              : '('+(1/f).toFixed((1/f)<10?1:0)+'× faster than a 25 °C room)');
+    }
+    s.addEventListener('input',upd); upd();
+  })();
 </script>
 </body>
 </html>

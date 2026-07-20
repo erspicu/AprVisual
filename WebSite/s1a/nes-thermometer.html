@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can the NES tell you the room temperature?</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(24px,4.4vw,38px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:880px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(940px, 76vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  .eq{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 16px;margin:12px 0;font-family:Consolas,"SF Mono",monospace;font-size:14px;overflow-x:auto;line-height:1.9;}
+  .eq b{color:var(--acc2);} .eq .c{color:var(--mut);}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:Consolas,"SF Mono",monospace;} pre .c{color:var(--mut);} pre .k{color:#c792ea;} pre .s{color:#7ee0a8;} pre .l{color:#ffb454;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .note.g{border-left-color:var(--acc2);background:#12211d;} .note.b{border-left-color:var(--bad);background:#211417;}
+  figure{margin:22px 0;text-align:center;} figure svg{max-width:100%;height:auto;} figcaption{color:var(--mut);font-size:13px;margin-top:8px;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(940px, 76vw);margin:0 auto;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#deep-dives"><span class="en">Deep dives</span><span class="zh">深入專文</span></a>
+  <a class="sec" href="openbus-decay.html"><span class="en">Open-bus decay</span><span class="zh">Open-bus 衰減</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Can the NES tell you the room temperature?</span><span class="zh">NES 能告訴你室溫嗎?</span></h1>
+  <p class="tag en">Deep dive #3 · a party trick with real physics behind it. The <a href="openbus-decay.html">previous article</a> showed that the open-bus byte decays faster when it is warmer — over 100× across a normal room's temperature range. So run the experiment backwards: write a byte, time how long it survives, and read the temperature <i>off the decay clock</i>. No thermistor, no extra hardware — just a stock 6502 and a leaky capacitor. This asks whether it actually works, walks through the one non-obvious trick that makes it possible, the calibration, the fatal flaw that turns it from a room thermometer into a <i>die</i> thermometer, and gives you the ROM.</p>
+  <p class="zh">深入專文 #3 · 一個背後有真物理的派對把戲。<a href="openbus-decay.html">前一篇</a>證明 open-bus 位元組在越熱時衰減越快 —— 在一個房間的正常溫度範圍內就差超過 100 倍。那就把實驗反過來跑:寫一個位元組、量它活多久,然後<i>從衰減時鐘讀出</i>溫度。沒有熱敏電阻、沒有額外硬體 —— 只有一顆原廠 6502 和一顆會漏的電容。這篇問它到底行不行、走過讓它成為可能的那個不明顯的訣竅、校準、把它從室溫計變成<i>晶粒</i>溫度計的致命缺陷,並把 ROM 給你。</p>
+  <p style="margin-top:14px"><span class="pill">S1a · deep dive #3</span><span class="pill">the NES as a sensor</span><span class="pill">2026-07-20</span></p>
+</header>
+
+<main>
+
+<section id="idea">
+  <h2><span class="kick"><span class="en">The idea</span><span class="zh">點子</span></span><span class="en">Run the decay backwards</span><span class="zh">把衰減倒著跑</span></h2>
+  <p class="en">A capacitor discharging through a leaky junction is a clock. The open-bus byte on the NES data bus is exactly that clock: it starts full, and the leakage current bleeds it down to 0 in a time that depends — steeply — on temperature. The forward experiment reads the clock to model an emulator. The backward experiment reads the <i>same</i> clock to measure the room: write a known byte, poll it, count how many CPU cycles pass before it decays, and invert the decay law to get the temperature.</p>
+  <p class="zh">一顆電容經一個會漏的接面放電,就是一個時鐘。NES 資料匯流排上的 open-bus 位元組正是那個時鐘:它從滿的開始,漏電流把它放到 0,所花的時間依賴溫度 —— 而且很陡。正向實驗讀這個時鐘來做模擬器。反向實驗讀<i>同一個</i>時鐘來量房間:寫一個已知位元組、輪詢它、數過了多少 CPU cycle 它才衰減,然後把衰減律反過來解出溫度。</p>
+  <p class="en">Is that real, or is the swing too small to see? The sensitivity settles it. With <code>t ∝ exp(E<sub>a</sub>/kT)</code> and E<sub>a</sub> ≈ 0.56 eV, the fractional change of decay time with temperature near room temperature is:</p>
+  <p class="zh">這是真的嗎,還是擺幅太小看不到?靈敏度定案。用 <code>t ∝ exp(E<sub>a</sub>/kT)</code>、E<sub>a</sub> ≈ 0.56 eV,室溫附近衰減時間隨溫度的分數變化是:</p>
+  <div class="eq">
+    (1/t)(dt/dT) = −E<sub>a</sub> / (k T²) = −0.56 / (8.617e−5 · 300²) = <b>−0.072 / °C</b>  =  <b>−7.2 % per °C</b>
+  </div>
+  <p class="en">7.2% per degree is <i>enormous</i> for a sensor. A cycle-accurate 6502 loop measures the decay time to a handful of parts per million, so temperature <i>quantisation</i> is nowhere near the limit — you could resolve thousandths of a degree in principle. The real limits are electrical noise and, as we'll see, the console cooking itself. But the signal is unambiguously there.</p>
+  <p class="zh">每度 7.2% 對一個感測器來說<i>大得驚人</i>。一個 cycle-accurate 的 6502 迴圈能把衰減時間量到百萬分之幾,所以溫度<i>量化</i>離極限遠得很 —— 原則上你能解到千分之一度。真正的極限是電氣雜訊,以及我們接下來會看到的:主機把自己煮熟。但訊號明確地在那裡。</p>
+</section>
+
+<section id="trap">
+  <h2><span class="kick"><span class="en">The one non-obvious trick</span><span class="zh">那個不明顯的訣竅</span></span><span class="en">You cannot use the CPU's own bus</span><span class="zh">你不能用 CPU 自己的匯流排</span></h2>
+  <p class="en">Here is the trap that sinks the naive version. If you write <code>0xFF</code> to an open-bus address and then run a loop to poll it, it will read back <code>0xFF</code> <i>forever</i> — the decay never seems to happen. Why? Because <b>every instruction fetch drives the CPU's external data bus</b>. The opcode bytes of your <code>LDA</code>, <code>CMP</code>, <code>BNE</code> loop land on those same pins every single clock cycle, re-charging the capacitance faster than it can leak. You would be refreshing the very thing you are trying to watch decay.</p>
+  <p class="zh">這是讓天真版本沉船的陷阱。如果你寫 <code>0xFF</code> 到一個 open-bus 位址、然後跑迴圈輪詢它,它會<i>永遠</i>讀回 <code>0xFF</code> —— 衰減好像從沒發生。為什麼?因為<b>每一次指令抓取都會驅動 CPU 的外部資料匯流排</b>。你 <code>LDA</code>、<code>CMP</code>、<code>BNE</code> 迴圈的 opcode 位元組每一個時鐘週期都落在那同一組接腳上,充電比漏電快,你會一直 refresh 你正想看它衰減的那個東西。</p>
+  <p class="en">The way out is to watch a bus the CPU's instruction fetches do <i>not</i> touch: the <b>PPU's internal data latch</b>. Writing any PPU register (<code>$2000</code>–<code>$2007</code>) fills a parasitic capacitance <i>inside</i> the 2C02. Reading <code>$2002</code> (PPUSTATUS) returns the three real status flags in the top bits — but the <b>bottom 5 bits leak the decaying PPU latch</b>. Because that latch is on the PPU die, the 6502 fetching opcodes on the CPU bus never disturbs it. So the procedure is:</p>
+  <p class="zh">出路是去看一條 CPU 指令抓取<i>不會</i>碰到的匯流排:<b>PPU 的內部資料閂鎖</b>。寫任何 PPU 暫存器(<code>$2000</code>–<code>$2007</code>)會填滿 2C02 <i>內部</i>一顆寄生電容。讀 <code>$2002</code>(PPUSTATUS)高位元回傳三個真狀態旗標 —— 但<b>低 5 位漏出衰減中的 PPU 閂鎖</b>。因為那個閂鎖在 PPU 晶粒上,6502 在 CPU 匯流排上抓 opcode 從不會擾動它。所以流程是:</p>
+
+  <figure>
+    <svg viewBox="0 0 880 260" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="260" fill="#141019"/>
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">Measure the PPU internal latch, not the CPU bus</text>
+      <!-- step boxes -->
+      <g font-size="12.5">
+        <rect x="40" y="60" width="150" height="60" rx="7" fill="#241d31" stroke="#c792ea" stroke-width="1.4"/>
+        <text x="115" y="84" fill="#e2c7f5" text-anchor="middle" font-weight="700">write $FF</text>
+        <text x="115" y="102" fill="#a58fb5" text-anchor="middle" font-size="11">to $2000 → primes</text>
+        <text x="115" y="115" fill="#a58fb5" text-anchor="middle" font-size="11">PPU latch = 11111</text>
+
+        <rect x="240" y="60" width="170" height="60" rx="7" fill="#1b2430" stroke="#7fbfe0" stroke-width="1.4"/>
+        <text x="325" y="84" fill="#bfe0f5" text-anchor="middle" font-weight="700">poll loop</text>
+        <text x="325" y="102" fill="#7f93a5" text-anchor="middle" font-size="11">LDA $2002 · AND #$1F</text>
+        <text x="325" y="115" fill="#7f93a5" text-anchor="middle" font-size="11">CMP #$1F · count cycles</text>
+
+        <rect x="460" y="60" width="170" height="60" rx="7" fill="#1c2a22" stroke="#7ee0a8" stroke-width="1.4"/>
+        <text x="545" y="84" fill="#a8e6c4" text-anchor="middle" font-weight="700">first bit drops</text>
+        <text x="545" y="102" fill="#7f9d88" text-anchor="middle" font-size="11">latch ≠ 11111</text>
+        <text x="545" y="115" fill="#7f9d88" text-anchor="middle" font-size="11">→ stop, read counter</text>
+
+        <rect x="680" y="60" width="160" height="60" rx="7" fill="#2a2417" stroke="#ffb454" stroke-width="1.4"/>
+        <text x="760" y="84" fill="#ffd9a0" text-anchor="middle" font-weight="700">invert</text>
+        <text x="760" y="102" fill="#a89570" text-anchor="middle" font-size="11">t → T via the</text>
+        <text x="760" y="115" fill="#a89570" text-anchor="middle" font-size="11">calibrated log law</text>
+      </g>
+      <!-- arrows -->
+      <g stroke="#5a5266" stroke-width="1.6" marker-end="url(#a2)">
+        <line x1="190" y1="90" x2="238" y2="90"/><line x1="410" y1="90" x2="458" y2="90"/><line x1="630" y1="90" x2="678" y2="90"/>
+      </g>
+      <defs><marker id="a2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#5a5266"/></marker></defs>
+      <!-- CPU bus warning -->
+      <rect x="40" y="160" width="800" height="70" rx="8" fill="#211417" stroke="#ff6b6b" stroke-width="1.2"/>
+      <text x="60" y="186" fill="#ff9a9a" font-size="13" font-weight="700">✗ the trap:</text>
+      <text x="140" y="186" fill="#dcd7e3" font-size="12.5">polling a CPU open-bus address (e.g. $4020) fails — every LDA/CMP/BNE opcode fetch re-drives</text>
+      <text x="140" y="206" fill="#dcd7e3" font-size="12.5">the external data bus and refreshes the capacitor. It reads $FF forever; the decay is invisible.</text>
+      <text x="140" y="222" fill="#7ee0a8" font-size="12">✓ the PPU internal latch ($2002 low bits) is on the PPU die — CPU fetches never touch it.</text>
+    </svg>
+    <figcaption><span class="en">The measurement lives on the PPU's internal open-bus latch, read through the low 5 bits of <code>$2002</code> — the one place the CPU's own instruction traffic cannot refresh.</span><span class="zh">量測活在 PPU 的內部 open-bus 閂鎖上,透過 <code>$2002</code> 的低 5 位讀出 —— 唯一 CPU 自己的指令流量刷不到的地方。</span></figcaption>
+  </figure>
+</section>
+
+<section id="calib">
+  <h2><span class="kick"><span class="en">Calibration — one point is enough</span><span class="zh">校準 —— 一點就夠</span></span><span class="en">The slope is a law of physics</span><span class="zh">斜率是物理定律</span></h2>
+  <p class="en">The absolute decay time is <i>not</i> universal — it hides a pre-exponential factor A that contains this console's exact bus capacitance and junction area, and those vary wildly between motherboard revisions, chip fabs, even individual pins. So a raw decay reading cannot be an absolute temperature on its own. But here is the beautiful part: the <b>slope</b> of the log-curve is the activation energy E<sub>a</sub> ≈ 0.56 eV, which is a property of the silicon crystal lattice — virtually identical across every NES. Only the offset A differs per console. And an unknown offset with a known slope needs exactly <b>one</b> calibration point:</p>
+  <p class="zh">絕對衰減時間<i>不</i>普世 —— 它藏著一個指數前因子 A,裝著這台主機確切的匯流排電容與接面面積,那些在主機板版本、晶片廠、甚至個別接腳之間差很大。所以生的衰減讀值本身不能是絕對溫度。但美妙的地方是:log 曲線的<b>斜率</b>是活化能 E<sub>a</sub> ≈ 0.56 eV,那是矽晶格的性質 —— 幾乎每台 NES 都相同。只有 offset A 逐台不同。而一個已知斜率、未知 offset 的問題,恰好只需要<b>一個</b>校準點:</p>
+  <div class="eq">
+    ln(t) = ln(A) + E<sub>a</sub>/(kT)   <span class="c">// the decay law in log form; slope Ea/k is fixed</span><br><br>
+    <span class="c">// boot in a room known to be 25 °C, press "calibrate", measure t_cal:</span><br>
+    ln(A) = ln(t<sub>cal</sub>) − E<sub>a</sub>/(k · 298.15)   <span class="c">// solves this console's unique offset</span><br><br>
+    <span class="c">// from then on, temperature is a direct read:</span><br>
+    <b>T = (E<sub>a</sub>/k) / ( ln(t) − ln(A) )</b>
+  </div>
+  <p class="en">One button press in a room you trust, and the console pins its own curve. No reference thermometer needed after that first anchor.</p>
+  <p class="zh">在一個你信得過的房間按一次鈕,主機就把自己的曲線釘住。那第一個錨定之後,不再需要參考溫度計。</p>
+</section>
+
+<section id="flaw">
+  <h2><span class="kick"><span class="en">The fatal flaw</span><span class="zh">致命缺陷</span></span><span class="en">You built a die thermometer, not a room thermometer</span><span class="zh">你做的是晶粒溫度計,不是室溫計</span></h2>
+  <p class="en">Here reality bites hard. The junction whose leakage you are measuring is <i>inside</i> the PPU, and the PPU is dissipating about a watt. In a plastic DIP-40 package with a junction-to-air thermal resistance around 40 °C/W, that die climbs <b>30–40 °C above the room</b> after ten minutes of play. So the thing your "thermometer" actually measures is the <i>die</i> temperature, not the air in the room. Read it after a session of <i>Super Mario Bros. 3</i> and it will proudly report a tropical 65 °C.</p>
+  <p class="zh">現實在這裡狠狠咬一口。你在量漏電的那個接面在 PPU <i>內部</i>,而 PPU 正耗散大約一瓦。在一個塑膠 DIP-40 封裝、接面到空氣熱阻約 40 °C/W 的情況下,那顆晶粒在玩十分鐘後爬到<b>比室溫高 30–40 °C</b>。所以你的「溫度計」實際量的是<i>晶粒</i>溫度,不是房間的空氣。玩完一局《超級瑪利歐 3》再讀它,它會驕傲地報一個熱帶的 65 °C。</p>
+  <p class="en">To get the <i>room</i>, you have to catch the die before it warms: <b>cold-boot the console after it has been off for an hour, and take the reading within the first few seconds.</b> Two smaller confounds then set the accuracy floor: a sloppy 7805 regulator drifting ±5% shifts the logic threshold ΔV and adds ±1 °C; and part-to-part aging drifts A slowly over decades. Net: at a genuine cold boot, right after a one-point calibration, <b>±1 °C is realistic</b>. Warm, it's a die sensor with far better relative resolution than absolute accuracy.</p>
+  <p class="zh">要拿到<i>房間</i>,你得在晶粒變熱前抓到它:<b>把主機關一小時後冷開機,在最初幾秒內讀取。</b>接著兩個較小的干擾定出精度地板:一個漂 ±5% 的爛 7805 穩壓器會移動邏輯閾值 ΔV、加 ±1 °C;而器件老化在數十年間慢慢漂移 A。合計:在真正的冷開機、剛做完一點校準之後,<b>±1 °C 是實際可達的</b>。熱起來之後,它是一個相對解析度遠好於絕對精度的晶粒感測器。</p>
+
+  <figure>
+    <svg viewBox="0 0 880 270" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI,Roboto,sans-serif">
+      <rect width="880" height="270" fill="#141019"/>
+      <text x="440" y="24" fill="#e8dcff" font-size="15" font-weight="700" text-anchor="middle">The die cooks itself — the reading window is the first few seconds</text>
+      <!-- axes -->
+      <line x1="70" y1="210" x2="830" y2="210" stroke="#5a5266" stroke-width="1.5"/>
+      <line x1="70" y1="50" x2="70" y2="210" stroke="#5a5266" stroke-width="1.5"/>
+      <text x="450" y="246" fill="#968ba1" font-size="11.5" text-anchor="middle">time since cold boot  (minutes)</text>
+      <text x="30" y="130" fill="#968ba1" font-size="11.5" text-anchor="middle" transform="rotate(-90 30 130)">die temperature</text>
+      <!-- room line -->
+      <line x1="70" y1="185" x2="830" y2="185" stroke="#7ee0a8" stroke-dasharray="5 4"/><text x="836" y="189" fill="#7ee0a8" font-size="10.5">room 25 °C</text>
+      <line x1="70" y1="70" x2="830" y2="70" stroke="#3a3446" stroke-dasharray="3 3"/><text x="836" y="74" fill="#6f6780" font-size="10">+40 °C</text>
+      <!-- x ticks -->
+      <g fill="#6f6780" font-size="9.5" text-anchor="middle">
+        <line x1="70" y1="210" x2="70" y2="215" stroke="#5a5266"/><text x="70" y="228">0</text>
+        <line x1="260" y1="210" x2="260" y2="215" stroke="#5a5266"/><text x="260" y="228">5</text>
+        <line x1="450" y1="210" x2="450" y2="215" stroke="#5a5266"/><text x="450" y="228">10</text>
+        <line x1="640" y1="210" x2="640" y2="215" stroke="#5a5266"/><text x="640" y="228">15</text>
+        <line x1="830" y1="210" x2="830" y2="215" stroke="#5a5266"/><text x="830" y="228">20 min</text>
+      </g>
+      <!-- self-heating curve (exponential rise to +35C) -->
+      <path d="M70,185 C 180,120 300,88 450,80 C 600,74 720,72 830,71" fill="none" stroke="#ff6b6b" stroke-width="2.5"/>
+      <text x="470" y="110" fill="#ff9a9a" font-size="12">die self-heating (τ ≈ a few minutes)</text>
+      <!-- reading window -->
+      <rect x="70" y="50" width="34" height="160" fill="#7ee0a8" opacity="0.13"/>
+      <text x="110" y="60" fill="#7ee0a8" font-size="11" font-weight="700">read here</text>
+      <text x="112" y="76" fill="#7ee0a8" font-size="10">(first few s,</text>
+      <text x="112" y="90" fill="#7ee0a8" font-size="10">cold boot)</text>
+      <!-- after SMB3 marker -->
+      <circle cx="450" cy="80" r="4" fill="#ff6b6b"/>
+      <text x="450" y="66" fill="#ff9a9a" font-size="10.5" text-anchor="middle">"65 °C" after SMB3</text>
+    </svg>
+    <figcaption><span class="en">The PPU dissipates ~1 W into a DIP-40 (~40 °C/W), so the die runs 30–40 °C hot. The only window where the die ≈ the room is the first few seconds after a cold boot.</span><span class="zh">PPU 把 ~1W 耗散進 DIP-40(~40 °C/W),所以晶粒跑得比室溫高 30–40 °C。晶粒 ≈ 室溫的唯一窗口是冷開機後的最初幾秒。</span></figcaption>
+  </figure>
+</section>
+
+<section id="prior">
+  <h2><span class="kick"><span class="en">This is a real field</span><span class="zh">這是成熟領域</span></span><span class="en">Prior art you've stumbled into</span><span class="zh">你撞進的前例</span></h2>
+  <ul>
+    <li class="en"><b>DRAM/SRAM retention thermometry.</b> Security researchers use memory data-retention time as a localized temperature sensor. The famous <b>Cold Boot Attack</b> (Halderman et al., 2008) is the same physics inverted the other way: chilling RAM to −50 °C freezes the leakage and stretches retention from milliseconds to <i>hours</i>, long enough to dump encryption keys from powered-off memory.</li>
+    <li class="zh"><b>DRAM/SRAM 保持時間溫度計。</b>資安研究者用記憶體的資料保持時間當局部溫度感測器。著名的 <b>Cold Boot Attack</b>(Halderman 等,2008)是同一物理反過來用:把 RAM 冷到 −50 °C 凍住漏電、把保持時間從毫秒拉到<i>數小時</i>,久到足以從斷電的記憶體 dump 出加密金鑰。</li>
+    <li class="en"><b>Leakage-based on-die sensors.</b> Many modern microcontrollers (some ATmegas, STM32s) ship an internal temperature sensor that is literally a parasitic capacitor discharging through a characterized diode — exactly this trick, done on purpose in silicon.</li>
+    <li class="zh"><b>漏電式晶粒內感測器。</b>許多現代微控制器(某些 ATmega、STM32)內建的溫度感測器,字面上就是一顆寄生電容經一個已特徵化的二極體放電 —— 正是這個訣竅,只是在矽上刻意做出來。</li>
+    <li class="en"><b>NES open-bus in the wild.</b> The demoscene leans on open-bus behaviour (e.g. <i>Micro Mages</i> uses it for controller detection), but turning it into a quantitative thermometer is, as far as we know, novel — a genuinely top-tier piece of hardware abuse.</li>
+    <li class="zh"><b>野生的 NES open-bus。</b>demoscene 很依賴 open-bus 行為(例如 <i>Micro Mages</i> 用它偵測手把),但把它變成定量溫度計,就我們所知是新的 —— 一個真正頂級的硬體濫用。</li>
+  </ul>
+</section>
+
+<section id="rom">
+  <h2><span class="kick"><span class="en">The ROM</span><span class="zh">那顆 ROM</span></span><span class="en">A thermometer in a few hundred bytes</span><span class="zh">幾百位元組的溫度計</span></h2>
+  <p class="en">Natural logs on a 6502 are miserable, so we linearise around the calibration point. Since the decay halves every ~9.6 °C, temperature is just an offset from the calibration temperature by the base-2 log of the decay ratio:</p>
+  <p class="zh">6502 上算自然對數很痛苦,所以我們在校準點附近線性化。因為衰減每 ~9.6 °C 減半,溫度就是校準溫度加上衰減比的以 2 為底對數的一個 offset:</p>
+  <div class="eq"><b>T ≈ 25 °C − 9.6 · log₂( t / t_cal )</b>   <span class="c">// warmer → shorter t → higher T</span></div>
+  <p class="en">And <code>log₂</code> is trivial on a 6502: the integer part is the position of the highest set bit (found by shifting), the fractional part is a linear interpolation of the next few bits. The whole program is a calibrate loop, a measure loop, a divide, a small lookup table, and a decimal print.</p>
+  <p class="zh">而 <code>log₂</code> 在 6502 上不費力:整數部分是最高設定位的位置(移位找到),小數部分是接下來幾位的線性內插。整個程式就是一個校準迴圈、一個量測迴圈、一次除法、一張小查表、和一次十進位輸出。</p>
+  <pre><span class="c">; ---- the measurement loop (identical for calibrate and measure) ----</span>
+    <span class="k">LDA</span> #$FF
+    <span class="k">STA</span> $2000        <span class="c">; prime the PPU internal latch to 11111</span>
+    <span class="k">LDX</span> #0
+    <span class="k">LDY</span> #0           <span class="c">; 16-bit cycle counter in X (lo) / Y (hi)</span>
+<span class="l">poll:</span>
+    <span class="k">LDA</span> $2002        <span class="c">; read PPU status + decaying latch  (4 cyc)</span>
+    <span class="k">AND</span> #$1F         <span class="c">; keep only the 5 open-bus bits         (2)</span>
+    <span class="k">CMP</span> #$1F         <span class="c">; still all-ones?                       (2)</span>
+    <span class="k">BNE</span> done         <span class="c">; first bit dropped → stop             (2/3)</span>
+    <span class="k">INX</span>              <span class="c">;                                       (2)</span>
+    <span class="k">BNE</span> poll         <span class="c">;                                       (3)</span>
+    <span class="k">INY</span>
+    <span class="k">JMP</span> poll
+<span class="l">done:</span>                    <span class="c">; X:Y = decay time in loop iterations</span></pre>
+  <p class="en">Flow: display "PRESS A AT 25 °C" → run the loop, store <code>T_CAL</code> → later, run it again for <code>T_CUR</code> → shift-divide <code>T_CUR / T_CAL</code> into an 8.8 ratio → a 256-byte LUT maps the ratio to ΔT → add to 25, print to the nametable, repeat at 1 Hz. Time the <b>first bit to drop</b> (it isolates the single leakiest of the five lines, the most repeatable event), and average 16 runs to beat down electrical noise.</p>
+  <p class="zh">流程:顯示「PRESS A AT 25 °C」→ 跑迴圈、存 <code>T_CAL</code> → 之後再跑一次得 <code>T_CUR</code> → 移位除 <code>T_CUR / T_CAL</code> 成 8.8 比值 → 一張 256 byte LUT 把比值對到 ΔT → 加到 25、印到 nametable、1Hz 重複。量<b>第一個掉的位元</b>(它隔離出五條線裡最漏的那一條、最可重現的事件),並平均 16 次以壓下電氣雜訊。</p>
+</section>
+
+<section id="verdict">
+  <h2><span class="kick"><span class="en">Verdict — and try it</span><span class="zh">裁決 —— 試試看</span></span><span class="en">Party trick for the room, real sensor for the die</span><span class="zh">室溫是把戲,晶粒是真感測器</span></h2>
+  <p class="en">As a <b>room</b> thermometer it is a wonderful party trick, honest to about ±1 °C only at a careful cold boot, and useless the moment the console warms itself. But as a <b>PPU die</b> thermometer it is a genuinely legitimate, high-resolution sensor: you could plot the exact thermal time-constant of the Ricoh 2C02 heating up in real time, on a CRT, in a homebrew ROM. The physics that made open-bus a headache for the emulator turns out to be a working instrument. Below, the inverse in your browser — feed it a measured decay time and it reads back the temperature it implies:</p>
+  <p class="zh">當<b>室溫</b>計,它是個美好的派對把戲,只在小心的冷開機下才誠實到約 ±1 °C,主機一暖起來就沒用。但當<b>PPU 晶粒</b>溫度計,它是真正合法、高解析度的感測器:你能在 CRT 上、用自製 ROM,即時畫出 Ricoh 2C02 升溫的確切熱時間常數。那個讓 open-bus 成為模擬器頭痛的物理,原來是一把能用的儀器。下面是瀏覽器裡的反向計算 —— 餵它一個量到的衰減時間,它讀回那意味著的溫度:</p>
+
+  <div class="card" id="thermocalc" style="border-color:#4a3d5a">
+    <p style="margin:.4em 0"><b><span class="en">Interactive — the thermometer, inverted</span><span class="zh">互動 —— 反向的溫度計</span></b></p>
+    <p class="mut" style="margin:.2em 0;font-size:13.5px"><span class="en">Slide a <i>measured</i> decay time. The console would infer this die temperature from it (one-point-calibrated at 600 ms = 25 °C).</span><span class="zh">拖動一個<i>量到的</i>衰減時間。主機會從它反推這個晶粒溫度(在 600ms = 25 °C 做一點校準)。</span></p>
+    <input type="range" id="tSlider" min="0" max="100" value="50" step="1" style="width:100%;accent-color:#c792ea;margin:10px 0 2px">
+    <div style="display:flex;justify-content:space-between;color:#6f6780;font-size:11px"><span>111 ms</span><span>600 ms</span><span>15 min</span></div>
+    <div style="text-align:center;margin:16px 0 6px;font-size:20px">
+      <span class="mut">measured&nbsp;</span><span id="tVal" style="color:#7ee0a8;font-weight:700;font-family:Consolas,monospace">600 ms</span>
+      <span style="color:#6f6780">&nbsp;→ die ≈&nbsp;</span>
+      <span id="TVal" style="color:#7fbfe0;font-weight:700">25.0 °C</span>
+    </div>
+    <p class="mut" style="font-size:11.5px;margin:.4em 0 0"><span class="en"><code>T = (E<sub>a</sub>/k) / ( ln(t) − ln A )</code>, E<sub>a</sub> ≈ 0.56 eV, anchored at t = 600 ms → 25 °C. This is the <i>die</i>, not the room — subtract self-heating for the air.</span><span class="zh"><code>T = (E<sub>a</sub>/k) / ( ln(t) − ln A )</code>,E<sub>a</sub> ≈ 0.56 eV,錨定在 t = 600ms → 25 °C。這是<i>晶粒</i>、不是房間 —— 要空氣溫度得扣掉自體發熱。</span></p>
+  </div>
+
+  <p style="margin-top:20px"><span class="en">← back to <a href="../s1a.html#deep-dives">deep dives</a> · <a href="openbus-decay.html">the open-bus decay it inverts</a></span><span class="zh">← 回<a href="../s1a.html#deep-dives">深入專文</a> · <a href="openbus-decay.html">它反轉的 open-bus 衰減</a></span></p>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a deep dive #3 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · physics + procedure from a mixed-signal / retro-hardware consult (2026-07-20)</span>
+     <span class="zh">S1a 深入專文 #3 · <a href="../s1a.html">S1a</a> · <a href="../index.html">AprVisual</a> · 物理 + 流程來自混合訊號 / 復古硬體諮詢(2026-07-20)</span></p>
+  <p class="mut">© AprVisual — <span class="en">a bug in the emulator is a working instrument on the bench.</span><span class="zh">模擬器裡的一個 bug,在實驗桌上是一把能用的儀器。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+<script>
+  // Inverse thermometer: given a measured decay time t, infer the die temperature.
+  // t = t0·exp(Ea/k·(1/T − 1/Tref))  ⇒  T = 1 / ( 1/Tref + (k/Ea)·ln(t/t0) )
+  (function(){
+    var s=document.getElementById('tSlider'); if(!s) return;
+    var k=8.617e-5, Ea=0.56, Tref=298.15, t0=600; // ms at 25 °C
+    var tlo=111, thi=900000;                        // slider maps log-space 111 ms .. 15 min
+    function fmt(ms){ if(ms<1000) return Math.round(ms)+' ms'; if(ms<60000) return (ms/1000).toFixed(ms<10000?2:1)+' s'; return (ms/60000).toFixed(1)+' min'; }
+    function upd(){
+      var v=+s.value/100;
+      var t=tlo*Math.pow(thi/tlo, v);               // log-interpolated measured decay time
+      var T=1/(1/Tref + (k/Ea)*Math.log(t/t0));      // Kelvin
+      var C=T-273.15;
+      document.getElementById('tVal').textContent=fmt(t);
+      document.getElementById('TVal').textContent=C.toFixed(1)+' °C';
+    }
+    s.addEventListener('input',upd); upd();
+  })();
+</script>
+</body>
+</html>

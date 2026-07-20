@@ -166,6 +166,7 @@ namespace AprNes
             int[] acFrameFirst = null;
             bool dumpAcResults = false;
             bool dumpDebug = false;
+            int dumpMemAddr = -1;          // --dump-mem <hexaddr>: print bytes at this CPU addr at end of run
             bool waitAc = false;
             bool benchmarkMode = false;
             double benchmarkSec = 20;
@@ -182,6 +183,28 @@ namespace AprNes
                 {
                     case "--rom":
                         if (i + 1 < args.Length) romPath = args[++i];
+                        break;
+                    case "--openbus-temp":
+                        // Set the PPU open-bus decay temperature knob (°C) for headless runs.
+                        if (i + 1 < args.Length)
+                        {
+                            double obt;
+                            if (double.TryParse(args[++i], out obt))
+                            {
+                                NesCore.OpenBusTempCelsius = obt;
+                                Console.Error.WriteLine("[TestRunner] open-bus decay temperature = " + obt + " °C");
+                            }
+                        }
+                        break;
+                    case "--dump-mem":
+                        // Dump 8 bytes of CPU memory at the given hex address at end of run.
+                        if (i + 1 < args.Length)
+                        {
+                            int dm;
+                            if (int.TryParse(args[++i], System.Globalization.NumberStyles.HexNumber,
+                                    System.Globalization.CultureInfo.InvariantCulture, out dm))
+                                dumpMemAddr = dm;
+                        }
                         break;
                     case "--time":
                         if (i + 1 < args.Length) double.TryParse(args[++i], out timeSec);
@@ -795,6 +818,26 @@ namespace AprNes
                 {
                     Console.Error.WriteLine("Screenshot failed: " + ex.Message);
                 }
+            }
+
+            // Dump a small memory window (--dump-mem <hexaddr>): 8 bytes at that CPU addr
+            if (dumpMemAddr >= 0)
+            {
+                var sb = new StringBuilder();
+                sb.Append("MEM_DUMP ").Append(dumpMemAddr.ToString("X4")).Append(": ");
+                for (int k = 0; k < 8; k++)
+                {
+                    int a = dumpMemAddr + k;
+                    byte b = (a >= 0 && a < 0x10000) ? NesCore.NES_MEM[a] : (byte)0;
+                    sb.Append(b.ToString("X2")).Append(' ');
+                }
+                // Also print the little-endian 24-bit value at the address (thermometer count).
+                int lo = NesCore.NES_MEM[dumpMemAddr & 0xFFFF];
+                int mid = NesCore.NES_MEM[(dumpMemAddr + 1) & 0xFFFF];
+                int hi = NesCore.NES_MEM[(dumpMemAddr + 2) & 0xFFFF];
+                int val24 = lo | (mid << 8) | (hi << 16);
+                sb.Append(" | u24_le=").Append(val24);
+                Console.WriteLine(sb.ToString());
             }
 
             // Dump AccuracyCoin results ($0300-$04FF)

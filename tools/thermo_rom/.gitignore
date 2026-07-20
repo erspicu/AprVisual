@@ -1,0 +1,4 @@
+# WLA-DX build intermediates
+thermo.o
+link.tmp
+thermo_prg.bin

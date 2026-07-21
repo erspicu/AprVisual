@@ -161,7 +161,6 @@ namespace AprVisual.Test
             fails += TestNand();
             fails += TestPassTransistor();
             fails += TestCallback();
-            fails += TestCallbackDrainLimit();
             fails += TestStaticMerge();
             Console.WriteLine(fails == 0 ? "\nselftest: ALL PASS" : $"\nselftest: {fails} FAILURE(S)");
             return fails == 0 ? 0 : 1;
@@ -256,42 +255,6 @@ namespace AprVisual.Test
             f += Check("callback fires after w: 1 -> 0", fires > before);
             WireCore.Shutdown();
             return f;
-        }
-
-        private static int TestCallbackDrainLimit()
-        {
-            Console.WriteLine("callback non-convergence detector:");
-            WireCore.ResetBuild();
-            WireCore.AddNode(10, "osc");
-            bool armed = false;
-            WireCore.AddCallback(new[] { WireCore.LookupNode("osc") }, () =>
-            {
-                if (!armed) return;
-                if (WireCore.IsNodeHigh("osc")) WireCore.SetLow("osc");
-                else                            WireCore.SetHigh("osc");
-            });
-            WireCore.Reset();
-            WireCore.RecomputeAllNodes();
-
-            int savedLimit = WireCore.CallbackDrainLimit;
-            bool caught = false;
-            try
-            {
-                WireCore.CallbackDrainLimit = 32;
-                armed = true;
-                WireCore.SetHigh("osc");
-            }
-            catch (InvalidOperationException ex)
-            {
-                caught = ex.Message.Contains("non-converging callback drain", StringComparison.Ordinal);
-            }
-            finally
-            {
-                armed = false;
-                WireCore.CallbackDrainLimit = savedLimit;
-                WireCore.Shutdown();
-            }
-            return Check("self-reenqueuing callback is stopped with diagnostics", caught);
         }
 
         private static int TestStaticMerge()

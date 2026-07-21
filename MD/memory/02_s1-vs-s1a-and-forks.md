@@ -28,8 +28,11 @@ S1 本體永不因 S1A 的工作而改動。
 - **保留不動**(env-gated 實驗性、預設關、不在認證組):`M2_CAP`/`M2_CENSUS`(未拍板電容仲裁調查)、`M4_DL`(實驗 DL row,與恆開 DlShim 重複)。這三個 env 仍讀取。
 - **驗證**:金 benchmark checksum **`0x794A43ABDF169ADA` 不變**(每步重驗;機制只在 test 模式武裝、benchmark 路徑從不武裝);載入診斷確認 8 機制 + M2 + ALERead mux 免 env 自動武裝(mux `sw=13 rp=[13,25) fz=[44,52)`);`ppu_open_bus`+`ppu_read_buffer` PASS。**權威 AC-141(~8h)+ 147(~7.5h)未跑,待使用者用 `.bat` 發**(build net11 用 `dotnet build`)。
 - ⚠️ `tools/testrom/run_ac_s1a_*.bat` 仍設 `ALEREAD_MUX=1 MUX_HC=...` —— 對 S1A 現在是**無害 no-op**(env 已不讀),.bat 照跑;註解「ALEREAD_MUX REQUIRED」對 S1A 已不成立。
-- 文件已更新:`WebSite/s1a-cli.html`(commit `77fca55`,機制表改「恆開」、env 面標「已移除」、配方去掉 env 前綴)。
-- ⚠️ **未合併回 main**;合併前應跑完權威 AC-141 + 147。
+- **§8 一次性取證 CLI 探針清除**(commit `64b2f48`,**−536 行**):刪 `--op-probe`/`--bus-trace`/`--rdy-probe`/`--phase-probe`(Probes.cs)、`--probe2002`/`--probe-2001`/`--probe-dma`/`--probe-vbl`(Diag.cs)、`--ppu-memory-trace(-x)`(含 `WireCore.Handlers.cs` 引擎 hook + 熱路徑呼叫點,guard 保護故 checksum 不變)。**保留通用檢視工具**:`--dump-node`/`--dump-module`/`--dump-system`/`--names`/`--watch`/`--micro`/`--trace`/`--ac-dump-work`。
+- **`--callback-drain-limit` 移除**(commit 待記):它是診斷用非收斂 tripwire,選一條與正常迴圈**逐 dispatch 位元相同**的慢速 drain(`DrainCallbacksWithLimit`),line 332 的 gate 純 logging。真正的收斂/防遞迴機制是 **`InvokeCallbacks` re-entrancy guard**(`_invoking`,永遠開、修 AC ~24k 深遞迴)—— drain-limit 已冗餘。刪:CallbackDrainLimit 欄位 + DrainCallbacksWithLimit/Throw/DescribeCallback 三方法 + selftest + CLI parse/help。金 checksum 不變(benchmark 本就走正常迴圈)。**S1 保留此旗標**;S1A 的 `run_ac_s1a_*.bat` 已拿掉 `--callback-drain-limit 2000`(S1 的 `run_accuracycoin.bat` 保留)。
+- ⚠️ `run_ac_s1a_*.bat` 的 `ALEREAD_MUX=1 MUX_HC=...` 對 S1A 現在是**無害 no-op**(env 已不讀),.bat 照跑;註解「ALEREAD_MUX REQUIRED」對 S1A 已不成立。
+- 文件已更新:`WebSite/s1a-cli.html`(機制表改「恆開」、env 面/一次性探針/drain-limit 都拿掉不再列)、`WebSite/s1-cli.html`(分岔註記)。
+- ⚠️ **未合併回 main**;合併前應跑完權威 AC-141 + 147。累計 S1A 移除約 **1,900 行**,金 checksum 全程不變。
 
 ## 其他 fork(reference / deprecated)
 - `src/AprVisual.S2/`:S1 verbatim copy,承載已結案的 Escape-1 效能研究(`--miter`/`--compile`/`--cones`)。

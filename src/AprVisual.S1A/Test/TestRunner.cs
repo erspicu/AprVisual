@@ -117,10 +117,6 @@ namespace AprVisual.Test
                     case "--snapshot-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _snapFrames); break;      // test mode: engine-state snapshot cadence
                     case "--snapshot-dir":    if (i + 1 < args.Length) _snapDir = args[++i]; break;                          // test mode: snapshot output directory
                     case "--resume":          if (i + 1 < args.Length) _resumePath = args[++i]; break;                       // test mode: restore a snapshot and continue
-                    case "--callback-drain-limit":                                                                        // diagnostic: fail with callback/node evidence instead of hanging
-                        if (i + 1 < args.Length && int.TryParse(args[++i], out int callbackDrainLimit))
-                            WireCore.CallbackDrainLimit = Math.Max(0, callbackDrainLimit);
-                        break;
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
@@ -242,7 +238,6 @@ namespace AprVisual.Test
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
-                    [--callback-drain-limit <N>]           diagnostic: throw with callback/node evidence if one drain exceeds N dispatches
                     [--no-ppu-ale-read-feedback-shim]      diagnostic: disable the CHR ALE+Read analog-feedback guard
                     [--ac-dump-work]                       diagnostic: dump AccuracyCoin CPU RAM $0500-$06FF at verdict
 

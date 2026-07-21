@@ -231,9 +231,8 @@
   <div class="tbl-wrap"><table>
     <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
     <tr><td class="flag"><code>--no-shims</code></td><td class="arg">—</td><td><span class="en">Drop the <b>entire test-mode layer</b> — every M1–M6 mechanism, the ALERead mux, and the OpenBus/DL shims — down to the pure switch-level engine. This is the only S1a off-switch.</span><span class="zh">把<b>整層 test-mode</b> 拿掉 —— 每個 M1–M6 機制、ALERead mux、OpenBus/DL shim —— 降到純開關級引擎。這是 S1a 唯一的關閉開關。</span></td></tr>
-    <tr><td class="flag"><code>--callback-drain-limit</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en">Non-convergence guard: fail with callback/node evidence if one drain exceeds N dispatches (AC recipe uses 2000).</span><span class="zh">非收斂 guard:單次排水超 N 次 dispatch 就帶證據失敗(AC 配方用 2000)。</span></td></tr>
   </table></div>
-  <p class="mut" style="font-size:12.5px"><span class="en">In the main <code>--test</code> path that is the whole set: the always-on mechanisms supersede the old per-shim A/B flags, so those no longer do anything there. A few legacy toggles (<code>--no-alu-shim</code>, <code>--no-dbl2007-shim</code>, <code>--no-ppu-ale-read-feedback-shim</code>, <code>--oam-dma-ppu-bus-shim</code>, <code>--ppu-write-delay[-global]</code>) still exist but only bite in the <code>--micro</code> / <code>--probe-*</code> diagnostic dump modes.</span><span class="zh">在主 <code>--test</code> 路徑就這兩個:恆開的機制取代了舊的 per-shim A/B 旗標,那些在這裡已不起作用。少數舊開關(<code>--no-alu-shim</code>、<code>--no-dbl2007-shim</code>、<code>--no-ppu-ale-read-feedback-shim</code>、<code>--oam-dma-ppu-bus-shim</code>、<code>--ppu-write-delay[-global]</code>)還在,但只在 <code>--micro</code> / <code>--probe-*</code> 診斷傾印模式裡才咬得到。</span></p>
+  <p class="mut" style="font-size:12.5px"><span class="en">In the main <code>--test</code> path <code>--no-shims</code> is the only switch — the mechanisms are unconditional. A few legacy per-shim toggles (<code>--no-alu-shim</code>, <code>--no-dbl2007-shim</code>, <code>--no-ppu-ale-read-feedback-shim</code>, <code>--oam-dma-ppu-bus-shim</code>, <code>--ppu-write-delay[-global]</code>) still exist but only bite in the <code>--micro</code> diagnostic dump mode.</span><span class="zh">在主 <code>--test</code> 路徑只有 <code>--no-shims</code> 一個開關 —— 機制無條件執行。少數舊 per-shim 開關(<code>--no-alu-shim</code>、<code>--no-dbl2007-shim</code>、<code>--no-ppu-ale-read-feedback-shim</code>、<code>--oam-dma-ppu-bus-shim</code>、<code>--ppu-write-delay[-global]</code>)還在,但只在 <code>--micro</code> 診斷傾印模式裡才咬得到。</span></p>
 
 </section>
 
@@ -291,7 +290,7 @@ M2_CAP=1 dotnet AprVisual.S1A.dll --benchmark ... # physical-capacitance arbitra
     <span class="zh"><b>不需 env 前綴</b> —— ALERead mux 與其校準已內建,配方是純 CLI。(姊妹的 S1 引擎仍需 env 前綴,見 <a href="s1-cli.html">S1 頁</a>。)旗艦必帶 <code>--max-frames 12000</code> —— 預設 900 會提早停。</span>
   </div>
   <pre><code>dotnet AprVisual.S1A.dll --test AprAccuracyCoinUnattended/AccuracyCoin.nes --ac-verdict --joypad \
-  --callback-drain-limit 2000 --reset-hold-extra 1 --pin 2 \
+  --reset-hold-extra 1 --pin 2 \
   --system-def-dir AprVisualBenchMark/data/system-def --max-frames 12000 \
   --snapshot-frames 10 --snapshot-dir out/snaps --progress-frames 600 --progress-dir out/prog
 # S1a: every mechanism (M2 decay, ALERead mux, …) is already armed — no env prefix needed</code></pre>

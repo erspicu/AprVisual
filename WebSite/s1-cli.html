@@ -107,8 +107,8 @@
 <main>
 
 <div class="note acc">
-  <span class="en"><b>One engine, one parser.</b> The <a href="s1a.html">S1a fork</a> (<code>src/AprVisual.S1A/</code>) currently shares every one of these 71 flags and 16 env vars, and adds its own mechanism toggles on top (the M2 / M4 / M6X physics mechanisms + extra per-shim kill switches). If you are driving S1a, read this page for the shared surface and the <a href="s1a-cli.html">S1a CLI reference</a> for what it adds.</span>
-  <span class="zh"><b>一個引擎,一個解析器。</b><a href="s1a.html">S1a 分支</a>(<code>src/AprVisual.S1A/</code>)目前共用這 71 個旗標與 16 個環境變數的每一個,並在其上加自己的機制開關(M2 / M4 / M6X 物理機制 + 額外的 per-shim 關閉開關)。若你在操作 S1a,共用面看這頁,新增的看 <a href="s1a-cli.html">S1a CLI 參考</a>。</span>
+  <span class="en"><b>One engine, one parser — but S1a has diverged on env vars.</b> The <a href="s1a.html">S1a fork</a> (<code>src/AprVisual.S1A/</code>) still shares all <b>71 CLI flags</b> with S1, but <b>no longer the env-var surface below</b>: as of 2026-07-21 S1a runs its M1–M6 physics mechanisms unconditionally (no <code>NO_*</code> toggles, no <code>ALEREAD_MUX</code>/<code>MUX_*</code> — the ALERead mux is baked in) and had its forensic debug probes (<code>OB_DEBUG</code>/…) removed. <b>These env vars are still live on this S1 engine</b> (the golden standard, unchanged). If you are driving S1a, its env-free surface is on the <a href="s1a-cli.html">S1a CLI reference</a>; this page is the authority for S1's env vars.</span>
+  <span class="zh"><b>一個引擎,一個解析器 —— 但 S1a 的 env 已分岔。</b><a href="s1a.html">S1a 分支</a>(<code>src/AprVisual.S1A/</code>)仍與 S1 共用全部 <b>71 個 CLI 旗標</b>,但<b>不再共用下面的 env 面</b>:自 2026-07-21 起 S1a 的 M1–M6 物理機制無條件執行(無 <code>NO_*</code> 開關、無 <code>ALEREAD_MUX</code>/<code>MUX_*</code> —— ALERead mux 已內建),取證除錯探針(<code>OB_DEBUG</code>/…)也移除了。<b>這些 env 在本 S1 引擎仍然有效</b>(金標準,未動)。若你在操作 S1a,它的無 env 面看 <a href="s1a-cli.html">S1a CLI 參考</a>;本頁是 S1 env 變數的權威。</span>
 </div>
 
 <section id="modes">

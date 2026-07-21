@@ -60,14 +60,14 @@
   <p class="sub">全武裝 S1A(<code>AprVisualBenchMarkS1A</code> / <code>src/AprVisual.S1A/</code>)· 對象:<code>full_palette</code> benchmark · 依現行原始碼核對 2026-07-22</p>
 
   <div class="lead">
-    S1A 的熱路徑是<b>兩層耦合</b>:① 一模一樣的 <b class="mono" style="color:var(--core)">S1 開關級核心 settle 迴圈</b>(占 ~99% 的節點工作,<code>--no-shims</code> 剝掉第二層後就是它,bit-exact <code>0x794A43ABDF169ADA</code>);② 疊在上面的 <b class="mono" style="color:var(--mech)">S1A 機制層</b>——每半週期尾端的 8 個 per-cycle step,加上 <code>InvokeCallbacks</code> 裡的邊沿/記憶體 callback。第二層讓 benchmark 從 raw ~142 khc/s 降到全武裝 128.5 khc/s(<b>約 +10% 額外成本</b>)。
+    S1A 的熱路徑是<b>兩層耦合</b>:① 一模一樣的 <b class="mono" style="color:var(--core)">S1 開關級核心 settle 迴圈</b>(占 ~99% 的節點工作,與獨立的 <b>S1 fork</b> bit-exact);② 疊在上面的 <b class="mono" style="color:var(--mech)">S1A 機制層</b>——每半週期尾端的 5 個 per-cycle step(<b>全部無條件執行</b>),加上 <code>InvokeCallbacks</code> 裡的邊沿/記憶體 callback。第二層讓 benchmark 從 raw ~142 khc/s 降到全武裝 128.6 khc/s(<b>約 +10% 額外成本</b>)。S1A 不能關閉機制;raw 開關級引擎是<b>另一支 S1 fork</b>。
   </div>
 
   <div class="kpi">
-    <div><b>128.5K</b><small>hc/s 全武裝 benchmark(甲,真實開機態)</small></div>
-    <div><b>~142K</b><small>hc/s <code>--no-shims</code> raw = S1 核心</small></div>
+    <div><b>128.6K</b><small>hc/s 全武裝 benchmark(真實開機態)</small></div>
+    <div><b>~142K</b><small>hc/s 獨立 S1 fork raw 核心</small></div>
     <div><b>73.6%</b><small>RecalcNode pops 走 O(1) fast-path</small></div>
-    <div><b>8 + 6</b><small>per-cycle step 數 + 邊沿機制數</small></div>
+    <div><b>5 + 6</b><small>per-cycle step 數 + 邊沿機制數</small></div>
   </div>
 
   <!-- ════════════════ 主圖 ════════════════ -->
@@ -93,7 +93,7 @@
 
     <!-- ========= S1 CORE ZONE ========= -->
     <rect x="34" y="80" width="912" height="640" rx="11" fill="#0f1f38" stroke="#2d4b7d"/>
-    <text x="50" y="104" fill="#6ea0ff" font-size="13.5" font-weight="700">① S1 開關級核心 settle  ·  --no-shims 只剩這層</text>
+    <text x="50" y="104" fill="#6ea0ff" font-size="13.5" font-weight="700">① S1 開關級核心 settle  ·  = 獨立 S1 fork 引擎(逐位元組相同)</text>
 
     <!-- clk toggle -->
     <rect x="300" y="120" width="380" height="52" rx="9" fill="#14294a" stroke="#4f8cff"/>
@@ -153,7 +153,7 @@
     <!-- ========= S1A PER-CYCLE MECH ZONE ========= -->
     <line x1="490" y1="720" x2="490" y2="748" stroke="#8fa5c8" stroke-width="1.6" marker-end="url(#ar)"/>
     <rect x="34" y="748" width="912" height="212" rx="11" fill="#2c2213" stroke="#f0a53a"/>
-    <text x="50" y="772" fill="#f7bf6b" font-size="13.5" font-weight="700">② S1A per-cycle 機制鏈 — 每半週期各跑一次(StepCycle 尾端;--no-shims 全部關閉)</text>
+    <text x="50" y="772" fill="#f7bf6b" font-size="13.5" font-weight="700">② S1A per-cycle 機制鏈 — 每半週期無條件各跑一次(StepCycle 尾端,5 步)</text>
 
     <!-- 8 chips -->
     <g font-size="12" font-weight="600">
@@ -173,24 +173,15 @@
       <text x="814" y="810" fill="#ffe0ad" text-anchor="middle">AleReadMuxStep()</text>
       <text x="814" y="825" fill="#c9a86e" text-anchor="middle" font-size="10.5" font-weight="400">ALERead $2007 相位延遲</text>
 
-      <rect x="52"  y="844" width="252" height="40" rx="8" fill="#3a2c15" stroke="#f0a53a"/>
-      <text x="178" y="862" fill="#ffe0ad" text-anchor="middle">BgSerialReloadShimStep()</text>
-      <text x="178" y="877" fill="#c9a86e" text-anchor="middle" font-size="10.5" font-weight="400">$2001-enable reload 延遲</text>
-
       <rect x="316" y="844" width="288" height="40" rx="8" fill="#3a2c15" stroke="#f0a53a"/>
       <text x="460" y="862" fill="#ffe0ad" text-anchor="middle">OamDmaPpuBusShimStep()  ·  M4·P1 QueuedDrive</text>
       <text x="460" y="877" fill="#c9a86e" text-anchor="middle" font-size="10.5" font-weight="400">OAM-DMA→PPU 匯流排 / 排隊驅動</text>
-
-      <rect x="616" y="844" width="150" height="40" rx="8" fill="#33291a" stroke="#8a6f3c"/>
-      <text x="691" y="862" fill="#d8c091" text-anchor="middle">PpuWriteDelayStep()</text>
-      <text x="691" y="877" fill="#a98d5c" text-anchor="middle" font-size="10.5" font-weight="400">$2001 寫入延遲</text>
-
-      <rect x="778" y="844" width="150" height="40" rx="8" fill="#2a2318" stroke="#6f5c34"/>
-      <text x="853" y="862" fill="#b8a479" text-anchor="middle">Dot339DelayStep()</text>
-      <text x="853" y="877" fill="#8f7c50" text-anchor="middle" font-size="10.5" font-weight="400">預設 OFF</text>
+      <text x="624" y="860" fill="#f7bf6b" font-size="11.5" font-weight="700" text-anchor="start">5 步全部無條件執行。</text>
+      <text x="624" y="877" fill="#c9a86e" font-size="11" font-weight="400" text-anchor="start">無 if(…Enabled) 閘、無 --no-shims —— S1A 就是完整引擎。</text>
     </g>
-    <text x="50" y="915" fill="#c9a86e" font-size="11.5">每個 step 前有一個 <tspan font-family="monospace">if (…Enabled)</tspan> 旗標(全武裝時恆真;--no-shims 令 ArmMechanisms=false → 全鏈短路)。</text>
-    <text x="50" y="934" fill="#c9a86e" font-size="11.5">成本特性:per-cycle step 走訪的節點集很小(如 M2 只碰 8 個),但 <tspan fill="#f0a53a">每半週期都跑</tspan> → benchmark 上是固定 overhead;邊沿機制在 full_palette 幾乎不開火。</text>
+    <!-- deleted-shims note -->
+    <text x="52" y="912" fill="#8f9bb2" font-size="11.5">舊的 3 個 shim(BgSerialReload / PpuWriteDelay / Dot339Delay)<tspan fill="#c9d3e6" font-weight="700">已從程式碼刪除</tspan> ——</text>
+    <text x="52" y="930" fill="#8f9bb2" font-size="11.5">dot-339 與 BGSerialIn 的物理已併入 <tspan fill="#f7bf6b" font-weight="700">M6xPhaseStep</tspan>;PpuWriteDelay 是退役的 per-test 校準旋鈕。</text>
 
     <!-- Time++ -->
     <line x1="490" y1="960" x2="490" y2="984" stroke="#8fa5c8" stroke-width="1.6" marker-end="url(#ar)"/>
@@ -198,7 +189,7 @@
     <text x="490" y="1002" fill="#c3d3f2" font-size="12.5" font-weight="600" text-anchor="middle">Time++</text>
   </svg>
   </div>
-  <p class="note">藍 = S1 開關級核心(<code>--no-shims</code> 後只剩它,與 S1 逐位元組相同);琥珀 = S1A 全武裝才有的機制層。綠/橘為 <code>RecalcNode</code> 的 fast / BFS 兩條出口。</p>
+  <p class="note">藍 = S1 開關級核心(與獨立的 <b>S1 fork</b> 逐位元組相同);琥珀 = S1A 才有的機制層(永遠執行)。綠/橘為 <code>RecalcNode</code> 的 fast / BFS 兩條出口。</p>
 
   <!-- ════════════════ 核心鏈表 ════════════════ -->
   <h2><span class="n">1</span>S1 開關級核心鏈(熱迴圈本體)</h2>
@@ -247,23 +238,21 @@
 
   <!-- ════════════════ 機制層 ════════════════ -->
   <h2><span class="n">2</span>S1A 機制層(比 S1 多出來的)</h2>
-  <p class="sub">S1A 沒有另開機制檔,而是把 M1–M6 摺進既有 <code>WireCore.*</code>。掛點分兩種。<code>--no-shims</code> 令 <code>ArmMechanisms=false</code>,整層短路 → 引擎退回 raw S1 核心。</p>
+  <p class="sub">S1A 沒有另開機制檔,而是把 M1–M6 摺進既有 <code>WireCore.*</code>,掛點分兩種,<b>全部無條件執行</b>。S1A 不能關閉機制;要 raw 開關級引擎請用<b>獨立的 S1 fork</b>(它有自己的程式)。</p>
 
   <div class="card" style="margin-bottom:14px">
-    <h3><span class="pill mech">A</span> Per-half-cycle step — <code>StepCycle</code> 尾端,每半週期各一次(Recalc.cs:833–840)</h3>
+    <h3><span class="pill mech">A</span> Per-half-cycle step — <code>StepCycle</code> 尾端,每半週期<b>無條件</b>各一次(5 步,無 if 閘)</h3>
     <table style="font-size:13.5px">
-      <thead><tr><th>step</th><th>位置</th><th>機制</th></tr></thead>
+      <thead><tr><th>step</th><th>arm 於</th><th>機制</th></tr></thead>
       <tbody>
-        <tr><td class="m mono">M2DecayStep</td><td class="m mono">System.cs:1344</td><td>M2 電荷衰減島(8 節點,~600ms 門檻);全武裝下每半週期都跑</td></tr>
-        <tr><td class="m mono">M6xPhaseStep</td><td class="m mono">System.cs:451</td><td>M6×M3 跨晶片相位仲裁(dot-339 + bgserial + even/odd);取代舊 dot339/bgserial shim</td></tr>
-        <tr><td class="m mono">TestShimChainStep</td><td class="m mono">System.cs:632</td><td>攤平的 test-shim 家族派發</td></tr>
-        <tr><td class="m mono">AleReadMuxStep</td><td class="m mono">System.cs:1010</td><td>ALERead $2007 存取相位延遲(M6;校準 <code>MUX_HC=13,13,25,44,52</code>)</td></tr>
-        <tr><td class="m mono">BgSerialReloadShimStep</td><td class="m mono">System.cs</td><td>$2001-enable 時 BG 移位暫存器 reload 延遲(M6)</td></tr>
-        <tr><td class="m mono">OamDmaPpuBusShimStep</td><td class="m mono">System.cs:1927</td><td>OAM-DMA→PPU 匯流排 / <b>M4·P1 QueuedDrive</b>(同一 step 同一掛點)</td></tr>
-        <tr><td class="m mono">PpuWriteDelayStep</td><td class="m mono">System.cs</td><td>$2001 寫入生效延遲(窄窗)</td></tr>
-        <tr><td class="m mono">Dot339DelayStep</td><td class="m mono">System.cs</td><td>dot-339 渲染取樣延遲(<b>預設 OFF</b>)</td></tr>
+        <tr><td class="m mono">M2DecayStep</td><td class="m mono">EnableM2Decay</td><td>M2 電荷衰減島(8 節點,~600ms 門檻)</td></tr>
+        <tr><td class="m mono">M6xPhaseStep</td><td class="m mono">EnableM6xPhase</td><td>M6×M3 跨晶片相位仲裁(dot-339 + BGSerialIn + even/odd)—— <b>吸收了原本 3 個獨立 shim 的物理</b></td></tr>
+        <tr><td class="m mono">TestShimChainStep</td><td class="m mono">多個 Enable*</td><td>攤平的機制家族派發(DmcLatch/Alu/OpenBus/DL/abort/OamEdge/Lxa)</td></tr>
+        <tr><td class="m mono">AleReadMuxStep</td><td class="m mono">EnableAleReadMux</td><td>ALERead $2007 存取相位延遲(校準 <code>MUX_HC=13,13,25,44,52</code>)</td></tr>
+        <tr><td class="m mono">OamDmaPpuBusShimStep</td><td class="m mono">EnableM4P1</td><td>OAM-DMA→PPU 匯流排 / <b>M4·P1 QueuedDrive</b></td></tr>
       </tbody>
     </table>
+    <p class="note" style="margin:8px 0 0"><code>ArmS1aMechanisms()</code>(LoadSystem 末尾無條件呼叫)arm 這 5 步,全部直接執行。<b>原本另有 3 個舊 shim</b>(<code>BgSerialReload</code> / <code>PpuWriteDelay</code> / <code>Dot339Delay</code>)<b>已刪除</b> —— dot-339、BGSerialIn 的物理併入 <code>M6xPhaseStep</code>,<code>PpuWriteDelay</code> 是退役的 per-test 校準旋鈕。</p>
   </div>
 
   <div class="card">
@@ -293,14 +282,14 @@
     </ul>
   </div>
   <div class="kpi">
-    <div><b>0x41244C26<br>C45EDD32</b><small>全武裝金 checksum(300k, --extra-ram, 甲)</small></div>
-    <div><b>0x794A43AB<br>DF169ADA</b><small>--no-shims raw = S1,逐位元組相同</small></div>
-    <div><b>1M hc</b><small>armed 0xFA016F9CEA14029B · raw 0x6D4CCBCE2E9CD599</small></div>
+    <div><b>0x41244C26<br>C45EDD32</b><small>S1A 金 checksum(full_palette 300k, --extra-ram)· refactor 後不變</small></div>
+    <div><b>128.6K</b><small>hc/s benchmark rate(refactor 後無退化)</small></div>
+    <div><b>1M hc</b><small>S1A: 0xFA016F9CEA14029B · 獨立 S1 fork raw: 0x794A… / 0x6D4C…</small></div>
   </div>
 
   <p class="foot">
     來源:現行 <code>src/AprVisual.S1A/Sim/WireCore.{Recalc,FastPath,Group,Handlers,System}.cs</code>(核對 2026-07-22)。核心演算法對照見 <code>MD/note/06_S1引擎演算法_資料結構與程式碼對照.md</code>(該文寫 S1;本頁補上 S1A 機制層)。執行期分布為 2026-06-07 full_palette 300k 實測。<br>
-    註:S1A 的機制 <code>if (…Enabled)</code> 旗標在全武裝下恆真,<b>唯一</b>總開關是 <code>--no-shims</code>(<code>ArmMechanisms=false</code>);已無 per-mechanism 環境變數/CLI 需求。
+    註:S1A 的機制全部<b>無條件直接呼叫</b> —— 已無 <code>if (…Enabled)</code> 閘、無 <code>--no-shims</code>、無 per-mechanism 開關/環境變數。要 raw 開關級引擎請用<b>獨立的 S1 fork</b>。此次 refactor 經 bit-exact 驗證(checksum 不變)。
   </p>
 
 </div>

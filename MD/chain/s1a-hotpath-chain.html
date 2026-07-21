@@ -247,7 +247,7 @@
       <tbody>
         <tr><td class="m mono">M2DecayStep</td><td class="m mono">EnableM2Decay</td><td>M2 電荷衰減島(8 節點,~600ms 門檻)</td></tr>
         <tr><td class="m mono">M6xPhaseStep</td><td class="m mono">EnableM6xPhase</td><td>M6×M3 跨晶片相位仲裁(dot-339 + BGSerialIn + even/odd)—— <b>吸收了原本 3 個獨立 shim 的物理</b></td></tr>
-        <tr><td class="m mono">TestShimChainStep</td><td class="m mono">多個 Enable*</td><td>攤平的機制家族派發(DmcLatch/Alu/OpenBus/DL/abort/OamEdge/Lxa)</td></tr>
+        <tr><td class="m mono">TestShimChainStep</td><td class="m mono">多個 Enable*</td><td>攤平的機制家族派發(M4EdgeLatch〔含 DMC/ALU〕/OpenBus/DL/DMC-abort/OamEdge/Lxa/M4·P1)</td></tr>
         <tr><td class="m mono">AleReadMuxStep</td><td class="m mono">EnableAleReadMux</td><td>ALERead $2007 存取相位延遲(校準 <code>MUX_HC=13,13,25,44,52</code>)</td></tr>
         <tr><td class="m mono">OamDmaPpuBusShimStep</td><td class="m mono">EnableM4P1</td><td>OAM-DMA→PPU 匯流排 / <b>M4·P1 QueuedDrive</b></td></tr>
       </tbody>

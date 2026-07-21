@@ -79,7 +79,7 @@ namespace AprVisual.Sim
                     w.Write(NodeCount);
                     w.Write(TransistorCount);
                     w.Write(RomFingerprint());
-                    w.Write(PowerUpStateShim); w.Write(DmcLatchShim); w.Write(AluLatchShim);
+                    w.Write(PowerUpStateShim);
                     w.Write(LxaMagicShim); w.Write(FrameIrqShim); w.Write(Dbl2007Shim);
                     w.Write(OamDmaPpuBusShim); w.Write(PpuAleReadFeedbackShim);
                     w.Write(ForceExtraRam); w.Write(EnableJoypadHandler);
@@ -129,9 +129,6 @@ namespace AprVisual.Sim
                     using (var sec = BeginSection())
                     {
                         var sw = sec.Writer;
-                        sw.Write(_dmcShimPrevClk1);                                        // DMC latch
-                        sw.Write(_aluShimPrevA, 0, 8); sw.Write(_aluShimPrevB, 0, 8);      // ALU latch
-                        sw.Write(_aluShimPrevSbadd); sw.Write(_aluShimPrevDbadd);
                         sw.Write(_lxaPrevPhi2); sw.Write(_lxaArm); sw.Write(_lxaImm);      // LXA magic
                         sw.Write(_lxaPrevSync);
                         sw.Write(_fiPrev);                                                 // frame IRQ
@@ -197,8 +194,6 @@ namespace AprVisual.Sim
             Expect(r.ReadInt32(), TransistorCount, "TransistorCount");
             Expect((int)r.ReadUInt32(), (int)RomFingerprint(), "ROM fingerprint");
             ExpectB(r.ReadBoolean(), PowerUpStateShim, nameof(PowerUpStateShim));
-            ExpectB(r.ReadBoolean(), DmcLatchShim, nameof(DmcLatchShim));
-            ExpectB(r.ReadBoolean(), AluLatchShim, nameof(AluLatchShim));
             ExpectB(r.ReadBoolean(), LxaMagicShim, nameof(LxaMagicShim));
             ExpectB(r.ReadBoolean(), FrameIrqShim, nameof(FrameIrqShim));
             ExpectB(r.ReadBoolean(), Dbl2007Shim, nameof(Dbl2007Shim));
@@ -243,9 +238,6 @@ namespace AprVisual.Sim
 
             // ── SHIM ──
             ReadTag(r, "SHIM", -1);
-            _dmcShimPrevClk1 = r.ReadInt32();
-            r.BaseStream.ReadExactly(_aluShimPrevA); r.BaseStream.ReadExactly(_aluShimPrevB);
-            _aluShimPrevSbadd = r.ReadInt32(); _aluShimPrevDbadd = r.ReadInt32();
             _lxaPrevPhi2 = r.ReadInt32(); _lxaArm = r.ReadInt32(); _lxaImm = r.ReadInt32();
             _lxaPrevSync = r.ReadBoolean();
             _fiPrev = r.ReadByte();

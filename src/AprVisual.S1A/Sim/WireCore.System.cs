@@ -326,35 +326,6 @@ namespace AprVisual.Sim
             Console.Error.WriteLine($"# [shim] Z flag post-reset inject: cpu.p1={NodeStates[zNode]} P=${ReadReg(R_CpuP):X2}");
         }
 
-        // ── DMC pcm_latch edge-capture shim (test mode only) ────────────────────────────────
-        // The DPCM control's pcm_latch pass gate (t14402: gate=apu_clk1, 13907↔13947) has a
-        // same-half-cycle race at the clock's falling edge: the latch input (pcm_ff, set by the
-        // DMA-fetch PCM strobe during phi2) falls in the SAME half-cycle apu_clk1 closes. Real
-        // NMOS silicon resolves the race "data wins" via analog clock-decay overlap (blargg
-        // 7-dmc_basics #19 reads $80 on hardware); any quiescent-settle binary model resolves
-        // "gate closed first" and the DMC IRQ flag lands one full ACLK late (emu-russia's
-        // APUSim quantizes it away identically — verified 2026-07-04, see
-        // MD/testrom/2026-07-04-dmc19-aclk-pipeline-analysis.md). This shim implements the
-        // latch's intended edge semantic explicitly: at apu_clk1's falling edge, capture the
-        // post-settle value of the latch input. Inert everywhere else: after any transparent
-        // phase the two sides are already equal, so the copy fires only in the race case.
-        public static bool DmcLatchShim = false;
-        private static int _dmcShimClk1 = EmptyNode, _dmcShimFf = EmptyNode, _dmcShimLatch = EmptyNode;
-        private static int _dmcShimPrevClk1;
-
-        /// <summary>Resolve the shim's nodes and arm it. Call after LoadSystem, with
-        /// RegisterRawIdAliases enabled before it (the latch nodes are unnamed raw ids).</summary>
-        public static void EnableDmcLatchShim()
-        {
-            _dmcShimClk1  = LookupNode("cpu.apu_clk1");
-            _dmcShimFf    = LookupNode("cpu.#13907");
-            _dmcShimLatch = LookupNode("cpu.#13947");
-            if (_dmcShimClk1 == EmptyNode || _dmcShimFf == EmptyNode || _dmcShimLatch == EmptyNode)
-            { Console.Error.WriteLine("# [shim] DMC latch shim: nodes unresolved — disabled"); DmcLatchShim = false; return; }
-            _dmcShimPrevClk1 = NodeStates[_dmcShimClk1];
-            DmcLatchShim = true; ShimChainArmed = true;
-        }
-
         // ── M6×M3 unified cross-chip phase-arbitration mechanism ─────────────────────────────
         // The three downstream-clamp delay shims (dot-339, even_odd, BGSerialIn) are one physics:
         // a cross-chip control change arrives ~16–24 hc late (M3's delay), and a 2C02 counter-
@@ -625,9 +596,7 @@ namespace AprVisual.Sim
         internal static bool ShimChainArmed;
         internal static void TestShimChainStep()
         {
-            if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (supersedes the DMC/ALU shim rows)
-            if (DmcLatchShim) DmcLatchShimStep();
-            if (AluLatchShim) AluLatchShimStep();
+            if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (DMC data-wins + ALU hold rows)
             OpenBusShimStep();        // self-guarded no-ops unless armed —
             DlShimStep();             // (this was the block hosted at the top of LxaMagicShimStep)
             Dmc4015AbortShimStep();
@@ -638,72 +607,6 @@ namespace AprVisual.Sim
                                            // shim ran at (its nested FrameIrq->Dbl2007 tail), so it is
                                            // decoupled from LxaMagic/FrameIrq being armed, and mechanism
                                            // -on reproduces shim-on bit-for-bit.
-        }
-
-        internal static void DmcLatchShimStep()
-        {
-            int cur = NodeStates[_dmcShimClk1];
-            if (_dmcShimPrevClk1 == 1 && cur == 0)
-            {
-                int v = NodeStates[_dmcShimFf];
-                if (NodeStates[_dmcShimLatch] != v)
-                {
-                    if (v == 1) SetHigh(_dmcShimLatch); else SetLow(_dmcShimLatch);
-                    SetFloat(_dmcShimLatch);
-                }
-            }
-            _dmcShimPrevClk1 = cur;
-        }
-
-        // ── ALU input-latch hold shim (test mode only) ───────────────────────────────────────
-        // The complement of the DMC race, with the OPPOSITE physical polarity: on unofficial
-        // "combined" immediate ops (ANC/ALR/ARR/LXA) the execute-phase phi1->phi2 boundary
-        // collapses the SB/DB buses in the same half-cycle the ALU input-latch select lines
-        // (SBADD/DBADD) close. Real silicon closes the gate BEFORE the collapse propagates
-        // (hold time met), so alua/alub keep their phi1 values; a quiescent settle lets the
-        // collapse ripple THROUGH the closing gates and the ALU latches a self-consistent
-        // garbage fixed point. Shim: snapshot alua/alub each half-cycle; when the select line
-        // falls, restore any bit the same step corrupted (= the latch's intended hold semantic).
-        public static bool AluLatchShim = false;
-        private static int _aluShimSbadd = EmptyNode, _aluShimDbadd = EmptyNode;
-        private static int[] _aluShimA = Array.Empty<int>(), _aluShimB = Array.Empty<int>();
-        private static readonly byte[] _aluShimPrevA = new byte[8], _aluShimPrevB = new byte[8];
-        private static int _aluShimPrevSbadd, _aluShimPrevDbadd;
-
-        public static void EnableAluLatchShim()
-        {
-            _aluShimSbadd = LookupNode("cpu.dpc11_SBADD");
-            _aluShimDbadd = LookupNode("cpu.dpc9_DBADD");
-            var la = new List<int>(); ResolveNodes("cpu.alua[7:0]", la, quiet: true);
-            var lb = new List<int>(); ResolveNodes("cpu.alub[7:0]", lb, quiet: true);
-            if (_aluShimSbadd == EmptyNode || _aluShimDbadd == EmptyNode || la.Count != 8 || lb.Count != 8)
-            { Console.Error.WriteLine("# [shim] ALU latch shim: nodes unresolved — disabled"); AluLatchShim = false; return; }
-            _aluShimA = la.ToArray(); _aluShimB = lb.ToArray();
-            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
-            _aluShimPrevSbadd = NodeStates[_aluShimSbadd];
-            _aluShimPrevDbadd = NodeStates[_aluShimDbadd];
-            AluLatchShim = true; ShimChainArmed = true;
-        }
-
-        private static void AluLatchShimStep()
-        {
-            int sa = NodeStates[_aluShimSbadd], db = NodeStates[_aluShimDbadd];
-            if (_aluShimPrevSbadd == 1 && sa == 0)
-                for (int i = 0; i < 8; i++)
-                {
-                    int n = _aluShimA[i];
-                    if (NodeStates[n] != _aluShimPrevA[i])
-                    { if (_aluShimPrevA[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
-                }
-            if (_aluShimPrevDbadd == 1 && db == 0)
-                for (int i = 0; i < 8; i++)
-                {
-                    int n = _aluShimB[i];
-                    if (NodeStates[n] != _aluShimPrevB[i])
-                    { if (_aluShimPrevB[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
-                }
-            _aluShimPrevSbadd = sa; _aluShimPrevDbadd = db;
-            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
         }
 
         // ── LXA ($AB) magic-constant shim (test mode only) ───────────────────────────────────

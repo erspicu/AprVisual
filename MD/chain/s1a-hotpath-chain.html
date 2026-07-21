@@ -119,7 +119,7 @@
     <!-- fast box -->
     <rect x="60" y="378" width="330" height="92" rx="9" fill="#0f2419" stroke="#3ecf8e"/>
     <text x="225" y="401" fill="#7dedb4" font-size="13.5" font-weight="700" text-anchor="middle">RecalcNodeFast(nn) — O(1)</text>
-    <text x="225" y="421" fill="#a7d8bf" font-size="11.5" text-anchor="middle" class="mono">FastPath.cs:94</text>
+    <text x="225" y="421" fill="#a7d8bf" font-size="11.5" text-anchor="middle" class="mono">FastPath.cs:280</text>
     <text x="225" y="440" fill="#cfeede" font-size="11.5" text-anchor="middle">群組可證明就是 {nn}:直接 OR gnd/pwr 閘</text>
     <text x="225" y="457" fill="#cfeede" font-size="11.5" text-anchor="middle">→ 查 LUT 或維持前值(浮接)</text>
 
@@ -135,7 +135,7 @@
     <line x1="755" y1="470" x2="570" y2="512" stroke="#f0784a" stroke-width="1.6" marker-end="url(#ar)"/>
     <rect x="300" y="512" width="380" height="56" rx="9" fill="#14294a" stroke="#4f8cff"/>
     <text x="490" y="535" fill="#dbe6ff" font-size="14" font-weight="600" text-anchor="middle">SetNodeState(群組每個成員, 新值)</text>
-    <text x="490" y="554" fill="#8fb0e6" font-size="11.5" text-anchor="middle" class="mono">Recalc.cs:573  ·  值有變才傳播(收斂關鍵)</text>
+    <text x="490" y="554" fill="#8fb0e6" font-size="11.5" text-anchor="middle" class="mono">Recalc.cs:576  ·  值有變才傳播(收斂關鍵)</text>
 
     <!-- feedback: SetNodeState -> EnqueueNode -> next wave -> ProcessQueue -->
     <path d="M 300 540 Q 150 540 150 225 L 250 225" fill="none" stroke="#3ecf8e" stroke-width="1.6" marker-end="url(#arf)"/>
@@ -200,11 +200,11 @@
       <tr><td class="m"><span class="pill core">StepCycle</span></td><td class="m mono">Recalc.cs:816</td><td>一個 master half-cycle:翻轉時脈節點 → settle → 跑機制鏈 → <code>Time++</code></td></tr>
       <tr><td class="m"><code>ProcessQueue</code></td><td class="m mono">Recalc.cs:356</td><td>雙緩衝 settle:對調「這波/下波」指標,一波一波 BFS 到全網路穩定(NES 實測每次 ≤ ~45 波)</td></tr>
       <tr><td class="m"><code>RecalcNode</code></td><td class="m mono">Recalc.cs:421</td><td>單點派發:讀 <code>IsPureLogic[nn]</code>(0/1/2)決定走 fast 或 BFS</td></tr>
-      <tr><td class="m"><span class="pill fast">RecalcNodeFast</span></td><td class="m mono">FastPath.cs:94</td><td>O(1) 解析:群組可證明是 {nn} 時,直接 OR gnd/pwr 閘 → 查 LUT / 維持前值</td></tr>
+      <tr><td class="m"><span class="pill fast">RecalcNodeFast</span></td><td class="m mono">FastPath.cs:280</td><td>O(1) 解析:群組可證明是 {nn} 時,直接 OR gnd/pwr 閘 → 查 LUT / 維持前值</td></tr>
       <tr><td class="m"><span class="pill slow">ComputeNodeGroup</span></td><td class="m mono">Group.cs:65</td><td>完整群組解析入口:清 <code>_inGroup</code> → 走訪 → 解值</td></tr>
-      <tr><td class="m"><code>AddNodeToGroup</code></td><td class="m mono">Group.cs:88</td><td>迭代式 BFS:沿導通電晶體把連通節點吸進 <code>_groupBuf</code>,同時 OR 群組旗標</td></tr>
-      <tr><td class="m"><code>GetNodeValue</code></td><td class="m mono">Group.cs:155</td><td>群組旗標 → 查 <code>FlagsToState</code> 256 格 LUT(GND&gt;PWR&gt;驅動&gt;上拉&gt;前值);純浮接則電容最大者保留前值</td></tr>
-      <tr><td class="m"><code>SetNodeState</code></td><td class="m mono">Recalc.cs:573</td><td>回寫新值;<b>值有變才</b>經 <code>NodeTlistGates</code> 找下游 → <code>EnqueueNode</code> 排入下一波</td></tr>
+      <tr><td class="m"><code>AddNodeToGroup</code></td><td class="m mono">Group.cs:91</td><td>迭代式 BFS:沿導通電晶體把連通節點吸進 <code>_groupBuf</code>,同時 OR 群組旗標</td></tr>
+      <tr><td class="m"><code>GetNodeValue</code></td><td class="m mono">Group.cs:174</td><td>群組旗標 → 查 <code>FlagsToState</code> 256 格 LUT(GND&gt;PWR&gt;驅動&gt;上拉&gt;前值);純浮接則電容最大者保留前值</td></tr>
+      <tr><td class="m"><code>SetNodeState</code></td><td class="m mono">Recalc.cs:576</td><td>回寫新值;<b>值有變才</b>經 <code>NodeTlistGates</code> 找下游 → <code>EnqueueNode</code> 排入下一波</td></tr>
       <tr><td class="m"><code>EnqueueNode</code></td><td class="m mono">Recalc.cs:59</td><td>去重入列(供電節點過濾);寫 <code>RecalcListNext/HashNext</code></td></tr>
       <tr><td class="m"><code>InvokeCallbacks</code></td><td class="m mono">Handlers.cs:177</td><td>settle 收斂後統一跑排入的 callback;<code>_invoking</code> 再入護欄(取代舊 <code>--callback-drain-limit</code>)</td></tr>
     </tbody>

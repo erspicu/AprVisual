@@ -81,9 +81,8 @@ namespace AprVisual.Sim
                     w.Write(RomFingerprint());
                     w.Write(PowerUpStateShim); w.Write(DmcLatchShim); w.Write(AluLatchShim);
                     w.Write(LxaMagicShim); w.Write(FrameIrqShim); w.Write(Dbl2007Shim);
-                    w.Write(OamDmaPpuBusShim); w.Write(PpuAleReadFeedbackShim); w.Write(PpuWriteDelay);
+                    w.Write(OamDmaPpuBusShim); w.Write(PpuAleReadFeedbackShim);
                     w.Write(ForceExtraRam); w.Write(EnableJoypadHandler);
-                    w.Write(PpuWriteDelayHc);
                     w.Write(ResetHoldExtraHc);
 
                     // ── NODE ──
@@ -136,10 +135,6 @@ namespace AprVisual.Sim
                         sw.Write(_lxaPrevPhi2); sw.Write(_lxaArm); sw.Write(_lxaImm);      // LXA magic
                         sw.Write(_lxaPrevSync);
                         sw.Write(_fiPrev);                                                 // frame IRQ
-                        sw.Write(_pwdBkgPrev); sw.Write(_pwdSprPrev);                      // $2001 write delay
-                        sw.Write(_pwdBkgHold); sw.Write(_pwdSprHold);
-                        sw.Write(_pwdBkgClamp); sw.Write(_pwdSprClamp);                    //   active clamp nodes
-                        sw.Write(_pwdBkgRel); sw.Write(_pwdSprRel);                        //   release deadlines (hc)
                         sw.Write(_d27Prev); sw.Write(_d27Clamped); sw.Write(_d27Phi2Prev); // dbl-$2007
                         sw.Write(_d27T0);
                         sw.Write(_odmaValueQ, 0, 512); sw.Write(_odmaAddrQ, 0, 512);       // OAM-DMA PPU-bus
@@ -209,10 +204,8 @@ namespace AprVisual.Sim
             ExpectB(r.ReadBoolean(), Dbl2007Shim, nameof(Dbl2007Shim));
             ExpectB(r.ReadBoolean(), OamDmaPpuBusShim, nameof(OamDmaPpuBusShim));
             ExpectB(r.ReadBoolean(), PpuAleReadFeedbackShim, nameof(PpuAleReadFeedbackShim));
-            ExpectB(r.ReadBoolean(), PpuWriteDelay, nameof(PpuWriteDelay));
             ExpectB(r.ReadBoolean(), ForceExtraRam, nameof(ForceExtraRam));
             ExpectB(r.ReadBoolean(), EnableJoypadHandler, nameof(EnableJoypadHandler));
-            Expect(r.ReadInt32(), PpuWriteDelayHc, nameof(PpuWriteDelayHc));
             Expect(r.ReadInt32(), ResetHoldExtraHc, nameof(ResetHoldExtraHc));
 
             // ── NODE ──
@@ -256,10 +249,6 @@ namespace AprVisual.Sim
             _lxaPrevPhi2 = r.ReadInt32(); _lxaArm = r.ReadInt32(); _lxaImm = r.ReadInt32();
             _lxaPrevSync = r.ReadBoolean();
             _fiPrev = r.ReadByte();
-            _pwdBkgPrev = r.ReadInt32(); _pwdSprPrev = r.ReadInt32();
-            _pwdBkgHold = r.ReadInt32(); _pwdSprHold = r.ReadInt32();
-            _pwdBkgClamp = r.ReadInt32(); _pwdSprClamp = r.ReadInt32();
-            _pwdBkgRel = r.ReadInt64(); _pwdSprRel = r.ReadInt64();
             _d27Prev = r.ReadInt32(); _d27Clamped = r.ReadInt32(); _d27Phi2Prev = r.ReadInt32();
             _d27T0 = r.ReadInt64();
             r.BaseStream.ReadExactly(_odmaValueQ); r.BaseStream.ReadExactly(_odmaAddrQ);

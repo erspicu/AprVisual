@@ -107,11 +107,11 @@ namespace AprVisual.Sim
             _rom = rom;
             // S1A full-engine arming — pre-load half. These flags are consumed DURING the compose passes
             // (ALERead node-split cut in WireCore.Module, raw-id aliases) or at Reset (PowerUpStateShim),
-            // so they must be set before the pass loop below. The post-load half (Enable*Mech) runs at the
-            // end of this method. --no-shims clears ArmMechanisms for the pure switch-level engine.
+            // so they must be set before the pass loop below. The post-load half (ArmS1aMechanisms) runs at
+            // the end of this method. S1A IS the full engine — there is no opt-out.
             // PowerUpStateShim gives S1A the REALISTIC console power-up state (palette residue + CPU P=$34)
             // in every mode — S1A is its own engine, so this need not match the raw S1 power-up.
-            if (ArmMechanisms) { AleReadMuxShim = true; RegisterRawIdAliases = true; PowerUpStateShim = true; }
+            AleReadMuxShim = true; RegisterRawIdAliases = true; PowerUpStateShim = true;
             // M2 (S1A): physical-capacitance floating arbitration — data swap at Reset() fill time.
             M2CapArbitration = Environment.GetEnvironmentVariable("M2_CAP") is { Length: > 0 } m2 && m2 != "0";
             M2Census = Environment.GetEnvironmentVariable("M2_CENSUS") is { Length: > 0 } mc && mc != "0";
@@ -186,9 +186,8 @@ namespace AprVisual.Sim
             ClearPostLoadBuildState();
 
             // S1A full-engine arming — post-load half. The graph is composed and reset; resolve + arm the
-            // M1–M6 mechanisms and the always-on shims (same set and order the test path used to run right
-            // after LoadSystem, now universal so EVERY mode — --benchmark included — runs the full engine).
-            if (ArmMechanisms) ArmS1aMechanisms();
+            // M1–M6 mechanisms (every mode — --benchmark included — runs the full engine; there is no gate).
+            ArmS1aMechanisms();
         }
 
         // The unconditional S1A mechanism/shim arming (order matters: DL follows OpenBus; the ALERead mux
@@ -269,13 +268,8 @@ namespace AprVisual.Sim
         //      (which became the emulator-consensus power-up palette), and
         //   2. the 2A03 Z-flag latch (cpu.p1) is cleared — the netlist settles to P=$36, real consoles
         //      (and cpu_reset/registers' expectation) power on with P=$34; only the Z bit differs.
-        // Set unconditionally by LoadSystem when ArmMechanisms is on (S1A default); --no-shims clears it.
+        // Set unconditionally by LoadSystem — S1A powers up in the realistic console state, every mode.
         public static bool PowerUpStateShim = false;
-
-        // S1A: run the full engine. Every LoadSystem arms the M1–M6 mechanisms + always-on shims
-        // unconditionally — there is no "raw" mode gate any more. --no-shims sets this false for the
-        // pure switch-level engine (which reproduces the S1 golden checksum 0x794A43ABDF169ADA).
-        public static bool ArmMechanisms = true;
 
         // ── clock-phase experiment (--reset-hold-extra K): extra half-cycles of /res assertion. ──
         // Probes whether the CPU ÷12 / PPU ÷4 divider alignment depends on the reset-release moment
@@ -801,49 +795,6 @@ namespace AprVisual.Sim
         }
 
         private static int _pdLastBus;
-        // ── BG serial-in reload-delay shim (test-mode; BGSerialIn $487 err2; M6 family) ─────────
-        // The 2C02 pipelines $2001 write effects by 2-5 dots. AC's BGSerialIn toggles rendering
-        // every scanline so the dot%8==7 BG shifter RELOAD falls inside the OFF window: on silicon
-        // the ENABLE (write landing dot%8==6) only takes effect at %8==0, so the adjacent %8==7
-        // reload is SKIPPED and the shifters serial-in a run of '1's (the white line the test's
-        // sprite-0 hit detects). Zero-delay S1 restores rendering instantly -> that reload happens
-        // -> no line -> err 2. Shim (Gemini-consulted, a_bgserial_lever_20260717): when a $2001
-        // ENABLE write completes at hpos%8 in [4,7] (the only phases where the hardware delay
-        // crosses the reload point), InstClampLow the reload gate for 16hc (2 dots). Force-LOW
-        // only; phase-orthogonal to the dot-339 (339%8==3) and even_odd (vpos261) shims.
-        public static bool BgSerialReloadShim = false;
-        private static int _bgrGate = EmptyNode, _bgrHold;
-        private static int[] _bgrHp3 = System.Array.Empty<int>();
-        private static bool _bgrInWr; private static int _bgrDb;
-        private static long _bgrFires;
-
-        /// <summary>Resolve nodes and arm. Call after LoadSystem (test mode only).</summary>
-        public static void EnableBgSerialReloadShim()
-        {
-            _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
-            if (_bgrGate == EmptyNode) _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[2:0]", hp, quiet: true); _bgrHp3 = hp.Count == 3 ? hp.ToArray() : System.Array.Empty<int>();
-            if (_bgrGate == EmptyNode || _bgrHp3.Length != 3)
-            { Console.Error.WriteLine("# [shim] bg-serial reload delay: nodes unresolved -- disabled"); BgSerialReloadShim = false; return; }
-            _bgrHold = 0; _bgrInWr = false; _bgrFires = 0; BgSerialReloadShim = true;
-        }
-
-        internal static void BgSerialReloadShimStep()
-        {
-            // release path first: the clamp outlives the write by design
-            if (_bgrHold > 0 && --_bgrHold == 0) InstRelease(_bgrGate);
-            int ab = ReadReg(R_CpuAb);
-            bool wr = (ab & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
-            if (wr) { _bgrInWr = true; _bgrDb = ReadReg(R_CpuDb); return; }
-            if (!_bgrInWr) return;
-            _bgrInWr = false;                              // write just ENDED this hc
-            if ((_bgrDb & 0x18) == 0) return;              // not an enable (neither BG nor sprites on)
-            int phase = ReadBits(_bgrHp3);                 // hpos % 8 at the write's effect instant
-            if (phase < 4) return;                         // effect lands before the reload point -> hardware agrees with zero-delay
-            if (_bgrHold == 0) InstClampLow(_bgrGate);     // suppress the imminent %8==7 reload
-            _bgrHold = 16; _bgrFires++;
-        }
-
         private static void OpenBusShimStep()
         {
             if (!_openBusShim) return;
@@ -1558,183 +1509,6 @@ namespace AprVisual.Sim
             }
             _fiPrev = now;
             if (Dbl2007Shim) Dbl2007ShimStep();
-        }
-
-        // ── $2001 write-effect delay shim (test mode only, opt-in) ────────────────────────────
-        // The CPU->PPU register-write transport delay is idealized to 0 in our two-netlist
-        // board integration. The only proven casualty so far is the pre-render dot-339
-        // even/odd skip race in 10-even_odd_timing. A broad "delay every PPUMASK transition"
-        // experiment made the ROM lose its verdict path because the test deliberately schedules
-        // several $2001 writes with cycle precision. Keep this instrument scoped to the late
-        // side of the skip decision window: the A=4 enable case lands at dot 337 and is already
-        // correct, while the failing A=5 enable case is one dot later. Disable is the mirror:
-        // the failing late-disable edge needs to hold the old enabled value through dot 339.
-        // Reads ($2002/VBL) and setup/console PPUMASK writes stay untouched.
-        public static bool PpuWriteDelay = false;
-        public static int PpuWriteDelayHc = 0;
-        private static int _pwdBkg = EmptyNode, _pwdSpr = EmptyNode, _pwdNBkg = EmptyNode, _pwdNSpr = EmptyNode;
-        private static int[] _pwdHp = [], _pwdVp = [];
-        private static int _pwdBkgPrev, _pwdSprPrev, _pwdBkgHold, _pwdSprHold;
-        private static int _pwdBkgClamp = EmptyNode, _pwdSprClamp = EmptyNode;
-        private static long _pwdBkgRel = -1, _pwdSprRel = -1;
-
-        public static void EnablePpuWriteDelay(int hc)
-        {
-            if (hc <= 0) { PpuWriteDelay = false; return; }
-            _pwdBkg = LookupNode("ppu.bkg_enable");
-            _pwdSpr = LookupNode("ppu.spr_enable");
-            _pwdNBkg = LookupNode("ppu./bkg_enable");
-            _pwdNSpr = LookupNode("ppu./spr_enable");
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true);
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
-            _pwdHp = hp.Count == 9 ? hp.ToArray() : Array.Empty<int>();
-            _pwdVp = vp.Count == 9 ? vp.ToArray() : Array.Empty<int>();
-            if (_pwdBkg == EmptyNode || _pwdSpr == EmptyNode || _pwdNBkg == EmptyNode || _pwdNSpr == EmptyNode || _pwdHp.Length != 9 || _pwdVp.Length != 9)
-            { Console.Error.WriteLine("# [shim] ppu-write-delay: nodes unresolved — disabled"); PpuWriteDelay = false; return; }
-            _pwdBkgPrev = NodeStates[_pwdBkg]; _pwdSprPrev = NodeStates[_pwdSpr];
-            _pwdBkgRel = _pwdSprRel = -1;
-            _pwdBkgClamp = _pwdSprClamp = EmptyNode;
-            PpuWriteDelayHc = hc;
-            PpuWriteDelay = true;
-        }
-
-        private static bool PpuWriteDelayArmedWindow(int oldValue, int newValue)
-        {
-            int v = ReadBits(_pwdVp);
-            int h = ReadBits(_pwdHp);
-            if (v != 261 || h > 339) return false;
-            if (oldValue == 0 && newValue != 0) return h >= 338;  // late enable
-            if (oldValue != 0 && newValue == 0) return h >= 338;  // late disable
-            return false;
-        }
-
-        // Delay magnitude: global mode overrides the narrow-window default.
-        private static int PpuWriteDelayEffectiveHc() => PpuWriteDelayGlobal ? PpuWriteDelayGlobalHc : PpuWriteDelayHc;
-
-        private static void PpuWriteDelayStep()
-        {
-            // bkg_enable: hold skip-window transitions for N hc (clamp old value, then release)
-            if (_pwdBkgRel >= 0)
-            {
-                if (Time >= _pwdBkgRel)
-                {
-                    InstRelease(_pwdBkgClamp);
-                    _pwdBkgClamp = EmptyNode;
-                    _pwdBkgRel = -1;
-                    _pwdBkgPrev = NodeStates[_pwdBkg];
-                }
-            }
-            else
-            {
-                int now = NodeStates[_pwdBkg];
-                if (now != _pwdBkgPrev)
-                {
-                    bool armed = PpuWriteDelayArmedWindow(_pwdBkgPrev, now);
-                    if (armed)
-                    {
-                        _pwdBkgHold = _pwdBkgPrev;
-                        _pwdBkgClamp = _pwdBkgHold == 0 ? _pwdBkg : _pwdNBkg;
-                        InstClampLow(_pwdBkgClamp);
-                        _pwdBkgRel = Time + PpuWriteDelayEffectiveHc();
-                    }
-                    else _pwdBkgPrev = now;
-                }
-            }
-
-            // spr_enable
-            if (_pwdSprRel >= 0)
-            {
-                if (Time >= _pwdSprRel)
-                {
-                    InstRelease(_pwdSprClamp);
-                    _pwdSprClamp = EmptyNode;
-                    _pwdSprRel = -1;
-                    _pwdSprPrev = NodeStates[_pwdSpr];
-                }
-            }
-            else
-            {
-                int now = NodeStates[_pwdSpr];
-                if (now != _pwdSprPrev)
-                {
-                    bool armed = PpuWriteDelayArmedWindow(_pwdSprPrev, now);
-                    if (armed)
-                    {
-                        _pwdSprHold = _pwdSprPrev;
-                        _pwdSprClamp = _pwdSprHold == 0 ? _pwdSpr : _pwdNSpr;
-                        InstClampLow(_pwdSprClamp);
-                        _pwdSprRel = Time + PpuWriteDelayEffectiveHc();
-                    }
-                    else _pwdSprPrev = now;
-                }
-            }
-        }
-
-        // ── Global cross-chip write-delay line (alignment/write-delay calibration project) ──────
-        // The narrow-window PpuWriteDelay above compensates a single site (even_odd's pre-render
-        // dot-339 skip). Three remaining deviations -- Stale Sprite Shift Regs test 3, BG Serial In,
-        // ALERead -- share the same root: the CPU->PPU cross-chip write/read path is idealized to
-        // zero delay, so a $2001 effect lands 2-3 dots off where silicon puts it (measured: test 3
-        // re-enables 3 dots early; ALERead's $2007 corruption draws 2 dots late). The correct model
-        // is a uniform delay line, not per-site clamps. KEY over the single-shot narrow-window shim:
-        // clamp the DOWNSTREAM node (bkg_enable_out/spr_enable_out, which gate rendering_disabled)
-        // to a delayed copy of the REGISTER (bkg_enable/spr_enable), NEVER clamp the register --
-        // so overlapping/back-to-back writes are all observed (the single-shot version clamped the
-        // register and dropped the second write, which is exactly why a naive global delay hung
-        // even_odd). A ring buffer holds the register history; each step drives *_enable_out to the
-        // sample from N hc ago. OFF by default (N=0); --ppu-write-delay-global N enables it. This is
-        // the scaffold for the dedicated calibration+verification pass; NOT wired into --test yet.
-        public static bool PpuWriteDelayGlobal = false;
-        public static int PpuWriteDelayGlobalHc = 0;
-        private const int PwdgRing = 512;   // >= max delay in hc; covers 60+ dots
-        private static int _pwdgBkg = EmptyNode, _pwdgSpr = EmptyNode, _pwdgBkgOut = EmptyNode, _pwdgSprOut = EmptyNode;
-        private static readonly byte[] _pwdgBkgHist = new byte[PwdgRing], _pwdgSprHist = new byte[PwdgRing];
-        private static int _pwdgHead;
-        private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
-        private static long _pwdgStart;
-
-        // ── dot-339 sprite-counter-reset delay (VISIBLE lines only) -- StaleSpriteShiftRegs Test 3 ──
-        // Pragmatic split (see Gemini consults a_2001_write_delay / a_evenodd_rendering_slow):
-        // the odd-frame skip (pre-render v=261) and the sprite-counter reset (visible lines) sample
-        // the SAME hpos_eq_339_and_rendering node, and on real silicon share one ~2-dot ren_en
-        // propagation delay. But S1's register/rendering_1 edges carry a per-test sub-dot phase
-        // error, so a single uniform magnitude can't satisfy both. even_odd (v=261) is already fixed
-        // by the narrow-window enable-clamp; this shim handles ONLY the visible-line sprite-counter
-        // reset, gated to vpos != 261 so the two never overlap. It suppresses hpos_eq_339_and_rendering
-        // for N hc after rendering_1 rises (measured from rendering_1, dot 337, so N=24 covers dot
-        // 339). The node is 0 except at dot 339, so Test 1's mid-scanline toggles are untouched.
-        private static bool _dot339Shim;
-        private static int _d339Node = EmptyNode, _d339Ren = EmptyNode;
-        private static int[] _d339Vp = System.Array.Empty<int>();
-        private static int _d339PrevRen; private static long _d339HoldUntil = -1; private static bool _d339Clamped;
-        public static int PpuWriteDelayGlobalHcPublic => PpuWriteDelayGlobalHc;
-
-        public static void EnablePpuWriteDelayGlobal(int hc)
-        {
-            if (hc <= 0) { PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
-            _d339Node = LookupNode("ppu.hpos_eq_339_and_rendering");
-            _d339Ren = LookupNode("ppu.rendering_1");
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
-            _d339Vp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
-            if (_d339Node == EmptyNode || _d339Ren == EmptyNode || _d339Vp.Length != 9)
-            { Console.Error.WriteLine("# [shim] dot-339 delay: nodes unresolved -- disabled"); PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
-            PpuWriteDelayGlobalHc = hc;
-            _d339PrevRen = NodeStates[_d339Ren];
-            _d339HoldUntil = -1; _d339Clamped = false;
-            PpuWriteDelayGlobal = true; _dot339Shim = true;
-            Console.Error.WriteLine($"# [shim] dot-339 sprite-reset delay: {hc} hc ({hc / 8.0:F1} dots), visible lines only");
-        }
-
-        private static void Dot339DelayStep()
-        {
-            if (!_dot339Shim) return;
-            int ren = NodeStates[_d339Ren];
-            if (_d339PrevRen == 0 && ren != 0) _d339HoldUntil = Time + PpuWriteDelayGlobalHc;   // rendering_1 rise
-            _d339PrevRen = ren;
-            bool visible = ReadBits(_d339Vp) != 261;   // leave the pre-render skip (v=261) to the narrow-window shim
-            bool want = visible && _d339HoldUntil >= 0 && Time < _d339HoldUntil;
-            if (want && !_d339Clamped) { InstClampLow(_d339Node); _d339Clamped = true; }
-            else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
         }
 
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────

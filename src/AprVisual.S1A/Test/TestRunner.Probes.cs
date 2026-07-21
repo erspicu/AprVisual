@@ -19,16 +19,7 @@ namespace AprVisual.Test
             {
                 WireCore.RegisterRawIdAliases = true;
                 WireCore.EnableJoypadHandler = true;
-                WireCore.LoadSystem(rom);
-                if (!_noShims)
-                {
-                    WireCore.EnableDmcLatchShim();
-                    if (!_noAluShim) WireCore.EnableAluLatchShim();
-                    WireCore.EnableLxaMagicShim();
-                    WireCore.EnableFrameIrqShim();
-                    if (!_noDbl2007Shim) WireCore.EnableDbl2007Shim();
-                    if (_oamDmaPpuBusShim) WireCore.EnableOamDmaPpuBusShim();
-                }
+                WireCore.LoadSystem(rom);   // S1A: LoadSystem arms the full M1–M6 mechanism set
                 var microInput = ParseInputSpec(_inputSpec);
                 if (microInput.Count > 0 && !WireCore.PadInit()) microInput.Clear();
                 var watch = new List<(string Name, int Node)>();

@@ -134,7 +134,7 @@ namespace AprVisual.Test
             // M4·P4 MECHANISM — always on in AC mode (retired 2026-07-20; bit-identical to the old
             // shim, which is now removed). Load-time (read in RegisterCallback), so arm here. The
             // pure switch-level engine (--no-shims) turns it off.
-            WireCore.PpuAleReadFeedbackMechEnabled = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
+            WireCore.PpuAleReadFeedbackMechEnabled = _acVerdict;
             WireCore.PpuAleReadFeedbackShim = false;   // old shim retired; the mechanism supersedes it
             // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
             // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
@@ -266,7 +266,7 @@ namespace AprVisual.Test
 
                     // open-bus decay shim (see above): value-change resets the clock; same value for
                     // ~600 ms of simulated time ⇒ the charge leaks away on real silicon.
-                    if (!_noShims && ioDbN.Length == 8)
+                    if (ioDbN.Length == 8)
                     {
                         int v = WireCore.ReadBits(ioDbN);
                         if (v != ioPrev) { ioPrev = v; ioStable = 0; }

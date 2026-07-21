@@ -33,13 +33,6 @@ namespace AprVisual.Test
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
-        private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
-        internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
-        internal static bool _noPpuAleReadFeedbackShim;    // --no-ppu-ale-read-feedback-shim: A/B the CHR analog-loop guard
-        internal static int  _ppuWriteDelayHc = 16;        // $2001 write-effect delay in hc (even_odd; GLOBAL test-mode, --ppu-write-delay overrides, 0=off)
-        internal static int  _ppuWriteDelayGlobalHc = 24;  // dot-339 sprite-counter-reset delay in hc (visible lines; StaleSprite Test3; --ppu-write-delay-global overrides, 0=off). 9-test regression + even_odd verified clean.
-        internal static bool _oamDmaPpuBusShim = true;      // $4014-from-PPU-I/O-bus OAM write-data hold (GLOBAL test-mode; --no-oam-dma-ppu-bus-shim disables)
-        internal static bool _noShims;                     // --no-shims: disable ALL test-mode shims (diagnostics)
         internal static bool _joypad;                      // --joypad: enable behavioral joypad + tie-rewire (per-test; perturbs graph)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
@@ -120,15 +113,7 @@ namespace AprVisual.Test
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
-                    case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
-                    case "--no-dbl2007-shim": _noDbl2007Shim = true; break;                                                        // DIAGNOSTIC: A/B the $2007 double-read merge shim
-                    case "--no-ppu-ale-read-feedback-shim": _noPpuAleReadFeedbackShim = true; break;                              // DIAGNOSTIC: expose the raw ALE+Read binary feedback loop
-                    case "--no-shims":        _noShims = true; break;                                                                   // DIAGNOSTIC: disable all test-mode shims
                     case "--joypad":          _joypad = true; break;                                                                     // per-test: behavioral joypad + u7/u8 tie-rewire (needed for controller/exec_space)
-                    case "--ppu-write-delay": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayHc); break;           // $2001 write-effect delay N hc (even_odd campaign)
-                    case "--ppu-write-delay-global": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayGlobalHc); break;   // global write-delay line N hc (calibration; 0=off)
-                    case "--oam-dma-ppu-bus-shim": _oamDmaPpuBusShim = true; break;                                                      // (default on) $4014-from-PPU-I/O-bus OAM write-data hold
-                    case "--no-oam-dma-ppu-bus-shim": _oamDmaPpuBusShim = false; break;                                                // DIAGNOSTIC: disable the OAM-DMA-PPU-bus shim
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
@@ -162,10 +147,8 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
-            // S1A runs the full engine in EVERY mode — LoadSystem arms the M1–M6 mechanisms + shims
-            // unconditionally. --no-shims is the only opt-out (the pure switch-level engine, which
-            // reproduces the S1 golden checksum). Set once here, before any mode is dispatched.
-            WireCore.ArmMechanisms = !_noShims;
+            // S1A IS the full engine in EVERY mode — LoadSystem arms the M1–M6 mechanisms unconditionally.
+            // There is no opt-out; the raw switch-level engine is the separate S1 fork.
 
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
@@ -239,11 +222,9 @@ namespace AprVisual.Test
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
-                    [--oam-dma-ppu-bus-shim]               opt-in shim for $4014 DMA sourced from PPU I/O registers
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
-                    [--no-ppu-ale-read-feedback-shim]      diagnostic: disable the CHR ALE+Read analog-feedback guard
                     [--ac-dump-work]                       diagnostic: dump AccuracyCoin CPU RAM $0500-$06FF at verdict
 
                   (no args)                                print this usage

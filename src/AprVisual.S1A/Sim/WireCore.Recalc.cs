@@ -830,14 +830,14 @@ namespace AprVisual.Sim
                 EnqueueNode(clk);
                 ProcessQueue();
             }
-            if (M2DecayEnabled) M2DecayStep();      // M2 charge-decay island (mechanism, not a shim; default-on, NO_M2DECAY disables)
-            if (M6xEnabled) M6xPhaseStep();         // M6×M3 unified cross-chip phase arbitration (env M6X; supersedes dot-339/bgserial shims)
-            if (ShimChainArmed) TestShimChainStep();   // flattened test-shim family dispatch; see WireCore.System.cs
-            if (AleReadMuxShim) AleReadMuxStep();   // test-mode only; ALERead $2007 access phase-delay (M6)
-            if (BgSerialReloadShim) BgSerialReloadShimStep();   // test-mode only; $2001-enable reload-delay (BGSerialIn, M6)
-            if (OamDmaPpuBusShim || _m4p1Queue) OamDmaPpuBusShimStep();   // shim OR M4·P1 QueuedDrive mechanism (same step, same point)
-            if (PpuWriteDelay) PpuWriteDelayStep();  // test-mode only; $2001 write-effect delay (narrow-window OR global per PpuWriteDelayGlobal)
-            if (PpuWriteDelayGlobal) Dot339DelayStep();  // test-mode only; surgical dot-339 rendering-sample delay (OFF by default)
+            // S1A IS the full engine: the M1–M6 mechanisms run unconditionally, every mode. No gates,
+            // no --no-shims. The dot-339 + BGSerialIn corrections live inside M6xPhaseStep (the old
+            // standalone shims were deleted); the M4·P1 QueuedDrive runs as OamDmaPpuBusShimStep.
+            M2DecayStep();            // M2 2C02 io-bus per-bit charge-decay island
+            M6xPhaseStep();           // M6×M3 cross-chip phase arbitration (even_odd + BGSerialIn + dot-339)
+            TestShimChainStep();      // flattened mechanism-family dispatch (Dmc/Alu/OpenBus/DL/abort/OamEdge/Lxa)
+            AleReadMuxStep();         // ALERead $2007 access phase-mux (M6)
+            OamDmaPpuBusShimStep();   // M4·P1 QueuedDrive (OAM-DMA → PPU I/O bus)
             Time++;
         }
     }

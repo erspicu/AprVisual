@@ -85,7 +85,7 @@
   <a class="sec" href="#snapshot"><span class="en">Snapshot</span><span class="zh">快照</span></a>
   <a class="sec" href="#bench"><span class="en">Bench</span><span class="zh">效能</span></a>
   <a class="sec" href="#shims"><span class="en">Shims &amp; env</span><span class="zh">Shim/環境</span></a>
-  <a class="sec" href="#probes"><span class="en">Probes</span><span class="zh">探針</span></a>
+  <a class="sec" href="#probes"><span class="en">Tools</span><span class="zh">工具</span></a>
   <a class="sec" href="#recipes"><span class="en">Recipes</span><span class="zh">配方</span></a>
   <a class="sec" href="#testrom"><span class="en">Test ROMs</span><span class="zh">測試 ROM</span></a>
   <a class="sec" href="s1-cli.html" style="color:var(--acc2)"><span class="en">← S1 CLI</span><span class="zh">← S1 CLI</span></a>
@@ -238,7 +238,7 @@
 </section>
 
 <section id="probes">
-  <h2><span class="kick"><span class="en">8 · Diagnostic probes</span><span class="zh">8 · 診斷探針</span></span><span class="en">The forensic toolbox</span><span class="zh">取證工具箱</span> <span class="pill same"><span class="en">identical to S1 today</span><span class="zh">今天與 S1 相同</span></span></h2>
+  <h2><span class="kick"><span class="en">8 · Diagnostic tools</span><span class="zh">8 · 診斷工具</span></span><span class="en">Node &amp; state inspection</span><span class="zh">節點與狀態檢視</span></h2>
   <div class="tbl-wrap"><table>
     <tr><th><span class="en">Flag</span><span class="zh">旗標</span></th><th><span class="en">Argument</span><span class="zh">引數</span></th><th><span class="en">What it does</span><span class="zh">作用</span></th></tr>
     <tr><td class="flag"><code>--dump-node</code></td><td class="arg"><code>&lt;name&gt;</code> / <code>@&lt;id&gt;</code></td><td><span class="en">Dissect one node: pull-up, gated transistors, channel-end transistors. Raw-id aliases (<code>cpu.#nnnn</code>) do not resolve here — only in test mode.</span><span class="zh">解剖單節點:pull-up、被 gate 的電晶體、channel 端電晶體。raw-id 別名(<code>cpu.#nnnn</code>)在此不解析 —— 只在 test 模式。</span></td></tr>
@@ -250,16 +250,6 @@
     <tr><td class="flag"><code>--micro-frames</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en"><code>--micro</code> frame count (default 3).</span><span class="zh"><code>--micro</code> 幀數(預設 3)。</span></td></tr>
     <tr><td class="flag"><code>--trace</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Classic trace-column output.</span><span class="zh">傳統 trace 欄位輸出。</span></td></tr>
     <tr><td class="flag"><code>--cycles</code></td><td class="arg"><code>&lt;N&gt;</code></td><td><span class="en"><code>--trace</code> cycle count (default 64).</span><span class="zh"><code>--trace</code> 週期數(預設 64)。</span></td></tr>
-    <tr><td class="flag"><code>--bus-trace</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">DMC bus microscope (<code>$4013/$4015</code> + RDY-stall cycles).</span><span class="zh">DMC 匯流排顯微鏡(<code>$4013/$4015</code> + RDY-stall 週期)。</span></td></tr>
-    <tr><td class="flag"><code>--op-probe</code></td><td class="arg"><code>&lt;path&gt; &lt;hexaddr&gt;</code></td><td><span class="en">hc-log the datapath buses when AB hits the address.</span><span class="zh">AB 命中位址時做 hc 級 datapath 匯流排記錄。</span></td></tr>
-    <tr><td class="flag"><code>--rdy-probe</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Per-frame <code>cpu.rdy</code> transition counts.</span><span class="zh">每幀 <code>cpu.rdy</code> 轉換計數。</span></td></tr>
-    <tr><td class="flag"><code>--phase-probe</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Per-hc CPU/PPU clock-phase dump.</span><span class="zh">每 hc CPU/PPU 時鐘相位傾印。</span></td></tr>
-    <tr><td class="flag"><code>--probe2002</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace bus/PPU signals at the next <code>$2002</code> read after vblank.</span><span class="zh">追蹤 vblank 後下一個 <code>$2002</code> 讀取的訊號。</span></td></tr>
-    <tr><td class="flag"><code>--probe-vbl</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace the 2C02 vbl-flag latch through the <code>$2002</code> read path.</span><span class="zh">追蹤 2C02 vbl 旗標 latch 經 <code>$2002</code> 讀取路徑。</span></td></tr>
-    <tr><td class="flag"><code>--probe-2001</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace <code>$2001</code> write → bkg_enable → rendering + the dot-339 skip window.</span><span class="zh">追蹤 <code>$2001</code> 寫 → bkg_enable → rendering + dot-339 skip 窗。</span></td></tr>
-    <tr><td class="flag"><code>--probe-dma</code></td><td class="arg"><code>&lt;path&gt;</code></td><td><span class="en">Trace the OAM-DMA address bus + open bus (read_buffer #67).</span><span class="zh">追蹤 OAM-DMA 位址匯流排 + open bus(read_buffer #67)。</span></td></tr>
-    <tr><td class="flag"><code>--ppu-memory-trace</code></td><td class="arg"><code>&lt;lo&gt; &lt;hi&gt;</code></td><td><span class="en">Trace CHR/VRAM callbacks while the CPU PC is in this inclusive hex range.</span><span class="zh">CPU PC 在此 hex 範圍(含端點)內時追蹤 CHR/VRAM callback。</span></td></tr>
-    <tr><td class="flag"><code>--ppu-memory-trace-x</code></td><td class="arg"><code>&lt;hex&gt;</code></td><td><span class="en">Restrict the PPU memory trace to one CPU X value.</span><span class="zh">把 PPU memory trace 限定到單一 CPU X 值。</span></td></tr>
     <tr><td class="flag"><code>--ac-dump-work</code></td><td class="arg">—</td><td><span class="en">Dump AccuracyCoin work/results RAM <code>$0500-$06FF</code> at verdict.</span><span class="zh">判定時傾印 AccuracyCoin 工作/結果 RAM <code>$0500-$06FF</code>。</span></td></tr>
   </table></div>
 </section>

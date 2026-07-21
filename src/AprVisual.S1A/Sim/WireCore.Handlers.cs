@@ -91,10 +91,6 @@ namespace AprVisual.Sim
         internal static bool PpuAleReadFeedbackMechEnabled;
         internal static long PpuAleReadFeedbackHoldCount;
         private static long _ppuAleReadFeedbackLastLogTime;
-        internal static int PpuMemoryTracePcLo = -1, PpuMemoryTracePcHi = -1;
-        internal static int PpuMemoryTraceX = -1;
-        private static int _ppuMemoryTraceAle = EmptyNode, _ppuMemoryTraceRead = EmptyNode;
-        private static readonly List<string> _ppuMemoryTrace = new();
         // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] = the CallbackInfo registered on
         // node nn (null if none). Built in Reset; lets RecalcNode's HasCallback group-walk look the callback
         // up directly instead of jumping into the managed Nodes[] Node object graph.
@@ -116,8 +112,6 @@ namespace AprVisual.Sim
             _callbackByNode = null;
             PpuAleReadFeedbackHoldCount = 0;
             _ppuAleReadFeedbackLastLogTime = long.MinValue;
-            _ppuMemoryTrace.Clear();
-            _ppuMemoryTraceAle = _ppuMemoryTraceRead = EmptyNode;
             // free this composed system's handler-lifetime unmanaged arrays (video node-lists, palette,
             // memory-handler node-lists, behavioral RAM/ROM Data) before the next rebuild re-creates them.
             FreeHandlerArrays();
@@ -324,7 +318,6 @@ namespace AprVisual.Sim
         // it is null for every mapper-0 memory, so the plain path is untouched.
         private static void DoMemRead(CallbackInfo cb)
         {
-            TracePpuMemoryCallback(cb);
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             // AccuracyCoin deliberately creates a cycle where ALE and external /RD are active
@@ -386,7 +379,6 @@ namespace AprVisual.Sim
         // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
         private static void DoMemReadWrite(CallbackInfo cb)
         {
-            TracePpuMemoryCallback(cb);
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
@@ -396,34 +388,6 @@ namespace AprVisual.Sim
                 if (LaeRecording && cb.DebugName != "cart.chr." && cb.DebugName != "u4.")
                     LaeRecordRead(address & cb.Mask, cb.MemData[address & cb.Mask]);
             }
-        }
-
-        private static void TracePpuMemoryCallback(CallbackInfo cb)
-        {
-            if (PpuMemoryTracePcLo < 0 || (cb.DebugName != "cart.chr." && cb.DebugName != "u4.")) return;
-            int pcl = ReadReg(R_CpuPcl), pch = ReadReg(R_CpuPch);
-            int pc = pcl >= 0 && pch >= 0 ? (pch << 8) | pcl : -1;
-            int cpuX = ReadReg(R_CpuX);
-            if (pc < PpuMemoryTracePcLo || pc > PpuMemoryTracePcHi
-                || (PpuMemoryTraceX >= 0 && cpuX != PpuMemoryTraceX) || _ppuMemoryTrace.Count >= 512) return;
-
-            int address = ReadBits(cb.Addr, cb.ALen);
-            int effectiveAddress = address | (cb.BankPtr != null ? *cb.BankPtr : 0);
-            int memValue = cb.MemData[effectiveAddress & cb.Mask];
-            int we = cb.We == EmptyNode ? -1 : NodeStates[cb.We];
-            int oe = cb.Oe == EmptyNode ? -1 : NodeStates[cb.Oe];
-            int ale = _ppuMemoryTraceAle == EmptyNode ? -1 : NodeStates[_ppuMemoryTraceAle];
-            int read = _ppuMemoryTraceRead == EmptyNode ? -1 : NodeStates[_ppuMemoryTraceRead];
-            _ppuMemoryTrace.Add(
-                $"# [ppu-mem] t={Time} PC=${pc:X4} X=${cpuX:X2} ALE={ale} /RD={read} {cb.DebugName} " +
-                $"cs={NodeStates[cb.Cs]} oe={oe} we={we} addr=${address:X4} mem=${memValue:X2} out=${ReadBits(cb.DataOut, cb.DLen):X2}");
-        }
-
-        internal static void DumpPpuMemoryTrace()
-        {
-            foreach (string line in _ppuMemoryTrace) Console.WriteLine(line);
-            if (PpuMemoryTracePcLo >= 0)
-                Console.WriteLine($"# [ppu-mem] records={_ppuMemoryTrace.Count} PC=${PpuMemoryTracePcLo:X4}-${PpuMemoryTracePcHi:X4}");
         }
 
         // video: on the pclk1 rising edge, write the visible pixel from palette RAM via the (static, unmanaged)
@@ -622,8 +586,6 @@ namespace AprVisual.Sim
                 }
                 else
                 {
-                    _ppuMemoryTraceAle = ppuAle;
-                    _ppuMemoryTraceRead = ppuRead;
                     trigger.Add(ppuAle);
                     trigger.Add(ppuRead);
                 }

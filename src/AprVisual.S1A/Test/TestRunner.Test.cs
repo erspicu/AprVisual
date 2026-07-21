@@ -518,7 +518,6 @@ namespace AprVisual.Test
 #endif
                 if (WireCore.PpuAleReadFeedbackShim)
                     Console.WriteLine($"# [shim] PPU ALE/read feedback holds={WireCore.PpuAleReadFeedbackHoldCount:N0}");
-                WireCore.DumpPpuMemoryTrace();
                 if (_acDumpWork && acRam != null)
                 {
                     for (int row = 0x500; row < 0x700; row += 0x10)

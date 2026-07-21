@@ -105,6 +105,13 @@ namespace AprVisual.Sim
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
+            // S1A full-engine arming — pre-load half. These flags are consumed DURING the compose passes
+            // (ALERead node-split cut in WireCore.Module, raw-id aliases) or at Reset (PowerUpStateShim),
+            // so they must be set before the pass loop below. The post-load half (Enable*Mech) runs at the
+            // end of this method. --no-shims clears ArmMechanisms for the pure switch-level engine.
+            // PowerUpStateShim gives S1A the REALISTIC console power-up state (palette residue + CPU P=$34)
+            // in every mode — S1A is its own engine, so this need not match the raw S1 power-up.
+            if (ArmMechanisms) { AleReadMuxShim = true; RegisterRawIdAliases = true; PowerUpStateShim = true; }
             // M2 (S1A): physical-capacitance floating arbitration — data swap at Reset() fill time.
             M2CapArbitration = Environment.GetEnvironmentVariable("M2_CAP") is { Length: > 0 } m2 && m2 != "0";
             M2Census = Environment.GetEnvironmentVariable("M2_CENSUS") is { Length: > 0 } mc && mc != "0";
@@ -177,6 +184,28 @@ namespace AprVisual.Sim
             // managed data (Node.Gates / Node.C1c2s lists, _transistors list, _transistorSet,
             // _forceComputeList, LoadedDefs JSON parse) — typically ~25-50 MB freed.
             ClearPostLoadBuildState();
+
+            // S1A full-engine arming — post-load half. The graph is composed and reset; resolve + arm the
+            // M1–M6 mechanisms and the always-on shims (same set and order the test path used to run right
+            // after LoadSystem, now universal so EVERY mode — --benchmark included — runs the full engine).
+            if (ArmMechanisms) ArmS1aMechanisms();
+        }
+
+        // The unconditional S1A mechanism/shim arming (order matters: DL follows OpenBus; the ALERead mux
+        // resolves after its node-split cut, which already happened in the compose passes above).
+        private static void ArmS1aMechanisms()
+        {
+            EnableM4EdgeLatch();        // DmcLatch data-wins + AluLatch hold
+            EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
+            EnableM4P1();               // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
+            EnableOamBlankEdgeMech();   // OAM blank-edge hold
+            EnableDmc4015AbortMech();   // deferred-$4015 DMC-DMA abort
+            EnableLxaMagicMech();       // LXA $AB magic-merge
+            EnableFrameIrqMech();       // frame-IRQ flag-hold
+            EnableM2Decay();            // 2C02 io-bus per-bit charge-decay
+            EnableOpenBusShim();        // open bus = last transferred byte
+            EnableDlShim();             // DL phi2 transparency at $4016/$4017 -- must follow EnableOpenBusShim
+            EnableAleReadMux();         // ALERead $2007 phase-mux (the node-split cut was armed pre-load)
         }
 
         private static void CopyRomBytes(NesRom rom)
@@ -240,8 +269,13 @@ namespace AprVisual.Sim
         //      (which became the emulator-consensus power-up palette), and
         //   2. the 2A03 Z-flag latch (cpu.p1) is cleared — the netlist settles to P=$36, real consoles
         //      (and cpu_reset/registers' expectation) power on with P=$34; only the Z bit differs.
-        // Benchmarks never set this flag — the golden-checksum path is byte-for-byte untouched.
+        // Set unconditionally by LoadSystem when ArmMechanisms is on (S1A default); --no-shims clears it.
         public static bool PowerUpStateShim = false;
+
+        // S1A: run the full engine. Every LoadSystem arms the M1–M6 mechanisms + always-on shims
+        // unconditionally — there is no "raw" mode gate any more. --no-shims sets this false for the
+        // pure switch-level engine (which reproduces the S1 golden checksum 0x794A43ABDF169ADA).
+        public static bool ArmMechanisms = true;
 
         // ── clock-phase experiment (--reset-hold-extra K): extra half-cycles of /res assertion. ──
         // Probes whether the CPU ÷12 / PPU ÷4 divider alignment depends on the reset-release moment

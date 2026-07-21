@@ -162,6 +162,11 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
+            // S1A runs the full engine in EVERY mode — LoadSystem arms the M1–M6 mechanisms + shims
+            // unconditionally. --no-shims is the only opt-out (the pure switch-level engine, which
+            // reproduces the S1 golden checksum). Set once here, before any mode is dispatched.
+            WireCore.ArmMechanisms = !_noShims;
+
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);

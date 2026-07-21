@@ -123,11 +123,9 @@ namespace AprVisual.Test
             var rom = NesRom.LoadFromFile(path);
             if (rom is null) { Console.WriteLine($"FAIL(load) | {Path.GetFileName(path)}"); return 2; }
 
-            // Test mode emulates the conventional console power-up state (palette residue + P=$34;
-            // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
-            WireCore.PowerUpStateShim = true;
-            WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
-            WireCore.AleReadMuxShim = !_noShims;   // ALERead phase node-split — armed before LoadSystem (cuts ppu.io_ab<->cpu.ab); always on in test mode, off only for the pure switch-level engine (--no-shims)
+            // The M1–M6 mechanisms + the ALERead node-split + the realistic power-up state are armed
+            // unconditionally inside LoadSystem (WireCore.ArmMechanisms, set from !_noShims in Run).
+            // Test mode adds one thing on top: the behavioral joypad (per --joypad).
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
@@ -158,31 +156,9 @@ namespace AprVisual.Test
                 var swLoad = System.Diagnostics.Stopwatch.StartNew();
                 WireCore.LoadSystem(rom);
                 loadSecs = swLoad.Elapsed.TotalSeconds;
-                if (WireCore.PpuAleReadFeedbackShim)
-                    Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
+                // The M1–M6 mechanisms + always-on shims were armed inside LoadSystem (ArmMechanisms).
                 if (WireCore.PpuAleReadFeedbackMechEnabled)
                     Console.Error.WriteLine("# [m4p4] armed: PPU ALE/read analog-feedback break mechanism");
-                // ── Correctness mechanisms — unconditionally armed in test mode (no per-mechanism
-                // opt-out). Each was proven hc-bit-identical to the shim it replaced; those shims are
-                // retired and removed. --no-shims still gives the pure switch-level engine (none of
-                // this arms). See MD/S1a for the M1-M7 mechanism ledger.
-                if (!_noShims)
-                {
-                    WireCore.EnableM4EdgeLatch();        // DmcLatch data-wins + AluLatch hold
-                    WireCore.EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
-                    WireCore.EnableM4P1();               // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
-                    WireCore.EnableOamBlankEdgeMech();   // OamBlankEdge M4·hold-on-OAM
-                    WireCore.EnableDmc4015AbortMech();   // Dmc4015Abort P3
-                    WireCore.EnableLxaMagicMech();       // LXA $AB magic-merge
-                    WireCore.EnableFrameIrqMech();       // FrameIrq flag-hold
-                    WireCore.EnableM2Decay();            // 2C02 io-bus per-bit charge-decay (retires the _io_db decay shim below)
-                    // Always-on shims with no superseding mechanism.
-                    WireCore.EnableOpenBusShim();        // open bus = last transferred byte (see System.cs)
-                    WireCore.EnableDlShim();             // DL phi2 transparency at $4016/$4017 -- must follow EnableOpenBusShim
-                    WireCore.EnableAleReadMux();         // ALERead $2007 phase-mux + node-split (the cut was armed in LoadSystem)
-                    // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
-                    // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
-                }
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // --ac-verdict: the NES internal 2K CPU RAM (nes-001 instantiates it as "u1" = SRAM2K).

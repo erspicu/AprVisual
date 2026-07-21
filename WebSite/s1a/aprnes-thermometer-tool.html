@@ -78,8 +78,8 @@
 
 <section id="tool">
   <h2><span class="kick"><span class="en">The tool</span><span class="zh">工具</span></span><span class="en">A temperature knob in a real emulator</span><span class="zh">在真模擬器裡裝一個溫度旋鈕</span></h2>
-  <p class="en">The AprVisual switch-level engine is bit-exact but far too slow to <i>run</i> a 600 ms decay — so for this experiment we used <b>AprNes</b>, the user's fast, cycle-accurate (master-clock) NES emulator, as the test bench. AprNes already tracked an open-bus latch but never actually decayed it (a leftover countdown that expired in ~14 ms, far too fast). We replaced that with the physical model from deep dive #3:</p>
-  <p class="zh">AprVisual 的開關級引擎 bit-exact,但太慢、跑不動一個 600ms 的衰減 —— 所以這個實驗改用<b>AprNes</b>(使用者那顆快速、cycle-accurate 的 master-clock NES 模擬器)當測試台。AprNes 本來就追蹤一個 open-bus 閂鎖,但從沒真的讓它衰減(一段殘留的倒數 ~14ms 就到期、太快)。我們把它換成深入專文 #3 的物理模型:</p>
+  <p class="en">For a fast, iterative verification we used <b>AprNes</b>, the user's fast, cycle-accurate (master-clock) NES emulator, as the test bench. AprNes already tracked an open-bus latch but never actually decayed it (a leftover countdown that expired in ~14 ms, far too fast). We replaced that with the physical model from deep dive #3:</p>
+  <p class="zh">為了能快速、反覆地驗證,這個實驗用<b>AprNes</b>(使用者那顆快速、cycle-accurate 的 master-clock NES 模擬器)當測試台。AprNes 本來就追蹤一個 open-bus 閂鎖,但從沒真的讓它衰減(一段殘留的倒數 ~14ms 就到期、太快)。我們把它換成深入專文 #3 的物理模型:</p>
   <ul>
     <li class="en">a <b>lazy-timestamp</b> decay: the latch is stamped with the current PPU-dot time whenever a PPU access drives it, and reads back as 0 once the elapsed time passes the decay period — zero cost in the hot loop;</li>
     <li class="zh"><b>懶惰時戳</b>衰減:每次 PPU 存取驅動閂鎖時蓋上當下的 PPU-dot 時間,一旦經過的時間超過衰減週期,讀回就是 0 —— 熱路徑零成本;</li>

@@ -127,20 +127,17 @@ namespace AprVisual.Test
             // documented shim — see WireCore.ApplyPowerUpState). Benchmarks never set this.
             WireCore.PowerUpStateShim = true;
             WireCore.RegisterRawIdAliases = true;   // for the DMC latch shim's unnamed nodes
-            WireCore.AleReadMuxShim = Environment.GetEnvironmentVariable("ALEREAD_MUX") != null;   // MUST be set before LoadSystem: cuts ppu.io_ab<->cpu.ab for the ALERead phase node-split (test-mode, opt-in)
+            WireCore.AleReadMuxShim = !_noShims;   // ALERead phase node-split — armed before LoadSystem (cuts ppu.io_ab<->cpu.ab); always on in test mode, off only for the pure switch-level engine (--no-shims)
             WireCore.EnableJoypadHandler = _joypad;   // per-test (--joypad): behavioral controller + tie-rewire. OFF by default:
                                                       // the module swap + 6 tie rewires are a LOAD-TIME graph change that re-rolls the
                                                       // alignment lottery (regressed ppu_vbl_nmi when it was global). See campaign notes.
             // Must be selected before LoadSystem: the CHR handler needs ALE and /RD in its callback
             // trigger so it refreshes immediately after the analog-feedback window closes.
-            // M4·P4 MECHANISM — DEFAULT-ON in AC mode (retired 2026-07-20; bit-identical to the shim).
-            // Both are load-time (read in RegisterCallback), so arm here. Opt-out with NO_PPU_ALE_FB
-            // (mechanism off -> the shim re-arms for A/B); --no-shims or --no-ppu-ale-read-feedback-shim
-            // turns both off. Legacy PPU_ALE_FB=1 stays a harmless no-op.
-            bool ppuAleFbActive = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
-            bool ppuAleFbMechOff = Environment.GetEnvironmentVariable("NO_PPU_ALE_FB") != null;
-            WireCore.PpuAleReadFeedbackMechEnabled = ppuAleFbActive && !ppuAleFbMechOff;
-            WireCore.PpuAleReadFeedbackShim = ppuAleFbActive && ppuAleFbMechOff;   // A/B: NO_PPU_ALE_FB -> old shim
+            // M4·P4 MECHANISM — always on in AC mode (retired 2026-07-20; bit-identical to the old
+            // shim, which is now removed). Load-time (read in RegisterCallback), so arm here. The
+            // pure switch-level engine (--no-shims) turns it off.
+            WireCore.PpuAleReadFeedbackMechEnabled = _acVerdict && !_noShims && !_noPpuAleReadFeedbackShim;
+            WireCore.PpuAleReadFeedbackShim = false;   // old shim retired; the mechanism supersedes it
             // Test ROMs speak the blargg $6000 protocol, which lives in cart-extraram. Never infer this from
             // the ROM's path: relocating the ROMs under tools/testrom/roms missed LoadSystem's "nes-test-roms"
             // path heuristic, silently dropped the $6000 RAM, and made every class-A test report
@@ -165,60 +162,27 @@ namespace AprVisual.Test
                     Console.Error.WriteLine("# [shim] PPU ALE/read feedback armed for cart.chr ROM");
                 if (WireCore.PpuAleReadFeedbackMechEnabled)
                     Console.Error.WriteLine("# [m4p4] armed: PPU ALE/read analog-feedback break mechanism");
-                // ── SHIM RETIREMENT — default-flip (2026-07-20). The seven mechanisms below are now
-                // DEFAULT-ON in test mode, superseding their cleared shims (the shim arming in the
-                // !_noShims block gates on each mechanism's *Enabled flag, so the shims auto-turn-off).
-                // Proven by the all-mechanisms milestone (141/141) + this branch's 141/147 regression.
-                // A/B against a retired shim: set NO_M4_EDGE / NO_M6X / NO_M4_P1 / NO_M4_OE / NO_M3_ABORT
-                // / NO_M1_LXA / NO_M4_FI (that mechanism off -> its shim re-arms). --no-shims turns
-                // both off (pure switch-level engine). The legacy M4_EDGE=1 / M6X=1 / ... envs are now
-                // a no-op (the mechanism is default-on), so existing launchers keep working.
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_EDGE") == null)
-                    WireCore.EnableM4EdgeLatch();       // DmcLatch data-wins + AluLatch hold
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M6X") == null)
-                    WireCore.EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_P1") == null)
-                    WireCore.EnableM4P1();                // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_OE") == null)
-                    WireCore.EnableOamBlankEdgeMech();   // OamBlankEdge M4·hold-on-OAM
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M3_ABORT") == null)
-                    WireCore.EnableDmc4015AbortMech();   // Dmc4015Abort P3
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M1_LXA") == null)
-                    WireCore.EnableLxaMagicMech();       // LXA $AB magic-merge
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M4_FI") == null)
-                    WireCore.EnableFrameIrqMech();       // FrameIrq flag-hold
+                // ── Correctness mechanisms — unconditionally armed in test mode (no per-mechanism
+                // opt-out). Each was proven hc-bit-identical to the shim it replaced; those shims are
+                // retired and removed. --no-shims still gives the pure switch-level engine (none of
+                // this arms). See MD/S1a for the M1-M7 mechanism ledger.
                 if (!_noShims)
                 {
-                    if (!WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_DMC_SHIM") == null)
-                        WireCore.EnableDmcLatchShim();   // DMC pcm_latch edge-capture (superseded by M4_EDGE)
-                    if (!_noAluShim && !WireCore.M4EdgeEnabled && Environment.GetEnvironmentVariable("NO_ALU_SHIM") == null)
-                        WireCore.EnableAluLatchShim();   // ALU input-latch hold (superseded by M4_EDGE)
-                    if (!WireCore.M1LxaEnabled && Environment.GetEnvironmentVariable("NO_LXA_SHIM") == null)
-                        WireCore.EnableLxaMagicShim();   // LXA $AB magic (superseded by M1_LXA)
-                    if (!WireCore.M4FiEnabled && Environment.GetEnvironmentVariable("NO_FRAMEIRQ_SHIM") == null)
-                        WireCore.EnableFrameIrqShim();   // frame-IRQ flag hold (superseded by M4_FI)
-                    if (!WireCore.M6xEnabled)   // even_odd superseded by M6X (DelayTransition rows)
-                        WireCore.EnablePpuWriteDelay(_ppuWriteDelayHc);   // $2001 write-effect delay (even_odd; GLOBAL, default 16, narrow window vpos261/hpos338-339)
-                    if (!WireCore.M6xEnabled)   // dot-339 superseded by M6X
-                        WireCore.EnablePpuWriteDelayGlobal(_ppuWriteDelayGlobalHc);   // global cross-chip write-delay line (calibration project; OFF unless --ppu-write-delay-global N)
-                    if (!_noDbl2007Shim && !WireCore.M4P1Enabled) WireCore.EnableDbl2007Shim();   // $2007 double-read merge (superseded by M4_P1)
-                    if (_oamDmaPpuBusShim && !WireCore.M4P1Enabled) WireCore.EnableOamDmaPpuBusShim();   // $4014-from-PPU-I/O-bus OAM write-data hold (superseded by M4_P1 QueuedDrive)
-                    if (Environment.GetEnvironmentVariable("NO_OB_SHIM") == null) WireCore.EnableOpenBusShim();   // open bus = last transferred byte (see System.cs)
-                    if (Environment.GetEnvironmentVariable("NO_DL_SHIM") == null) WireCore.EnableDlShim();   // DL phi2 transparency at $4016/$4017 (see System.cs) -- must follow EnableOpenBusShim
-                    if (!WireCore.M3AbortEnabled && Environment.GetEnvironmentVariable("NO_ABORT_SHIM") == null) WireCore.EnableDmc4015AbortShim();   // deferred $4015 disable aborts in-flight DMC DMA (superseded by M3_ABORT)
-                    if (!WireCore.M4OeEnabled && Environment.GetEnvironmentVariable("NO_OAMEDGE_SHIM") == null) WireCore.EnableOamBlankEdgeShim();   // rendering-disable edge must not write OAM (superseded by M4_OE)
-                    if (!WireCore.M6xEnabled && Environment.GetEnvironmentVariable("NO_BGS_SHIM") == null) WireCore.EnableBgSerialReloadShim();   // $2001-enable reload-delay (BGSerialIn; superseded by M6X)
-                    if (WireCore.AleReadMuxShim) WireCore.EnableAleReadMux();   // ALERead $2007 access phase-mux + node-split (M6; resolves nodes + arms; the cut already happened in LoadSystem)
+                    WireCore.EnableM4EdgeLatch();        // DmcLatch data-wins + AluLatch hold
+                    WireCore.EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
+                    WireCore.EnableM4P1();               // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
+                    WireCore.EnableOamBlankEdgeMech();   // OamBlankEdge M4·hold-on-OAM
+                    WireCore.EnableDmc4015AbortMech();   // Dmc4015Abort P3
+                    WireCore.EnableLxaMagicMech();       // LXA $AB magic-merge
+                    WireCore.EnableFrameIrqMech();       // FrameIrq flag-hold
+                    WireCore.EnableM2Decay();            // 2C02 io-bus per-bit charge-decay (retires the _io_db decay shim below)
+                    // Always-on shims with no superseding mechanism.
+                    WireCore.EnableOpenBusShim();        // open bus = last transferred byte (see System.cs)
+                    WireCore.EnableDlShim();             // DL phi2 transparency at $4016/$4017 -- must follow EnableOpenBusShim
+                    WireCore.EnableAleReadMux();         // ALERead $2007 phase-mux + node-split (the cut was armed in LoadSystem)
                     // R4015 read-decode a1 term: fixed in DATA (transdefs patch t13032b, see
                     // data/system-def/2a03/PATCHES.md) -- category-E defects are netlist patches, not shims.
                 }
-                // M2 charge-decay MECHANISM (not a shim; independent of --no-shims). RETIRES the
-                // runner-level _io_db decay shim below: engine-level per-bit timestamp decay on the
-                // 2C02 io-bus latch island. Default ON in S1A (mechanism supersedes shim); the old
-                // shim returns only if the mechanism is explicitly disabled (NO_M2DECAY). Retirement
-                // proven 2026-07-18: ppu_open_bus 3-arm — shim PASS / no-shim FAIL(3) / mechanism PASS.
-                if (!_noShims && Environment.GetEnvironmentVariable("NO_M2DECAY") == null)
-                    WireCore.EnableM2Decay();
                 var vram = (_expectedCrcs != null || _screenVerdict) ? WireCore.ResolveMemory("u4.ram") : null;
 
                 // --ac-verdict: the NES internal 2K CPU RAM (nes-001 instantiates it as "u1" = SRAM2K).

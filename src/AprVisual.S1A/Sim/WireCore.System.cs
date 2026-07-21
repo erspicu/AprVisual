@@ -353,7 +353,6 @@ namespace AprVisual.Sim
             public byte PrevTrig; public long HoldUntil; public int ClampedNode; public bool InWr; public int WrDb;
         }
         private static bool _m6x;
-        public static bool M6xEnabled => _m6x;
         private static M6xRow[] _m6xRows = Array.Empty<M6xRow>();
         private static int[] _m6xHp = Array.Empty<int>(), _m6xVp = Array.Empty<int>(), _m6xHp3 = Array.Empty<int>();
 
@@ -397,7 +396,6 @@ namespace AprVisual.Sim
             }
             _m6xRows = rows.ToArray();
             _m6x = _m6xRows.Length > 0;
-            if (_m6x) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial + even_odd)");
         }
 
@@ -535,7 +533,6 @@ namespace AprVisual.Sim
             }
             _m4Rows = rows.ToArray();
             _m4Edge = _m4Rows.Length > 0;
-            if (_m4Edge) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m4] edge-latch armed: {_m4Rows.Length} annotation rows");
         }
 
@@ -591,9 +588,8 @@ namespace AprVisual.Sim
         // Was a daisy chain hosted inside DmcLatch→Alu→Lxa: any single shim's kill switch
         // silently disabled the whole downstream family — a confounded control for retirement
         // experiments. Flattened with the ORIGINAL execution order preserved exactly:
-        // Dmc → Alu → OpenBus → DL → abort → OamEdge → Lxa-rest. ShimChainArmed is set by
-        // every Enable* in this family; the benchmark path never arms anything (bit-exact).
-        internal static bool ShimChainArmed;
+        // OpenBus → DL → abort → OamEdge → Lxa-rest → M4·P1 (DMC/ALU are M4EdgeLatch M4Row entries
+        // now, dispatched at the top). Each step self-guards; nothing fires on the benchmark path (bit-exact).
         internal static void TestShimChainStep()
         {
             if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (DMC data-wins + ALU hold rows)
@@ -678,7 +674,7 @@ namespace AprVisual.Sim
             // ResolveNodes returns ascending bit order (ReadBits: index i = bit i)
             for (int b = 0; b < 8; b++) _pdDb[b] = db[b];
             _pdObTop = LookupNode("cart.eram.gate") != EmptyNode ? 0x5FFF : 0x7FFF;
-            _openBusShim = true; ShimChainArmed = true;
+            _openBusShim = true;
         }
 
         private static bool AnyChannelOn(int nn)
@@ -747,7 +743,7 @@ namespace AprVisual.Sim
             if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb[7] == 0)
             { Console.Error.WriteLine("# [shim] DL-transparency: nodes unresolved -- disabled (enable AFTER EnableOpenBusShim)"); return; }
             for (int b = 0; b < 8; b++) { _dlIdl[b] = idl[b]; _dlNotIdl[b] = nidl[b]; }
-            _dlShim = true; ShimChainArmed = true;
+            _dlShim = true;
         }
 
         private static int _dlHeldMask;   // notidl bits currently clamped (held through the rest of phi2)
@@ -954,7 +950,7 @@ namespace AprVisual.Sim
             _oeSprAddr = sa.ToArray();
             _oePrevRend = NodeStates[_oeRend];
             _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0; _oeFires = 0;
-            _oamEdgeShim = true; ShimChainArmed = true;
+            _oamEdgeShim = true;
         }
 
         // M4·hold-on-OAM MECHANISM (env M4_OE): promotes the proven OAM-blank-edge row-restore to
@@ -1027,7 +1023,7 @@ namespace AprVisual.Sim
             _dmcAbPhase = LookupNode("cpu.#11466");   // ACLK phase holding the retire gate (#11483) shut
             if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
             { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
-            _dmcAbortShim = true; ShimChainArmed = true;
+            _dmcAbortShim = true;
         }
 
         // P3-abort MECHANISM (env M3_ABORT): promotes the proven deferred-$4015 DMC-DMA-abort
@@ -1146,7 +1142,7 @@ namespace AprVisual.Sim
             _lxaPrevPhi2 = NodeStates[_lxaPhi2];
             _lxaArm = 0;
             _laeRecent = 0; _laeWait = 0; _laeVal = -1; _laeSbsSeen = false;
-            LxaMagicShim = true; ShimChainArmed = true;
+            LxaMagicShim = true;
         }
 
         // M1·strength LXA MECHANISM (env M1_LXA): promotes the proven LXA/ANE magic-merge to an
@@ -1531,7 +1527,6 @@ namespace AprVisual.Sim
             EnableOamDmaPpuBusShim();           // QueuedDrive: resolve + arm the OAM-DMA queue state
             if (OamDmaPpuBusShim) { OamDmaPpuBusShim = false; _m4p1Queue = true; }
             M4P1Enabled = _m4p1Clamp || _m4p1Queue;
-            if (M4P1Enabled) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m4p1] armed: ClampBus(Dbl2007)={_m4p1Clamp} QueuedDrive(OamDmaPpuBus)={_m4p1Queue}");
         }
         internal static void M4P1Step()

@@ -352,7 +352,6 @@ namespace AprVisual.Sim
             // state
             public byte PrevTrig; public long HoldUntil; public int ClampedNode; public bool InWr; public int WrDb;
         }
-        private static bool _m6x;
         private static M6xRow[] _m6xRows = Array.Empty<M6xRow>();
         private static int[] _m6xHp = Array.Empty<int>(), _m6xVp = Array.Empty<int>(), _m6xHp3 = Array.Empty<int>();
 
@@ -395,7 +394,6 @@ namespace AprVisual.Sim
                 else Console.Error.WriteLine($"# [m6x] row {nm}: {en}/{comp} unresolved -- skipped");
             }
             _m6xRows = rows.ToArray();
-            _m6x = _m6xRows.Length > 0;
             Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial + even_odd)");
         }
 
@@ -636,7 +634,6 @@ namespace AprVisual.Sim
         // BOTH halves of the pair, the same dual-side pattern the frame-IRQ shim uses.
         private static int[] _laeS = Array.Empty<int>();
         private static int[] _laeNotS = Array.Empty<int>();
-        private static int[] _laeSb = Array.Empty<int>();
         private static int _laeSbs = EmptyNode;
         private static int _laeRecent;       // half-cycles since IR last read $BB (write-back overlaps the next fetch)
         private static bool _laeSbsSeen;
@@ -819,7 +816,7 @@ namespace AprVisual.Sim
         // ReadALE at dot 230. Opt-in (ALEREAD_MUX env; set BEFORE LoadSystem for the cut); the
         // golden-checksum benchmark path never sets it.
         public static bool AleReadMuxShim = false;
-        private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode, _muxR2007 = EmptyNode;
+        private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode;
         private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>(), _muxHp = System.Array.Empty<int>();
         private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
         private static long _muxDetect;
@@ -842,7 +839,6 @@ namespace AprVisual.Sim
             _muxIoCe = LookupNode("ppu.io_ce");
             _muxAle = LookupNode("ppu.ale");
             _muxCpuRw = LookupNode("cpu.rw"); if (_muxCpuRw == EmptyNode) _muxCpuRw = LookupNode("2a03.cpu.rw");
-            _muxR2007 = LookupNode("ppu.read_2007_trigger");
             var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? pab.ToArray() : System.Array.Empty<int>();
             var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
             var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
@@ -897,7 +893,7 @@ namespace AprVisual.Sim
         // ~3.5 cycles out; if the CPU is then DMA-stalled and the fetch has not yet happened,
         // clamp the rdy pulldown gate (cpu.#14039) off so the CPU resumes. Test mode only. ──
         private static bool _dmcAbortShim;
-        private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode, _dmcAbUpReq = EmptyNode, _dmcAbPhase = EmptyNode;
+        private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode, _dmcAbPhase = EmptyNode;
         private static long _dmcAbLastBoundary; private static int _dmcAbPrevLoadSr;
         private static int _dmcAbPrevEn = -1, _dmcAbCountdown, _dmcAbHold, _dmcAbKillIn;
         private static bool _dmcAbFetchSeen;
@@ -931,7 +927,7 @@ namespace AprVisual.Sim
         private static readonly int[,] _oeCellA = new int[256, 8], _oeCellB = new int[256, 8];
         private static readonly byte[] _oeMirror = new byte[8];
         private static readonly int[] _oeDriven = new int[128];
-        private static int _oeMirrorRow = -1, _oePrevRend, _oeDrivenCount, _oeHold, _oeFires;
+        private static int _oeMirrorRow = -1, _oePrevRend, _oeDrivenCount, _oeHold;
 
         public static void EnableOamBlankEdgeShim()
         {
@@ -949,7 +945,7 @@ namespace AprVisual.Sim
             { Console.Error.WriteLine("# [shim] oam-blank-edge: nodes unresolved -- disabled"); return; }
             _oeSprAddr = sa.ToArray();
             _oePrevRend = NodeStates[_oeRend];
-            _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0; _oeFires = 0;
+            _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0;
             _oamEdgeShim = true;
         }
 
@@ -1007,7 +1003,6 @@ namespace AprVisual.Sim
                 }
                 if (changed) ProcessQueue();
                 _oeHold = 2;   // hold the restore across the edge settle, then release
-                _oeFires++;
             }
             _oePrevRend = rend;
         }
@@ -1019,7 +1014,6 @@ namespace AprVisual.Sim
             _dmcAbEn = LookupNode("cpu.pcm_en");
             _dmcAbRdy = LookupNode("cpu.rdy");
             _dmcAbLoadSr = LookupNode("cpu.#11093");  // pcm_loadsr -- byte-boundary anchor
-            _dmcAbUpReq = LookupNode("cpu.#15737");   // upstream request latch (feeds #14039 through clock gate #11483)
             _dmcAbPhase = LookupNode("cpu.#11466");   // ACLK phase holding the retire gate (#11483) shut
             if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
             { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
@@ -1130,7 +1124,7 @@ namespace AprVisual.Sim
             _laeAcs = LookupNode("cpu.dpc23_SBAC");
             if (ns.Count != 8 || sb.Count != 8 || _laeSbs == EmptyNode)
             { Console.Error.WriteLine("# [shim] LXA/LAE shim: nots[7:0]/sb[7:0]/dpc6_SBS unresolved — disabled"); LxaMagicShim = false; return; }
-            _laeNotS = ns.ToArray(); _laeSb = sb.ToArray();
+            _laeNotS = ns.ToArray();
             _laeRam = ResolveMemory("u1.ram");
             _laeNotA = new int[8];
             for (int i = 0; i < 8; i++)

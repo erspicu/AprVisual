@@ -1,0 +1,51 @@
+Here is the rigorous, quantitative assessment of your two acceleration forks. As requested, this is a strict engineering teardown. 
+
+### Question 1: Attacking the 14.5% SCC Re-evaluations Dynamically
+
+**Verdict: DO NOT DO THIS. (Expected magnitude: -15% to -30% slowdown)**
+
+You are experiencing a common illusion in event-driven simulation: assuming that because a node was evaluated twice, the first evaluation was "redundant waste" that can be scheduled away. It is not waste; it is the fixed-point iteration functioning correctly to resolve fighting drivers. 
+
+Attempting to eliminate this via dynamic scheduling will definitively fail your "only removing work wins" constraint. Here is the quantitative proof:
+
+1. **The Overhead vs. Savings Math:**
+   You want to eliminate 18.4M re-evaluations out of 126.8M total pops. That means for every **1** re-evaluation you save, you still must process **~6** necessary evaluations. 
+   To perfectly predict and avoid that 1 re-evaluation, you must apply a dynamic check/queueing logic to the other 6. If your highly tuned `RecalcNode` currently costs roughly 20–30 cycles (a few L1 dependent loads, a flags-OR, and an LUT lookup), you have a budget of **at most ~3–4 cycles of overhead per node** before your tracking mechanism puts you underwater.
+
+2. **The Memory Latency Reality:**
+   Your loop is memory-latency bound. Your current queue (a double-buffered wave array) is the theoretical minimum overhead: a pointer increment and a sequential array append (~2 cycles, perfectly prefetched by the hardware). 
+   Any dynamic mechanism you proposed (topological depth arrays, "wait for active drivers" counters, monotone oscillation tracking) requires fetching and writing per-node metadata. Loading `NodeDepth[nn]` or `ActiveDrivers[nn]` introduces a new dependent load into L1 cache. Best case, an L1 hit is 4 cycles. If it evicts other working-set data and L2 is hit, it’s 12+ cycles. You blow your 3-cycle budget immediately.
+
+3. **Graph Traversal Catch-22:**
+   To delay a node's resolution until "all its currently-ON drivers are settled," you must know which upstream drivers are going to change. Because your graph is 99.4% strongly connected, you cannot know if an upstream driver will change without walking the graph—which is exactly the memory-bound work you are trying to avoid. 
+
+**Conclusion:** The 14.5% re-eval rate is the intrinsic algorithmic cost of settling a bidirectional netlist. Stick to the double-buffered BFS. Any inner-loop branch or metadata load will strictly penalize the 85.5% of fast-path nodes.
+
+***
+
+### Question 2: Using S1A's Physics to Accelerate the Engine
+
+**Verdict for Runtime Physics: DO NOT DO THIS. (Expected magnitude: -30% or worse)**
+**Verdict for Static Physics: HIGHLY LUCRATIVE. (Expected magnitude: +20% to +100%, and unblocks AOT codegen)**
+
+Injecting continuous physics into the **runtime** inner loop strictly violates your core constraints. Let's evaluate your specific runtime hypotheses:
+*   **Drive-strength ordering to collapse SCC:** Requires dynamic sorting or priority queues in the hot loop. Fails the memory/latency constraints.
+*   **Capacitance to skip stable nodes:** Requires loading a `Capacitance[nn]` array (adding L1 pressure) and branching on it. Furthermore, if the pure-binary S1 engine says the node flips, but the capacitance-aware prune skips it, you immediately fail your golden FNV-1a checksum constraint. 
+*   **RC time-constant batching:** Requires maintaining continuous state (floats/wide-ints) and numerical integration. It drastically increases arithmetic and memory footprint. As your Escape-1 investigation proved, analog is slower.
+
+#### The Winning Lever: Static SCC Shattering via Physics-Assured Masking
+
+Physics cannot speed up your runtime loop, but it **can permanently delete work before the simulation even starts**. 
+
+Your graph is a 99.4% giant SCC because the netlist models pass-transistors as topologically bidirectional. However, **physically**, the vast majority of these channels in the NES silicon act as strictly unidirectional logic gates due to massive drive-strength and capacitance asymmetries (e.g., a massive clock buffer driving a small pass-transistor channel into a high-impedance MOSFET gate). The downstream node literally lacks the physics to back-drive the buffer.
+
+**The Concrete Mechanism:**
+1. **Offline Analysis:** Write a pre-processor that uses S1A's continuous resistance and drive-strength models to evaluate every bidirectional transistor channel `A <-> B`. 
+2. **Prove Asymmetry:** Calculate the maximum physical back-drive strength from `B` into `A`. 
+3. **Map to LUT Priority:** Map `B`'s maximum back-drive against `A`'s minimum active hold/drive strength using your golden S1 `flags-OR` 256-entry LUT. 
+4. **Delete the Edge:** If you can mathematically prove that `B`'s contribution to `A` will *always* be masked by `A`'s local state or stronger upstream drivers (e.g., `A` resolves to VCC regardless of what `B` does), **permanently delete the `B -> A` dependency edge from your `TransistorList`**.
+
+**Why it wins and adheres to your rules:**
+*   **Bit-Exactness:** Risk is zero. You are simply pre-computing that `B`'s flag contribution would be discarded by the S1 LUT anyway. The final quiescent state must be byte-identical.
+*   **Only Removes Work:** You physically shrink the graph. Average conducting group size drops below 1.4. `RecalcNode` executes fewer BFS steps. 
+*   **Unblocks Static Order:** This is the massive secondary win. By severing the functionally dead back-edges, you will shatter the 99.4% SCC into a DAG (or tiny localized SCCs, like latches). Once levelized, you can statically reorder `NodeStates` in memory to guarantee perfect L1 prefetching during wave propagation. More importantly, breaking the giant SCC nullifies the root cause of your previous AOT/codegen failure, re-opening the door to the 3–6x speedups of compiled static DAGs.

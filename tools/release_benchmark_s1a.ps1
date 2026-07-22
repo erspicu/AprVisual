@@ -9,10 +9,9 @@
  What it does:
    1. Publishes the C# S1A engine as a SELF-CONTAINED, MULTI-FILE, TRIMMED folder
       into AprVisualBenchMarkS1A\win\csharp\  (no single .exe; no .NET install; no pdb).
-   2. Smoke-tests the published exe at BOTH calibration points:
-        --benchmark          300k -> 0x41244C26C45EDD32   (full S1A engine)
-        --benchmark --no-shims 300k -> 0x794A43ABDF169ADA (raw = S1 core; bit-exactness)
-      Aborts if either mismatches.
+   2. Smoke-tests the published exe at the golden calibration point:
+        --benchmark 300k -> 0x41244C26C45EDD32   (full S1A engine — always full-armed)
+      Aborts if it mismatches.
    3. Stages a copy EXCLUDING runtime output (log\, screenshots\) via .keep, then zips
       -> temp\pkg\AprVisualBenchMarkS1A.zip (top-level folder = AprVisualBenchMarkS1A).
    4. (-Publish) creates/refreshes the GitHub release benchmark-s1a-<Version> (--latest).
@@ -46,8 +45,7 @@ $SysDef  = Join-Path $Bench 'data\system-def'
 $Tag     = "benchmark-s1a-$Version"
 $Stage   = Join-Path $Root 'temp\pkg\AprVisualBenchMarkS1A'
 $Zip     = Join-Path $Root 'temp\pkg\AprVisualBenchMarkS1A.zip'
-$GoldFull = '0x41244C26C45EDD32'   # full S1A engine, 300k
-$GoldRaw  = '0x794A43ABDF169ADA'   # --no-shims (raw = S1 core), 300k
+$GoldFull = '0x41244C26C45EDD32'   # full S1A engine, 300k (S1A is always full-armed — no raw mode)
 $AssetUrl = "https://github.com/erspicu/AprVisual/releases/download/$Tag/AprVisualBenchMarkS1A.zip"
 
 function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
@@ -68,9 +66,7 @@ Step "2/5  smoke test (full_palette 300k --extra-ram)"
 $exe = Join-Path $CsOut 'AprVisual.S1A.exe'
 $full = (& $exe --benchmark $Rom --bench-hc 300000 --extra-ram --system-def-dir $SysDef 2>&1) -join "`n"
 if ($full -notmatch [regex]::Escape($GoldFull)) { Write-Host $full; throw "SMOKE FAILED — full-engine checksum != $GoldFull" }
-$raw = (& $exe --no-shims --benchmark $Rom --bench-hc 300000 --extra-ram --system-def-dir $SysDef 2>&1) -join "`n"
-if ($raw -notmatch [regex]::Escape($GoldRaw)) { Write-Host $raw; throw "SMOKE FAILED — raw (--no-shims) checksum != $GoldRaw" }
-Write-Host "  ok: full $GoldFull  /  raw $GoldRaw"
+Write-Host "  ok: full $GoldFull"
 
 # 3. stage excluding log\ + screenshots\ ----------------------------------------
 Step "3/5  stage copy (exclude log\, screenshots\)"
@@ -98,9 +94,9 @@ if (-not $Notes) {
     $Notes = @"
 AprVisual S1A switch-level NES benchmark (C# / Windows). Engine $commit.
 
-S1A = S1 + the always-on M1-M6 physics mechanisms. ``--benchmark`` runs the FULL engine
-(golden checksum $GoldFull @ full_palette 300k --extra-ram). Add ``--no-shims`` for the raw
-switch-level engine (= the S1 core, $GoldRaw). Windows C# only — self-contained, multi-file,
+S1A = S1 + the always-on M1-M6 physics mechanisms. ``--benchmark`` runs the FULL engine, always
+(golden checksum $GoldFull @ full_palette 300k --extra-ram). There is no raw mode — for the raw
+switch-level engine use the separate S1 benchmark. Windows C# only — self-contained, multi-file,
 trimmed folder ``win/csharp/`` (~$mb MB), no .NET install needed. Corrected netlist (t13032b).
 Run: ``run_csharp.bat`` (benchmark) / ``shot_csharp.bat`` (frame-dump).
 "@

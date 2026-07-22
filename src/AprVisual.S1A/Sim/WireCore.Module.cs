@@ -68,7 +68,7 @@ namespace AprVisual.Sim
         /// LoadSystem() after Reset() has populated the unmanaged arrays. Keeps the _nodeByName
         /// / _nameByNode maps and the Node[] shell (for LookupNode / probe-style diags), but
         /// frees the large per-node Gates / C1c2s lists, the full transistor list, the build
-        /// dedup hash, and the parsed JSON ModuleDefs.</summary>
+        /// dedup hash, instance bookkeeping, and the parsed JSON ModuleDefs.</summary>
         public static void ClearPostLoadBuildState()
         {
             // Cleared because: already flattened into TransistorList + NodeInfos + NodeTlistGates.
@@ -82,8 +82,12 @@ namespace AprVisual.Sim
             _transistors.Clear(); _transistors.TrimExcess();
             _transistorSet.Clear(); _transistorSet.TrimExcess();
             _forceComputeList.Clear(); _forceComputeList.TrimExcess();
+            // Compose-only bookkeeping. Lowering/handler attachment are finished, and no runtime
+            // path needs instance prefix ownership or the setup-once guard.
+            _instancesSetUp.Clear(); _instancesSetUp.TrimExcess();
+            InstanceRanges.Clear(); InstanceRanges.TrimExcess();
             // Parsed JSON module defs (biggest single allocator, ~20-50 MB).
-            ClearLoadedDefs();
+            ClearLoadedDefs(releaseCapacity: true);
             // Hint a Gen2 collection so the cleared memory actually returns to the OS;
             // happens once at LoadSystem, has no bench-time cost.
             System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);

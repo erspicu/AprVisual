@@ -475,6 +475,8 @@ namespace AprVisual.Sim
         public static void Shutdown()
         {
             FreeUnmanagedMemory();
+            _rom = null;
+            _romFingerprint = 0;
         }
     }
 

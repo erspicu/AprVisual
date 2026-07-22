@@ -24,7 +24,10 @@ namespace AprVisual.Sim
         internal static NativeNodeList R_CpuPcl, R_CpuPch, R_CpuAb, R_CpuDb;
         public static Memory? M_EramRam;              // cart.eram.ram — the $6000 work RAM used by blargg test ROMs
 
+        // Needed while composing the cartridge wiring. After the final build, retain only the
+        // fingerprint so the core does not keep the caller's managed PRG/CHR payload alive.
         private static NesRom? _rom;
+        private static uint _romFingerprint;
 
         // ───────────────────────────────────────────────────────────────────────
 
@@ -181,9 +184,15 @@ namespace AprVisual.Sim
 
             ResetNes(full: true);     // clear RAMs + Reset() + alloc FrameBuffer + assert/run/deassert res
 
+            // Snapshot identity needs the ROM bytes, but the runtime does not. Cache the exact
+            // existing fingerprint before releasing WireCore's last strong reference to them.
+            _romFingerprint = ComputeRomFingerprint(rom.PrgRom, rom.ChrRom, rom.Mapper);
+            _rom = null;
+
             // The hot path reads only the unmanaged arrays from this point. Drop the build-time
             // managed data (Node.Gates / Node.C1c2s lists, _transistors list, _transistorSet,
-            // _forceComputeList, LoadedDefs JSON parse) — typically ~25-50 MB freed.
+            // _forceComputeList, instance bookkeeping, LoadedDefs JSON parse, ROM source reference)
+            // — typically ~25-50 MB plus any otherwise-unreferenced ROM payload freed.
             ClearPostLoadBuildState();
 
             // S1A full-engine arming — post-load half. The graph is composed and reset; resolve + arm the

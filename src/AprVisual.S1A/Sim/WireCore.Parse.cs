@@ -76,7 +76,11 @@ namespace AprVisual.Sim
         private static readonly Dictionary<string, ModuleDef> _loadedDefs = new(StringComparer.Ordinal);
         internal static IReadOnlyDictionary<string, ModuleDef> LoadedDefs => _loadedDefs;
 
-        public static void ClearLoadedDefs() => _loadedDefs.Clear();
+        public static void ClearLoadedDefs(bool releaseCapacity = false)
+        {
+            _loadedDefs.Clear();
+            if (releaseCapacity) _loadedDefs.TrimExcess();
+        }
 
         /// <summary>Load a module def from <paramref name="fileName"/> and register it under
         /// <paramref name="asName"/>, shadowing any later load of that name (LoadModuleDef is

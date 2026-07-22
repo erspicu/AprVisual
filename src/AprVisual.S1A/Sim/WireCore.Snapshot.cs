@@ -314,12 +314,29 @@ namespace AprVisual.Sim
         // ── helpers ─────────────────────────────────────────────────────────────────────────
 
         // PRG+CHR content fingerprint — ties a snapshot to the exact ROM it was taken under.
-        private static uint RomFingerprint()
+        // It is calculated while LoadSystem still has the ROM payload, then retained as a scalar
+        // so long-running simulations do not keep the managed PRG/CHR arrays alive.
+        private static uint RomFingerprint() => _romFingerprint;
+
+        private static uint ComputeRomFingerprint(ReadOnlySpan<byte> prg, ReadOnlySpan<byte> chr, int mapper)
         {
-            if (_rom == null) return 0;
-            uint c = Crc32(_rom.PrgRom);
+            uint c = Crc32WithoutTable(prg);
             // combine (not concat) so PRG/CHR boundaries can't alias
-            return Crc32(_rom.ChrRom) ^ (c * 31) ^ (uint)_rom.Mapper;
+            return Crc32WithoutTable(chr) ^ (c * 31) ^ (uint)mapper;
+        }
+
+        // Load-time-only CRC path: it preserves the existing snapshot fingerprint without creating
+        // the table-based snapshot helper's managed uint[256] when snapshots are never requested.
+        private static uint Crc32WithoutTable(ReadOnlySpan<byte> data)
+        {
+            uint crc = 0xFFFFFFFFu;
+            foreach (byte b in data)
+            {
+                crc ^= b;
+                for (int bit = 0; bit < 8; bit++)
+                    crc = (crc & 1) != 0 ? 0xEDB88320u ^ (crc >> 1) : crc >> 1;
+            }
+            return crc ^ 0xFFFFFFFFu;
         }
 
         private static void WriteTag(BinaryWriter w, string tag, int len)

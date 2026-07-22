@@ -23,6 +23,13 @@ namespace AprVisual.Test
                 WireCore.LoadSystem(rom);
                 swLoad.Stop();
 
+                // Match --bench-hc: this mode has no post-load name/probe/snapshot work, so
+                // release setup-only maps and Node shells before timing RunFrame's hot loop.
+                WireCore.ReleaseBenchResidualState();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                System.GC.WaitForPendingFinalizers();
+                System.GC.Collect(2, System.GCCollectionMode.Aggressive, blocking: true, compacting: true);
+
                 long t0 = WireCore.Time;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 for (int f = 0; f < frames; f++) WireCore.RunFrame();

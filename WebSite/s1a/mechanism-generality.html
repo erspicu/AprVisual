@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Do the mechanisms transfer? — M1–M7 across analog-digital chips</title>
+<style>
+  :root{--bg:#100f15;--fg:#dcd7e3;--mut:#968ba1;--acc:#c792ea;--acc2:#7ee0a8;--warn:#ffb454;--bad:#ff6b6b;--good:#7ee0a8;--card:#1a1721;--bd:#2e2634;--code:#211d29;}
+  *{box-sizing:border-box;} html{scroll-behavior:smooth;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;background:var(--bg);color:var(--fg);line-height:1.7;}
+  a{color:var(--acc);text-decoration:none;} a:hover{text-decoration:underline;}
+  nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 20px;background:rgba(20,17,26,.94);border-bottom:1px solid var(--bd);backdrop-filter:blur(6px);}
+  nav .brand{font-weight:700;color:var(--acc);letter-spacing:.4px;margin-right:8px;}
+  nav a.sec{color:var(--mut);font-size:14px;padding:5px 9px;border-radius:6px;} nav a.sec:hover{color:var(--fg);background:var(--card);text-decoration:none;}
+  nav .spacer{flex:1;}
+  nav button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;}
+  nav button.active{background:var(--acc);color:#160f1f;border-color:var(--acc);font-weight:600;}
+  header.hero{padding:56px 24px 34px;text-align:center;background:radial-gradient(1000px 460px at 50% -20%, #221a2e 0%, var(--bg) 62%);}
+  header.hero h1{font-size:clamp(26px,5vw,42px);margin:0 0 10px;color:#e8dcff;letter-spacing:-.5px;}
+  header.hero .tag{color:var(--mut);max-width:900px;margin:0 auto;font-size:15px;}
+  .pill{display:inline-block;border-radius:20px;padding:2px 11px;font-size:12px;margin:2px 4px 2px 0;border:1px solid #3d2f4d;background:#251d31;color:var(--acc);}
+  main{max-width:max(920px, 75vw);margin:0 auto;padding:8px 24px 90px;}
+  section{padding:30px 0 8px;border-top:1px solid var(--bd);} section:first-of-type{border-top:none;}
+  h2{font-size:22px;margin:.3em 0 .2em;color:#e8dcff;}
+  h2 .kick{display:block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:2px;}
+  h3{font-size:16.5px;margin:1.3em 0 .3em;color:#efe9f7;}
+  p{margin:.5em 0;} .mut{color:var(--mut);}
+  ul{margin:.4em 0 .8em;padding-left:22px;} li{margin:.28em 0;}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:13px;font-family:Consolas,"SF Mono",monospace;}
+  pre{background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;} pre code{background:none;padding:0;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:6px 20px 16px;margin:16px 0;}
+  table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:13.5px;}
+  th,td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top;} th{background:var(--card);color:#e8dcff;}
+  td.n{text-align:right;font-family:Consolas,monospace;} .hot{color:var(--bad);font-weight:700;} .ok{color:var(--good);font-weight:700;} .wa{color:var(--warn);font-weight:700;}
+  .tagpill{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11.5px;font-weight:700;white-space:nowrap;}
+  .t-gen{background:#14301f;color:var(--good);border:1px solid #245c43;}
+  .t-mid{background:#2c2213;color:var(--warn);border:1px solid #5a441c;}
+  .t-nes{background:#2a1414;color:var(--bad);border:1px solid #5e2b2b;}
+  .note{border-left:3px solid var(--warn);background:#1e1a14;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  .big{border-left:3px solid var(--acc2);background:#12211a;padding:8px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px;}
+  footer{border-top:1px solid var(--bd);padding:26px 24px 60px;text-align:center;color:var(--mut);font-size:13px;max-width:max(920px, 75vw);margin:0 auto;}
+  .en,.zh{display:none;} body.lang-en .en, body.lang-zh .zh{display:revert;}
+</style>
+</head>
+<body class="lang-en">
+
+<nav>
+  <span class="brand">AprVisual · S1a</span>
+  <a class="sec" href="../s1a.html"><span class="en">← S1a home</span><span class="zh">← S1a 首頁</span></a>
+  <a class="sec" href="../s1a.html#plan"><span class="en">Mechanisms</span><span class="zh">機制</span></a>
+  <a class="sec" href="m5-board.html"><span class="en">See: M5 board</span><span class="zh">另見:M5 板級</span></a>
+  <a class="sec" href="m7-canonical.html"><span class="en">See: M7 canonical</span><span class="zh">另見:M7 正準</span></a>
+  <span class="spacer"></span>
+  <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+  <button id="btn-zh" onclick="setLang('zh')">中文</button>
+</nav>
+
+<header class="hero">
+  <h1><span class="en">Do the mechanisms transfer?</span><span class="zh">機制帶得走嗎?</span></h1>
+  <p class="tag en">The seven S1a mechanisms (M1–M7) restore the ~1.1% analog residue a binary switch-level model cannot express. Natural question: would they help <i>another</i> analog-digital NMOS chip, or are they the NES's own? The answer splits cleanly on <b>two layers</b> — the physics <b>class</b> is a closed, universal set (any faithful switch-level+analog simulator hits the same six), so the <b>method</b> ports; but the <b>code is instantiated on NES nodes</b>, so the <b>sites</b> must be re-found. And three roles stand apart: <b>M7</b> is engine-level with <i>zero</i> chip binding, <b>M5</b> models the board (not the die), and <b>M6</b> needs a second chip to fire at all.</p>
+  <p class="tag zh">S1a 的七個機制(M1–M7)還原了二值開關級模型表達不了的那 ~1.1% 類比殘差。自然的問題:它們對<i>別的</i>類比-數位混合 NMOS 晶片有用嗎,還是 NES 專屬?答案在<b>兩層</b>上乾淨地一分為二 —— 物理<b>類別</b>是一個封閉、普世的集合(任何忠實的開關級+類比模擬器都撞到同一批),所以<b>方法</b>可移植;但 <b>code 是實例化在 NES 的節點上</b>,所以<b>位置</b>要重找。而三個角色自成一格:<b>M7</b> 是引擎級、<i>零</i>晶片綁定,<b>M5</b> 模的是板子(不是晶粒),<b>M6</b> 需要第二顆晶片才觸發。</p>
+  <p style="margin-top:14px">
+    <span class="pill">M1–M7</span>
+    <span class="pill"><span class="en">generality</span><span class="zh">通用度</span></span>
+    <span class="pill"><span class="en">class vs site</span><span class="zh">類別 vs 位置</span></span>
+    <span class="pill">2026-07-22</span>
+  </p>
+</header>
+
+<main>
+
+<section id="two-layers">
+  <h2><span class="kick"><span class="en">The key distinction</span><span class="zh">關鍵區分</span></span>
+      <span class="en">Physics class vs implementation site</span><span class="zh">物理類別 vs 實作位置</span></h2>
+  <p class="en">S1a's whole design principle is to replace ad-hoc <b>shims</b> with white-box mechanisms <i>grown from physics</i>. Each mechanism answers a <b>universal physical question</b> — "does a dynamic node's charge leak away?", "who wins when two drivers fight a bus?" — but it <b>fires at a specific NES node</b> (e.g. <code>ppu._io_db0</code>). Those are two different things:</p>
+  <p class="zh">S1a 的整個設計原則,是把臨時的 <b>shim</b> 換成「<i>從物理長出來</i>」的白箱機制。每個機制回答的是一個<b>通用的物理問題</b> ——「動態節點的電荷會漏光嗎?」、「兩個 driver 搶匯流排時誰贏?」—— 但它<b>啟動在 NES 的某個具體節點</b>(例:<code>ppu._io_db0</code>)。這是兩件不同的事:</p>
+  <div class="card">
+    <ul>
+      <li class="en"><b>The physics question is the <span style="color:var(--acc2)">class</span></b> — chip-independent. The same question exists on a Z80, a 6800, any NMOS die.</li>
+      <li class="zh"><b>物理問題是<span style="color:var(--acc2)">類別</span></b> —— 與晶片無關。同一個問題在 Z80、6800、任何 NMOS 晶粒上都存在。</li>
+      <li class="en"><b>The firing location is the <span style="color:var(--warn)">site</span></b> — <i>found</i> per chip (from die geometry, or reverse-engineered from a failing test). It is this chip's fingerprint.</li>
+      <li class="zh"><b>啟動位置是<span style="color:var(--warn)">位置</span></b> —— 逐晶片<i>辨識</i>出來的(從 die 幾何,或從失敗測試回推)。它是這顆晶片的指紋。</li>
+    </ul>
+  </div>
+  <p class="en">So "does it transfer?" is not yes/no. It is: <b>the class travels; the site does not.</b> The rest of this article measures how much of each mechanism is class and how much is site.</p>
+  <p class="zh">所以「帶不帶得走?」不是 yes/no,而是:<b>類別帶得走;位置帶不走。</b>本文其餘部分,量化每個機制有多少是類別、多少是位置。</p>
+</section>
+
+<section id="closed">
+  <h2><span class="kick"><span class="en">Why the classes are universal</span><span class="zh">為什麼類別是通用的</span></span>
+      <span class="en">A closed taxonomy of six phenomena</span><span class="zh">六個現象的封閉分類</span></h2>
+  <p class="en">The <a href="../s1a.html#plan">detection pass</a> sorts all ~25 "hot spots" across the 288 hardware tests into <b>six programmable structural patterns</b> — and claims the taxonomy is <b>closed</b> (no hot spot across 288 tests falls outside these six):</p>
+  <p class="zh"><a href="../s1a.html#plan">偵測 pass</a> 把 288 顆硬體測試裡的 ~25 個「雷點」全部歸進<b>六個可程式化的結構 pattern</b>,並宣稱分類<b>封閉</b>(288 測沒有一個雷點落在這六類之外):</p>
+  <div class="tbl-wrap"><table>
+    <tr><th><span class="en">Pattern</span><span class="zh">Pattern</span></th><th><span class="en">Physical phenomenon</span><span class="zh">物理現象</span></th><th><span class="en">Mechanism</span><span class="zh">機制</span></th></tr>
+    <tr><td>P1 <span class="en">latch race</span><span class="zh">閂鎖賽跑</span></td><td><span class="en">a pass-gate closes in the same half-cycle its input collapses</span><span class="zh">pass-gate 關門沿與輸入崩塌同半週期</span></td><td>M4</td></tr>
+    <tr><td>P2 <span class="en">cross-chip sampling</span><span class="zh">跨晶片取樣</span></td><td><span class="en">one chip samples before another's signal has arrived</span><span class="zh">一晶片在另一晶片訊號到達前就取樣</span></td><td>M6</td></tr>
+    <tr><td>P3 <span class="en">mid-flight abort</span><span class="zh">中途廢止</span></td><td><span class="en">a control signal cancels an in-progress action same cycle</span><span class="zh">控制訊號同週期廢止一個進行中的動作</span></td><td>M3 / M4</td></tr>
+    <tr><td>P4 <span class="en">feedback</span><span class="zh">回授</span></td><td><span class="en">a binary feedback loop (ALE+read) that won't converge</span><span class="zh">二值回授迴圈(ALE+read)</span></td><td>M4</td></tr>
+    <tr><td>P5 <span class="en">geometry / RC</span><span class="zh">幾何 / RC</span></td><td><span class="en">capacitance/resistance propagation delay</span><span class="zh">電容/電阻造成的傳播延遲</span></td><td>M2 / M3</td></tr>
+    <tr><td>P6 <span class="en">glitch</span><span class="zh">毛刺</span></td><td><span class="en">a mid-settle transient captured by a latch</span><span class="zh">settle 中途的暫態被閂鎖捕捉</span></td><td>M4</td></tr>
+  </table></div>
+  <div class="big">
+    <p class="en"><b>A closed taxonomy <i>is</i> the proof of generality.</b> These six are not "what the NES happens to have" — they are the complete set of analog phenomena a two-state quiescent-settle model cannot express. Any faithful switch-level simulator of any NMOS/mixed-signal die hits <i>these six and no seventh</i>. So the <b>methodology</b> — use these six classes to fill the ~1% analog residue — is universal.</p>
+    <p class="zh"><b>「封閉分類」本身就是通用性的證據。</b>這六類不是「NES 剛好有這些」,而是二值 quiescent-settle 模型表達不了的類比現象的<i>完整集合</i>。任何 NMOS/混合訊號晶粒的忠實開關級模擬,都只會撞到<i>這六類、沒有第七類</i>。所以<b>方法論</b>——拿這六類去補那 ~1% 類比殘差——是通用的。</p>
+  </div>
+</section>
+
+<section id="by-mechanism">
+  <h2><span class="kick"><span class="en">Mechanism by mechanism</span><span class="zh">逐機制解剖</span></span>
+      <span class="en">M1–M5 analog · M6 phase · M7 determinism</span><span class="zh">M1–M5 類比 · M6 相位 · M7 決定論</span></h2>
+  <p class="en">The full roster splits into three roles. For each: the physics, whether the class is universal, and how tightly the current code is bound to the NES.</p>
+  <p class="zh">完整編號分三個角色。每個標:物理、類別是否通用、現在的 code 綁 NES 有多緊。</p>
+
+  <h3>M1 — <span class="en">strength / ratio</span><span class="zh">強度 / 比例</span> · <span class="tagpill t-mid"><span class="en">class general, site NES</span><span class="zh">類別通用,位置綁 NES</span></span></h3>
+  <p class="en">When several drivers fight one bus, the winner is set by <b>drive strength</b> (∝ W/L) — not a binary "nobody yields", but an analog voltage divide. Universal to any ratioed logic. But the current implementation is the 6502's <b>LXA/ANE <code>$AB</code></b> "magic constant" ratio fight — a 6502-specific undocumented opcode. Class ports (a strength LUT / MOSSIM-II strength classes); the site (which bus, which opcode) is re-found. Calibration: W/L from transdef geometry.</p>
+  <p class="zh">多個 driver 搶一條匯流排時,贏家由<b>驅動強度</b>(∝ W/L)決定 —— 不是二值「誰都不讓」,而是類比電壓分壓。任何 ratioed logic 通用。但現在的實作是 6502 的 <b>LXA/ANE <code>$AB</code></b>「magic constant」比例戰 —— 一個 6502 特定的未定義 opcode。類別可帶(強度 LUT / MOSSIM-II 強度類別);位置(哪條匯流排、哪個 opcode)要重找。校準:transdefs 幾何的 W/L。</p>
+
+  <h3>M2 — <span class="en">charge storage &amp; decay</span><span class="zh">電荷儲存與衰減</span> · <span class="tagpill t-gen"><span class="en">most universal</span><span class="zh">最普世</span></span></h3>
+  <p class="en">A dynamic node that isn't being driven <b>leaks its charge away</b> over time (back toward 0); a high-capacitance node holds longer. This is the most universal analog effect — every NMOS die with dynamic (unrefreshed) nodes has it. Fires today on the 2C02 <code>io_db</code> bus (8 nodes, ~600 ms threshold), but the mechanism (a capacitance island + a decay threshold) is fully generic and the sites are <b>auto-findable</b> from geometry (no pull, only pass-gate driven). Calibration: segdef polygon area → node-capacitance proxy.</p>
+  <p class="zh">動態節點沒被持續驅動時,電荷會隨時間<b>漏光</b>(回到 0);電容大的撐得久。這是最普世的類比效應 —— 任何有動態(非刷新)節點的 NMOS 晶粒都有。現在啟動在 2C02 的 <code>io_db</code> 匯流排(8 節點、~600ms 門檻),但機制(電容島 + 衰減門檻)完全通用,且位置可<b>從幾何自動找</b>(無 pull、只被 pass-gate 驅動)。校準:segdefs 多邊形面積 → 節點電容代理。</p>
+
+  <h3>M3 — <span class="en">RC propagation delay</span><span class="zh">RC 傳播延遲</span> · <span class="tagpill t-mid"><span class="en">class general, don't chase RC</span><span class="zh">類別通用,別真追 RC</span></span></h3>
+  <p class="en">A signal through an RC path takes time; across chips and long lines it shows. A zero-delay binary model samples too early. Universal to any system with real RC delay. Today folded into "M6×M3 unified cross-chip phase arbitration" ($2001 write delay, etc.). <b>Hard-won caveat (IRSIM lesson):</b> do <i>not</i> integrate continuous RC in the hot loop — that drags an event-driven engine down. M3 is a <b>discretised delay window</b>, not a continuous RC solve.</p>
+  <p class="zh">訊號經過 RC 路徑要時間;跨晶片、長線特別明顯。零延遲的二值模型取樣太早。任何有真 RC 延遲的系統通用。現在和 M6 合併成「M6×M3 統一跨晶片相位仲裁」($2001 寫延遲等)。<b>硬教訓(IRSIM):</b>別在熱路徑真的積分連續 RC —— 那會拖垮 event-driven 引擎。M3 是<b>離散化的延遲窗</b>,不是連續 RC 求解。</p>
+
+  <h3>M4 — <span class="en">transparent latch / feedback</span><span class="zh">透明閂鎖 / 回授</span> · <span class="tagpill t-mid"><span class="en">biggest; class strong, sites NES</span><span class="zh">最大宗;類別強通用,位置綁 NES</span></span></h3>
+  <p class="en">A dynamic latch is <b>transparent</b> in one clock phase (it tracks its input) and locks on the closing edge; if that edge races the input's collapse, "data wins" vs "hold old" is decided by analog overlap. This is the <b>biggest family</b> (6+ shims). Universal — every dynamic latch / pass-gate latch / binary feedback loop has it. Instances are all 2A03/2C02-specific: DMC <code>pcm_latch</code> (data-wins), the ALU input latch (hold), $2007 double-read ClampBus, OAM-DMA bus, $4016/$4017 DL transparency, PPU ALE/read feedback. Class ports strongly (latches are everywhere); <i>which</i> latches race must be found per chip.</p>
+  <p class="zh">動態閂鎖在某個時脈相位是<b>透明</b>的(跟著輸入變),關門沿才鎖住;若關門沿撞上輸入崩塌,「資料贏」還是「舊值 hold」由類比重疊決定。這是<b>最大宗</b>(6+ shim)。通用 —— 任何動態閂鎖 / pass-gate latch / 二值回授迴圈都有。實例都是 2A03/2C02 特定:DMC <code>pcm_latch</code>(資料贏)、ALU 輸入閂鎖(hold)、$2007 雙讀 ClampBus、OAM-DMA 匯流排、$4016/$4017 DL 透明、PPU ALE/read 回授。類別強通用(閂鎖到處都是);<i>哪些</i>閂鎖會賽跑要逐晶片找。</p>
+
+  <h3>M5 — <span class="en">board-level component library</span><span class="zh">板級元件庫</span> · <span class="tagpill t-nes"><span class="en">system-scoped (off-die)</span><span class="zh">系統級(晶片外)</span></span></h3>
+  <p class="en">M5 models the TTL glue <b>outside the 2A03/2C02 dies</b> — the mainboard/cartridge parts: the 74LS373 octal latch, the CD4021 controller shift register, board ties/pulls. Its flagship win is <b><a href="aleread-mux-timing.html">ALERead (boing2k7)</a></b>: the "pure switch-level ceiling of 140/141" was broken to <b>141/141</b> by the board's 74LS373 (transparent positive feedback + bus capacitance holding $FF). The design charter is blunt: M5 is "<i>not</i> a garnish — it is the key to breaking the pure switch-level ceiling." <b>Generality:</b> the <i>concept</i> is the most universal of all ("model the board, not just the chip" — every multi-chip system has glue logic a chip-only netlist drops). But its object is the <i>system's</i> board — a different chip means a different board. Strictly, "another <b>chip netlist</b>" gains nothing from M5 (M5 covers the die's surroundings). Common TTL (373/374/CD4021/decoders) is cross-system, so the component library partly reuses.</p>
+  <p class="zh">M5 模型化 <b>2A03/2C02 晶粒之外</b>的 TTL glue —— 主機板/卡帶上的元件:74LS373 八進位閂鎖、CD4021 手把移位暫存器、板卡 tie/pull。它的旗艦戰功是 <b><a href="aleread-mux-timing.html">ALERead(boing2k7)</a></b>:「純開關級天花板 140/141」靠板上 74LS373(透明正回授 + 匯流排電容持 $FF)破到 <b>141/141</b>。設計總綱定調得很直接:M5「<i>不是</i>錦上添花,是破純開關級天花板的關鍵」。<b>通用度:</b><i>概念</i>最通用(「連板子一起模,不只模晶片」—— 任何多晶片系統都有被純晶片網表漏掉的 glue logic)。但它的對象是<i>系統的</i>板子 —— 換晶片是另一套板子。嚴格說,「別的<b>晶片 netlist</b>」不受益於 M5(M5 補的是晶粒外圍)。常用 TTL(373/374/CD4021/decoder)跨系統共用,所以元件庫部分可重用。</p>
+
+  <h3>M6 — <span class="en">power-up state / phase arbitration</span><span class="zh">上電初態 / 相位仲裁</span> · <span class="tagpill t-mid"><span class="en">needs ≥2 chips</span><span class="zh">需 ≥2 晶片</span></span></h3>
+  <p class="en">Two effects: (a) the power-up state (residual charge, register randomness); (b) cross-chip phase — a counter/comparator on one chip must <b>not act until</b> a control change from the other chip has arrived. Universal to any multi-chip system. Instances: even/odd frame skip, dot-339 render sampling, BG serial reload, the realistic power-up palette residue. Class ports (queue-layered delta-cycle, break-before-make); the sites are NES cross-chip points. <b>Precondition:</b> M6 needs <b>≥2 chips</b> to fire — a bare single CPU (6502/6800/Z80) has no cross-chip phase and doesn't need M6.</p>
+  <p class="zh">兩個效應:(a)上電初態(殘留電荷、暫存器隨機態);(b)跨晶片相位 —— 一晶片的 counter/comparator 在另一晶片的控制變化到達前<b>不能先動</b>。任何多晶片系統通用。實例:even/odd 幀跳格、dot-339 渲染取樣、BG serial reload、真實開機調色盤殘留。類別可帶(佇列分層 delta-cycle、break-before-make);位置是 NES 跨晶片點。<b>前提:</b>M6 需要 <b>≥2 顆晶片</b>才觸發 —— 裸單 CPU(6502/6800/Z80)沒有跨晶片相位,不需要 M6。</p>
+
+  <h3>M7 — <span class="en">canonical renumbering / determinism</span><span class="zh">正準重編號 / 決定論</span> · <span class="tagpill t-gen"><span class="en">engine-level · zero chip binding</span><span class="zh">引擎級 · 零晶片綁定</span></span></h3>
+  <p class="en">A load-time <b>canonical renumber</b> (by class, layered area, structure hash, degree) so identical "twin" nodes (u7/u8) share a fate and a graph change no longer re-rolls the global node-id "lottery". It fixes the engine's <b>floating-node tiebreak</b> (largest-capacitance-holds) and some open-bus races, which depend on node-id order. Split of labour: <b>M6 = temporal</b> arbitration (power-up + cross-half-cycle); <b>M7 = spatial</b> arbitration of simultaneous events in one settle wave (who resolves first). This is the "M7 canonical topological ID". <b>Generality: the most universal — it binds to no chip at all.</b> It is a property of the <i>engine</i>, not any die; any switch-level simulator whose floating tiebreak depends on order benefits. Verdict: <b>lift and drop, zero change.</b> See <a href="m7-canonical.html">the M7 study</a>.</p>
+  <p class="zh">載入期<b>正準重編號</b>(class、layered area、structure hash、degree),讓同構「孿生」節點(u7/u8)同命、圖一變更就不再重擲全域 node-id「樂透」。它修的是引擎的<b>浮接節點 tie-break</b>(電容最大者保留前值)和 open-bus 某些賽跑,那些依賴 node-id 順序。分工:<b>M6 = 時間</b>仲裁(上電 + 跨半週期);<b>M7 = 空間</b>仲裁(同一 settle 波裡同時事件誰先解)。這就是「M7 正準拓撲 ID」。<b>通用度:最通用 —— 根本不綁任何晶片。</b>它是<i>引擎</i>的性質,不是任何晶粒;任何浮接 tie-break 依賴順序的開關級模擬都受益。判定:<b>直接帶走、零改動。</b>見 <a href="m7-canonical.html">M7 專文</a>。</p>
+</section>
+
+<section id="summary">
+  <h2><span class="kick"><span class="en">At a glance</span><span class="zh">一覽</span></span>
+      <span class="en">Generality of each mechanism</span><span class="zh">各機制的通用度</span></h2>
+  <div class="tbl-wrap"><table>
+    <tr>
+      <th><span class="en">Mech</span><span class="zh">機制</span></th>
+      <th><span class="en">Object layer</span><span class="zh">對象層</span></th>
+      <th><span class="en">Class universal?</span><span class="zh">類別通用?</span></th>
+      <th><span class="en">NES binding</span><span class="zh">NES 綁定</span></th>
+      <th><span class="en">Another chip netlist gains?</span><span class="zh">別的晶片 netlist 受益?</span></th>
+    </tr>
+    <tr><td><b>M1</b> <span class="en">strength</span><span class="zh">強度</span></td><td><span class="en">on-die</span><span class="zh">晶粒內</span></td><td class="ok">✓</td><td class="wa"><span class="en">high (LXA=6502 op)</span><span class="zh">高(LXA=6502 op)</span></td><td><span class="en">class yes, site re-found</span><span class="zh">類別可、位置重找</span></td></tr>
+    <tr><td><b>M2</b> <span class="en">charge/decay</span><span class="zh">電容/衰減</span></td><td><span class="en">on-die</span><span class="zh">晶粒內</span></td><td class="ok"><span class="en">✓ most universal</span><span class="zh">✓ 最普世</span></td><td class="ok"><span class="en">low</span><span class="zh">低</span></td><td class="ok"><span class="en"><b>high</b></span><span class="zh"><b>高</b></span></td></tr>
+    <tr><td><b>M3</b> <span class="en">RC delay</span><span class="zh">RC 延遲</span></td><td><span class="en">on-die / cross-chip</span><span class="zh">晶粒/跨晶片</span></td><td class="ok"><span class="en">✓ (don't chase RC)</span><span class="zh">✓(勿追 RC)</span></td><td class="wa"><span class="en">mid</span><span class="zh">中</span></td><td><span class="en">class yes, site re-found</span><span class="zh">類別可、位置重找</span></td></tr>
+    <tr><td><b>M4</b> <span class="en">latch/feedback</span><span class="zh">閂鎖/回授</span></td><td><span class="en">on-die</span><span class="zh">晶粒內</span></td><td class="ok"><span class="en">✓ biggest</span><span class="zh">✓ 最大宗</span></td><td class="wa"><span class="en">mid–high</span><span class="zh">中-高</span></td><td><span class="en">class strong, sites re-found</span><span class="zh">類別強、位置重找</span></td></tr>
+    <tr><td><b>M5</b> <span class="en">board parts</span><span class="zh">板級元件</span></td><td class="wa"><span class="en">off-die board</span><span class="zh">晶片外的板子</span></td><td class="ok"><span class="en">✓ concept</span><span class="zh">✓ 概念</span></td><td class="hot"><span class="en">system-specific</span><span class="zh">系統特定</span></td><td><span class="en">covers surroundings; TTL lib partly reuses</span><span class="zh">補外圍;TTL 庫部分共用</span></td></tr>
+    <tr><td><b>M6</b> <span class="en">cross-chip/power-up</span><span class="zh">跨晶片/上電</span></td><td><span class="en">cross-die</span><span class="zh">跨晶粒</span></td><td class="ok">✓</td><td class="wa"><span class="en">mid</span><span class="zh">中</span></td><td><span class="en">needs ≥2 chips to fire</span><span class="zh">需 ≥2 晶片才觸發</span></td></tr>
+    <tr><td><b>M7</b> <span class="en">canonical / determinism</span><span class="zh">正準/決定論</span></td><td class="ok"><span class="en"><b>the engine</b></span><span class="zh"><b>引擎本身</b></span></td><td class="ok">✓</td><td class="ok"><span class="en"><b>zero</b></span><span class="zh"><b>零</b></span></td><td class="ok"><span class="en"><b>lift &amp; drop</b></span><span class="zh"><b>直接帶走</b></span></td></tr>
+  </table></div>
+  <div class="note">
+    <p class="en"><b>The genuinely NES-only cases</b> live inside the M4 family: DMC-DMA-abort (needs the APU DMC channel), OAM blank-edge (needs the 2C02's DRAM OAM), frame-IRQ (2A03 APU), $2007/$2001 PPU register timing. For another chip these subsystems <i>don't exist</i> — it's not "re-find the site", it's "no such problem". Rough split: about half the mechanisms are "universal class + low/mid binding" (M2, M3, M4 core, M6, M7 — method and most code port); the other half are "universal class but bound in practice to an NES subsystem or a specific opcode" (M1 LXA, M4's DMC/OAM/frame-IRQ/PPU, M5's board).</p>
+    <p class="zh"><b>真正只有 NES 才有的</b>藏在 M4 家族裡:DMC-DMA-abort(需 APU DMC 通道)、OAM blank-edge(需 2C02 的 DRAM OAM)、frame-IRQ(2A03 APU)、$2007/$2001 PPU 暫存器時序。換晶片時這些子系統<i>根本不存在</i> —— 不是「重找位置」,是「無此問題」。粗估:約一半機制是「通用類別 + 低/中綁定」(M2、M3、M4 核心、M6、M7 —— 方法與多數 code 可轉);另一半是「通用類別但實務綁死 NES 子系統或特定 opcode」(M1 LXA、M4 的 DMC/OAM/frameIRQ/PPU、M5 板子)。</p>
+  </div>
+</section>
+
+<section id="cross-cpu">
+  <h2><span class="kick"><span class="en">The proof</span><span class="zh">佐證</span></span>
+      <span class="en">Bare CPUs need zero mechanisms</span><span class="zh">裸 CPU 不需要任何機制</span></h2>
+  <p class="en">The core engine runs <b>unchanged</b> on three standalone dies — the bare <b>MOS 6502</b>, <b>Motorola 6800</b>, and <b>Zilog Z80</b> — driven by an infinite NOP sled, and is bit-exact across the instruction set. Those three use <b>none of M1–M7</b>, because:</p>
+  <p class="zh">引擎核心<b>不改一行</b>就能跑三顆獨立晶粒 —— 裸 <b>MOS 6502</b>、<b>Motorola 6800</b>、<b>Zilog Z80</b> —— NOP 灌注,且跨 ISA bit-exact。那三顆<b>完全沒用到任何 M1–M7</b>,因為:</p>
+  <ul>
+    <li class="en">they are <b>pure digital CPUs</b> with none of the NES's analog corners (no APU/PPU/OAM DRAM);</li>
+    <li class="zh">它們是<b>純數位 CPU</b>、沒有 NES 的類比邊角(沒有 APU/PPU/OAM DRAM);</li>
+    <li class="en">there is no second chip → no M6/M3 cross-chip phase;</li>
+    <li class="zh">沒有第二顆晶片 → 不需要 M6/M3 跨晶片相位;</li>
+    <li class="en">a NOP sled triggers no ratio fights and no latch races.</li>
+    <li class="zh">灌 NOP 觸發不了任何比例戰或閂鎖賽跑。</li>
+  </ul>
+  <div class="big">
+    <p class="en">This is exactly the point: <b>M1–M7 are not part of the engine — they are the NES's analog-residue patches.</b> The core engine is general; the mechanisms belong to <i>this system</i>. A new chip inherits the general engine and re-earns its own residue set.</p>
+    <p class="zh">這正好反證機制的定位:<b>M1–M7 不是「引擎的一部分」,而是「NES 這個具體系統的類比殘差補丁」。</b>核心引擎是通用的;機制是<i>這顆系統</i>的。新晶片繼承通用引擎,再自己賺回它的殘差集合。</p>
+  </div>
+</section>
+
+<section id="porting">
+  <h2><span class="kick"><span class="en">Porting to a new chip</span><span class="zh">移植到新晶片</span></span>
+      <span class="en">What travels, what must be redone</span><span class="zh">什麼帶得走,什麼要重做</span></h2>
+  <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div class="card">
+      <h3 style="color:var(--good)"><span class="en">Travels (method layer)</span><span class="zh">帶得走(方法層)</span></h3>
+      <ul>
+        <li class="en">the binary quiescent-settle core engine;</li>
+        <li class="zh">二值 quiescent-settle 核心引擎;</li>
+        <li class="en">the six-pattern detection pass + the "texture decides the mechanism" table — to <i>find</i> the new chip's residue;</li>
+        <li class="zh">六類偵測 pass +「質地決定機制」判定表 —— 用來<i>辨識</i>新晶片的殘差;</li>
+        <li class="en">M2/M3's geometry→capacitance/RC proxies, M1's strength LUT, M4's latch-race detector framework, and <b>M7 outright</b>;</li>
+        <li class="zh">M2/M3 的幾何→電容/RC 代理、M1 的強度 LUT、M4 的閂鎖賽跑偵測框架,以及 <b>M7 整個直接用</b>;</li>
+        <li class="en">M5's common-TTL component library (373/374/CD4021/decoder), partly.</li>
+        <li class="zh">M5 的常用 TTL 元件庫(373/374/CD4021/decoder),部分。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--warn)"><span class="en">Redone (site layer)</span><span class="zh">要重做(位置層)</span></h3>
+      <ul>
+        <li class="en">run the new chip's tests → find its hot spots → sort into the six → instantiate on <i>its</i> nodes;</li>
+        <li class="zh">跑新晶片的測試 → 找雷點 → 歸六類 → 在<i>它的</i>節點上實例化;</li>
+        <li class="en">M6's cross-chip points, M1's ratio-fight opcode, M4's specific latches, M5's <i>this system's</i> board;</li>
+        <li class="zh">M6 的跨晶片點、M1 的比例戰 opcode、M4 的具體閂鎖、M5 的<i>這個系統的</i>板子;</li>
+        <li class="en">the NES-subsystem cases (DMC/OAM/frame-IRQ/PPU registers) — if the new chip lacks that subsystem, simply <b>omit</b>.</li>
+        <li class="zh">NES 子系統特定的(DMC/OAM/frameIRQ/PPU 暫存器)—— 新晶片若無對應子系統,<b>直接省略</b>。</li>
+      </ul>
+    </div>
+  </div>
+  <p style="text-align:center;margin-top:16px" class="en"><b>In one line: "which six classes of physics to fill with" is the general rule and travels; "which nodes to fill" is this chip's fingerprint and does not.</b></p>
+  <p style="text-align:center;margin-top:16px" class="zh"><b>一句話:「用哪六類物理去補」是通則、帶得走;「補在哪些節點」是這顆晶片的指紋、帶不走。</b></p>
+</section>
+
+<section id="status">
+  <h2><span class="kick"><span class="en">Honest status</span><span class="zh">誠實狀態</span></span>
+      <span class="en">What actually runs today</span><span class="zh">現在真的在跑什麼</span></h2>
+  <ul>
+    <li class="en"><b>Armed in the engine hot path:</b> M1 (LXA), M2 (decay), M4 (edge-latch / Dbl2007 / OAM / frame-IRQ / DL / PPU feedback), M6×M3 (phase), the ALERead mux. These five families are <i>actually running</i> and pass AC 141/141 + the 147-ROM 146/1.</li>
+    <li class="zh"><b>已 arm 在引擎熱路徑跑的:</b>M1(LXA)、M2(decay)、M4(edge-latch / Dbl2007 / OAM / frame-IRQ / DL / PPU 回授)、M6×M3(相位)、ALERead mux。這五類是<i>現在真的在運作</i>、且過 AC 141/141 + 147 顆 146/1 的。</li>
+    <li class="en"><b>Design / partial:</b> <b>M5</b> (the 74LS373 is already in the netlist, the controller is a behavioral CD4021, but ties/pads still have "upgrade candidates") and <b>M7</b> (the canonical renumber proposed under AccuracyEpoch, partly landed; the engine's separate class-major renumber is a <i>performance</i> reorder with a different purpose).</li>
+    <li class="zh"><b>偏設計 / 部分實現:</b><b>M5</b>(74LS373 已在網表、手把是行為層 CD4021,但 tie/pad 還有「升級候選」)與 <b>M7</b>(AccuracyEpoch 提案的正準重編號,部分落地;引擎另有為<i>效能</i>做的 class-major renumber,目的不同)。</li>
+  </ul>
+  <div class="note">
+    <p class="en"><b>One clarification to avoid confusion:</b> these mechanisms are for <b>fidelity</b>, not speed — S1a is ~10% <i>slower</i> than S1 with them armed. The separate question "can this physics <i>accelerate</i> the engine?" is answered elsewhere (short version: no — the giant bidirectional bus SCC is provably un-shatterable by static analysis; see the <a href="../study.html">study</a> and the Robbins-theorem note in the repo).</p>
+    <p class="zh"><b>一個避免混淆的澄清:</b>這些機制是為了<b>忠實度</b>、不是速度 —— arm 起來 S1a 比 S1 <i>慢</i> ~10%。另一個問題「這些物理能<i>加速</i>引擎嗎?」在別處回答(短版:不能 —— 巨大雙向匯流排 SCC 可證明無法被靜態分析打碎;見 <a href="../study.html">study</a> 與 repo 裡的 Robbins 定理筆記)。</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><span class="en">S1a · mechanism generality · see: <a href="m1-strength.html">M1</a> · <a href="m2-charge-wins.html">M2</a> · <a href="m3-delay.html">M3</a> · <a href="m4-latch.html">M4</a> · <a href="m5-board.html">M5</a> · <a href="m6-phase.html">M6</a> · <a href="m7-canonical.html">M7</a> · back to <a href="../s1a.html">S1a</a></span>
+     <span class="zh">S1a · 機制通用度 · 另見:<a href="m1-strength.html">M1</a> · <a href="m2-charge-wins.html">M2</a> · <a href="m3-delay.html">M3</a> · <a href="m4-latch.html">M4</a> · <a href="m5-board.html">M5</a> · <a href="m6-phase.html">M6</a> · <a href="m7-canonical.html">M7</a> · 回 <a href="../s1a.html">S1a</a></span></p>
+  <p class="mut">© AprVisual — <span class="en">the class travels; the site is the chip's fingerprint.</span><span class="zh">類別帶得走;位置是晶片的指紋。</span></p>
+</footer>
+
+<script>
+  function setLang(l){document.body.className='lang-'+l;document.documentElement.lang=(l==='zh')?'zh-Hant':'en';document.getElementById('btn-en').classList.toggle('active',l==='en');document.getElementById('btn-zh').classList.toggle('active',l==='zh');try{localStorage.setItem('aprvisual-lang',l);}catch(e){}}
+  (function(){var saved=null;try{saved=localStorage.getItem('aprvisual-lang');}catch(e){}if(saved==='zh'||saved==='en'){setLang(saved);return;}var langs=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||navigator.userLanguage||''];var isZh=langs.some(function(l){return String(l).toLowerCase().indexOf('zh')===0;});setLang(isZh?'zh':'en');})();
+</script>
+</body>
+</html>

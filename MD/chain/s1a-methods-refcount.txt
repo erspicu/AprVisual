@@ -1,0 +1,281 @@
+S1A method reference-count analysis
+Generated 2026-07-22  .  src/AprVisual.S1A/  (23 .cs files, excl bin/obj)
+Methods found: 258   .   DEAD candidates (0 refs): 7
+
+Reference count = whole-word occurrences in CODE (comments stripped) minus the
+definition site(s). 0 = defined but never called anywhere in S1A source.
+WARNING: 0 refs is a *candidate* only -- verify the method is not a delegate/callback
+target, an event handler, a reflection/entry point (Program.Main), or a public API
+meant for an external caller, before deleting it.
+==============================================================================
+
+=== DEAD candidates -- 0 refs (7) ===
+  AllNodeNames                      Sim/WireCore.Module.cs:59
+  AtArrayEnd                        Sim/JsModuleFormat.cs:183
+  FindCallbackTargetByName          Sim/WireCore.Handlers.cs:327
+  GetNodeFlags                      Sim/WireCore.Recalc.cs:804
+  Main                              Program.cs:13
+  PeekText                          Sim/JsModuleFormat.cs:140
+  ReadBool                          Sim/JsModuleFormat.cs:213
+
+=== ALL methods -- by ref count ascending ===
+   refs  method                            defined at
+  ------------------------------------------------------------------------
+      0  AllNodeNames                      Sim/WireCore.Module.cs:59
+      0  AtArrayEnd                        Sim/JsModuleFormat.cs:183
+      0  FindCallbackTargetByName          Sim/WireCore.Handlers.cs:327
+      0  GetNodeFlags                      Sim/WireCore.Recalc.cs:804
+      0  Main                              Program.cs:13
+      0  PeekText                          Sim/JsModuleFormat.cs:140
+      0  ReadBool                          Sim/JsModuleFormat.cs:213
+      1  AddCallback                       Sim/WireCore.Handlers.cs:125
+      1  AddNamedNode                      Sim/WireCore.Module.cs:165
+      1  AleReadMuxStep                    Sim/WireCore.System.cs:860
+      1  AllocAligned                      Sim/WireCore.Native.cs:16
+      1  AnyChannelOn                      Sim/WireCore.System.cs:680
+      1  Apply                             Sim/PerfTuning.cs:72
+      1  ApplyMacOs                        Sim/PerfTuning.cs:137
+      1  ApplyPowerUpState                 Sim/WireCore.System.cs:283
+      1  ApplyPowerUpZFlag                 Sim/WireCore.System.cs:319
+      1  ApplyRenumber                     Sim/WireCore.Renumber.cs:132
+      1  ArmS1aMechanisms                  Sim/WireCore.System.cs:195
+      1  AttachMemoryHandlers              Sim/WireCore.Handlers.cs:439
+      1  AutoBestCoreMask                  Sim/PerfTuning.cs:152
+      1  Benchmark                         Test/TestRunner.Bench.cs:14
+      1  BenchmarkHalfCycles               Test/TestRunner.Bench.cs:57
+      1  BfsDepthTally                     Sim/WireCore.Recalc.cs:185
+      1  BoundaryPopTally                  Sim/WireCore.Recalc.cs:311
+      1  BuildCrc32Table                   Render/PngWriter.cs:99
+      1  BuildFlagsToStateTable            Sim/WireCore.Group.cs:34
+      1  BuildRunnerBlob                   Test/TestRunner.Test.cs:69
+      1  CapturePruneClasses               Sim/WireCore.Renumber.cs:35
+      1  ClassifyPruneTaint                Sim/WireCore.FastPath.cs:112
+      1  ClassifyPureLogicNodes            Sim/WireCore.FastPath.cs:69
+      1  ClassifyTurnOffSkip               Sim/WireCore.FastPath.cs:169
+      1  ClearPostLoadBuildState           Sim/WireCore.Module.cs:73
+      1  CoActivityTally                   Sim/WireCore.Recalc.cs:205
+      1  CopyRomBytes                      Sim/WireCore.System.cs:210
+      1  CpuModel                          Test/TestRunner.Bench.cs:427
+      1  DecodeNametable                   Test/TestRunner.Test.cs:521
+      1  DlShimStep                        Sim/WireCore.System.cs:751
+      1  Dmc4015AbortShimStep              Sim/WireCore.System.cs:1041
+      1  DoJoypad                          Sim/WireCore.Handlers.cs:575
+      1  DoMapperLatch                     Sim/WireCore.Handlers.cs:280
+      1  DoMemRead                         Sim/WireCore.Handlers.cs:227
+      1  DoMemReadWrite                    Sim/WireCore.Handlers.cs:288
+      1  DoVideo                           Sim/WireCore.Handlers.cs:303
+      1  DumpAcResultTable                 Test/TestRunner.Test.cs:49
+      1  DumpModule                        Test/TestRunner.Diag.cs:72
+      1  DumpNode                          Test/TestRunner.Diag.cs:444
+      1  DumpStates                        Test/TestRunner.Bench.cs:293
+      1  DumpSystem                        Test/TestRunner.Diag.cs:112
+      1  EnableAleReadMux                  Sim/WireCore.System.cs:840
+      1  EnableDbl2007Shim                 Sim/WireCore.System.cs:1445
+      1  EnableDlShim                      Sim/WireCore.System.cs:738
+      1  EnableDmc4015AbortMech            Sim/WireCore.System.cs:1033
+      1  EnableDmc4015AbortShim            Sim/WireCore.System.cs:1015
+      1  EnableFrameIrqMech                Sim/WireCore.System.cs:1391
+      1  EnableFrameIrqShim                Sim/WireCore.System.cs:1374
+      1  EnableLxaMagicMech                Sim/WireCore.System.cs:1152
+      1  EnableLxaMagicShim                Sim/WireCore.System.cs:1111
+      1  EnableM2Decay                     Sim/WireCore.System.cs:1180
+      1  EnableM4EdgeLatch                 Sim/WireCore.System.cs:493
+      1  EnableM4P1                        Sim/WireCore.System.cs:1523
+      1  EnableM6xPhase                    Sim/WireCore.System.cs:359
+      1  EnableOamBlankEdgeMech            Sim/WireCore.System.cs:960
+      1  EnableOamBlankEdgeShim            Sim/WireCore.System.cs:936
+      1  EnableOamDmaPpuBusShim            Sim/WireCore.System.cs:1558
+      1  EnqueueCallback                   Sim/WireCore.Handlers.cs:319
+      1  EnqueueTurnOnTagged               Sim/WireCore.Recalc.cs:656
+      1  FindNametableCrc                  Test/TestRunner.Test.cs:536
+      1  FindNametableVerdict              Test/TestRunner.Test.cs:576
+      1  FlagsToStateOf                    Sim/WireCore.Group.cs:42
+      1  FrameDump                         Test/TestRunner.Diag.cs:314
+      1  FrameIrqShimStep                  Sim/WireCore.System.cs:1399
+      1  FreeAligned                       Sim/WireCore.Native.cs:34
+      1  FreeHandlerArrays                 Sim/WireCore.Native.cs:61
+      1  GatedGndPullTarget                Sim/WireCore.System.cs:1096
+      1  GetCurrentThread                  Sim/PerfTuning.cs:40
+      1  HasNonTrivialRomFeedbackCycle     Sim/WireCore.Handlers.cs:260
+      1  InitBoundaryDiag                  Sim/WireCore.Recalc.cs:283
+      1  InstClampHigh                     Sim/WireCore.Recalc.cs:781
+      1  LaeForce                          Sim/WireCore.System.cs:1090
+      1  LexIdent                          Sim/JsModuleFormat.cs:123
+      1  LexNumber                         Sim/JsModuleFormat.cs:114
+      1  LexString                         Sim/JsModuleFormat.cs:98
+      1  LxaMagicShimStep                  Sim/WireCore.System.cs:1211
+      1  M2ArbKey                          Sim/WireCore.cs:104
+      1  M2CensusGroupTally                Sim/WireCore.cs:148
+      1  M2CensusPairTally                 Sim/WireCore.cs:139
+      1  M2DecayStep                       Sim/WireCore.System.cs:1194
+      1  M2LayerWeight                     Sim/WireCore.cs:103
+      1  M4EdgeLatchStep                   Sim/WireCore.System.cs:539
+      1  M4P1Step                          Sim/WireCore.System.cs:1532
+      1  M6xPhaseStep                      Sim/WireCore.System.cs:414
+      1  MaxNodeIdOf                       Sim/WireCore.Module.cs:229
+      1  MicroDump                         Test/TestRunner.Probes.cs:14
+      1  ModuleKey                         Sim/WireCore.Recalc.cs:251
+      1  MuxCpuAb                          Sim/WireCore.System.cs:856
+      1  NamesLookup                       Test/TestRunner.Diag.cs:42
+      1  NodeStatesChecksum                Sim/WireCore.Recalc.cs:22
+      1  OamBlankEdgeShimStep              Sim/WireCore.System.cs:968
+      1  OamDmaDequeueAddr                 Sim/WireCore.System.cs:1660
+      1  OamDmaDequeueValue                Sim/WireCore.System.cs:1666
+      1  OamDmaDriveByte                   Sim/WireCore.System.cs:1674
+      1  OamDmaEnqueue                     Sim/WireCore.System.cs:1647
+      1  OamDmaPpuBusShimStep              Sim/WireCore.System.cs:1599
+      1  OamDmaTrackCpuCycle               Sim/WireCore.System.cs:1627
+      1  OpenBusShimStep                   Sim/WireCore.System.cs:697
+      1  PairSupplyFlagsInline             Sim/WireCore.Recalc.cs:547
+      1  ParseRunnerBlob                   Test/TestRunner.Test.cs:79
+      1  PayloadHist                       Test/TestRunner.Diag.cs:14
+      1  PpuDump                           Test/TestRunner.Diag.cs:357
+      1  PreloadModuleAs                   Sim/WireCore.Parse.cs:84
+      1  PrintRealtimeGap                  Test/TestRunner.Bench.cs:306
+      1  pthread_set_qos_class_self_np     Sim/PerfTuning.cs:67
+      1  ReleaseBenchResidualState         Sim/WireCore.Module.cs:99
+      1  ResetHandlers                     Sim/WireCore.Handlers.cs:102
+      1  ResetMapperState                  Sim/WireCore.Handlers.cs:559
+      1  ResolveCachedNodes                Sim/WireCore.System.cs:236
+      1  Run                               Test/TestRunner.cs:40
+      1  SelfTest                          Test/TestRunner.Diag.cs:157
+      1  SetProcessInformation             Sim/PerfTuning.cs:52
+      1  SettlePassTally                   Sim/WireCore.Recalc.cs:169
+      1  SetupCnrom                        Sim/WireCore.Handlers.cs:524
+      1  SideOf                            Sim/WireCore.Recalc.cs:263
+      1  SkipTrivia                        Sim/JsModuleFormat.cs:49
+      1  SoftReset                         Sim/WireCore.System.cs:1760
+      1  StepCycle                         Sim/WireCore.Recalc.cs:816
+      1  TagTurnOnGateLists                Sim/WireCore.cs:442
+      1  TestCallback                      Test/TestRunner.Diag.cs:237
+      1  TestInverter                      Test/TestRunner.Diag.cs:175
+      1  TestNand                          Test/TestRunner.Diag.cs:194
+      1  TestPassTransistor                Test/TestRunner.Diag.cs:215
+      1  TestShimChainStep                 Sim/WireCore.System.cs:593
+      1  TestStaticMerge                   Test/TestRunner.Diag.cs:260
+      1  Trace                             Test/TestRunner.Probes.cs:77
+      1  TryReadBool                       Sim/JsModuleFormat.cs:221
+      1  WarmupCaptureFirstTouch           Sim/WireCore.Renumber.cs:52
+      1  WasteProfileTally                 Sim/WireCore.Recalc.cs:117
+      1  WriteBenchLog                     Test/TestRunner.Bench.cs:339
+      1  WriteProgress                     Test/TestRunner.Test.cs:90
+      1  WriteTestJson                     Test/TestRunner.Test.cs:595
+      2  AllocNodes                        Sim/WireCore.Module.cs:108
+      2  AttachClockHandler                Sim/WireCore.Handlers.cs:431
+      2  AttachCnromLatch                  Sim/WireCore.Handlers.cs:536
+      2  AttachJoypadHandler               Sim/WireCore.Handlers.cs:604
+      2  AttachRamLikeHandler              Sim/WireCore.Handlers.cs:448
+      2  AttachVideoHandler                Sim/WireCore.Handlers.cs:657
+      2  ButtonName                        Test/TestRunner.Test.cs:555
+      2  CheckUnitTest                     Sim/WireCore.Trace.cs:40
+      2  ClearLoadedDefs                   Sim/WireCore.Parse.cs:79
+      2  ComputeNodeGroup                  Sim/WireCore.Group.cs:65
+      2  Dbl2007ShimStep                   Sim/WireCore.System.cs:1465
+      2  Dispose                           Sim/WireCore.Snapshot.cs:324
+      2  DumpM2Census                      Sim/WireCore.cs:161
+      2  EnableOpenBusShim                 Sim/WireCore.System.cs:668
+      2  ExpectVarHeader                   Sim/JsModuleFormat.cs:143
+      2  FcTaintStats                      Sim/WireCore.FastPath.cs:363; Test/TestRunner.Diag.cs:58 [x2]
+      2  FreeUnmanagedMemory               Sim/WireCore.Native.cs:72
+      2  GetCurrentProcess                 Sim/PerfTuning.cs:43
+      2  GetLogicalProcessorInformationEx  Sim/PerfTuning.cs:49
+      2  GetNodeValue                      Sim/WireCore.Group.cs:174
+      2  LaeRecordRead                     Sim/WireCore.Handlers.cs:150
+      2  Lex                               Sim/JsModuleFormat.cs:77
+      2  M2CensusTally                     Sim/WireCore.cs:125
+      2  MachineGuid                       Test/TestRunner.Bench.cs:391
+      2  MuxDriveIoAb                      Sim/WireCore.System.cs:857
+      2  OamDmaReleaseDrive                Sim/WireCore.System.cs:1698
+      2  PadInit                           Sim/WireCore.System.cs:1721
+      2  PrefixOf                          Sim/WireCore.Handlers.cs:419
+      2  PrintUsage                        Test/TestRunner.cs:195
+      2  ReadSegDef                        Sim/WireCore.Parse.cs:182
+      2  ReadTransDef                      Sim/WireCore.Parse.cs:153
+      2  RomFingerprint                    Sim/WireCore.Snapshot.cs:298
+      2  RunOneTest                        Test/TestRunner.Test.cs:120
+      2  Safe                              Test/TestRunner.Bench.cs:458
+      2  Screenshot                        Test/TestRunner.Diag.cs:288
+      2  SetThreadAffinityMask             Sim/PerfTuning.cs:46
+      3  AddInstance                       Sim/WireCore.Module.cs:254
+      3  AddNodeToGroup                    Sim/WireCore.Group.cs:91
+      3  InvokeCallbacks                   Sim/WireCore.Handlers.cs:177
+      3  IsHexChar                         Test/TestRunner.Test.cs:533
+      3  LoadExternalArray                 Sim/WireCore.Parse.cs:143
+      3  LowerNetlist                      Sim/WireCore.Lower.cs:36
+      3  MuxRelayIoAb                      Sim/WireCore.System.cs:858
+      3  RecalcNodeFast                    Sim/WireCore.FastPath.cs:280
+      3  WriteBits                         Sim/WireCore.Handlers.cs:364; Sim/WireCore.Handlers.cs:386; Sim/WireCore.Handlers.cs:407 [x3]
+      3  WriteChunk                        Render/PngWriter.cs:72
+      4  AddConnection                     Sim/WireCore.Module.cs:191; Sim/WireCore.Module.cs:199 [x2]
+      4  BeginSection                      Sim/WireCore.Snapshot.cs:326
+      4  ComposeSystem                     Sim/WireCore.System.cs:36
+      4  EndSection                        Sim/WireCore.Snapshot.cs:327
+      4  FcuUnion                          Sim/WireCore.FastPath.cs:426
+      4  M6xWindowOk                       Sim/WireCore.System.cs:402
+      4  PadSetButton                      Sim/WireCore.System.cs:1723
+      4  ReadNodeRef                       Sim/WireCore.Parse.cs:210
+      4  RequireNode                       Sim/WireCore.Recalc.cs:806
+      4  ResetNes                          Sim/WireCore.System.cs:1735
+      4  RunShell                          Test/TestRunner.Bench.cs:447
+      4  SetFloatQueued                    Sim/WireCore.Recalc.cs:753
+      4  WriteBE                           Render/PngWriter.cs:64
+      5  Crc32                             Render/PngWriter.cs:90; Sim/WireCore.Snapshot.cs:341 [x2]
+      5  ReadObject                        Sim/JsModuleFormat.cs:155
+      5  RecalcNode                        Sim/WireCore.Recalc.cs:421
+      5  RegisterCallback                  Sim/WireCore.Handlers.cs:131
+      5  SaveState                         Sim/WireCore.Snapshot.cs:57
+      5  SkipValue                         Sim/JsModuleFormat.cs:231
+      5  WriteTag                          Sim/WireCore.Snapshot.cs:306
+      6  BeginArray                        Sim/JsModuleFormat.cs:182
+      6  DumpCpuState                      Sim/WireCore.Trace.cs:16
+      6  EndArray                          Sim/JsModuleFormat.cs:184
+      6  FcuFind                           Sim/WireCore.FastPath.cs:425
+      6  RecomputeAllNodes                 Sim/WireCore.Recalc.cs:40
+      6  ResetBuild                        Sim/WireCore.Module.cs:117
+      6  SetNodeState                      Sim/WireCore.Recalc.cs:576
+      7  GetOrCreateNode                   Sim/WireCore.Module.cs:136
+      7  RunFrame                          Sim/WireCore.System.cs:1769
+      7  Step                              Sim/WireCore.Recalc.cs:814
+      8  AddTransistor                     Sim/WireCore.Module.cs:172
+      8  InstClampLow                      Sim/WireCore.Recalc.cs:773
+      8  LoadModuleDef                     Sim/WireCore.Parse.cs:95
+      8  ReadTag                           Sim/WireCore.Snapshot.cs:309
+      9  EnqueueNode                       Sim/WireCore.Recalc.cs:59
+      9  ExpectB                           Sim/WireCore.Snapshot.cs:336
+      9  InstRelease                       Sim/WireCore.Recalc.cs:789
+      9  Peek                              Sim/JsModuleFormat.cs:44
+      9  PeekKind                          Sim/JsModuleFormat.cs:139
+     10  ReadInt                           Sim/JsModuleFormat.cs:201
+     10  Reset                             Sim/WireCore.cs:223
+     10  ResolveQuiet                      Sim/WireCore.System.cs:255
+     10  SetHighQueued                     Sim/WireCore.Recalc.cs:739
+     10  SetLowQueued                      Sim/WireCore.Recalc.cs:746
+     11  GetNodeName                       Sim/WireCore.Module.cs:60
+     11  IsPwrGnd                          Sim/WireCore.Module.cs:61
+     11  LoadFromFile                      Rom/NesRom.cs:29
+     11  LoadState                         Sim/WireCore.Snapshot.cs:178
+     11  LoadSystem                        Sim/WireCore.System.cs:105
+     12  Esc                               Test/TestRunner.Bench.cs:466
+     12  Expect                            Sim/JsModuleFormat.cs:245; Sim/WireCore.Snapshot.cs:334 [x2]
+     13  CombinePrefix                     Sim/WireCore.Module.cs:221
+     13  Next                              Sim/JsModuleFormat.cs:45
+     13  ReadArray                         Sim/JsModuleFormat.cs:171
+     14  ResolveMemory                     Sim/WireCore.Handlers.cs:347
+     14  SetFloat                          Sim/WireCore.Recalc.cs:761; Sim/WireCore.Recalc.cs:800 [x2]
+     16  ReadString                        Sim/JsModuleFormat.cs:194
+     16  Shutdown                          Sim/WireCore.cs:474
+     19  AddNode                           Sim/WireCore.Module.cs:144
+     20  Check                             Test/TestRunner.Diag.cs:169
+     20  IsNodeHigh                        Sim/WireCore.Recalc.cs:802; Sim/WireCore.Recalc.cs:803 [x2]
+     21  ProcessQueue                      Sim/WireCore.Recalc.cs:356
+     27  Read                              Sim/WireCore.Handlers.cs:341
+     28  ReadReg                           Sim/WireCore.Trace.cs:13
+     28  ToString                          Sim/JsModuleFormat.cs:31; Sim/WireCore.Parse.cs:71 [x2]
+     29  SetHigh                           Sim/WireCore.Recalc.cs:759; Sim/WireCore.Recalc.cs:798 [x2]
+     29  SetLow                            Sim/WireCore.Recalc.cs:760; Sim/WireCore.Recalc.cs:799 [x2]
+     37  ReadBits                          Sim/WireCore.Handlers.cs:354; Sim/WireCore.Handlers.cs:378; Sim/WireCore.Handlers.cs:399 [x3]
+     53  ResolveNodes                      Sim/WireCore.Module.cs:379
+     55  Clear                             Sim/WireCore.Handlers.cs:343
+     82  Write                             Render/PngWriter.cs:15; Sim/WireCore.Handlers.cs:342 [x2]
+     94  LookupNode                        Sim/WireCore.Module.cs:58
+    113  Error                             Sim/JsModuleFormat.cs:47

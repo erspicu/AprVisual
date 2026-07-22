@@ -79,9 +79,6 @@ namespace AprVisual.Sim
         // returns in O(1) when pending=0 (the common case after most settles).
         private static List<CallbackInfo> _pendingCallbacks = new();
         private static List<CallbackInfo> _processingCallbacks = new();
-        // Diagnostic-only callback budget. Zero keeps the production drain loop unchanged; a positive
-        // value selects the instrumented loop and throws with callback/node evidence instead of hanging.
-        internal static int CallbackDrainLimit;
         // Test-mode model for the PPU's documented ALE+Read analog feedback window. Set before
         // LoadSystem so AttachRamLikeHandler can include both control nodes in the CHR callback.
         internal static bool PpuAleReadFeedbackShim;
@@ -91,10 +88,6 @@ namespace AprVisual.Sim
         internal static bool PpuAleReadFeedbackMechEnabled;
         internal static long PpuAleReadFeedbackHoldCount;
         private static long _ppuAleReadFeedbackLastLogTime;
-        internal static int PpuMemoryTracePcLo = -1, PpuMemoryTracePcHi = -1;
-        internal static int PpuMemoryTraceX = -1;
-        private static int _ppuMemoryTraceAle = EmptyNode, _ppuMemoryTraceRead = EmptyNode;
-        private static readonly List<string> _ppuMemoryTrace = new();
         // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] = the CallbackInfo registered on
         // node nn (null if none). Built in Reset; lets RecalcNode's HasCallback group-walk look the callback
         // up directly instead of jumping into the managed Nodes[] Node object graph.
@@ -116,8 +109,6 @@ namespace AprVisual.Sim
             _callbackByNode = null;
             PpuAleReadFeedbackHoldCount = 0;
             _ppuAleReadFeedbackLastLogTime = long.MinValue;
-            _ppuMemoryTrace.Clear();
-            _ppuMemoryTraceAle = _ppuMemoryTraceRead = EmptyNode;
             // free this composed system's handler-lifetime unmanaged arrays (video node-lists, palette,
             // memory-handler node-lists, behavioral RAM/ROM Data) before the next rebuild re-creates them.
             FreeHandlerArrays();
@@ -203,119 +194,30 @@ namespace AprVisual.Sim
 #endif
             try
             {
-                if (CallbackDrainLimit > 0)
+                while (_pendingCallbacks.Count > 0)
                 {
-                    DrainCallbacksWithLimit(CallbackDrainLimit);
-                }
-                else
-                {
-                    while (_pendingCallbacks.Count > 0)
+                    // swap pending ↔ processing (zero-alloc snapshot). Safe now: no nested call can swap
+                    // these out from under the loop below — nested InvokeCallbacks returns immediately.
+                    (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
+                    for (int i = 0; i < _processingCallbacks.Count; i++)
                     {
-                        // swap pending ↔ processing (zero-alloc snapshot). Safe now: no nested call can swap
-                        // these out from under the loop below — nested InvokeCallbacks returns immediately.
-                        (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
-                        for (int i = 0; i < _processingCallbacks.Count; i++)
+                        var cb = _processingCallbacks[i];
+                        cb.Enqueued = false;
+                        // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
+                        switch (cb.Kind)
                         {
-                            var cb = _processingCallbacks[i];
-                            cb.Enqueued = false;
-                            // [H3] typed dispatch — no Action.Invoke for the hot kinds (memory/video).
-                            switch (cb.Kind)
-                            {
-                                case HandlerKind.MemRead:      DoMemRead(cb); break;
-                                case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
-                                case HandlerKind.Video:        DoVideo(cb); break;
-                                case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
-                                case HandlerKind.Joypad:       DoJoypad(cb); break;        // behavioral controller (test mode)
-                                default:                       cb.Callback!(); break;   // Generic (rare / test)
-                            }
+                            case HandlerKind.MemRead:      DoMemRead(cb); break;
+                            case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
+                            case HandlerKind.Video:        DoVideo(cb); break;
+                            case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;   // CNROM CHR bank latch
+                            case HandlerKind.Joypad:       DoJoypad(cb); break;        // behavioral controller (test mode)
+                            default:                       cb.Callback!(); break;   // Generic (rare / test)
                         }
-                        _processingCallbacks.Clear();
                     }
+                    _processingCallbacks.Clear();
                 }
             }
             finally { _invoking = false; }
-        }
-
-        // Slow diagnostic branch selected only by --callback-drain-limit. Keep the normal loop above
-        // allocation-free and codegen-stable. This branch also avoids allocations for ordinary drains:
-        // evidence capture starts only in the final 512 dispatches before the limit.
-        private static void DrainCallbacksWithLimit(int limit)
-        {
-            int dispatched = 0, batches = 0;
-            int captureStart = Math.Max(1, limit - 512);
-            Dictionary<CallbackInfo, int>? counts = null;
-            CallbackInfo?[]? recent = null;
-            int recentNext = 0, recentCount = 0;
-
-            while (_pendingCallbacks.Count > 0)
-            {
-                batches++;
-                (_pendingCallbacks, _processingCallbacks) = (_processingCallbacks, _pendingCallbacks);
-                for (int i = 0; i < _processingCallbacks.Count; i++)
-                {
-                    var cb = _processingCallbacks[i];
-                    cb.Enqueued = false;
-                    int dispatchNumber = dispatched + 1;
-                    if (dispatchNumber >= captureStart)
-                    {
-                        counts ??= new Dictionary<CallbackInfo, int>();
-                        recent ??= new CallbackInfo?[16];
-                        counts.TryGetValue(cb, out int count);
-                        counts[cb] = count + 1;
-                        recent[recentNext] = cb;
-                        recentNext = (recentNext + 1) & 15;
-                        if (recentCount < recent.Length) recentCount++;
-                    }
-
-                    switch (cb.Kind)
-                    {
-                        case HandlerKind.MemRead:      DoMemRead(cb); break;
-                        case HandlerKind.MemReadWrite: DoMemReadWrite(cb); break;
-                        case HandlerKind.Video:        DoVideo(cb); break;
-                        case HandlerKind.MapperLatch:  DoMapperLatch(cb); break;
-                        case HandlerKind.Joypad:       DoJoypad(cb); break;
-                        default:                       cb.Callback!(); break;
-                    }
-
-                    dispatched = dispatchNumber;
-                    bool workRemains = i + 1 < _processingCallbacks.Count || _pendingCallbacks.Count > 0;
-                    if (dispatched >= limit && workRemains)
-                        ThrowCallbackDrainNonConvergence(limit, batches, counts!, recent!, recentNext, recentCount);
-                }
-                _processingCallbacks.Clear();
-            }
-        }
-
-        private static void ThrowCallbackDrainNonConvergence(
-            int limit, int batches, Dictionary<CallbackInfo, int> counts,
-            CallbackInfo?[] recent, int recentNext, int recentCount)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine($"WireCore.InvokeCallbacks: non-converging callback drain (limit={limit}, batches={batches})");
-            sb.AppendLine(DumpCpuState());
-            sb.AppendLine($"pending={_pendingCallbacks.Count} processing={_processingCallbacks.Count} recalc-next={RecalcListNextCount}");
-            sb.AppendLine("top callbacks (capture window):");
-            foreach (var pair in counts.OrderByDescending(p => p.Value).ThenBy(p => p.Key.Name, StringComparer.Ordinal).Take(8))
-                sb.AppendLine($"  {pair.Value,6}x {DescribeCallback(pair.Key)}");
-            sb.AppendLine("last callbacks:");
-            int first = (recentNext - recentCount + recent.Length) & 15;
-            for (int i = 0; i < recentCount; i++)
-                sb.AppendLine("  " + DescribeCallback(recent[(first + i) & 15]!));
-            throw new InvalidOperationException(sb.ToString());
-        }
-
-        private static string DescribeCallback(CallbackInfo cb)
-        {
-            var sb = new StringBuilder();
-            sb.Append(cb.Kind).Append(" target=").Append(cb.TargetNode).Append(' ').Append(cb.Name);
-            sb.Append(" states=[");
-            for (int i = 0; i < cb.WatchedNodes.Length; i++)
-            {
-                if (i != 0) sb.Append(',');
-                int nn = cb.WatchedNodes[i];
-                sb.Append(GetNodeName(nn)).Append('=').Append(NodeStates[nn]);
-            }
-            return sb.Append(']').ToString();
         }
 
         // ── typed handler bodies (were per-instance closures; now static, dispatched by Kind) ──
@@ -324,7 +226,6 @@ namespace AprVisual.Sim
         // it is null for every mapper-0 memory, so the plain path is untouched.
         private static void DoMemRead(CallbackInfo cb)
         {
-            TracePpuMemoryCallback(cb);
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             // AccuracyCoin deliberately creates a cycle where ALE and external /RD are active
@@ -336,7 +237,7 @@ namespace AprVisual.Sim
                 && HasNonTrivialRomFeedbackCycle(cb, address))
             {
                 long hold = ++PpuAleReadFeedbackHoldCount;
-                if (hold == 1 || (CallbackDrainLimit > 0 && Time != _ppuAleReadFeedbackLastLogTime))
+                if (hold == 1)
                 {
                     _ppuAleReadFeedbackLastLogTime = Time;
                     Console.Error.WriteLine($"# [shim] PPU ALE/read feedback hold at t={Time} X=${ReadReg(R_CpuX):X2} addr=${ReadBits(cb.Addr, cb.ALen):X4}");
@@ -386,7 +287,6 @@ namespace AprVisual.Sim
         // read/write RAM: /we low ⇒ latch the data bus into mem[addr]; else drive data-out with mem[addr].
         private static void DoMemReadWrite(CallbackInfo cb)
         {
-            TracePpuMemoryCallback(cb);
             if (NodeStates[cb.Cs] != 0) return;
             int address = ReadBits(cb.Addr, cb.ALen);
             if (NodeStates[cb.We] == 0) cb.MemData[address & cb.Mask] = (byte)ReadBits(cb.DataOut, cb.DLen);
@@ -396,34 +296,6 @@ namespace AprVisual.Sim
                 if (LaeRecording && cb.DebugName != "cart.chr." && cb.DebugName != "u4.")
                     LaeRecordRead(address & cb.Mask, cb.MemData[address & cb.Mask]);
             }
-        }
-
-        private static void TracePpuMemoryCallback(CallbackInfo cb)
-        {
-            if (PpuMemoryTracePcLo < 0 || (cb.DebugName != "cart.chr." && cb.DebugName != "u4.")) return;
-            int pcl = ReadReg(R_CpuPcl), pch = ReadReg(R_CpuPch);
-            int pc = pcl >= 0 && pch >= 0 ? (pch << 8) | pcl : -1;
-            int cpuX = ReadReg(R_CpuX);
-            if (pc < PpuMemoryTracePcLo || pc > PpuMemoryTracePcHi
-                || (PpuMemoryTraceX >= 0 && cpuX != PpuMemoryTraceX) || _ppuMemoryTrace.Count >= 512) return;
-
-            int address = ReadBits(cb.Addr, cb.ALen);
-            int effectiveAddress = address | (cb.BankPtr != null ? *cb.BankPtr : 0);
-            int memValue = cb.MemData[effectiveAddress & cb.Mask];
-            int we = cb.We == EmptyNode ? -1 : NodeStates[cb.We];
-            int oe = cb.Oe == EmptyNode ? -1 : NodeStates[cb.Oe];
-            int ale = _ppuMemoryTraceAle == EmptyNode ? -1 : NodeStates[_ppuMemoryTraceAle];
-            int read = _ppuMemoryTraceRead == EmptyNode ? -1 : NodeStates[_ppuMemoryTraceRead];
-            _ppuMemoryTrace.Add(
-                $"# [ppu-mem] t={Time} PC=${pc:X4} X=${cpuX:X2} ALE={ale} /RD={read} {cb.DebugName} " +
-                $"cs={NodeStates[cb.Cs]} oe={oe} we={we} addr=${address:X4} mem=${memValue:X2} out=${ReadBits(cb.DataOut, cb.DLen):X2}");
-        }
-
-        internal static void DumpPpuMemoryTrace()
-        {
-            foreach (string line in _ppuMemoryTrace) Console.WriteLine(line);
-            if (PpuMemoryTracePcLo >= 0)
-                Console.WriteLine($"# [ppu-mem] records={_ppuMemoryTrace.Count} PC=${PpuMemoryTracePcLo:X4}-${PpuMemoryTracePcHi:X4}");
         }
 
         // video: on the pclk1 rising edge, write the visible pixel from palette RAM via the (static, unmanaged)
@@ -622,8 +494,6 @@ namespace AprVisual.Sim
                 }
                 else
                 {
-                    _ppuMemoryTraceAle = ppuAle;
-                    _ppuMemoryTraceRead = ppuRead;
                     trigger.Add(ppuAle);
                     trigger.Add(ppuRead);
                 }

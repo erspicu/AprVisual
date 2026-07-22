@@ -149,7 +149,11 @@ namespace AprVisual.Sim
 
             if (_nodeByName.TryGetValue(name, out int existing))
             {
-                if (existing != nn) Console.Error.WriteLine($"node name '{name}' already maps to {existing}, not {nn} — keeping {existing}");
+                // Raw-id aliases (RegisterRawIdAliases registers "inst.#N" names) legitimately collide
+                // with the already-named node at that id — keeping the existing (named) mapping is correct
+                // and expected, so don't spam it. Only a genuine name collision (no '#') is worth a warning.
+                if (existing != nn && name.IndexOf('#') < 0)
+                    Console.Error.WriteLine($"node name '{name}' already maps to {existing}, not {nn} — keeping {existing}");
             }
             else _nodeByName[name] = nn;
 

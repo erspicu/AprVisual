@@ -37,7 +37,7 @@ echo   verdict -^> %OUT%\AccuracyCoin.json   (expect 141/141)
 echo ============================================================
 
 "%EXE%" --test AprAccuracyCoinUnattended\AccuracyCoin.nes --ac-verdict --joypad ^
-  --callback-drain-limit 2000 --reset-hold-extra 1 --pin %PIN% %RESUME% ^
+  --reset-hold-extra 1 --pin %PIN% %RESUME% ^
   --system-def-dir "%SDD%" --max-frames 12000 ^
   --snapshot-frames 10 --snapshot-dir "%SNAP%" ^
   --progress-frames 600 --progress-dir "%OUT%" ^

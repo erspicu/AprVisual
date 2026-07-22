@@ -105,6 +105,13 @@ namespace AprVisual.Sim
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
+            // S1A full-engine arming — pre-load half. These flags are consumed DURING the compose passes
+            // (ALERead node-split cut in WireCore.Module, raw-id aliases) or at Reset (PowerUpStateShim),
+            // so they must be set before the pass loop below. The post-load half (ArmS1aMechanisms) runs at
+            // the end of this method. S1A IS the full engine — there is no opt-out.
+            // PowerUpStateShim gives S1A the REALISTIC console power-up state (palette residue + CPU P=$34)
+            // in every mode — S1A is its own engine, so this need not match the raw S1 power-up.
+            AleReadMuxShim = true; RegisterRawIdAliases = true; PowerUpStateShim = true;
             // M2 (S1A): physical-capacitance floating arbitration — data swap at Reset() fill time.
             M2CapArbitration = Environment.GetEnvironmentVariable("M2_CAP") is { Length: > 0 } m2 && m2 != "0";
             M2Census = Environment.GetEnvironmentVariable("M2_CENSUS") is { Length: > 0 } mc && mc != "0";
@@ -177,6 +184,27 @@ namespace AprVisual.Sim
             // managed data (Node.Gates / Node.C1c2s lists, _transistors list, _transistorSet,
             // _forceComputeList, LoadedDefs JSON parse) — typically ~25-50 MB freed.
             ClearPostLoadBuildState();
+
+            // S1A full-engine arming — post-load half. The graph is composed and reset; resolve + arm the
+            // M1–M6 mechanisms (every mode — --benchmark included — runs the full engine; there is no gate).
+            ArmS1aMechanisms();
+        }
+
+        // The unconditional S1A mechanism/shim arming (order matters: DL follows OpenBus; the ALERead mux
+        // resolves after its node-split cut, which already happened in the compose passes above).
+        private static void ArmS1aMechanisms()
+        {
+            EnableM4EdgeLatch();        // DmcLatch data-wins + AluLatch hold
+            EnableM6xPhase();           // even_odd + BGSerialIn + dot-339 cross-chip clamp
+            EnableM4P1();               // Dbl2007 ClampBus + OamDmaPpuBus QueuedDrive
+            EnableOamBlankEdgeMech();   // OAM blank-edge hold
+            EnableDmc4015AbortMech();   // deferred-$4015 DMC-DMA abort
+            EnableLxaMagicMech();       // LXA $AB magic-merge
+            EnableFrameIrqMech();       // frame-IRQ flag-hold
+            EnableM2Decay();            // 2C02 io-bus per-bit charge-decay
+            EnableOpenBusShim();        // open bus = last transferred byte
+            EnableDlShim();             // DL phi2 transparency at $4016/$4017 -- must follow EnableOpenBusShim
+            EnableAleReadMux();         // ALERead $2007 phase-mux (the node-split cut was armed pre-load)
         }
 
         private static void CopyRomBytes(NesRom rom)
@@ -240,7 +268,7 @@ namespace AprVisual.Sim
         //      (which became the emulator-consensus power-up palette), and
         //   2. the 2A03 Z-flag latch (cpu.p1) is cleared — the netlist settles to P=$36, real consoles
         //      (and cpu_reset/registers' expectation) power on with P=$34; only the Z bit differs.
-        // Benchmarks never set this flag — the golden-checksum path is byte-for-byte untouched.
+        // Set unconditionally by LoadSystem — S1A powers up in the realistic console state, every mode.
         public static bool PowerUpStateShim = false;
 
         // ── clock-phase experiment (--reset-hold-extra K): extra half-cycles of /res assertion. ──
@@ -298,35 +326,6 @@ namespace AprVisual.Sim
             Console.Error.WriteLine($"# [shim] Z flag post-reset inject: cpu.p1={NodeStates[zNode]} P=${ReadReg(R_CpuP):X2}");
         }
 
-        // ── DMC pcm_latch edge-capture shim (test mode only) ────────────────────────────────
-        // The DPCM control's pcm_latch pass gate (t14402: gate=apu_clk1, 13907↔13947) has a
-        // same-half-cycle race at the clock's falling edge: the latch input (pcm_ff, set by the
-        // DMA-fetch PCM strobe during phi2) falls in the SAME half-cycle apu_clk1 closes. Real
-        // NMOS silicon resolves the race "data wins" via analog clock-decay overlap (blargg
-        // 7-dmc_basics #19 reads $80 on hardware); any quiescent-settle binary model resolves
-        // "gate closed first" and the DMC IRQ flag lands one full ACLK late (emu-russia's
-        // APUSim quantizes it away identically — verified 2026-07-04, see
-        // MD/testrom/2026-07-04-dmc19-aclk-pipeline-analysis.md). This shim implements the
-        // latch's intended edge semantic explicitly: at apu_clk1's falling edge, capture the
-        // post-settle value of the latch input. Inert everywhere else: after any transparent
-        // phase the two sides are already equal, so the copy fires only in the race case.
-        public static bool DmcLatchShim = false;
-        private static int _dmcShimClk1 = EmptyNode, _dmcShimFf = EmptyNode, _dmcShimLatch = EmptyNode;
-        private static int _dmcShimPrevClk1;
-
-        /// <summary>Resolve the shim's nodes and arm it. Call after LoadSystem, with
-        /// RegisterRawIdAliases enabled before it (the latch nodes are unnamed raw ids).</summary>
-        public static void EnableDmcLatchShim()
-        {
-            _dmcShimClk1  = LookupNode("cpu.apu_clk1");
-            _dmcShimFf    = LookupNode("cpu.#13907");
-            _dmcShimLatch = LookupNode("cpu.#13947");
-            if (_dmcShimClk1 == EmptyNode || _dmcShimFf == EmptyNode || _dmcShimLatch == EmptyNode)
-            { Console.Error.WriteLine("# [shim] DMC latch shim: nodes unresolved — disabled"); DmcLatchShim = false; return; }
-            _dmcShimPrevClk1 = NodeStates[_dmcShimClk1];
-            DmcLatchShim = true; ShimChainArmed = true;
-        }
-
         // ── M6×M3 unified cross-chip phase-arbitration mechanism ─────────────────────────────
         // The three downstream-clamp delay shims (dot-339, even_odd, BGSerialIn) are one physics:
         // a cross-chip control change arrives ~16–24 hc late (M3's delay), and a 2C02 counter-
@@ -354,7 +353,6 @@ namespace AprVisual.Sim
             public byte PrevTrig; public long HoldUntil; public int ClampedNode; public bool InWr; public int WrDb;
         }
         private static bool _m6x;
-        public static bool M6xEnabled => _m6x;
         private static M6xRow[] _m6xRows = Array.Empty<M6xRow>();
         private static int[] _m6xHp = Array.Empty<int>(), _m6xVp = Array.Empty<int>(), _m6xHp3 = Array.Empty<int>();
 
@@ -398,7 +396,6 @@ namespace AprVisual.Sim
             }
             _m6xRows = rows.ToArray();
             _m6x = _m6xRows.Length > 0;
-            if (_m6x) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial + even_odd)");
         }
 
@@ -536,7 +533,6 @@ namespace AprVisual.Sim
             }
             _m4Rows = rows.ToArray();
             _m4Edge = _m4Rows.Length > 0;
-            if (_m4Edge) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m4] edge-latch armed: {_m4Rows.Length} annotation rows");
         }
 
@@ -592,14 +588,11 @@ namespace AprVisual.Sim
         // Was a daisy chain hosted inside DmcLatch→Alu→Lxa: any single shim's kill switch
         // silently disabled the whole downstream family — a confounded control for retirement
         // experiments. Flattened with the ORIGINAL execution order preserved exactly:
-        // Dmc → Alu → OpenBus → DL → abort → OamEdge → Lxa-rest. ShimChainArmed is set by
-        // every Enable* in this family; the benchmark path never arms anything (bit-exact).
-        internal static bool ShimChainArmed;
+        // OpenBus → DL → abort → OamEdge → Lxa-rest → M4·P1 (DMC/ALU are M4EdgeLatch M4Row entries
+        // now, dispatched at the top). Each step self-guards; nothing fires on the benchmark path (bit-exact).
         internal static void TestShimChainStep()
         {
-            if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (supersedes the DMC/ALU shim rows)
-            if (DmcLatchShim) DmcLatchShimStep();
-            if (AluLatchShim) AluLatchShimStep();
+            if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (DMC data-wins + ALU hold rows)
             OpenBusShimStep();        // self-guarded no-ops unless armed —
             DlShimStep();             // (this was the block hosted at the top of LxaMagicShimStep)
             Dmc4015AbortShimStep();
@@ -610,72 +603,6 @@ namespace AprVisual.Sim
                                            // shim ran at (its nested FrameIrq->Dbl2007 tail), so it is
                                            // decoupled from LxaMagic/FrameIrq being armed, and mechanism
                                            // -on reproduces shim-on bit-for-bit.
-        }
-
-        internal static void DmcLatchShimStep()
-        {
-            int cur = NodeStates[_dmcShimClk1];
-            if (_dmcShimPrevClk1 == 1 && cur == 0)
-            {
-                int v = NodeStates[_dmcShimFf];
-                if (NodeStates[_dmcShimLatch] != v)
-                {
-                    if (v == 1) SetHigh(_dmcShimLatch); else SetLow(_dmcShimLatch);
-                    SetFloat(_dmcShimLatch);
-                }
-            }
-            _dmcShimPrevClk1 = cur;
-        }
-
-        // ── ALU input-latch hold shim (test mode only) ───────────────────────────────────────
-        // The complement of the DMC race, with the OPPOSITE physical polarity: on unofficial
-        // "combined" immediate ops (ANC/ALR/ARR/LXA) the execute-phase phi1->phi2 boundary
-        // collapses the SB/DB buses in the same half-cycle the ALU input-latch select lines
-        // (SBADD/DBADD) close. Real silicon closes the gate BEFORE the collapse propagates
-        // (hold time met), so alua/alub keep their phi1 values; a quiescent settle lets the
-        // collapse ripple THROUGH the closing gates and the ALU latches a self-consistent
-        // garbage fixed point. Shim: snapshot alua/alub each half-cycle; when the select line
-        // falls, restore any bit the same step corrupted (= the latch's intended hold semantic).
-        public static bool AluLatchShim = false;
-        private static int _aluShimSbadd = EmptyNode, _aluShimDbadd = EmptyNode;
-        private static int[] _aluShimA = Array.Empty<int>(), _aluShimB = Array.Empty<int>();
-        private static readonly byte[] _aluShimPrevA = new byte[8], _aluShimPrevB = new byte[8];
-        private static int _aluShimPrevSbadd, _aluShimPrevDbadd;
-
-        public static void EnableAluLatchShim()
-        {
-            _aluShimSbadd = LookupNode("cpu.dpc11_SBADD");
-            _aluShimDbadd = LookupNode("cpu.dpc9_DBADD");
-            var la = new List<int>(); ResolveNodes("cpu.alua[7:0]", la, quiet: true);
-            var lb = new List<int>(); ResolveNodes("cpu.alub[7:0]", lb, quiet: true);
-            if (_aluShimSbadd == EmptyNode || _aluShimDbadd == EmptyNode || la.Count != 8 || lb.Count != 8)
-            { Console.Error.WriteLine("# [shim] ALU latch shim: nodes unresolved — disabled"); AluLatchShim = false; return; }
-            _aluShimA = la.ToArray(); _aluShimB = lb.ToArray();
-            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
-            _aluShimPrevSbadd = NodeStates[_aluShimSbadd];
-            _aluShimPrevDbadd = NodeStates[_aluShimDbadd];
-            AluLatchShim = true; ShimChainArmed = true;
-        }
-
-        private static void AluLatchShimStep()
-        {
-            int sa = NodeStates[_aluShimSbadd], db = NodeStates[_aluShimDbadd];
-            if (_aluShimPrevSbadd == 1 && sa == 0)
-                for (int i = 0; i < 8; i++)
-                {
-                    int n = _aluShimA[i];
-                    if (NodeStates[n] != _aluShimPrevA[i])
-                    { if (_aluShimPrevA[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
-                }
-            if (_aluShimPrevDbadd == 1 && db == 0)
-                for (int i = 0; i < 8; i++)
-                {
-                    int n = _aluShimB[i];
-                    if (NodeStates[n] != _aluShimPrevB[i])
-                    { if (_aluShimPrevB[i] == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
-                }
-            _aluShimPrevSbadd = sa; _aluShimPrevDbadd = db;
-            for (int i = 0; i < 8; i++) { _aluShimPrevA[i] = NodeStates[_aluShimA[i]]; _aluShimPrevB[i] = NodeStates[_aluShimB[i]]; }
         }
 
         // ── LXA ($AB) magic-constant shim (test mode only) ───────────────────────────────────
@@ -747,7 +674,7 @@ namespace AprVisual.Sim
             // ResolveNodes returns ascending bit order (ReadBits: index i = bit i)
             for (int b = 0; b < 8; b++) _pdDb[b] = db[b];
             _pdObTop = LookupNode("cart.eram.gate") != EmptyNode ? 0x5FFF : 0x7FFF;
-            _openBusShim = true; ShimChainArmed = true;
+            _openBusShim = true;
         }
 
         private static bool AnyChannelOn(int nn)
@@ -767,113 +694,6 @@ namespace AprVisual.Sim
         }
 
         private static int _pdLastBus;
-        private static readonly bool _pdDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null;
-        private static int _pdDbgN, _pdDbgJoyN, _pdDbgPrevAb = -1, _pdDbgAfterJoy, _pcTrN, _pcTrPrev = -1, _a5N, _a5Pc;
-        private static bool _a5InWrite;
-        private static int _stN, _stPrevAb = -1;
-        private static int[] _spVp, _spHp;
-        private static int _spBkgEn = EmptyNode, _spSprEn = EmptyNode, _spBkgOut = EmptyNode, _spSprOut = EmptyNode, _spHit = EmptyNode, _spRend = EmptyNode;
-        private static int _spN, _spWrDb, _spPrevTup = -1;
-        private static bool _spInWr;
-        private static int _sqOwd = EmptyNode, _sqCopy = EmptyNode, _sqEval = EmptyNode, _sqOvf = EmptyNode;
-        private static int _sqN, _sqPrev = -1;
-        private static int _srEnd = EmptyNode, _srOvf = EmptyNode, _srPovf = EmptyNode;
-        private static int[] _srAddr, _srPtr;
-        private static int _srN, _srPrevH = -1;
-        private static int _ssR2 = EmptyNode, _ssNr = EmptyNode, _ssNr2 = EmptyNode, _ssVis = EmptyNode;
-        private static int _ssLt64 = EmptyNode, _ssEq65 = EmptyNode, _ssEq63 = EmptyNode;
-        private static int _ssN, _ssPrevH = -1;
-        private static int _suNr = EmptyNode, _suGate = EmptyNode, _suIn = EmptyNode, _suOr = EmptyNode, _suRd = EmptyNode;
-        private static int _suN, _suPrev = -1;
-        private static int _svN, _svDb; private static bool _svIn, _svDumped;
-        private static int[] _swD; private static int _swN, _swPrevH = -1;
-        private static int _sxSet = EmptyNode, _sxClr = EmptyNode, _sxOwd2 = EmptyNode;
-        private static int _sxN, _sxPrev = -1;
-        private static int[] _szRows, _szCols; private static int _szN, _szPrev = -1;
-        private static int[] _scCells;
-        private static int[,] _oaCells; private static int _oaShot, _oaFired;
-        private static int _obN, _obPrevH = -1, _obPrev = -1;
-        private static int[] _t3P; private static int _t3Act = EmptyNode, _t3Hit = EmptyNode;
-        private static int _t3N, _t3Prev = -1, _t3PrevV = -1, _t3Arm, _t3PrevHit, _t3WrDb, _t3PrevRend;
-        private static int _t3C0 = EmptyNode, _t3C1 = EmptyNode, _t3Op = EmptyNode, _t3Use = EmptyNode,
-                           _t3Bkg = EmptyNode, _t3Set = EmptyNode, _t3Spat = EmptyNode;
-        private static int _t3Ret, _t3PrevH2 = -1; private static bool _t3InWr;
-        private static int _arSelPat0 = EmptyNode, _arSelPat1 = EmptyNode, _arSetHit = EmptyNode, _arHit = EmptyNode, _arAle = EmptyNode;
-        private static int _arN, _arPrevH = -1, _arPixN; private static bool _arIn2007;
-        // [bgs] BGSerialIn toggle-phase probe fields (OB_DEBUG only)
-        private static int _bgsN, _bgsDb, _bgsAb; private static bool _bgsInWr;
-        // ── BG serial-in reload-delay shim (test-mode; BGSerialIn $487 err2; M6 family) ─────────
-        // The 2C02 pipelines $2001 write effects by 2-5 dots. AC's BGSerialIn toggles rendering
-        // every scanline so the dot%8==7 BG shifter RELOAD falls inside the OFF window: on silicon
-        // the ENABLE (write landing dot%8==6) only takes effect at %8==0, so the adjacent %8==7
-        // reload is SKIPPED and the shifters serial-in a run of '1's (the white line the test's
-        // sprite-0 hit detects). Zero-delay S1 restores rendering instantly -> that reload happens
-        // -> no line -> err 2. Shim (Gemini-consulted, a_bgserial_lever_20260717): when a $2001
-        // ENABLE write completes at hpos%8 in [4,7] (the only phases where the hardware delay
-        // crosses the reload point), InstClampLow the reload gate for 16hc (2 dots). Force-LOW
-        // only; phase-orthogonal to the dot-339 (339%8==3) and even_odd (vpos261) shims.
-        public static bool BgSerialReloadShim = false;
-        private static int _bgrGate = EmptyNode, _bgrHold;
-        private static int[] _bgrHp3 = System.Array.Empty<int>();
-        private static bool _bgrInWr; private static int _bgrDb;
-        private static long _bgrFires;
-
-        /// <summary>Resolve nodes and arm. Call after LoadSystem (test mode only).</summary>
-        public static void EnableBgSerialReloadShim()
-        {
-            _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
-            if (_bgrGate == EmptyNode) _bgrGate = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[2:0]", hp, quiet: true); _bgrHp3 = hp.Count == 3 ? hp.ToArray() : System.Array.Empty<int>();
-            if (_bgrGate == EmptyNode || _bgrHp3.Length != 3)
-            { Console.Error.WriteLine("# [shim] bg-serial reload delay: nodes unresolved -- disabled"); BgSerialReloadShim = false; return; }
-            _bgrHold = 0; _bgrInWr = false; _bgrFires = 0; BgSerialReloadShim = true;
-        }
-
-        internal static void BgSerialReloadShimStep()
-        {
-            // release path first: the clamp outlives the write by design
-            if (_bgrHold > 0 && --_bgrHold == 0) InstRelease(_bgrGate);
-            int ab = ReadReg(R_CpuAb);
-            bool wr = (ab & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
-            if (wr) { _bgrInWr = true; _bgrDb = ReadReg(R_CpuDb); return; }
-            if (!_bgrInWr) return;
-            _bgrInWr = false;                              // write just ENDED this hc
-            if ((_bgrDb & 0x18) == 0) return;              // not an enable (neither BG nor sprites on)
-            int phase = ReadBits(_bgrHp3);                 // hpos % 8 at the write's effect instant
-            if (phase < 4) return;                         // effect lands before the reload point -> hardware agrees with zero-delay
-            if (_bgrHold == 0) InstClampLow(_bgrGate);     // suppress the imminent %8==7 reload
-            _bgrHold = 16; _bgrFires++;
-        }
-
-        // [syn] sync-routine decision probe fields: $4015 reads (SLO get/put detector) + $4017 writes
-        private static int _synN; private static bool _synIn4015R, _synIn4017W; private static int _syn4017Db, _syn4015Db;
-        // [pc] probe window (PC_WIN=lo,hi env override; defaults = the original IDR-forensics window)
-        private static readonly long _pcWinLo = ParsePcWin(0, 13750000), _pcWinHi = ParsePcWin(1, 15090000);
-        private static long ParsePcWin(int idx, long dflt)
-        {
-            var s = Environment.GetEnvironmentVariable("PC_WIN")?.Split(',');
-            return s != null && s.Length == 2 && long.TryParse(s[idx], out long v) ? v : dflt;
-        }
-        // [ae]/[aehc] ALERead forensic probe (OB_DEBUG only): per-dot + per-hc ALE/RD/chrAb around the $2007-read overlap
-        private static int _aeAle = EmptyNode, _aeRd = EmptyNode, _aeR2007 = EmptyNode, _aeSel0 = EmptyNode, _aeSel1 = EmptyNode;
-        private static int[] _aeAb = System.Array.Empty<int>(), _aeVp = System.Array.Empty<int>(), _aeHp = System.Array.Empty<int>(), _aeIoAb = System.Array.Empty<int>();
-        private static int _aeN, _aePrevH = -1, _aeArmV = -1, _aeHcBudget = 400;
-        private static int _aeIoCe = EmptyNode, _aeCpuRw = EmptyNode;
-        private static int _ocRow = EmptyNode, _ocCol = EmptyNode, _ocPclk = EmptyNode, _ocBitA = EmptyNode, _ocBitB = EmptyNode,
-                           _ocColA = EmptyNode, _ocColB = EmptyNode, _ocA0 = EmptyNode, _ocB0 = EmptyNode, _ocA1 = EmptyNode, _ocB1 = EmptyNode;
-        private static readonly byte[] _dmaRdBuf = new byte[256];
-        private static readonly bool[] _dmaRdSeen = new bool[256];
-        private static int _dmaRdCount, _dmaRdPrev = -1, _dmaRdPrevDb, _dmaRdGap;
-        private static bool _dmaRdDumped;
-        private static int[] _micIdb, _micSpr;          // microscope: internal bus + OAM-DMA data latch
-        private static int _micR4015 = EmptyNode, _micR4016 = EmptyNode, _micR4017 = EmptyNode;
-        private static int _micDbe = EmptyNode, _micJoy1 = EmptyNode, _micJoy2 = EmptyNode;
-        private static int _micPrevDbE, _micPrevIdb, _micPrevSpr, _micPrevDec, _micN;
-        private static string _micPrevTup = "";
-        private static int _finN, _finPrevW = -1, _finPrevDb, _finPrevRw;
-        private static int[] _pdDbgIdl, _pdDbgIdb;
-        private static int _pdDbgClk1 = EmptyNode;
-
         private static void OpenBusShimStep()
         {
             if (!_openBusShim) return;
@@ -889,21 +709,8 @@ namespace AprVisual.Sim
                          && abNow == ((ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl));
             if ((abNow < 0x4020 && !apuFetch) || abNow > _pdObTop || NodeStates[_pdRw] == 0)
             {
-                if (_pdDbg && (abNow == 0x4016 || abNow == 0x4017) && NodeStates[_pdRw] != 0 && _pdDbgJoyN < 120)
-                {
-                    _pdDbgJoyN++;
-                    if (_pdDbgIdl == null) { var l = new List<int>(); ResolveNodes("cpu.idl[7:0]", l, quiet: true); _pdDbgIdl = l.ToArray();
-                                             var m = new List<int>(); ResolveNodes("cpu.idb[7:0]", m, quiet: true); _pdDbgIdb = m.ToArray();
-                                             _pdDbgClk1 = LookupNode("cpu.clk1out"); }
-                    Console.Error.WriteLine($"# [obshim] joy t={Time} ab=${abNow:X4} db=${ReadReg(R_CpuDb):X2} idl=${(_pdDbgIdl.Length==8?ReadBits(_pdDbgIdl):-1):X2} idb=${(_pdDbgIdb.Length==8?ReadBits(_pdDbgIdb):-1):X2} a=${ReadReg(R_CpuA):X2} c1={(_pdDbgClk1!=EmptyNode?NodeStates[_pdDbgClk1]:9)}");
-                }
-                if (_pdDbg && (_pdDbgPrevAb == 0x4016 || _pdDbgPrevAb == 0x4017) && abNow != _pdDbgPrevAb) _pdDbgAfterJoy = 60;
-                if (_pdDbg && _pdDbgAfterJoy > 0)
-                { _pdDbgAfterJoy--; if ((_pdDbgAfterJoy % 12) == 0) Console.Error.WriteLine($"# [obshim] after-joy t={Time} ab=${abNow:X4} a=${ReadReg(R_CpuA):X2} ir=${ReadReg(R_CpuIr):X2}"); }
-                _pdDbgPrevAb = abNow;
                 _pdLastBus = ReadReg(R_CpuDb); return;   // driven half-cycle (mapped, or a write) -- record the bus
             }
-            if (_pdDbg && _pdDbgN < 40) { _pdDbgN++; Console.Error.WriteLine($"# [obshim] t={Time} ab=${abNow:X4} rw={NodeStates[_pdRw]} last=${_pdLastBus:X2} db=${ReadReg(R_CpuDb):X2}"); }
             for (int b = 0; b < 8; b++)                   // open-bus read -- replay the held byte
             {
                 if (AnyChannelOn(_pdDb[b])) continue;      // someone is driving -- hands off
@@ -936,11 +743,10 @@ namespace AprVisual.Sim
             if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb[7] == 0)
             { Console.Error.WriteLine("# [shim] DL-transparency: nodes unresolved -- disabled (enable AFTER EnableOpenBusShim)"); return; }
             for (int b = 0; b < 8; b++) { _dlIdl[b] = idl[b]; _dlNotIdl[b] = nidl[b]; }
-            _dlShim = true; ShimChainArmed = true;
+            _dlShim = true;
         }
 
         private static int _dlHeldMask;   // notidl bits currently clamped (held through the rest of phi2)
-        private static int _dlDbgN;
 
         private static void DlShimStep()
         {
@@ -973,7 +779,6 @@ namespace AprVisual.Sim
             // each shim alone fine, both = hang). The signature gates NEW engagements only; once
             // holding, hold through phi2 -- an early release lets the upstream re-drive notidl
             // and the latch falls back (measured as a FIRE/VETO oscillation).
-            if (_pdDbg && _dlDbgN < 200) { _dlDbgN++; Console.Error.WriteLine($"# [dl] t={Time} ab=${abDl:X4} idl=${ReadBits(_dlIdl):X2} db=${ReadReg(R_CpuDb):X2} mask={_dlHeldMask:X2}"); }
             if (_dlHeldMask == 0 && System.Numerics.BitOperations.PopCount((uint)(ReadBits(_dlIdl) ^ ReadReg(R_CpuDb))) < 2) return;
             // Never engage while the CPU is DMA-halted: during a stall the "read" on the address
             // bus is the halted CPU's held cycle, and what the DL catches there is legitimate
@@ -1018,9 +823,7 @@ namespace AprVisual.Sim
         private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>(), _muxHp = System.Array.Empty<int>();
         private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
         private static long _muxDetect;
-        private static int _muxN;              // fired count (diag)
         private static bool _muxReady;         // nodes resolved + split active
-        private static readonly bool _muxDbg = Environment.GetEnvironmentVariable("OB_DEBUG") != null || Environment.GetEnvironmentVariable("MUX_DBG") != null;
         // dt-window timing (dt = hc since detect; 8hc/dot; detect = first io_ce=0 & cpu.ab[2:0]=7 @ v in [1,8]):
         //   swallow  [0, swEnd)          : ppu.io_ab := 0  -> PPU sees $2000, the early $2007 ReadALE is suppressed
         //   replay   [rpStart, rpEnd)    : io_ce clamped 0 + ppu.io_ab := 7 -> read_2007_ended lands the ReadALE
@@ -1044,15 +847,10 @@ namespace AprVisual.Sim
             var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
             var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
             var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _muxHp = hp.Count == 9 ? hp.ToArray() : System.Array.Empty<int>();
-            string ov = Environment.GetEnvironmentVariable("MUX_HC");   // "swEnd,rpStart,rpEnd,fzStart,fzEnd" tuning override
-            if (ov != null) { var p = ov.Split(','); if (p.Length == 5 && int.TryParse(p[0], out int a0) && int.TryParse(p[1], out int a1) && int.TryParse(p[2], out int a2) && int.TryParse(p[3], out int a3) && int.TryParse(p[4], out int a4)) { _muxSwEnd = a0; _muxRpStart = a1; _muxRpEnd = a2; _muxFzStart = a3; _muxFzEnd = a4; } }
-            string og = Environment.GetEnvironmentVariable("MUX_GATE");   // "vlo,vhi,hlo,hhi" detection-gate override
-            if (og != null) { var p = og.Split(','); if (p.Length == 4 && int.TryParse(p[0], out int g0) && int.TryParse(p[1], out int g1) && int.TryParse(p[2], out int g2) && int.TryParse(p[3], out int g3)) { _muxVlo = g0; _muxVhi = g1; _muxHlo = g2; _muxHhi = g3; } }
             if (_muxIoCe == EmptyNode || _muxAle == EmptyNode || _muxCpuRw == EmptyNode || _muxPpuAb.Length != 3 || _muxCpuAb.Length != 3 || _muxVp.Length != 9)
             { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; _muxReady = false; return; }
             _muxState = 0; _muxReady = true;
             MuxRelayIoAb();   // seed: ppu.io_ab := cpu.ab now that the connection is cut
-            if (_muxDbg) Console.Error.WriteLine($"# [mux] armed (node-split): sw={_muxSwEnd} rp=[{_muxRpStart},{_muxRpEnd}) fz=[{_muxFzStart},{_muxFzEnd})");
         }
 
         private static int MuxCpuAb() => (NodeStates[_muxCpuAb[2]] << 2) | (NodeStates[_muxCpuAb[1]] << 1) | NodeStates[_muxCpuAb[0]];
@@ -1068,17 +866,17 @@ namespace AprVisual.Sim
                 {
                     int v = ReadBits(_muxVp), h = _muxHp.Length == 9 ? ReadBits(_muxHp) : -1;
                     if (v >= _muxVlo && v <= _muxVhi && h >= _muxHlo && h <= _muxHhi)
-                    { _muxDetect = Time; _muxState = 1; _muxN++; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} v={v} h={h} #{_muxN} DETECT"); }
+                    { _muxDetect = Time; _muxState = 1; }
                 }
                 if (_muxState == 0) { MuxRelayIoAb(); return; }
             }
             long dt = Time - _muxDetect;
             // io_ce clamp edges (replay window)
-            if (dt == _muxRpStart) { InstClampLow(_muxIoCe); _muxIoCeClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY io_ce=0 (io_ab=7)"); }
-            if (dt == _muxRpEnd && _muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} REPLAY-END"); }
+            if (dt == _muxRpStart) { InstClampLow(_muxIoCe); _muxIoCeClamped = true; }
+            if (dt == _muxRpEnd && _muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; }
             // ale clamp edges (freeze window: hold u2=$FF through dot 229)
-            if (dt == _muxFzStart) { InstClampLow(_muxAle); _muxAleClamped = true; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE ale=0"); }
-            if (dt == _muxFzEnd && _muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; if (_muxDbg) Console.Error.WriteLine($"# [mux] t={Time} FREEZE-END"); }
+            if (dt == _muxFzStart) { InstClampLow(_muxAle); _muxAleClamped = true; }
+            if (dt == _muxFzEnd && _muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; }
             // io_ab drive: swallow -> 0, replay -> 7, else transparent relay
             if (dt < _muxSwEnd) MuxDriveIoAb(0);
             else if (dt >= _muxRpStart && dt < _muxRpEnd) MuxDriveIoAb(7);
@@ -1086,688 +884,6 @@ namespace AprVisual.Sim
             // window done
             if (dt >= _muxFzEnd) { if (_muxIoCeClamped) { InstRelease(_muxIoCe); _muxIoCeClamped = false; } if (_muxAleClamped) { InstRelease(_muxAle); _muxAleClamped = false; } _muxState = 0; }
         }
-
-        // ── TEMP diag (ExplicitDMAAbort): rdy transitions + reg writes + $4000 reads ──
-        private static int _dmaPrRdy = -2, _dmaPrN;
-        private static int _dmaPrPrevAb = -1, _dmaPrRdyFall;
-        private static void DmaProbeStep()
-        {
-            // RESULT-WRITE hook (unstarved -- own check before the _dmaPrN cap)
-            if (!_dmaPrZpDumped)
-            {
-                int abR = ReadReg(R_CpuAb);
-                if (NodeStates[_pdRw] == 0 && (abR == 0x045C || abR == 0x055C) && Time > 19320000)
-                {
-                    _dmaPrZpDumped = true;
-                    var ramR = ResolveMemory("u1.ram");
-                    var sbR = new System.Text.StringBuilder($"# [res] t={Time} RESULT write ${abR:X4}; ZP$50={ramR.Read(0x50):X2} ZP$10={ramR.Read(0x10):X2} ZP$11={ramR.Read(0x11):X2}; $500-$5FF:\n");
-                    for (int rr = 0; rr < 16; rr++)
-                    {
-                        sbR.Append($"#   {rr << 4:X2} |");
-                        for (int cc = 0; cc < 16; cc++) sbR.Append($" {ramR.Read(0x500 + (rr << 4) + cc):X2}");
-                        sbR.Append('\n');
-                    }
-                    Console.Error.Write(sbR.ToString());
-                }
-            }
-            // finale probe v3: sample the LAST half-cycle of each bus transaction (the first-half
-            // db is just the operand byte still on the bus -- three probes stepped on that rake)
-            // v5 target: the $3FFE stunt's assembly reads (APURegActivation Test 7)
-            if (Time > 19300000 && Time < 19400000 && _finN < 120)
-            {
-                int abF = ReadReg(R_CpuAb);
-                bool tracked = abF == 0x3FFE || abF == 0x3FFF || abF == 0x4000 || abF == 0x4001 || abF == 0x4014 || abF == 0x4015 || abF == 0x4016 || abF == 0x4017;
-                if (_finPrevW != -1 && abF != _finPrevW)
-                {
-                    _finN++;
-                    Console.Error.WriteLine($"# [fin] t={Time} {(_finPrevRw != 0 ? "read " : "WRITE")} ${_finPrevW:X4} final-db=${_finPrevDb:X2} a=${ReadReg(R_CpuA):X2}");
-                    _finPrevW = -1;
-                }
-                if (tracked) { _finPrevW = abF; _finPrevDb = ReadReg(R_CpuDb); _finPrevRw = NodeStates[_pdRw]; }
-            }
-            // [sp] StaleSpriteShiftRegs forensics: every $2001 write (with PPU coords at the write's
-            // last half-cycle) + every edge of the enable/_out/rendering/spr0_hit tuple, whole run
-            if (_spN < 240)
-            {
-                if (_spVp == null)
-                {
-                    var vv = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vv, quiet: true); _spVp = vv.ToArray();
-                    var hh = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hh, quiet: true); _spHp = hh.ToArray();
-                    _spBkgEn = LookupNode("ppu.bkg_enable"); _spSprEn = LookupNode("ppu.spr_enable");
-                    _spBkgOut = LookupNode("ppu.bkg_enable_out"); _spSprOut = LookupNode("ppu.spr_enable_out");
-                    _spHit = LookupNode("ppu.spr0_hit"); _spRend = LookupNode("ppu.rendering_1");
-                    Console.Error.WriteLine($"# [sp] resolve vp={_spVp.Length} hp={_spHp.Length} en={(_spBkgEn != EmptyNode ? 1 : 0)}{(_spSprEn != EmptyNode ? 1 : 0)} out={(_spBkgOut != EmptyNode ? 1 : 0)}{(_spSprOut != EmptyNode ? 1 : 0)} hit={(_spHit != EmptyNode ? 1 : 0)} rend={(_spRend != EmptyNode ? 1 : 0)}");
-                }
-                if (_spVp.Length == 9 && _spHp.Length == 9)
-                {
-                    int abW = ReadReg(R_CpuAb);
-                    bool wr01 = abW == 0x2001 && NodeStates[_pdRw] == 0;
-                    if (wr01) _spWrDb = ReadReg(R_CpuDb);
-                    if (wr01 && !_spInWr) _spInWr = true;
-                    else if (!wr01 && _spInWr)
-                    {
-                        _spInWr = false; _spN++;
-                        Console.Error.WriteLine($"# [sp] t={Time} W2001=${_spWrDb:X2} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                    }
-                    int tup = (NodeStates[_spBkgEn] << 5) | (NodeStates[_spSprEn] << 4) | (NodeStates[_spBkgOut] << 3)
-                            | (NodeStates[_spSprOut] << 2) | (NodeStates[_spRend] << 1) | NodeStates[_spHit];
-                    if (tup != _spPrevTup)
-                    {
-                        _spN++;
-                        Console.Error.WriteLine($"# [sp] t={Time} tup bkg={tup >> 5 & 1} spr={tup >> 4 & 1} bkgOut={tup >> 3 & 1} sprOut={tup >> 2 & 1} rend={tup >> 1 & 1} hit={tup & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                        _spPrevTup = tup;
-                    }
-                }
-            }
-            // [bgs] BGSerialIn toggle-phase probe: every $2001-SPACE write ((ab&$E007)==$2001 --
-            // including the $3E01 mirror the test's DISABLE half uses) that lands in the visible
-            // region, with PPU coords. The 360-toggle loop self-aligns its enable writes to land
-            // at dot%8==6 (hardware +2 delay -> effect at %8==0, straddling the %8==7 shifter
-            // load); a systematic phase slip here is the in-suite err2 root-cause signature.
-            if (_bgsN < 900 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
-            {
-                int abB = ReadReg(R_CpuAb);
-                bool wrB = (abB & 0xE007) == 0x2001 && NodeStates[_pdRw] == 0;
-                if (wrB) { _bgsDb = ReadReg(R_CpuDb); if (!_bgsInWr) { _bgsInWr = true; _bgsAb = abB; } }
-                else if (_bgsInWr)
-                {
-                    _bgsInWr = false;
-                    int vB = ReadBits(_spVp), hB = ReadBits(_spHp);
-                    if (vB >= 2 && vB <= 235)   // visible region only: the toggle loop; menu/vblank writes skipped
-                    { _bgsN++; Console.Error.WriteLine($"# [bgs] t={Time} W${_bgsAb:X4}=${_bgsDb:X2} v={vB} h={hB} h%8={hB % 8}"); }
-                }
-            }
-            // [syn] sync-routine decision probe: every $4015 READ (the SLO get/put detector reads
-            // the frame-IRQ flag whose set-cycle parity IS the discriminator) with the value the
-            // CPU actually got, and every $4017 write (frame-counter reset). Low-frequency; the
-            // BGSerialIn in-suite sync walks a branch the standalone never takes.
-            if (_synN < 240 && _spVp != null && _spVp.Length == 9 && _spHp.Length == 9)
-            {
-                int abS2 = ReadReg(R_CpuAb);
-                bool rd4015 = abS2 == 0x4015 && NodeStates[_pdRw] != 0;
-                bool wr4017 = abS2 == 0x4017 && NodeStates[_pdRw] == 0;
-                if (rd4015) { _synIn4015R = true; _syn4015Db = ReadReg(R_CpuDb); }   // sample DURING the read; last hc wins
-                else if (_synIn4015R)
-                {
-                    _synIn4015R = false; _synN++;
-                    Console.Error.WriteLine($"# [syn] t={Time} R4015 -> ${_syn4015Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                }
-                if (wr4017) { _synIn4017W = true; _syn4017Db = ReadReg(R_CpuDb); }
-                else if (_synIn4017W)
-                {
-                    _synIn4017W = false; _synN++;
-                    Console.Error.WriteLine($"# [syn] t={Time} W4017=${_syn4017Db:X2} v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                }
-            }
-            // [sq] sprite-eval pipeline edges in the control frame (no blank) vs the stunt frame
-            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
-            {
-                if (_sqN < 400)
-                {
-                    if (_sqOwd == EmptyNode)
-                    {
-                        _sqOwd = LookupNode("ppu.oam_write_disable");
-                        _sqCopy = LookupNode("ppu.copy_sprite_to_sec_oam");
-                        _sqEval = LookupNode("ppu.spr_eval_copy_sprite");
-                        _sqOvf = LookupNode("ppu.sec_oam_overflow");
-                        Console.Error.WriteLine($"# [sq] resolve owd={(_sqOwd != EmptyNode ? 1 : 0)} copy={(_sqCopy != EmptyNode ? 1 : 0)} eval={(_sqEval != EmptyNode ? 1 : 0)} ovf={(_sqOvf != EmptyNode ? 1 : 0)}");
-                    }
-                    int tq = (NodeStates[_sqCopy] << 2) | (NodeStates[_sqEval] << 1) | NodeStates[_sqOvf];
-                    int rose = _sqPrev < 0 ? 0 : (tq & ~_sqPrev);
-                    if (rose != 0)
-                    {
-                        _sqN++;
-                        Console.Error.WriteLine($"# [sq] t={Time} rise{(((rose >> 2) & 1) != 0 ? " copy" : "")}{(((rose >> 1) & 1) != 0 ? " eval" : "")}{((rose & 1) != 0 ? " ovf" : "")} owd={NodeStates[_sqOwd]} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                    }
-                    _sqPrev = tq;
-                }
-            }
-            // [sr] eval-machine state sampled at h=66 and h=340 of early scanlines, both frames
-            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
-            {
-                if (_srN < 80 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_srEnd == EmptyNode)
-                    {
-                        _srEnd = LookupNode("ppu.end_of_oam_or_sec_oam_overflow");
-                        _srOvf = LookupNode("ppu.sec_oam_overflow");
-                        _srPovf = LookupNode("ppu.spr_ptr_overflow");
-                        var sa = new List<int>(); ResolveNodes("ppu.spr_addr[7:0]", sa, quiet: true); _srAddr = sa.ToArray();
-                        var sp2 = new List<int>(); ResolveNodes("ppu.spr_ptr[4:0]", sp2, quiet: true); _srPtr = sp2.ToArray();
-                        Console.Error.WriteLine($"# [sr] resolve end={(_srEnd != EmptyNode ? 1 : 0)} ovf={(_srOvf != EmptyNode ? 1 : 0)} povf={(_srPovf != EmptyNode ? 1 : 0)} addr={_srAddr.Length} ptr={_srPtr.Length}");
-                    }
-                    int hNow = ReadBits(_spHp), vNow = ReadBits(_spVp);
-                    if ((hNow == 66 || hNow == 340) && hNow != _srPrevH && vNow <= 12)
-                    {
-                        _srN++;
-                        Console.Error.WriteLine($"# [sr] t={Time} v={vNow} h={hNow} end={NodeStates[_srEnd]} ovf={NodeStates[_srOvf]} povf={NodeStates[_srPovf]} sprAddr=${(_srAddr.Length == 8 ? ReadBits(_srAddr) : -1):X2} sprPtr={(_srPtr.Length == 5 ? ReadBits(_srPtr) : -1)}");
-                    }
-                    _srPrevH = hNow;
-                }
-            }
-            // [ss] rendering-node family + eval arming decodes, sampled at fixed coords both frames
-            if ((Time >= 32870000 && Time <= 33600000) || (Time >= 35020000 && Time <= 35700000))
-            {
-                if (_ssN < 60 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_ssR2 == EmptyNode)
-                    {
-                        _ssR2 = LookupNode("ppu.rendering_2"); _ssNr = LookupNode("ppu.not_rendering");
-                        _ssNr2 = LookupNode("ppu.not_rendering_2"); _ssVis = LookupNode("ppu.in_visible_frame_and_rendering");
-                        _ssLt64 = LookupNode("ppu.hpos_lt_64_and_rendering"); _ssEq65 = LookupNode("ppu.hpos_eq_65_and_rendering");
-                        _ssEq63 = LookupNode("ppu.hpos_eq_63_and_rendering");
-                        Console.Error.WriteLine($"# [ss] resolve r2={(_ssR2 != EmptyNode ? 1 : 0)} nr={(_ssNr != EmptyNode ? 1 : 0)} nr2={(_ssNr2 != EmptyNode ? 1 : 0)} vis={(_ssVis != EmptyNode ? 1 : 0)} lt64={(_ssLt64 != EmptyNode ? 1 : 0)} eq65={(_ssEq65 != EmptyNode ? 1 : 0)} eq63={(_ssEq63 != EmptyNode ? 1 : 0)}");
-                    }
-                    int hS = ReadBits(_spHp), vS = ReadBits(_spVp);
-                    if ((hS == 30 || hS == 64 || hS == 66) && hS != _ssPrevH && vS <= 6)
-                    {
-                        _ssN++;
-                        Console.Error.WriteLine($"# [ss] t={Time} v={vS} h={hS} r1={NodeStates[_spRend]} r2={NodeStates[_ssR2]} nr={NodeStates[_ssNr]} nr2={NodeStates[_ssNr2]} vis={NodeStates[_ssVis]} lt64={NodeStates[_ssLt64]} eq65={NodeStates[_ssEq65]} eq63={NodeStates[_ssEq63]}");
-                    }
-                    _ssPrevH = hS;
-                }
-            }
-            // [su] not_rendering latch autopsy around both enables (v242-band vs v261-late)
-            if ((Time >= 32820000 && Time <= 32880000) || (Time >= 35012000 && Time <= 35036000))
-            {
-                if (_suN < 260 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_suNr == EmptyNode)
-                    {
-                        _suNr = LookupNode("ppu.not_rendering");
-                        _suGate = LookupNode("ppu.#5829");
-                        _suIn = LookupNode("ppu.#10676");
-                        _suOr = LookupNode("ppu.#5727");
-                        _suRd = LookupNode("ppu.rendering_disabled");
-                        Console.Error.WriteLine($"# [su] resolve nr={(_suNr != EmptyNode ? 1 : 0)} gate={(_suGate != EmptyNode ? 1 : 0)} in={(_suIn != EmptyNode ? 1 : 0)} or={(_suOr != EmptyNode ? 1 : 0)} rd={(_suRd != EmptyNode ? 1 : 0)}");
-                    }
-                    int tu = (NodeStates[_suNr] << 4) | (NodeStates[_suGate] << 3) | (NodeStates[_suIn] << 2) | (NodeStates[_suOr] << 1) | NodeStates[_suRd];
-                    if (tu != _suPrev)
-                    {
-                        _suN++;
-                        Console.Error.WriteLine($"# [su] t={Time} nr={tu >> 4 & 1} gate={tu >> 3 & 1} in={tu >> 2 & 1} or={tu >> 1 & 1} rdis={tu & 1} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                        _suPrev = tu;
-                    }
-                }
-            }
-            // [sv] what the test-2 OAM DMA actually delivers: source page dump + $2004 write bytes
-            if (Time >= 35008000 && Time <= 35015000 && _svN < 30)
-            {
-                int abV = ReadReg(R_CpuAb);
-                if (!_svDumped && abV == 0x4014 && NodeStates[_pdRw] == 0)
-                {
-                    _svDumped = true;
-                    var ramV = ResolveMemory("u1.ram");
-                    var sbV = new System.Text.StringBuilder($"# [sv] t={Time} $4014 fired; src $200-$20F:");
-                    for (int i = 0; i < 16; i++) sbV.Append($" {ramV.Read(0x200 + i):X2}");
-                    Console.Error.WriteLine(sbV.ToString());
-                }
-                bool wr04 = abV == 0x2004 && NodeStates[_pdRw] == 0;
-                if (wr04) _svDb = ReadReg(R_CpuDb);
-                if (wr04 && !_svIn) _svIn = true;
-                else if (!wr04 && _svIn)
-                {
-                    _svIn = false; _svN++;
-                    Console.Error.WriteLine($"# [sv] t={Time} W2004[{_svN - 1}]=${_svDb:X2}");
-                }
-            }
-            // [sw] the OAM readout bus as the evaluator sees it, v=5 h=60..80, both frames
-            if ((Time >= 32892000 && Time <= 32893000) || (Time >= 35036200 && Time <= 35037300))
-            {
-                if (_swN < 120 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_swD == null)
-                    {
-                        var dd = new List<int>(); ResolveNodes("ppu.spr_d[7:0]", dd, quiet: true); _swD = dd.ToArray();
-                        Console.Error.WriteLine($"# [sw] resolve spr_d={_swD.Length}");
-                    }
-                    int hW = ReadBits(_spHp), vW = ReadBits(_spVp);
-                    if (vW == 5 && hW >= 60 && hW <= 80 && hW != _swPrevH && _swD.Length == 8)
-                    {
-                        _swN++;
-                        var rAct = new System.Text.StringBuilder();
-                        if (_szRows != null && _szRows.Length == 32) for (int i = 0; i < 32; i++) if (NodeStates[_szRows[i]] != 0) rAct.Append($"{i},");
-                        Console.Error.WriteLine($"# [sw] t={Time} v={vW} h={hW} spr_d=${ReadBits(_swD):X2} copy={NodeStates[_sqCopy]} eval={NodeStates[_sqEval]} rows=[{rAct}]");
-                    }
-                    _swPrevH = hW;
-                }
-            }
-            // [sx] OAM write strobes during the healthy (vblank) DMA vs the stunt (mid-frame blank) DMA
-            if ((Time >= 18532500 && Time <= 18533400) || (Time >= 35008600 && Time <= 35009500) || (Time >= 35021600 && Time <= 35036400))
-            {
-                if (_sxN < 400 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_sxSet == EmptyNode)
-                    {
-                        _sxSet = LookupNode("ppu.set_spr_d7_in_oam");
-                        _sxClr = LookupNode("ppu.clear_spr_d7_in_oam");
-                        _sxOwd2 = LookupNode("ppu.oam_write_disable");
-                        Console.Error.WriteLine($"# [sx] resolve set={(_sxSet != EmptyNode ? 1 : 0)} clr={(_sxClr != EmptyNode ? 1 : 0)} owd={(_sxOwd2 != EmptyNode ? 1 : 0)}");
-                    }
-                    int tx = (NodeStates[_sxSet] << 1) | NodeStates[_sxClr];
-                    int rosex = _sxPrev < 0 ? 0 : (tx & ~_sxPrev);
-                    if (rosex != 0)
-                    {
-                        _sxN++;
-                        Console.Error.WriteLine($"# [sx] t={Time} rise{(((rosex >> 1) & 1) != 0 ? " SET" : "")}{((rosex & 1) != 0 ? " CLR" : "")} owd={NodeStates[_sxOwd2]} at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                    }
-                    _sxPrev = tx;
-                }
-            }
-            // [sz] which OAM row is open at each clear-phase write strobe (control vs stunt v=0)
-            if ((Time >= 18532500 && Time <= 18533400) || (Time >= 35008600 && Time <= 35036400))
-            {
-                if (_szN < 320 && _spVp != null && _spVp.Length == 9)
-                {
-                    if (_szRows == null)
-                    {
-                        var rr = new List<int>(); ResolveNodes("ppu.spr_row[31:0]", rr, quiet: true); _szRows = rr.ToArray();
-                        var cc2 = new List<int>(); ResolveNodes("ppu.spr_col[8:0]", cc2, quiet: true); _szCols = cc2.ToArray();
-                        Console.Error.WriteLine($"# [sz] resolve rows={_szRows.Length} cols={_szCols.Length}");
-                    }
-                    int txz = (NodeStates[_sxSet] << 1) | NodeStates[_sxClr];
-                    int rosez = _szPrev < 0 ? 0 : (txz & ~_szPrev);
-                    bool mainCol = false;
-                    if (_szCols != null && _szCols.Length == 9)
-                        for (int i = 0; i < 8; i++) if (NodeStates[_szCols[i]] != 0) { mainCol = true; break; }
-                    if (rosez != 0 && mainCol && _szRows.Length == 32)
-                    {
-                        _szN++;
-                        var act = new System.Text.StringBuilder();
-                        for (int i = 0; i < 32; i++) if (NodeStates[_szRows[i]] != 0) act.Append($"{i},");
-                        var colAct = new System.Text.StringBuilder();
-                        if (_szCols.Length == 9) for (int i = 0; i < 9; i++) if (NodeStates[_szCols[i]] != 0) colAct.Append($"{i},");
-                        Console.Error.WriteLine($"# [sz] t={Time} strobe rows=[{act}] cols=[{colAct}] at v={ReadBits(_spVp)} h={ReadBits(_spHp)}");
-                    }
-                    _szPrev = txz;
-                }
-            }
-            // [sc] row-0 cell candidates sampled at three instants: pre-DMA / post-DMA / v=5 eval
-            if (Time == 35008600 || Time == 35021200 || Time == 35036320)
-            {
-                if (_scCells == null)
-                {
-                    _scCells = new int[12];
-                    int[] ids = { 3028, 3066, 3120, 3156, 3202, 3240, 3285, 3318, 3363, 3409, 3463, 3495 };
-                    for (int i = 0; i < 12; i++) _scCells[i] = LookupNode($"ppu.#{ids[i]}");
-                }
-                var sbC = new System.Text.StringBuilder($"# [sc] t={Time} cells:");
-                for (int i = 0; i < 12; i++) sbC.Append(_scCells[i] != EmptyNode ? $" {NodeStates[_scCells[i]]}" : " ?");
-                Console.Error.WriteLine(sbC.ToString());
-            }
-            // [oa] REAL OAM dump (ppu.oam_ram_XX_bN) at one-shot instants, stunt + control frames
-            if (_oaCells == null && Time > 1000000)
-            {
-                _oaCells = new int[16, 8];
-                for (int i = 0; i < 16; i++)
-                    for (int b = 0; b < 8; b++)
-                        _oaCells[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
-                Console.Error.WriteLine($"# [oa] resolved cell[0][0]={(_oaCells[0, 0] != EmptyNode ? 1 : 0)}");
-            }
-            if (_oaCells != null && _oaShot < 8)
-            {
-                long[] marks = { 32877900, 32892100, 35008500, 35020900, 35022100, 35029000, 35036300 };
-                string[] tags = { "CTRL v0", "CTRL v5-pre-eval", "STUNT pre-DMA", "STUNT post-DMA", "STUNT post-enable v0", "STUNT v2", "STUNT v5-pre-eval" };
-                for (int m = 0; m < marks.Length; m++)
-                {
-                    if (((_oaFired >> m) & 1) != 0) continue;
-                    if (Time < marks[m]) continue;
-                    _oaFired |= 1 << m; _oaShot++;
-                    var sbO = new System.Text.StringBuilder($"# [oa] t={Time} [{tags[m]}] OAM$00-$0F:");
-                    for (int i = 0; i < 16; i++)
-                    {
-                        int v = 0;
-                        for (int b = 0; b < 8; b++)
-                            if (_oaCells[i, b] != EmptyNode && NodeStates[_oaCells[i, b]] != 0) v |= 1 << b;
-                        sbO.Append($" {v:X2}");
-                    }
-                    Console.Error.WriteLine(sbO.ToString());
-                }
-            }
-            // [ob] catch the OAM row-0 corruption in the act: per-dot OAM[0..3] + write path, v=3..v=5
-            if (Time >= 35031000 && Time <= 35036400 && _oaCells != null && _spVp != null && _spVp.Length == 9 && _obN < 120)
-            {
-                int vB = ReadBits(_spVp), hB = ReadBits(_spHp);
-                bool sample = (vB == 5) || (hB == 0 && (vB == 3 || vB == 4));
-                if (sample && hB != _obPrevH)
-                {
-                    int b0 = 0, b1 = 0, b2 = 0, b3 = 0;
-                    for (int b = 0; b < 8; b++)
-                    {
-                        if (_oaCells[0, b] != EmptyNode && NodeStates[_oaCells[0, b]] != 0) b0 |= 1 << b;
-                        if (_oaCells[1, b] != EmptyNode && NodeStates[_oaCells[1, b]] != 0) b1 |= 1 << b;
-                        if (_oaCells[2, b] != EmptyNode && NodeStates[_oaCells[2, b]] != 0) b2 |= 1 << b;
-                        if (_oaCells[3, b] != EmptyNode && NodeStates[_oaCells[3, b]] != 0) b3 |= 1 << b;
-                    }
-                    int packed = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
-                    if (packed != _obPrev || (vB == 5 && hB <= 70))
-                    {
-                        _obN++;
-                        Console.Error.WriteLine($"# [ob] t={Time} v={vB} h={hB} OAM0-3={b0:X2} {b1:X2} {b2:X2} {b3:X2} owd={NodeStates[_sxOwd2]} sprAddr=${(_srAddr != null && _srAddr.Length == 8 ? ReadBits(_srAddr) : -1):X2} sprD=${(_swD != null && _swD.Length == 8 ? ReadBits(_swD) : -1):X2} rend={NodeStates[_spRend]}{(packed != _obPrev ? "  <== CHANGED" : "")}");
-                        _obPrev = packed;
-                    }
-                    _obPrevH = hB;
-                }
-            }
-            // [oc] the corruption instant at half-cycle resolution: cell vs bitline vs precharge
-            if (Time >= 35035950 && Time <= 35036000)
-            {
-                if (_ocRow == EmptyNode)
-                {
-                    _ocRow = LookupNode("ppu.spr_row0"); _ocCol = LookupNode("ppu.spr_col0");
-                    _ocPclk = LookupNode("ppu.pclk0");
-                    _ocBitA = LookupNode("ppu.#1537"); _ocBitB = LookupNode("ppu.#1546");
-                    _ocColA = LookupNode("ppu.#1502"); _ocColB = LookupNode("ppu.#1505");
-                    _ocA0 = LookupNode("ppu.oam_ram_00_a0"); _ocB0 = LookupNode("ppu.oam_ram_00_b0");
-                    _ocA1 = LookupNode("ppu.oam_ram_00_a1"); _ocB1 = LookupNode("ppu.oam_ram_00_b1");
-                    Console.Error.WriteLine($"# [oc] resolve row={(_ocRow != EmptyNode ? 1 : 0)} col={(_ocCol != EmptyNode ? 1 : 0)} pclk={(_ocPclk != EmptyNode ? 1 : 0)} bitA={(_ocBitA != EmptyNode ? 1 : 0)} colA={(_ocColA != EmptyNode ? 1 : 0)} a0={(_ocA0 != EmptyNode ? 1 : 0)}");
-                }
-                Console.Error.WriteLine($"# [oc] t={Time} rend={NodeStates[_spRend]} pclk0={NodeStates[_ocPclk]} row0={NodeStates[_ocRow]} col0={NodeStates[_ocCol]}"
-                    + $" | bitA={NodeStates[_ocBitA]} bitB={NodeStates[_ocBitB]} colA={NodeStates[_ocColA]} colB={NodeStates[_ocColB]}"
-                    + $" | cell0: a0={NodeStates[_ocA0]} b0={NodeStates[_ocB0]}  cell1: a1={NodeStates[_ocA1]} b1={NodeStates[_ocB1]}");
-            }
-            // [t3] Test 3: arm on the mid-frame disable, then trace the FIRST rendered line
-            // after the re-enable dot by dot: sprite pixel vs BG pixel vs the hit trigger.
-            if (Time > 35500000 && _t3N < 150 && _spVp != null && _spVp.Length == 9)
-            {
-                if (_t3P == null)
-                {
-                    var pp = new List<int>(); ResolveNodes("ppu.spr0_p[7:0]", pp, quiet: true); _t3P = pp.ToArray();
-                    _t3Act = LookupNode("ppu.spr0_active"); _t3Hit = LookupNode("ppu.spr0_hit");
-                    _t3Op = LookupNode("ppu.spr_slot_0_opaque"); _t3Use = LookupNode("ppu.use_sprite_0");
-                    _t3Bkg = LookupNode("ppu.bkg_pat"); _t3Set = LookupNode("ppu.set_spr0_hit");
-                    _t3Spat = LookupNode("ppu.spr_pat");
-                    Console.Error.WriteLine($"# [t3] resolve use={(_t3Use != EmptyNode ? 1 : 0)} bkgpat={(_t3Bkg != EmptyNode ? 1 : 0)} sprpat={(_t3Spat != EmptyNode ? 1 : 0)} set={(_t3Set != EmptyNode ? 1 : 0)}");
-                }
-                if (_t3P.Length == 8)
-                {
-                    int vT = ReadBits(_spVp), hT = ReadBits(_spHp);
-                    int rd = NodeStates[_spRend];
-                    if (_t3Arm == 0 && _t3PrevRend == 1 && rd == 0 && vT >= 1 && vT <= 200)
-                    { _t3Arm = vT; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} ARMED at v={vT} h={hT}"); }
-                    // the first rendered line after the re-enable: log dots 0..60 of the line where rendering returns
-                    if (_t3Arm != 0 && rd == 1 && _t3PrevRend == 0 && _t3Ret == 0 && vT <= 200)
-                    { _t3Ret = vT; _t3N++; Console.Error.WriteLine($"# [t3] t={Time} RE-ENABLED at v={vT} h={hT}  cnt=${ReadBits(_t3P):X2} act={NodeStates[_t3Act]}"); }
-                    _t3PrevRend = rd;
-                    if (_t3Ret != 0 && vT == _t3Ret + 1 && hT <= 60 && hT != _t3PrevH2)
-                    {
-                        _t3N++; _t3PrevH2 = hT;
-                        Console.Error.WriteLine($"# [t3] t={Time} v={vT} h={hT:D3} cnt=${ReadBits(_t3P):X2} act={NodeStates[_t3Act]}"
-                            + $" use0={(_t3Use != EmptyNode ? NodeStates[_t3Use] : 9)} opq={(_t3Op != EmptyNode ? NodeStates[_t3Op] : 9)}"
-                            + $" sprPat={(_t3Spat != EmptyNode ? NodeStates[_t3Spat] : 9)} bkgPat={(_t3Bkg != EmptyNode ? NodeStates[_t3Bkg] : 9)}"
-                            + $" setHit={(_t3Set != EmptyNode ? NodeStates[_t3Set] : 9)} hit={NodeStates[_t3Hit]}");
-                    }
-                }
-            }
-            // [ar] ALERead Test 2: prioritize catching the LDA $2007 corruption dot (own budget)
-            if (Time > 35000000 && _spVp != null && _spVp.Length == 9)
-            {
-                if (_arSelPat0 == EmptyNode)
-                {
-                    _arSelPat0 = LookupNode("ppu.selected_pat0"); _arSelPat1 = LookupNode("ppu.selected_pat1");
-                    _arSetHit = LookupNode("ppu.set_spr0_hit"); _arHit = LookupNode("ppu.spr0_hit");
-                    Console.Error.WriteLine("# [ar] resolved");
-                }
-                int vA = ReadBits(_spVp), hA = ReadBits(_spHp);
-                int abA = ReadReg(R_CpuAb);
-                bool rd2007 = (abA & 0xE007) == 0x2007 && NodeStates[_pdRw] != 0;
-                if (rd2007) _arIn2007 = true;
-                else if (_arIn2007 && _arN < 60)
-                { _arIn2007 = false; _arN++; Console.Error.WriteLine($"# [ar] t={Time} LDA $2007 read END at v={vA} h={hA}"); }
-                else if (_arIn2007) _arIn2007 = false;
-                // once a corruption fired (a $2007 read in visible region v<20), watch the NEXT scanline artifact
-                if (_arN > 0 && vA >= 1 && vA <= 8 && hA >= 238 && hA <= 250 && hA != _arPrevH && _arPixN < 80)
-                {
-                    _arPrevH = hA; _arPixN++;
-                    int pat = ((_arSelPat1 != EmptyNode ? NodeStates[_arSelPat1] : 0) << 1) | (_arSelPat0 != EmptyNode ? NodeStates[_arSelPat0] : 0);
-                    if (pat != 0 || (_arSetHit != EmptyNode && NodeStates[_arSetHit] != 0))
-                        Console.Error.WriteLine($"# [ar] t={Time} v={vA} h={hA} selPat={pat} setHit={(_arSetHit != EmptyNode ? NodeStates[_arSetHit] : 9)} hit={(_arHit != EmptyNode ? NodeStates[_arHit] : 9)} *** ARTIFACT");
-                }
-            }
-            // [ae] ALERead: trace the ALE+Read octal-latch feedback (self-contained: own vp/hp). OB_DEBUG only.
-            // Low Time gate: the standalone ALERead ROM runs the stunt early (isolated), unlike the full AC run.
-            if (Time > 200000 && _aeN < 260)
-            {
-                if (_aeAle == EmptyNode)
-                {
-                    _aeAle = LookupNode("ppu.ale"); _aeRd = LookupNode("ppu.rd");
-                    _aeR2007 = LookupNode("ppu.read_2007_trigger");
-                    var aeab = new List<int>(); ResolveNodes("ppu.ab[13:0]", aeab, quiet: true); _aeAb = aeab.Count == 14 ? aeab.ToArray() : System.Array.Empty<int>();
-                    var aevp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", aevp, quiet: true); _aeVp = aevp.Count == 9 ? aevp.ToArray() : System.Array.Empty<int>();
-                    var aehp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", aehp, quiet: true); _aeHp = aehp.Count == 9 ? aehp.ToArray() : System.Array.Empty<int>();
-                    _aeSel0 = LookupNode("ppu.selected_pat0"); _aeSel1 = LookupNode("ppu.selected_pat1");
-                    _aeIoCe = LookupNode("ppu.io_ce"); _aeCpuRw = LookupNode("cpu.rw");
-                    if (_aeCpuRw == EmptyNode) _aeCpuRw = LookupNode("2a03.cpu.rw");
-                    var aeioab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", aeioab, quiet: true); _aeIoAb = aeioab.Count == 3 ? aeioab.ToArray() : System.Array.Empty<int>();
-                    Console.Error.WriteLine($"# [ae] resolve ale={(_aeAle != EmptyNode ? 1 : 0)} rd={(_aeRd != EmptyNode ? 1 : 0)} r2007={(_aeR2007 != EmptyNode ? 1 : 0)} ab={_aeAb.Length} vp={_aeVp.Length} sel={(_aeSel0 != EmptyNode ? 1 : 0)} ioce={(_aeIoCe != EmptyNode ? 1 : 0)} ioab={_aeIoAb.Length} cpurw={(_aeCpuRw != EmptyNode ? 1 : 0)}");
-                }
-                if (_aeAb.Length == 14 && _aeVp.Length == 9 && _aeHp.Length == 9)
-                {
-                    if (_aeR2007 != EmptyNode && NodeStates[_aeR2007] != 0 && _aeArmV < 0)
-                    {
-                        int vv = ReadBits(_aeVp);
-                        if (vv >= 1 && vv <= 8) { _aeArmV = vv; _aePrevH = -1; Console.Error.WriteLine($"# [ae] ARM: $2007 read trigger at v={vv} h={ReadBits(_aeHp)}"); }
-                    }
-                    if (_aeArmV >= 0)
-                    {
-                        int vE = ReadBits(_aeVp), hE = ReadBits(_aeHp);
-                        if (vE == _aeArmV && hE >= 210 && hE <= 234 && _aeHcBudget > 0)
-                        {
-                            _aeHcBudget--;
-                            int r2007 = _aeR2007 != EmptyNode ? NodeStates[_aeR2007] : 9;
-                            int ioab = _aeIoAb.Length == 3 ? ReadBits(_aeIoAb) : 9;
-                            int ioce = _aeIoCe != EmptyNode ? NodeStates[_aeIoCe] : 9;
-                            int crw = _aeCpuRw != EmptyNode ? NodeStates[_aeCpuRw] : 9;
-                            Console.Error.WriteLine($"# [aehc] t={Time} v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} r2007={r2007} chrAb=${ReadBits(_aeAb):X4} ioce={ioce} ioab={ioab} rw={crw}");
-                        }
-                        if (vE == _aeArmV && hE != _aePrevH)
-                        {
-                            _aePrevH = hE; _aeN++;
-                            int sel = ((_aeSel1 != EmptyNode ? NodeStates[_aeSel1] : 0) << 1) | (_aeSel0 != EmptyNode ? NodeStates[_aeSel0] : 0);
-                            Console.Error.WriteLine($"# [ae] v={vE} h={hE} ale={NodeStates[_aeAle]} rd={NodeStates[_aeRd]} chrAb=${ReadBits(_aeAb):X4} selPat={sel}");
-                        }
-                    }
-                }
-            }
-            // stunt monitor: every $4014 write and $3FFE touch, whole run, own budget
-            if (_stN < 40)
-            {
-                int abS = ReadReg(R_CpuAb);
-                if (abS != _stPrevAb)
-                {
-                    if (abS == 0x4014 && NodeStates[_pdRw] == 0)
-                    { _stN++; Console.Error.WriteLine($"# [st] t={Time} WRITE $4014 (OAM DMA trigger)"); }
-                    else if (abS == 0x3FFE)
-                    { _stN++; Console.Error.WriteLine($"# [st] t={Time} touch $3FFE rw={NodeStates[_pdRw]}"); }
-                    _stPrevAb = abS;
-                }
-            }
-            // OAM-DMA read matrix: final-db of every $50xx read in the stunt window
-            if (Time > 19300000 && Time < 19400000 && !_dmaRdDumped)
-            {
-                if (_micIdb == null)
-                {
-                    var li = new List<int>(); ResolveNodes("cpu.idb[7:0]", li, quiet: true); _micIdb = li.ToArray();
-                    var ls = new List<int>(); ResolveNodes("cpu.spr_data[7:0]", ls, quiet: true); _micSpr = ls.ToArray();
-                    _micR4015 = LookupNode("cpu.r4015"); _micR4016 = LookupNode("cpu.r4016"); _micR4017 = LookupNode("cpu.r4017");
-                    _micDbe = LookupNode("cpu.dbe"); _micJoy1 = LookupNode("cpu.joy1"); _micJoy2 = LookupNode("cpu.joy2");
-                    Console.Error.WriteLine($"# [mic] resolve idb={_micIdb.Length} spr={_micSpr.Length} r15={(_micR4015 != EmptyNode ? 1 : 0)} r16={(_micR4016 != EmptyNode ? 1 : 0)} r17={(_micR4017 != EmptyNode ? 1 : 0)} dbe={(_micDbe != EmptyNode ? 1 : 0)}");
-                }
-                // event logger: every-step tuple across reads $5013-$501A; print on change
-                if (Time >= 19313640 && Time <= 19314120 && _micIdb.Length == 8 && _micSpr.Length == 8)
-                {
-                    int abE = ReadReg(R_CpuAb);
-                    string tup = $"ab=${abE:X4} rw={NodeStates[_pdRw]} ext=${ReadReg(R_CpuDb):X2} idb=${ReadBits(_micIdb):X2} spr=${ReadBits(_micSpr):X2}"
-                               + $" r15={(_micR4015 != EmptyNode ? NodeStates[_micR4015] : 9)}{(_micR4016 != EmptyNode ? NodeStates[_micR4016] : 9)}{(_micR4017 != EmptyNode ? NodeStates[_micR4017] : 9)}"
-                               + $" dbe={(_micDbe != EmptyNode ? NodeStates[_micDbe] : 9)} joy={(_micJoy1 != EmptyNode ? NodeStates[_micJoy1] : 9)}{(_micJoy2 != EmptyNode ? NodeStates[_micJoy2] : 9)}";
-                    if (tup != _micPrevTup) { _micPrevTup = tup; Console.Error.WriteLine($"# [ev] t={Time} {tup}"); }
-                }
-                int abD = ReadReg(R_CpuAb);
-                if (_dmaRdPrev != -1 && abD != _dmaRdPrev)
-                {
-                    _dmaRdBuf[_dmaRdPrev & 0xFF] = (byte)_dmaRdPrevDb;
-                    if (!_dmaRdSeen[_dmaRdPrev & 0xFF]) { _dmaRdSeen[_dmaRdPrev & 0xFF] = true; _dmaRdCount++; }
-                    if (_micN < 300)
-                    {
-                        _micN++;
-                        Console.Error.WriteLine($"# [mic] t={Time} rd ${_dmaRdPrev:X4} ext=${_dmaRdPrevDb:X2} idb=${_micPrevIdb:X2} spr=${_micPrevSpr:X2} /r{{15,16,17}}={_micPrevDec:D3}");
-                    }
-                    _dmaRdPrev = -1;
-                }
-                if ((abD >> 8) == 0x50 && NodeStates[_pdRw] != 0)
-                {
-                    _dmaRdPrev = abD; _dmaRdPrevDb = ReadReg(R_CpuDb); _dmaRdGap = 0;
-                    _micPrevIdb = _micIdb.Length == 8 ? ReadBits(_micIdb) : -1;
-                    _micPrevSpr = _micSpr.Length == 8 ? ReadBits(_micSpr) : -1;
-                    _micPrevDec = (_micR4015 != EmptyNode ? NodeStates[_micR4015] * 100 : 900)
-                                + (_micR4016 != EmptyNode ? NodeStates[_micR4016] * 10 : 90)
-                                + (_micR4017 != EmptyNode ? NodeStates[_micR4017] : 9);
-                }
-                else if (_dmaRdCount >= 64 && ++_dmaRdGap > 2000)
-                {
-                    _dmaRdDumped = true;
-                    var sbD = new System.Text.StringBuilder($"# [rd] t={Time} OAM-DMA $50xx read matrix ({_dmaRdCount} reads):\n");
-                    for (int rr = 0; rr < 16; rr++)
-                    {
-                        sbD.Append($"#   {rr << 4:X2} |");
-                        for (int cc = 0; cc < 16; cc++)
-                        {
-                            int ix = (rr << 4) + cc;
-                            sbD.Append(_dmaRdSeen[ix] ? $" {_dmaRdBuf[ix]:X2}" : " --");
-                        }
-                        sbD.Append('\n');
-                    }
-                    Console.Error.Write(sbD.ToString());
-                }
-            }
-            // ZP $A5 write monitor v3 -- report the RAM's post-write truth, not the first-half bus
-            if (Time > 28000000 && _a5N < 60)
-            {
-                int abA5 = ReadReg(R_CpuAb);
-                bool wrA5 = NodeStates[_pdRw] == 0 && abA5 == 0x00A5;
-                if (wrA5 && !_a5InWrite)
-                { _a5InWrite = true; _a5Pc = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl); }
-                else if (!wrA5 && _a5InWrite)
-                {
-                    _a5InWrite = false; _a5N++;
-                    var ramA5 = ResolveMemory("u1.ram");
-                    Console.Error.WriteLine($"# [a5] t={Time} $A5 := ${(ramA5 != null ? ramA5.Read(0xA5) : -1):X2} (pc=${_a5Pc:X4}) S=${ReadReg(R_CpuS):X2}");
-                }
-            }
-            if (Time < 13500000 || _dmaPrN >= 900) return;
-            int rdy = LookupNode("cpu.rdy") is int r && r != EmptyNode ? NodeStates[r] : 9;
-            int ab = ReadReg(R_CpuAb), rw = NodeStates[_pdRw];
-            if (rdy != _dmaPrRdy)
-            {
-                if (rdy == 0) _dmaPrRdyFall = (int)Time;
-                else if (_dmaPrRdy == 0)
-                { _dmaPrN++; Console.Error.WriteLine($"# [dma] t={_dmaPrRdyFall} DMA-stall dur={Time - _dmaPrRdyFall}t ab=${ab:X4}"); }
-                _dmaPrRdy = rdy;
-            }
-            bool newAb = ab != _dmaPrPrevAb;
-            if (rw == 0 && (ab == 0x4010 || ab == 0x4015) && newAb)
-            { _dmaPrN++; Console.Error.WriteLine($"# [dma] t={Time} WRITE ${ab:X4}"); }
-
-            _dmaPrPrevAb = ab;
-
-            // result-write hook: dump ZP $50-$5F at the instant the test banks its verdict
-            if (rw == 0 && (ab == 0x0479 || ab == 0x0478 || ab == 0x046D) && !_dmaPrZpDumped)
-            {
-                _dmaPrZpDumped = true;
-                var ram = ResolveMemory("u1.ram");
-                if (ram != null)
-                {
-                    var sb = new System.Text.StringBuilder($"# [dma] t={Time} RESULT-WRITE ${ab:X4} zp $50-$5F:");
-                    for (int i = 0x50; i < 0x60; i++) sb.Append($" {ram.Read(i):X2}");
-                    Console.Error.WriteLine(sb.ToString());
-                }
-            }
-
-            // pcm micro-state -- EVENT-armed: a $4015 write landing while the DMC DMA is active
-            // (pcm_dma_active==1) is exactly the X=8/9 mid-flight-abort case
-            if (rdy == 0 && !_rdyDumped && Time > 15860000)
-            {
-                _rdyDumped = true;
-                foreach (string nname in new[] { "cpu.#14039", "cpu.#15737", "cpu.#11483" })
-                {
-                    int hn = LookupNode(nname);
-                    if (hn == EmptyNode) { Console.Error.WriteLine($"# [halt] {nname} unresolved"); continue; }
-                    ref var hi = ref NodeInfos[hn];
-                    Console.Error.WriteLine($"# [halt] {nname} id={hn} inline={hi.Inline} state={NodeStates[hn]}");
-                    if (hi.Inline != 0)
-                    {
-                        int k = 0;
-                        for (int i = 0; i < hi.C1c2Count; i++, k += 2)
-                            Console.Error.WriteLine($"# [halt]   pair g#{hi.InlinePayload[k]}({GetNodeName(hi.InlinePayload[k])})={NodeStates[hi.InlinePayload[k]]} o#{hi.InlinePayload[k+1]}({GetNodeName(hi.InlinePayload[k+1])})={NodeStates[hi.InlinePayload[k+1]]}");
-                        for (int i = 0; i < hi.GndCount; i++) { int g = hi.InlinePayload[k++];
-                            Console.Error.WriteLine($"# [halt]   GND g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
-                        for (int i = 0; i < hi.PwrCount; i++) { int g = hi.InlinePayload[k++];
-                            Console.Error.WriteLine($"# [halt]   PWR g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
-                    }
-                    else
-                    {
-                        for (int i = hi.TlistC1c2s; TransistorList[i] != 0; i += 2)
-                            Console.Error.WriteLine($"# [halt]   pair g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]} o#{TransistorList[i+1]}({GetNodeName(TransistorList[i+1])})={NodeStates[TransistorList[i+1]]}");
-                        for (int i = hi.TlistC1gnd; TransistorList[i] != 0; i++)
-                            Console.Error.WriteLine($"# [halt]   GND g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
-                        for (int i = hi.TlistC1pwr; TransistorList[i] != 0; i++)
-                            Console.Error.WriteLine($"# [halt]   PWR g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
-                    }
-                }
-                int rn = LookupNode("cpu.rdy");
-                ref var ni = ref NodeInfos[rn];
-                Console.Error.WriteLine($"# [rdy] test-build id={rn} inline={ni.Inline}");
-                if (ni.Inline == 0)
-                {
-                    for (int i = ni.TlistC1c2s; TransistorList[i] != 0; i += 2)
-                        Console.Error.WriteLine($"# [rdy]   pair g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]} o#{TransistorList[i+1]}({GetNodeName(TransistorList[i+1])})");
-                    for (int i = ni.TlistC1gnd; TransistorList[i] != 0; i++)
-                        Console.Error.WriteLine($"# [rdy]   GND g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
-                    for (int i = ni.TlistC1pwr; TransistorList[i] != 0; i++)
-                        Console.Error.WriteLine($"# [rdy]   PWR g#{TransistorList[i]}({GetNodeName(TransistorList[i])})={NodeStates[TransistorList[i]]}");
-                }
-                else
-                {
-                    int k = 0;
-                    for (int i = 0; i < ni.C1c2Count; i++, k += 2)
-                        Console.Error.WriteLine($"# [rdy]   pair g#{ni.InlinePayload[k]}({GetNodeName(ni.InlinePayload[k])})={NodeStates[ni.InlinePayload[k]]} o#{ni.InlinePayload[k+1]}({GetNodeName(ni.InlinePayload[k+1])})");
-                    for (int i = 0; i < ni.GndCount; i++) { int g = ni.InlinePayload[k++];
-                        Console.Error.WriteLine($"# [rdy]   GND g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
-                    for (int i = 0; i < ni.PwrCount; i++) { int g = ni.InlinePayload[k++];
-                        Console.Error.WriteLine($"# [rdy]   PWR g#{g}({GetNodeName(g)})={NodeStates[g]}"); }
-                }
-            }
-            if (rw == 0 && ab == 0x4015 && rdy == 0 && _pcmArmed == 0)
-            { _pcmArmed = 400; Console.Error.WriteLine($"# [pcm] t={Time} *** $4015 write during RDY-halt (mid-DMA) -- microscope armed ***"); }
-            if (_pcmArmed > 0 || (Time >= 15860000 && Time <= 15861000))
-            {
-                if (_pcmArmed > 0) _pcmArmed--;
-                if (_pcmW == null)
-                {
-                    _pcmW = new int[10]; _pcmLc = new int[12];
-                    string[] nm = { "cpu.#14059", "cpu.#11094", "cpu.#11093", "cpu.#11102", "cpu.pcm_en",
-                                    "cpu.#10337", "cpu.#10338", "cpu.#10658", "cpu.#11553", "cpu.#14089" };   // + halt family, pcm_rd_active
-                    for (int i = 0; i < 10; i++) _pcmW[i] = LookupNode(nm[i]);
-                    for (int i = 0; i < 12; i++) _pcmLc[i] = LookupNode($"cpu.pcm_lc{i}");
-                    Console.Error.WriteLine($"# [pcm] resolved: {string.Join(",", System.Linq.Enumerable.Select(_pcmW, x => x != EmptyNode ? "ok" : "MISS"))} lc={(System.Linq.Enumerable.All(_pcmLc, x => x != EmptyNode) ? "ok" : "MISS")}");
-                }
-                int st = 0;
-                for (int i = 0; i < 10; i++) if (_pcmW[i] != EmptyNode && NodeStates[_pcmW[i]] != 0) st |= 1 << i;
-                int lc = 0;
-                for (int i = 0; i < 12; i++) if (_pcmLc[i] != EmptyNode && NodeStates[_pcmLc[i]] != 0) lc |= 1 << i;
-                if (st != _pcmPrevSt || lc != _pcmPrevLc)
-                {
-                    Console.Error.WriteLine($"# [pcm] t={Time} dma={st & 1} loadbuf={(st >> 1) & 1} loadsr={(st >> 2) & 1} shiftsr={(st >> 3) & 1} en={(st >> 4) & 1} h37={(st >> 5) & 1} h38={(st >> 6) & 1} h658={(st >> 7) & 1} h1553={(st >> 8) & 1} rdact={(st >> 9) & 1} rdy={rdy} ab=${ab:X4}");
-                    _pcmPrevSt = st; _pcmPrevLc = lc;
-                }
-            }
-        }
-        private static int _dmaPrLastDb = -1;
-        private static int[] _pcmW, _pcmLc;
-        private static int _pcmPrevSt = -1, _pcmPrevLc = -1;
-        private static bool _dmaPrZpDumped;
-        private static int _pcmArmed;
-        private static bool _rdyDumped;
 
         // ── DMC $4015-abort shim (Explicit/Implicit DMA Abort): on real silicon the $4015
         // status write takes effect 3-4 CPU cycles later (5-6 at the fire boundary) through the
@@ -1816,7 +932,6 @@ namespace AprVisual.Sim
         private static readonly byte[] _oeMirror = new byte[8];
         private static readonly int[] _oeDriven = new int[128];
         private static int _oeMirrorRow = -1, _oePrevRend, _oeDrivenCount, _oeHold, _oeFires;
-        private static readonly bool _oeDebug = Environment.GetEnvironmentVariable("OE_DEBUG") != null;
 
         public static void EnableOamBlankEdgeShim()
         {
@@ -1835,7 +950,7 @@ namespace AprVisual.Sim
             _oeSprAddr = sa.ToArray();
             _oePrevRend = NodeStates[_oeRend];
             _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0; _oeFires = 0;
-            _oamEdgeShim = true; ShimChainArmed = true;
+            _oamEdgeShim = true;
         }
 
         // M4·hold-on-OAM MECHANISM (env M4_OE): promotes the proven OAM-blank-edge row-restore to
@@ -1893,7 +1008,6 @@ namespace AprVisual.Sim
                 if (changed) ProcessQueue();
                 _oeHold = 2;   // hold the restore across the edge settle, then release
                 _oeFires++;
-                if (_oeDebug) Console.Error.WriteLine($"# [oe] t={Time} rendering-disable edge: restored OAM row {_oeMirrorRow} = {_oeMirror[0]:X2} {_oeMirror[1]:X2} {_oeMirror[2]:X2} {_oeMirror[3]:X2} ...");
             }
             _oePrevRend = rend;
         }
@@ -1909,7 +1023,7 @@ namespace AprVisual.Sim
             _dmcAbPhase = LookupNode("cpu.#11466");   // ACLK phase holding the retire gate (#11483) shut
             if (_dmcAbHalt == EmptyNode || _dmcAbDmaAct == EmptyNode || _dmcAbEn == EmptyNode || _dmcAbRdy == EmptyNode || _dmcAbLoadSr == EmptyNode)
             { Console.Error.WriteLine("# [shim] dmc-4015-abort: nodes unresolved -- disabled"); return; }
-            _dmcAbortShim = true; ShimChainArmed = true;
+            _dmcAbortShim = true;
         }
 
         // P3-abort MECHANISM (env M3_ABORT): promotes the proven deferred-$4015 DMC-DMA-abort
@@ -1935,7 +1049,6 @@ namespace AprVisual.Sim
             else _dmcAbFetchSeen = false;
             if (_dmcAbPrevEn == 1 && en == 0)
             {
-                if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} ARM (en fell) rdy={rdy} cd was {_dmcAbCountdown}");
                 _dmcAbCountdown = 84;   // deferred effect calibration (see campaign note)
             }
             _dmcAbPrevEn = en;
@@ -1954,9 +1067,7 @@ namespace AprVisual.Sim
                 if (rdy == 0 && !_dmcAbFetchSeen && dist < 60)
                 {
                     _dmcAbKillIn = dist >= 48 ? 1 : (int)(48 - dist);
-                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} kill scheduled in {_dmcAbKillIn}t (boundary {dist}t ago)");
                 }
-                else if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} no-kill rdy={rdy} fetchSeen={_dmcAbFetchSeen} boundary={dist}t");
             }
             if (_dmcAbKillIn > 0 && --_dmcAbKillIn == 0)
             {
@@ -1972,7 +1083,6 @@ namespace AprVisual.Sim
                     // #11466 opens the gate and the netlist's own machinery discharges the halt --
                     // and the phase node is actively re-driven next settle, so it self-heals.
                     if (_dmcAbPhase != EmptyNode) { InstClampLow(_dmcAbPhase); _dmcAbHold = 72; }   // hold the retire path open ~3 cycles (the halt node is pulled up; it re-asserts the moment the gate shuts)
-                    if (_pdDbg) Console.Error.WriteLine($"# [abort-shim] t={Time} KILL retire-early (boundary {Time - _dmcAbLastBoundary}t ago) halt={NodeStates[_dmcAbHalt]} rdy={NodeStates[_dmcAbRdy]}");
                 }
             }
         }
@@ -1995,9 +1105,6 @@ namespace AprVisual.Sim
             return EmptyNode;
         }
         private static int _laeWait;         // half-cycles left to meet a TSX that will read S
-        private static readonly bool _laeDebug = Environment.GetEnvironmentVariable("LAE_DEBUG") == "1";
-        private static readonly bool _obDebug = Environment.GetEnvironmentVariable("OB_DEBUG") == "1";
-        private static int _obPrevPc = -1, _obPrevIr = -1, _obPrevDb = -1;
 
 
 
@@ -2035,7 +1142,7 @@ namespace AprVisual.Sim
             _lxaPrevPhi2 = NodeStates[_lxaPhi2];
             _lxaArm = 0;
             _laeRecent = 0; _laeWait = 0; _laeVal = -1; _laeSbsSeen = false;
-            LxaMagicShim = true; ShimChainArmed = true;
+            LxaMagicShim = true;
         }
 
         // M1·strength LXA MECHANISM (env M1_LXA): promotes the proven LXA/ANE magic-merge to an
@@ -2105,18 +1212,6 @@ namespace AprVisual.Sim
         {
             // (the OpenBus/DL/abort/OamEdge family used to be hosted here — now dispatched by
             //  TestShimChainStep, same relative order)
-            if (_pdDbg) DmaProbeStep();   // TEMP diag: rdy/DMC-write timeline (OB_DEBUG only)
-            // TEMP diag: PC-transition log in a Time window (default = the IDR-forensics window;
-            // override with PC_WIN=lo,hi for new investigations without a per-window rebuild)
-            if (_pdDbg && Time >= _pcWinLo && Time <= _pcWinHi && _pcTrN < 900)
-            {
-                int pcNow = (ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl);
-                int pgN = pcNow >> 8, pgP = _pcTrPrev >> 8;
-                bool fbff = (pgN == 0xFB || pgN == 0xFF) && (pgP == 0xFB || pgP == 0xFF);
-                if (pcNow != _pcTrPrev && pgN != pgP && !fbff)
-                { _pcTrN++; Console.Error.WriteLine($"# [pc] t={Time} pc=${pcNow:X4} ir=${ReadReg(R_CpuIr):X2}"); }
-                _pcTrPrev = pcNow;
-            }
             // LAE ($BB): qualify by the INSTRUCTION REGISTER, not fetch heuristics — an armed-on-db
             // scheme measurably false-triggered on unrelated bytes and then fired at the next TXS.
             // Subtlety (measured): the S-load SBS pulse arrives ~49 half-cycles AFTER IR has already
@@ -2146,25 +1241,7 @@ namespace AprVisual.Sim
             int acsNow = _laeAcs == EmptyNode ? 0 : NodeStates[_laeAcs];
             // (SBAC-close re-forcing removed: the stub's own PLA/AND legitimately reload A through
             // SBAC, and clobbering those measurably broke the flags capture. Kept for tracing only.)
-            if (_laeDebug && _laeWait > 1400)
-                Console.Error.WriteLine($"# [lae] post t={Time} phi2={NodeStates[_lxaPhi2]} acs={acsNow} a=${ReadBits(_lxaA):X2} ir=${(R_CpuIr.Length==8?ReadBits(R_CpuIr):-1):X2}");
             _laePrevAcs = acsNow;
-            if (_laeDebug && (_laeSbsSeen || (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBB)))
-                Console.Error.WriteLine($"# [lae] t={Time} phi2={NodeStates[_lxaPhi2]} ir=${(R_CpuIr.Length==8?ReadBits(R_CpuIr):-1):X2} sbs={NodeStates[_laeSbs]} sb=${ReadBits(_laeSb):X2} db=${ReadBits(_lxaDb):X2} a=${ReadBits(_lxaA):X2} x=${ReadBits(_lxaX):X2} s=${ReadBits(_laeS):X2}");
-            if (_obDebug)
-            {
-                int pc = ReadReg(R_CpuPcl) | (ReadReg(R_CpuPch) << 8);
-                if (pc >= 0x4000 && pc <= 0x62FF)
-                {
-                    int ir = R_CpuIr.Length == 8 ? ReadBits(R_CpuIr) : -1;
-                    int db = ReadBits(_lxaDb);
-                    if (pc != _obPrevPc || ir != _obPrevIr || db != _obPrevDb)
-                    {
-                        Console.Error.WriteLine($"# [ob] t={Time} pc=${pc:X4} ir=${ir:X2} db=${db:X2} ab=${ReadReg(R_CpuAb):X4} rw={(_pdRw!=EmptyNode?NodeStates[_pdRw]:9)}");
-                        _obPrevPc = pc; _obPrevIr = ir; _obPrevDb = db;
-                    }
-                }
-            }
             int ph = NodeStates[_lxaPhi2];
             if (_lxaPrevPhi2 == 1 && ph == 0)   // phi2 falling = end of a CPU cycle
             {
@@ -2231,12 +1308,6 @@ namespace AprVisual.Sim
                             for (int k = LaeReadCount - 1; k >= 0; k--)
                                 if ((LaeReadAddr[k] & 0x7FF) == target) { mem = LaeReadVal[k]; break; }
                         }
-                        if (_laeDebug)
-                        {
-                            var ring = new StringBuilder("# [lae] reads:");
-                            for (int k = 0; k < LaeReadCount; k++) ring.Append($" ${LaeReadAddr[k]:X3}=${LaeReadVal[k]:X2}");
-                            Console.Error.WriteLine(ring.ToString() + $"  -> mem={(mem >= 0 ? $"${mem:X2}" : "?")}");
-                        }
                     }
                     _laeVal = (mem >= 0 ? mem : ReadBits(_lxaA)) & _laeOldS;
                     for (int i = 0; i < 8; i++)
@@ -2262,7 +1333,6 @@ namespace AprVisual.Sim
                     _laeSbsSeen = false;
                     _laeRecent = 0;       // one shot per window
                     _laeWait = 1600;      // ~66 CPU cycles to meet the TSX; drop silently if none comes
-                    if (_laeDebug) Console.Error.WriteLine($"# [lae] capture v=${_laeVal:X2} (db=${ReadBits(_lxaDb):X2} oldS=${_laeOldS:X2} a=${ReadBits(_lxaA):X2} ab=${(R_CpuAb.Length>0?ReadReg(R_CpuAb):-1):X4}) t={Time}");
                 }
                 if (_laeWait > 0)
                 {
@@ -2277,7 +1347,6 @@ namespace AprVisual.Sim
                             Force(_laeNotS[i], b ^ 1);
                         }
                         _laeWait = 0;
-                        if (_laeDebug) Console.Error.WriteLine($"# [lae] S=${_laeVal:X2} at TSX (t={Time}); a now=${ReadBits(_lxaA):X2} x now=${ReadBits(_lxaX):X2}");
                     }
                 }
 
@@ -2341,196 +1410,6 @@ namespace AprVisual.Sim
             if (Dbl2007Shim) Dbl2007ShimStep();
         }
 
-        // ── $2001 write-effect delay shim (test mode only, opt-in) ────────────────────────────
-        // The CPU->PPU register-write transport delay is idealized to 0 in our two-netlist
-        // board integration. The only proven casualty so far is the pre-render dot-339
-        // even/odd skip race in 10-even_odd_timing. A broad "delay every PPUMASK transition"
-        // experiment made the ROM lose its verdict path because the test deliberately schedules
-        // several $2001 writes with cycle precision. Keep this instrument scoped to the late
-        // side of the skip decision window: the A=4 enable case lands at dot 337 and is already
-        // correct, while the failing A=5 enable case is one dot later. Disable is the mirror:
-        // the failing late-disable edge needs to hold the old enabled value through dot 339.
-        // Reads ($2002/VBL) and setup/console PPUMASK writes stay untouched.
-        public static bool PpuWriteDelay = false;
-        public static int PpuWriteDelayHc = 0;
-        private static int _pwdBkg = EmptyNode, _pwdSpr = EmptyNode, _pwdNBkg = EmptyNode, _pwdNSpr = EmptyNode;
-        private static int[] _pwdHp = [], _pwdVp = [];
-        private static int _pwdBkgPrev, _pwdSprPrev, _pwdBkgHold, _pwdSprHold;
-        private static int _pwdBkgClamp = EmptyNode, _pwdSprClamp = EmptyNode;
-        private static long _pwdBkgRel = -1, _pwdSprRel = -1;
-        private static bool _pwdDebug;
-
-        public static void EnablePpuWriteDelay(int hc)
-        {
-            if (hc <= 0) { PpuWriteDelay = false; return; }
-            _pwdBkg = LookupNode("ppu.bkg_enable");
-            _pwdSpr = LookupNode("ppu.spr_enable");
-            _pwdNBkg = LookupNode("ppu./bkg_enable");
-            _pwdNSpr = LookupNode("ppu./spr_enable");
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true);
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
-            _pwdHp = hp.Count == 9 ? hp.ToArray() : Array.Empty<int>();
-            _pwdVp = vp.Count == 9 ? vp.ToArray() : Array.Empty<int>();
-            if (_pwdBkg == EmptyNode || _pwdSpr == EmptyNode || _pwdNBkg == EmptyNode || _pwdNSpr == EmptyNode || _pwdHp.Length != 9 || _pwdVp.Length != 9)
-            { Console.Error.WriteLine("# [shim] ppu-write-delay: nodes unresolved — disabled"); PpuWriteDelay = false; return; }
-            _pwdBkgPrev = NodeStates[_pwdBkg]; _pwdSprPrev = NodeStates[_pwdSpr];
-            _pwdBkgRel = _pwdSprRel = -1;
-            _pwdBkgClamp = _pwdSprClamp = EmptyNode;
-            PpuWriteDelayHc = hc;
-            _pwdDebug = Environment.GetEnvironmentVariable("PWD_DEBUG") == "1";
-            PpuWriteDelay = true;
-        }
-
-        private static bool PpuWriteDelayArmedWindow(int oldValue, int newValue)
-        {
-            int v = ReadBits(_pwdVp);
-            int h = ReadBits(_pwdHp);
-            if (v != 261 || h > 339) return false;
-            if (oldValue == 0 && newValue != 0) return h >= 338;  // late enable
-            if (oldValue != 0 && newValue == 0) return h >= 338;  // late disable
-            return false;
-        }
-
-        // Delay magnitude: global mode overrides the narrow-window default.
-        private static int PpuWriteDelayEffectiveHc() => PpuWriteDelayGlobal ? PpuWriteDelayGlobalHc : PpuWriteDelayHc;
-
-        private static void PpuWriteDelayDebug(string nodeName, int oldValue, int newValue, bool armed)
-        {
-            if (!_pwdDebug) return;
-            int v = ReadBits(_pwdVp);
-            int h = ReadBits(_pwdHp);
-            if (v == 261 && h >= 330 && h <= 340)
-                Console.Error.WriteLine($"# [pwd] t={Time} v={v} h={h} {nodeName} {oldValue}->{newValue} armed={armed}");
-        }
-
-        private static void PpuWriteDelayStep()
-        {
-            // bkg_enable: hold skip-window transitions for N hc (clamp old value, then release)
-            if (_pwdBkgRel >= 0)
-            {
-                if (Time >= _pwdBkgRel)
-                {
-                    InstRelease(_pwdBkgClamp);
-                    _pwdBkgClamp = EmptyNode;
-                    _pwdBkgRel = -1;
-                    _pwdBkgPrev = NodeStates[_pwdBkg];
-                }
-            }
-            else
-            {
-                int now = NodeStates[_pwdBkg];
-                if (now != _pwdBkgPrev)
-                {
-                    bool armed = PpuWriteDelayArmedWindow(_pwdBkgPrev, now);
-                    PpuWriteDelayDebug("bkg", _pwdBkgPrev, now, armed);
-                    if (armed)
-                    {
-                        _pwdBkgHold = _pwdBkgPrev;
-                        _pwdBkgClamp = _pwdBkgHold == 0 ? _pwdBkg : _pwdNBkg;
-                        InstClampLow(_pwdBkgClamp);
-                        _pwdBkgRel = Time + PpuWriteDelayEffectiveHc();
-                    }
-                    else _pwdBkgPrev = now;
-                }
-            }
-
-            // spr_enable
-            if (_pwdSprRel >= 0)
-            {
-                if (Time >= _pwdSprRel)
-                {
-                    InstRelease(_pwdSprClamp);
-                    _pwdSprClamp = EmptyNode;
-                    _pwdSprRel = -1;
-                    _pwdSprPrev = NodeStates[_pwdSpr];
-                }
-            }
-            else
-            {
-                int now = NodeStates[_pwdSpr];
-                if (now != _pwdSprPrev)
-                {
-                    bool armed = PpuWriteDelayArmedWindow(_pwdSprPrev, now);
-                    PpuWriteDelayDebug("spr", _pwdSprPrev, now, armed);
-                    if (armed)
-                    {
-                        _pwdSprHold = _pwdSprPrev;
-                        _pwdSprClamp = _pwdSprHold == 0 ? _pwdSpr : _pwdNSpr;
-                        InstClampLow(_pwdSprClamp);
-                        _pwdSprRel = Time + PpuWriteDelayEffectiveHc();
-                    }
-                    else _pwdSprPrev = now;
-                }
-            }
-        }
-
-        // ── Global cross-chip write-delay line (alignment/write-delay calibration project) ──────
-        // The narrow-window PpuWriteDelay above compensates a single site (even_odd's pre-render
-        // dot-339 skip). Three remaining deviations -- Stale Sprite Shift Regs test 3, BG Serial In,
-        // ALERead -- share the same root: the CPU->PPU cross-chip write/read path is idealized to
-        // zero delay, so a $2001 effect lands 2-3 dots off where silicon puts it (measured: test 3
-        // re-enables 3 dots early; ALERead's $2007 corruption draws 2 dots late). The correct model
-        // is a uniform delay line, not per-site clamps. KEY over the single-shot narrow-window shim:
-        // clamp the DOWNSTREAM node (bkg_enable_out/spr_enable_out, which gate rendering_disabled)
-        // to a delayed copy of the REGISTER (bkg_enable/spr_enable), NEVER clamp the register --
-        // so overlapping/back-to-back writes are all observed (the single-shot version clamped the
-        // register and dropped the second write, which is exactly why a naive global delay hung
-        // even_odd). A ring buffer holds the register history; each step drives *_enable_out to the
-        // sample from N hc ago. OFF by default (N=0); --ppu-write-delay-global N enables it. This is
-        // the scaffold for the dedicated calibration+verification pass; NOT wired into --test yet.
-        public static bool PpuWriteDelayGlobal = false;
-        public static int PpuWriteDelayGlobalHc = 0;
-        private const int PwdgRing = 512;   // >= max delay in hc; covers 60+ dots
-        private static int _pwdgBkg = EmptyNode, _pwdgSpr = EmptyNode, _pwdgBkgOut = EmptyNode, _pwdgSprOut = EmptyNode;
-        private static readonly byte[] _pwdgBkgHist = new byte[PwdgRing], _pwdgSprHist = new byte[PwdgRing];
-        private static int _pwdgHead;
-        private static int _pwdgBkgDriven, _pwdgSprDriven;   // 0=not clamped, 1=clamped low, 2=clamped high
-        private static long _pwdgStart;
-
-        // ── dot-339 sprite-counter-reset delay (VISIBLE lines only) -- StaleSpriteShiftRegs Test 3 ──
-        // Pragmatic split (see Gemini consults a_2001_write_delay / a_evenodd_rendering_slow):
-        // the odd-frame skip (pre-render v=261) and the sprite-counter reset (visible lines) sample
-        // the SAME hpos_eq_339_and_rendering node, and on real silicon share one ~2-dot ren_en
-        // propagation delay. But S1's register/rendering_1 edges carry a per-test sub-dot phase
-        // error, so a single uniform magnitude can't satisfy both. even_odd (v=261) is already fixed
-        // by the narrow-window enable-clamp; this shim handles ONLY the visible-line sprite-counter
-        // reset, gated to vpos != 261 so the two never overlap. It suppresses hpos_eq_339_and_rendering
-        // for N hc after rendering_1 rises (measured from rendering_1, dot 337, so N=24 covers dot
-        // 339). The node is 0 except at dot 339, so Test 1's mid-scanline toggles are untouched.
-        private static bool _dot339Shim;
-        private static int _d339Node = EmptyNode, _d339Ren = EmptyNode;
-        private static int[] _d339Vp = System.Array.Empty<int>();
-        private static int _d339PrevRen; private static long _d339HoldUntil = -1; private static bool _d339Clamped;
-        public static int PpuWriteDelayGlobalHcPublic => PpuWriteDelayGlobalHc;
-
-        public static void EnablePpuWriteDelayGlobal(int hc)
-        {
-            if (hc <= 0) { PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
-            _d339Node = LookupNode("ppu.hpos_eq_339_and_rendering");
-            _d339Ren = LookupNode("ppu.rendering_1");
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true);
-            _d339Vp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
-            if (_d339Node == EmptyNode || _d339Ren == EmptyNode || _d339Vp.Length != 9)
-            { Console.Error.WriteLine("# [shim] dot-339 delay: nodes unresolved -- disabled"); PpuWriteDelayGlobal = false; _dot339Shim = false; return; }
-            PpuWriteDelayGlobalHc = hc;
-            _d339PrevRen = NodeStates[_d339Ren];
-            _d339HoldUntil = -1; _d339Clamped = false;
-            PpuWriteDelayGlobal = true; _dot339Shim = true;
-            Console.Error.WriteLine($"# [shim] dot-339 sprite-reset delay: {hc} hc ({hc / 8.0:F1} dots), visible lines only");
-        }
-
-        private static void Dot339DelayStep()
-        {
-            if (!_dot339Shim) return;
-            int ren = NodeStates[_d339Ren];
-            if (_d339PrevRen == 0 && ren != 0) _d339HoldUntil = Time + PpuWriteDelayGlobalHc;   // rendering_1 rise
-            _d339PrevRen = ren;
-            bool visible = ReadBits(_d339Vp) != 261;   // leave the pre-render skip (v=261) to the narrow-window shim
-            bool want = visible && _d339HoldUntil >= 0 && Time < _d339HoldUntil;
-            if (want && !_d339Clamped) { InstClampLow(_d339Node); _d339Clamped = true; }
-            else if (!want && _d339Clamped) { InstRelease(_d339Node); _d339Clamped = false; }
-        }
-
         // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
         // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
         // buffer advance in the netlist — matching real hardware — but the reload's
@@ -2558,7 +1437,6 @@ namespace AprVisual.Sim
         // netlist's merged single advance. Measured race spans: fall 1 hc (micro) to 7 hc
         // (blargg @K=1) after the reload — i.e. the window is "same active phi2 phase".
         public static bool Dbl2007Shim = false;
-        private static readonly bool _d27Debug = Environment.GetEnvironmentVariable("PB_DEBUG") != null;
         private static int _d27Pal = EmptyNode, _d27Rw = EmptyNode, _d27Rdy = EmptyNode, _d27Phi2 = EmptyNode, _d27Nr2007 = EmptyNode;
         private static int[] _d27Inbuf = Array.Empty<int>(), _d27Ab = Array.Empty<int>(), _d27Db = Array.Empty<int>();
         private static int _d27Prev, _d27Clamped, _d27Phi2Prev;
@@ -2606,7 +1484,6 @@ namespace AprVisual.Sim
                     // if the fall does not arrive within the analog window (2 hc), the release
                     // path below undoes the clamp BEFORE the sample.
                     int rose = now & ~_d27Prev & 0xFF;
-                    if (_d27Debug) Console.Error.WriteLine($"# [d27] t={Time} CLAMP {_d27Prev:X2}->{now:X2} rose={rose:X2} ab={ReadBits(_d27Ab):X4} nr={NodeStates[_d27Nr2007]} rdy={NodeStates[_d27Rdy]} phi2={NodeStates[_d27Phi2]}");
                     for (int i = 0; i < 8; i++)
                         if (((rose >> i) & 1) != 0) InstClampLow(_d27Db[i]);
                     _d27Clamped = rose;
@@ -2619,7 +1496,6 @@ namespace AprVisual.Sim
                 && ((_d27Phi2Prev == 1 && phi2 == 0)      // CPU sample edge passed (post-settle)
                     || Time - _d27T0 > 24))               // safety: never hold past one CPU cycle
             {
-                if (_d27Debug) Console.Error.WriteLine($"# [d27] t={Time} REL dt={Time - _d27T0} why={(_d27Phi2Prev == 1 && phi2 == 0 ? "fall" : "safety")}");
                 for (int i = 0; i < 8; i++)
                     if (((_d27Clamped >> i) & 1) != 0) InstRelease(_d27Db[i]);
                 _d27Clamped = 0;
@@ -2651,7 +1527,6 @@ namespace AprVisual.Sim
             EnableOamDmaPpuBusShim();           // QueuedDrive: resolve + arm the OAM-DMA queue state
             if (OamDmaPpuBusShim) { OamDmaPpuBusShim = false; _m4p1Queue = true; }
             M4P1Enabled = _m4p1Clamp || _m4p1Queue;
-            if (M4P1Enabled) ShimChainArmed = true;
             Console.Error.WriteLine($"# [m4p1] armed: ClampBus(Dbl2007)={_m4p1Clamp} QueuedDrive(OamDmaPpuBus)={_m4p1Queue}");
         }
         internal static void M4P1Step()
@@ -2679,7 +1554,6 @@ namespace AprVisual.Sim
         private static readonly int[] _odmaDriven = new int[16];
         private static int _odmaPrevPhi2, _odmaPrevNWe, _odmaPendingPpuGet, _odmaQHead, _odmaQCount, _odmaDrivenCount;
         private static long _odmaLastActivity;
-        private static readonly bool _odmaDebug = Environment.GetEnvironmentVariable("ODMA_DEBUG") != null;
 
         public static void EnableOamDmaPpuBusShim()
         {
@@ -2735,7 +1609,6 @@ namespace AprVisual.Sim
                 byte value = OamDmaDequeueValue();
                 OamDmaDriveByte(addr, value);
                 _odmaLastActivity = Time;
-                if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} /WE fall addr={addr:X2} val={value:X2}");
             }
             else if (_odmaPrevNWe == 0 && nWe == 1)
             {
@@ -2746,7 +1619,6 @@ namespace AprVisual.Sim
             // If a diagnostic run stops mid-pulse or a queue entry becomes stale, fail inertly.
             if (_odmaQCount != 0 && Time - _odmaLastActivity > 4096)
             {
-                if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} stale queue clear count={_odmaQCount}");
                 _odmaQHead = _odmaQCount = 0;
                 _odmaPendingPpuGet = 0;
             }
@@ -2776,7 +1648,6 @@ namespace AprVisual.Sim
         {
             if (_odmaQCount == _odmaValueQ.Length)
             {
-                if (_odmaDebug) Console.Error.WriteLine("# [odma] queue overflow — clearing");
                 _odmaQHead = _odmaQCount = 0;
             }
             int tail = (_odmaQHead + _odmaQCount) % _odmaValueQ.Length;
@@ -2784,7 +1655,6 @@ namespace AprVisual.Sim
             _odmaValueQ[tail] = value;
             _odmaQCount++;
             _odmaLastActivity = Time;
-            if (_odmaDebug) Console.Error.WriteLine($"# [odma] t={Time} enqueue addr={addr:X2} val={value:X2}");
         }
 
         private static byte OamDmaDequeueAddr()

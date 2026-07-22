@@ -36,13 +36,16 @@ CATALOG    = os.path.join(SCRIPT_DIR, "catalog.json")
 OUT_DIR    = os.path.join(SCRIPT_DIR, "out")
 
 # Pre-flight canary (see canary()). CANARY_ROM is the shortest class-A ($6000) test we
-# have — it reaches its verdict at frame 11. GOLDEN_CKSUM is the project's bit-exactness
+# have — it reaches its verdict at frame 11. GOLDEN_CKSUM is the engine's bit-exactness
 # gate: the NodeStates checksum after 300k half-cycles of full_palette.nes with --extra-ram.
+# S1 (raw switch-level) and S1A (full engine — the M1-M6 mechanisms + realistic power-up
+# state are always armed) have DIFFERENT golden checksums; --benchmark on S1A runs the
+# full engine, so its canary value is the S1A one. (S1A --no-shims reproduces the S1 value.)
 CANARY_ROM    = os.path.join(SCRIPT_DIR, "roms", "nes_instr_test", "rom_singles", "11-special.nes")
 CANARY_FRAMES = 40
 BENCH_ROM     = os.path.join(REPO, "AprVisualBenchMark", "roms", "full_palette.nes")
 BENCH_HC      = 300000
-GOLDEN_CKSUM  = "0x794A43ABDF169ADA"
+GOLDEN_CKSUM  = "0x41244C26C45EDD32" if os.environ.get("S1A_ENGINE") else "0x794A43ABDF169ADA"
 
 CORES   = [2, 6, 10, 14, 4, 12, 8, 0]   # logical cores, Zen2 3700X (logical 2i = physical i). First 4 = physical
 # Lanes 1-7 are distinct physical cores avoiding core 0 (OS noise). The 8th lane has no

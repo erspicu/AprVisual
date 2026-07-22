@@ -33,13 +33,6 @@ namespace AprVisual.Test
         private static string? _passMarker;               // --pass-marker: custom terminal PASS text for ROMs that never print "Passed" (e.g. read_joy3 tallies)
         private static string? _inputSpec;                 // --input: scripted controller input "A:1.0,Start:4.0:0.5" (button:sec[:holdSec]; AprNes-compatible)
         private static string? _watchSpec;                 // --watch: node names to print per frame (--micro diagnostics)
-        private static bool _noAluShim;                    // --no-alu-shim: A/B toggle (diagnostics)
-        internal static bool _noDbl2007Shim;               // --no-dbl2007-shim: A/B toggle (diagnostics)
-        internal static bool _noPpuAleReadFeedbackShim;    // --no-ppu-ale-read-feedback-shim: A/B the CHR analog-loop guard
-        internal static int  _ppuWriteDelayHc = 16;        // $2001 write-effect delay in hc (even_odd; GLOBAL test-mode, --ppu-write-delay overrides, 0=off)
-        internal static int  _ppuWriteDelayGlobalHc = 24;  // dot-339 sprite-counter-reset delay in hc (visible lines; StaleSprite Test3; --ppu-write-delay-global overrides, 0=off). 9-test regression + even_odd verified clean.
-        internal static bool _oamDmaPpuBusShim = true;      // $4014-from-PPU-I/O-bus OAM write-data hold (GLOBAL test-mode; --no-oam-dma-ppu-bus-shim disables)
-        internal static bool _noShims;                     // --no-shims: disable ALL test-mode shims (diagnostics)
         internal static bool _joypad;                      // --joypad: enable behavioral joypad + tie-rewire (per-test; perturbs graph)
         private static int _testShotDelay;                // --shot-delay: extra frames AFTER the verdict before the screenshot (cosmetic —
                                                           // some ROMs keep rendering disabled until after publishing the verdict bytes)
@@ -48,13 +41,9 @@ namespace AprVisual.Test
         {
             string? romPath = null, testPath = null, testDir = null;
             string? dumpModule = null, tracePath = null, shotPath = null, ppuDumpPath = null;
-            string? probePath = null, probeVblPath = null, probe2001Path = null, dumpNodeName = null, benchPath = null;
+            string? dumpNodeName = null, benchPath = null;
             string? frameDumpPath = null, payloadHistPath = null, fcTaintPath = null, namesArg = null;
-            string? phaseProbePath = null;   // --phase-probe: per-hc cpu/ppu clock-phase dump (phase-alignment experiment)
-            string? rdyProbePath = null;     // --rdy-probe: per-frame cpu.rdy transition counts (DMC-DMA study)
-            string? busTracePath = null;
-            string? microPath = null; int microFrames = 3; string? probeDmaPath = null;
-            string? opProbePath = null; int opProbeAddr = -1;     // --bus-trace: $4013/$4015 + RDY-stall cycle microscope (DMC #19 study)
+            string? microPath = null; int microFrames = 3;
             // diagnostic: dump per-node states after the bench run (set via --dump-states)
             string systemDefDir = WireCore.SystemDefDir;
             string shotOut = "screenshot.png";
@@ -83,9 +72,6 @@ namespace AprVisual.Test
                     case "--frame-count":     if (i + 1 < args.Length) int.TryParse(args[++i], out frameDumpCount); break;
                     case "--out-dir":         if (i + 1 < args.Length) frameOutDir  = args[++i]; break;
                     case "--ppu-dump":        if (i + 1 < args.Length) ppuDumpPath  = args[++i]; break;
-                    case "--probe2002":       if (i + 1 < args.Length) probePath    = args[++i]; break;
-                    case "--probe-vbl":       if (i + 1 < args.Length) probeVblPath = args[++i]; break;
-                    case "--probe-2001":      if (i + 1 < args.Length) probe2001Path = args[++i]; break;
                     case "--dump-node":       if (i + 1 < args.Length) dumpNodeName = args[++i]; break;
                     case "--frames":          if (i + 1 < args.Length) int.TryParse(args[++i], out shotFrames); break;
                     case "--out":             if (i + 1 < args.Length) shotOut      = args[++i]; break;
@@ -96,9 +82,7 @@ namespace AprVisual.Test
                     case "--dump-states":     if (i + 1 < args.Length) _dumpStatesPath = args[++i]; break;    // DIAGNOSTIC: write per-node states after bench for A/B diffing
                     case "--array-footprint": _dumpArrayFootprint = true; break;                              // print hot unmanaged-array base+size at setup (IBS/SPE bucketing)
                     case "--micro":           if (i + 1 < args.Length) microPath = args[++i]; break;   // DIAGNOSTIC: run N frames, dump work RAM $0200-$07FF
-                    case "--probe-dma":       if (i + 1 < args.Length) probeDmaPath = args[++i]; break;   // DIAGNOSTIC: trace OAM-DMA addr bus + open-bus (read_buffer #67)
                     case "--micro-frames":    if (i + 1 < args.Length) int.TryParse(args[++i], out microFrames); break;   // DIAGNOSTIC: --micro frame count (default 3)
-                    case "--op-probe":        if (i + 2 < args.Length) { opProbePath = args[++i]; opProbeAddr = Convert.ToInt32(args[++i], 16); } break;   // DIAGNOSTIC: hc-log datapath buses when AB hits addr
                     case "--names":           if (i + 1 < args.Length) namesArg = args[++i]; break;           // DIAGNOSTIC: id1,id2,... -> names (uses LoadSystem, keeps name map)
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
@@ -126,37 +110,12 @@ namespace AprVisual.Test
                     case "--snapshot-frames": if (i + 1 < args.Length) int.TryParse(args[++i], out _snapFrames); break;      // test mode: engine-state snapshot cadence
                     case "--snapshot-dir":    if (i + 1 < args.Length) _snapDir = args[++i]; break;                          // test mode: snapshot output directory
                     case "--resume":          if (i + 1 < args.Length) _resumePath = args[++i]; break;                       // test mode: restore a snapshot and continue
-                    case "--callback-drain-limit":                                                                        // diagnostic: fail with callback/node evidence instead of hanging
-                        if (i + 1 < args.Length && int.TryParse(args[++i], out int callbackDrainLimit))
-                            WireCore.CallbackDrainLimit = Math.Max(0, callbackDrainLimit);
-                        break;
-                    case "--ppu-memory-trace":                                                                            // diagnostic: trace CHR/VRAM callbacks while CPU PC is in an inclusive hex range
-                        if (i + 2 < args.Length)
-                        {
-                            WireCore.PpuMemoryTracePcLo = Convert.ToInt32(args[++i], 16);
-                            WireCore.PpuMemoryTracePcHi = Convert.ToInt32(args[++i], 16);
-                        }
-                        break;
-                    case "--ppu-memory-trace-x":                                                                          // diagnostic: optional CPU X filter for --ppu-memory-trace
-                        if (i + 1 < args.Length) WireCore.PpuMemoryTraceX = Convert.ToInt32(args[++i], 16);
-                        break;
                     case "--pass-marker":     if (i + 1 < args.Length) _passMarker = args[++i]; break;                          // test mode: custom B-class PASS text
                     case "--input":           if (i + 1 < args.Length) _inputSpec = args[++i]; break;                            // test mode: scripted controller input
                     case "--watch":           if (i + 1 < args.Length) _watchSpec = args[++i]; break;                            // DIAGNOSTIC: comma list of node names, printed per frame in --micro
-                    case "--no-alu-shim":     _noAluShim = true; break;                                                          // DIAGNOSTIC: A/B the ALU latch hold shim
-                    case "--no-dbl2007-shim": _noDbl2007Shim = true; break;                                                        // DIAGNOSTIC: A/B the $2007 double-read merge shim
-                    case "--no-ppu-ale-read-feedback-shim": _noPpuAleReadFeedbackShim = true; break;                              // DIAGNOSTIC: expose the raw ALE+Read binary feedback loop
-                    case "--no-shims":        _noShims = true; break;                                                                   // DIAGNOSTIC: disable all test-mode shims
                     case "--joypad":          _joypad = true; break;                                                                     // per-test: behavioral joypad + u7/u8 tie-rewire (needed for controller/exec_space)
-                    case "--ppu-write-delay": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayHc); break;           // $2001 write-effect delay N hc (even_odd campaign)
-                    case "--ppu-write-delay-global": if (i + 1 < args.Length) int.TryParse(args[++i], out _ppuWriteDelayGlobalHc); break;   // global write-delay line N hc (calibration; 0=off)
-                    case "--oam-dma-ppu-bus-shim": _oamDmaPpuBusShim = true; break;                                                      // (default on) $4014-from-PPU-I/O-bus OAM write-data hold
-                    case "--no-oam-dma-ppu-bus-shim": _oamDmaPpuBusShim = false; break;                                                // DIAGNOSTIC: disable the OAM-DMA-PPU-bus shim
                     case "--shot-delay":      if (i + 1 < args.Length) int.TryParse(args[++i], out _testShotDelay); break;    // test mode: post-verdict frames before screenshot
                     case "--reset-hold-extra": if (i + 1 < args.Length) { int.TryParse(args[++i], out int _rhe); WireCore.ResetHoldExtraHc = _rhe; } break;   // phase experiment
-                    case "--phase-probe":     if (i + 1 < args.Length) phaseProbePath = args[++i]; break;                     // DIAGNOSTIC: per-hc clock-phase dump
-                    case "--rdy-probe":       if (i + 1 < args.Length) rdyProbePath = args[++i]; break;                       // DIAGNOSTIC: rdy transition counts
-                    case "--bus-trace":       if (i + 1 < args.Length) busTracePath = args[++i]; break;                       // DIAGNOSTIC: DMC bus microscope
                     case "--region":          if (i + 1 < args.Length) region       = args[++i].ToLowerInvariant(); break;
                     case "--fast-path":       /* no-op: always on in S1 */ break;
                     case "--pin":             // pin hot thread + High priority + disable EcoQoS (opt-in, for clean bench numbers)
@@ -170,8 +129,8 @@ namespace AprVisual.Test
                     case "--help": case "-h": case "/?": PrintUsage(); return 0;
                     default:
                         if (romPath is null && testPath is null && testDir is null && dumpModule is null
-                            && tracePath is null && shotPath is null && ppuDumpPath is null && probePath is null
-                            && probeVblPath is null && dumpNodeName is null && !dumpSystem && !args[i].StartsWith('-'))
+                            && tracePath is null && shotPath is null && ppuDumpPath is null
+                            && dumpNodeName is null && !dumpSystem && !args[i].StartsWith('-'))
                             romPath = args[i];
                         break;
                 }
@@ -188,6 +147,9 @@ namespace AprVisual.Test
                 Console.WriteLine($"# [perf] {Sim.PerfTuning.Apply(pinCore)}");
             }
 
+            // S1A IS the full engine in EVERY mode — LoadSystem arms the M1–M6 mechanisms unconditionally.
+            // There is no opt-out; the raw switch-level engine is the separate S1 fork.
+
             if (dumpModule    != null) return DumpModule(systemDefDir, dumpModule);
             if (dumpSystem)            return DumpSystem();
             if (payloadHistPath != null) return PayloadHist(payloadHistPath);
@@ -197,15 +159,7 @@ namespace AprVisual.Test
             if (shotPath      != null) return Screenshot(shotPath, shotFrames, shotOut);
             if (frameDumpPath != null) return FrameDump(frameDumpPath, frameDumpCount, frameOutDir);
             if (ppuDumpPath   != null) return PpuDump(ppuDumpPath, shotFrames);
-            if (phaseProbePath != null) return PhaseProbe(phaseProbePath);
-            if (rdyProbePath  != null) return RdyProbe(rdyProbePath, shotFrames > 3 ? shotFrames : 35);
             if (microPath     != null) return MicroDump(microPath, microFrames);
-            if (probeDmaPath  != null) return ProbeDma(probeDmaPath);
-            if (opProbePath   != null) return OpProbe(opProbePath, opProbeAddr);
-            if (busTracePath  != null) return BusTrace(busTracePath, shotFrames > 3 ? shotFrames : 29);
-            if (probePath     != null) return Probe2002(probePath);
-            if (probeVblPath  != null) return ProbeVbl(probeVblPath);
-            if (probe2001Path != null) return Probe2001(probe2001Path);
             if (dumpNodeName  != null) return DumpNode(dumpNodeName);
             if (benchPath     != null && benchHcCount > 0) return BenchmarkHalfCycles(benchPath, benchHcCount, logDir);
             if (benchPath     != null) return Benchmark(benchPath, shotFrames);
@@ -263,22 +217,14 @@ namespace AprVisual.Test
                   AprVisual.S1 --dump-module <name>        parse <system-def-dir>/<name>.js and print a summary
                   AprVisual.S1 --dump-system               compose the full nes-001 + cart netlist and print counts + probes
                   AprVisual.S1 --dump-node <name>          introspect one node (pull-up / gated trans / channel-end trans)
-                  AprVisual.S1 --probe2002 <rom>           trace bus/PPU signals at the next $2002 read after vblank
-                  AprVisual.S1 --probe-vbl <rom>           trace the 2C02 vbl flag latch through the $2002 read path
-                  AprVisual.S1 --probe-2001 <rom>          trace a $2001 write -> bkg_enable -> rendering chain + the dot-339 skip window
                   AprVisual.S1 --selftest                  run hand-built inverter/NAND/pass/callback/static-merge circuits
 
                 Diagnostic flags (compose with the above):
                     [--system-def-dir <dir>]               default: data/system-def
                     [--no-lower]                           skip the S1.5 netlist-lowering pass (A/B compare)
-                    [--oam-dma-ppu-bus-shim]               opt-in shim for $4014 DMA sourced from PPU I/O registers
                     [--fast-path]                          no-op (fast-path is always on in S1)
                     [--pin [N]]                            cut bench variance: pin the hot thread + High priority + EcoQoS-off
                                                            (Windows; no arg = auto-pick the quietest P-core, N = force logical core N)
-                    [--callback-drain-limit <N>]           diagnostic: throw with callback/node evidence if one drain exceeds N dispatches
-                    [--ppu-memory-trace <lo> <hi>]         diagnostic: trace CHR/VRAM callbacks while CPU PC is in this hex range
-                    [--ppu-memory-trace-x <hex>]           diagnostic: restrict PPU memory trace to one CPU X value
-                    [--no-ppu-ale-read-feedback-shim]      diagnostic: disable the CHR ALE+Read analog-feedback guard
                     [--ac-dump-work]                       diagnostic: dump AccuracyCoin CPU RAM $0500-$06FF at verdict
 
                   (no args)                                print this usage

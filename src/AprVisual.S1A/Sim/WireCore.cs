@@ -430,8 +430,9 @@ namespace AprVisual.Sim
             for (int i = 0; i < tlOff.Count; i++) TransistorListOff[i] = (ushort)tlOff[i];
 
             // ── Callback-by-node direct lookup table (suggest #F4): RecalcNode's HasCallback branch
-            //    reads _callbackByNode[nn] instead of going through Nodes[nn].Callback (managed graph).
-            _callbackByNode = new CallbackInfo?[NodeCount];   // [A6] direct array (was Dictionary)
+            //    reads the managed CallbackInfo reference directly instead of touching Nodes[]. This
+            //    remains managed because CallbackInfo contains GC references; see the field rationale.
+            _callbackByNode = new CallbackInfo?[NodeCount];
             for (int i = 0; i < NodeCount; i++)
             {
                 var cb = Nodes[i]?.Callback;

@@ -56,7 +56,6 @@ namespace AprVisual.Sim
         private static int _maxNodeId = Ngnd;
 
         public static int LookupNode(string name) => _nodeByName.TryGetValue(name, out int id) ? id : EmptyNode;
-        public static IEnumerable<KeyValuePair<string, int>> AllNodeNames() => _nodeByName;   // diagnostic enumeration (probe tooling)
         public static string GetNodeName(int id) => _nameByNode.TryGetValue(id, out string? n) ? n : (id == Npwr ? "vcc" : id == Ngnd ? "vss" : id.ToString());
         public static bool IsPwrGnd(int nn) => nn == Npwr || nn == Ngnd;
 

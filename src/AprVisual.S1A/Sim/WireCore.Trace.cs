@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text;
 
 namespace AprVisual.Sim
@@ -9,8 +8,8 @@ namespace AprVisual.Sim
         //    (The original logic-analyser trace subsystem — SetTraceColumns / CaptureTraceLine /
         //    _traceLog — was dead in the S1 fork and has been removed.)
 
-        /// <summary>Read a value spread across an ordered list of nodes (bit i = nodes[i]). Returns -1 if the list is empty.</summary>
-        public static int ReadReg(IReadOnlyList<int> nodes) => nodes.Count == 0 ? -1 : ReadBits(nodes);
+        /// <summary>Read a value spread across an ordered native node list (bit i = nodes[i]).</summary>
+        public static int ReadReg(NativeNodeList nodes) => nodes.Length == 0 ? -1 : ReadBits(nodes.Nodes, nodes.Length);
 
         /// <summary>Snapshot the CPU's named-state nodes (a/x/y/p/s/pc, ab/db, opcode) — for golden-trace comparison.</summary>
         public static string DumpCpuState()

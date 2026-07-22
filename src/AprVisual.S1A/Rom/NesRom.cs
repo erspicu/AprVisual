@@ -23,7 +23,6 @@ namespace AprVisual.Rom
 
         public int Mapper => (Flags6 >> 4) | (Flags7 & 0xF0);
         public bool HorizontalMirroring => (Flags6 & 1) == 0;
-        public bool HasBattery => (Flags6 & 2) != 0;
         public bool HasTrainer => (Flags6 & 4) != 0;
 
         public static NesRom? LoadFromFile(string path)

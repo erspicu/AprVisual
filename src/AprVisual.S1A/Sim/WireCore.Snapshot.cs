@@ -134,8 +134,11 @@ namespace AprVisual.Sim
                         sw.Write(_fiPrev);                                                 // frame IRQ
                         sw.Write(_d27Prev); sw.Write(_d27Clamped); sw.Write(_d27Phi2Prev); // dbl-$2007
                         sw.Write(_d27T0);
-                        sw.Write(_odmaValueQ, 0, 512); sw.Write(_odmaAddrQ, 0, 512);       // OAM-DMA PPU-bus
-                        for (int i = 0; i < 16; i++) sw.Write(_odmaDriven[i]);
+                        Span<byte> emptyOdmaQueue = stackalloc byte[OamDmaQueueCapacity];
+                        emptyOdmaQueue.Clear();
+                        sw.Write(_odmaValueQ != null ? new ReadOnlySpan<byte>(_odmaValueQ, OamDmaQueueCapacity) : emptyOdmaQueue);
+                        sw.Write(_odmaAddrQ != null ? new ReadOnlySpan<byte>(_odmaAddrQ, OamDmaQueueCapacity) : emptyOdmaQueue); // OAM-DMA PPU-bus
+                        for (int i = 0; i < 16; i++) sw.Write(_odmaDriven != null ? _odmaDriven[i] : 0);
                         sw.Write(_odmaPrevPhi2); sw.Write(_odmaPrevNWe); sw.Write(_odmaPendingPpuGet);
                         sw.Write(_odmaQHead); sw.Write(_odmaQCount); sw.Write(_odmaDrivenCount);
                         sw.Write(_odmaLastActivity);
@@ -146,7 +149,11 @@ namespace AprVisual.Sim
                         sw.Write(_laeVal); sw.Write(_laeOldS); sw.Write(_laeWait);
                         sw.Write(_laePrevSbs); sw.Write(_laePrevAcs); sw.Write(_laeDbPrevFall);
                         sw.Write(LaeRecording); sw.Write(LaeReadCount);
-                        for (int i = 0; i < 16; i++) { sw.Write(LaeReadAddr[i]); sw.Write(LaeReadVal[i]); }
+                        for (int i = 0; i < 16; i++)
+                        {
+                            sw.Write(LaeReadAddr != null ? LaeReadAddr[i] : 0);
+                            sw.Write(LaeReadVal != null ? LaeReadVal[i] : 0);
+                        }
                         EndSection(w, "SHIM", sec);
                     }
 
@@ -243,8 +250,14 @@ namespace AprVisual.Sim
             _fiPrev = r.ReadByte();
             _d27Prev = r.ReadInt32(); _d27Clamped = r.ReadInt32(); _d27Phi2Prev = r.ReadInt32();
             _d27T0 = r.ReadInt64();
-            r.BaseStream.ReadExactly(_odmaValueQ); r.BaseStream.ReadExactly(_odmaAddrQ);
-            for (int i = 0; i < 16; i++) _odmaDriven[i] = r.ReadInt32();
+            Span<byte> emptyOdmaQueue = stackalloc byte[OamDmaQueueCapacity];
+            r.BaseStream.ReadExactly(_odmaValueQ != null ? new Span<byte>(_odmaValueQ, OamDmaQueueCapacity) : emptyOdmaQueue);
+            r.BaseStream.ReadExactly(_odmaAddrQ != null ? new Span<byte>(_odmaAddrQ, OamDmaQueueCapacity) : emptyOdmaQueue);
+            for (int i = 0; i < 16; i++)
+            {
+                int driven = r.ReadInt32();
+                if (_odmaDriven != null) _odmaDriven[i] = driven;
+            }
             _odmaPrevPhi2 = r.ReadInt32(); _odmaPrevNWe = r.ReadInt32(); _odmaPendingPpuGet = r.ReadInt32();
             _odmaQHead = r.ReadInt32(); _odmaQCount = r.ReadInt32(); _odmaDrivenCount = r.ReadInt32();
             _odmaLastActivity = r.ReadInt64();
@@ -257,7 +270,13 @@ namespace AprVisual.Sim
                 _laeVal = r.ReadInt32(); _laeOldS = r.ReadInt32(); _laeWait = r.ReadInt32();
                 _laePrevSbs = r.ReadInt32(); _laePrevAcs = r.ReadInt32(); _laeDbPrevFall = r.ReadInt32();
                 LaeRecording = r.ReadBoolean(); LaeReadCount = r.ReadInt32();
-                for (int i = 0; i < 16; i++) { LaeReadAddr[i] = r.ReadInt32(); LaeReadVal[i] = r.ReadInt32(); }
+                for (int i = 0; i < 16; i++)
+                {
+                    int addr = r.ReadInt32();
+                    int val = r.ReadInt32();
+                    if (LaeReadAddr != null) LaeReadAddr[i] = addr;
+                    if (LaeReadVal != null) LaeReadVal[i] = val;
+                }
             }
             else
             {   // v1: pre-LAE-shim engine — quiescent defaults are faithful

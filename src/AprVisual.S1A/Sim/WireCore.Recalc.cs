@@ -533,7 +533,7 @@ namespace AprVisual.Sim
 
             if ((_groupFlags & NodeFlags.HasCallback) != 0)
             {
-                // [A6] direct array index (was Dictionary.TryGetValue), bypass Nodes[] managed Node object graph
+                // [A6] direct reference lookup, bypassing Dictionary and the managed Nodes[] graph.
                 var cbByNode = _callbackByNode!;
                 for (int i = 0; i < _groupCount; i++)
                 {
@@ -801,7 +801,6 @@ namespace AprVisual.Sim
 
         public static bool IsNodeHigh(int nn) => NodeStates[nn] != 0;
         public static bool IsNodeHigh(string name) => NodeStates[RequireNode(name)] != 0;
-        public static int GetNodeFlags(int nn) => (int)NodeInfos[nn].Flags;
 
         private static int RequireNode(string name)
         {

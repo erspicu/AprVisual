@@ -7,6 +7,14 @@ namespace AprVisual.Sim
 {
     internal static unsafe partial class WireCore
     {
+        // A resolved node vector is immutable for one composed system. Keep the final form
+        // outside the GC heap; the List<int> used while resolving names is setup-only.
+        internal struct NativeNodeList
+        {
+            public int* Nodes;
+            public int Length;
+        }
+
         // ── Unmanaged memory: 64-byte aligned (cache-line / SIMD friendly).
         //    .NET 10 only — no net48 fallback (decision: target net10 only).
         //    Every alloc here is tracked so FreeUnmanagedMemory() can release the lot. ──
@@ -55,6 +63,17 @@ namespace AprVisual.Sim
             NativeMemory.Clear(p, bytes);
             _handlerAllocations.Add((IntPtr)p);
             return (T*)p;
+        }
+
+        /// <summary>Copy a setup-time node list into handler-lifetime native storage.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static NativeNodeList CopyHandlerNodeList(IReadOnlyList<int> source)
+        {
+            int length = source.Count;
+            if (length == 0) return default;
+            int* nodes = AllocHandlerArray<int>(length);
+            for (int i = 0; i < length; i++) nodes[i] = source[i];
+            return new NativeNodeList { Nodes = nodes, Length = length };
         }
 
         /// <summary>Free every handler-lifetime allocation. Called from ResetHandlers() at rebuild.</summary>

@@ -20,8 +20,8 @@ namespace AprVisual.Sim
         public static int N_Res = EmptyNode;          // the board "res" line (→ CIC → cpu.res / ppu.res)
         public static int N_PpuInVblank = EmptyNode;  // rising edge = frame boundary
         public static int N_CpuSync = EmptyNode;      // high during opcode-fetch cycle
-        public static int[] R_CpuA = [], R_CpuX = [], R_CpuY = [], R_CpuP = [], R_CpuS = [], R_CpuIr = [];
-        public static int[] R_CpuPcl = [], R_CpuPch = [], R_CpuAb = [], R_CpuDb = [];
+        internal static NativeNodeList R_CpuA, R_CpuX, R_CpuY, R_CpuP, R_CpuS, R_CpuIr;
+        internal static NativeNodeList R_CpuPcl, R_CpuPch, R_CpuAb, R_CpuDb;
         public static Memory? M_EramRam;              // cart.eram.ram — the $6000 work RAM used by blargg test ROMs
 
         private static NesRom? _rom;
@@ -105,6 +105,7 @@ namespace AprVisual.Sim
         public static void LoadSystem(NesRom rom)
         {
             _rom = rom;
+            ResetS1aRuntimeState();
             // S1A full-engine arming — pre-load half. These flags are consumed DURING the compose passes
             // (ALERead node-split cut in WireCore.Module, raw-id aliases) or at Reset (PowerUpStateShim),
             // so they must be set before the pass loop below. The post-load half (ArmS1aMechanisms) runs at
@@ -190,6 +191,62 @@ namespace AprVisual.Sim
             ArmS1aMechanisms();
         }
 
+        // LoadSystem may be called repeatedly by --test-dir. Native mechanism storage belongs to the
+        // previous composed graph and is freed by ResetBuild/ResetHandlers, so clear every post-arm
+        // runtime gate before any reset half-cycles of the next graph can execute.
+        private static void ResetS1aRuntimeState()
+        {
+            N_Res = N_PpuInVblank = N_CpuSync = EmptyNode;
+            M_EramRam = null;
+            R_CpuA = R_CpuX = R_CpuY = R_CpuP = R_CpuS = R_CpuIr = default;
+            R_CpuPcl = R_CpuPch = R_CpuAb = R_CpuDb = default;
+
+            _m6xRows = null; _m6xRowCount = 0; _m6xHp = _m6xVp = _m6xHp3 = default;
+            _m4Rows = null; _m4RowCount = 0; _m4Edge = false;
+
+            LxaMagicShim = false; M1LxaEnabled = false;
+            _lxaPhi2 = _lxaSync = _lxaP1 = _lxaP7 = _lxaZLoop = _lxaNotN = EmptyNode;
+            _lxaDb = _lxaA = _lxaX = _laeS = _laeNotS = _laeNotA = default;
+            _laeSbs = _laeAcs = EmptyNode;
+            _lxaPrevPhi2 = _lxaArm = _lxaImm = _laeRecent = _laePrevSbs = _laePrevAcs = _laeWait = 0;
+            _lxaPrevSync = _laeSbsSeen = false;
+            _laeVal = _laeOldS = _laeDbPrevFall = -1; _laeRam = null;
+
+            _openBusShim = false; _pdDb = default; _pdRw = EmptyNode; _pdObTop = _pdLastBus = 0;
+            _dlShim = false; _dlIdl = _dlNotIdl = default; _dlClk1 = EmptyNode; _dlHeldMask = 0;
+
+            AleReadMuxShim = false;
+            _muxIoCe = _muxCpuRw = _muxAle = EmptyNode;
+            _muxPpuAb = _muxCpuAb = _muxVp = _muxHp = default;
+            _muxState = 0; _muxDetect = 0; _muxReady = _muxIoCeClamped = _muxAleClamped = false;
+
+            _dmcAbortShim = false; M3AbortEnabled = false;
+            _dmcAbHalt = _dmcAbDmaAct = _dmcAbEn = _dmcAbRdy = _dmcAbLoadSr = _dmcAbPhase = EmptyNode;
+            _dmcAbLastBoundary = 0; _dmcAbPrevLoadSr = 0; _dmcAbPrevEn = -1;
+            _dmcAbCountdown = _dmcAbHold = _dmcAbKillIn = 0; _dmcAbFetchSeen = false;
+
+            _oamEdgeShim = false; M4OeEnabled = false; _oeRend = EmptyNode; _oeSprAddr = default;
+            _oeCellA = _oeCellB = null; _oeMirror = null; _oeDriven = null;
+            _oeMirrorRow = -1; _oePrevRend = _oeDrivenCount = _oeHold = 0;
+
+            _m2Decay = false; _m2dNodes = default; _m2dPrev = null; _m2dStamp = null;
+
+            FrameIrqShim = false; M4FiEnabled = false;
+            _fiFlag = _fiNFlag = _fiRdClr = _fiInh = _fiRes = EmptyNode; _fiPrev = 0;
+
+            Dbl2007Shim = false;
+            _d27Pal = _d27Rw = _d27Rdy = _d27Phi2 = _d27Nr2007 = EmptyNode;
+            _d27Inbuf = _d27Ab = _d27Db = default; _d27Prev = _d27Clamped = _d27Phi2Prev = 0; _d27T0 = 0;
+
+            M4P1Enabled = false; _m4p1Clamp = _m4p1Queue = false;
+            OamDmaPpuBusShim = false;
+            _odmaPhi2 = _odmaRw = _odmaRdy = _odmaNW2004 = _odmaNWe = EmptyNode;
+            _odmaAb = _odmaSprData = _odmaSprAddr = default;
+            _odmaOamA = _odmaOamB = null; _odmaValueQ = _odmaAddrQ = null; _odmaDriven = null;
+            _odmaPrevPhi2 = _odmaPrevNWe = _odmaPendingPpuGet = _odmaQHead = _odmaQCount = _odmaDrivenCount = 0;
+            _odmaLastActivity = 0;
+        }
+
         // The unconditional S1A mechanism/shim arming (order matters: DL follows OpenBus; the ALERead mux
         // resolves after its node-split cut, which already happened in the compose passes above).
         private static void ArmS1aMechanisms()
@@ -239,27 +296,27 @@ namespace AprVisual.Sim
             N_Res          = LookupNode("res");
             N_PpuInVblank  = LookupNode("ppu.in_vblank");
             N_CpuSync      = LookupNode("cpu.sync");
-            R_CpuA   = ResolveQuiet("cpu.a[7:0]");
-            R_CpuX   = ResolveQuiet("cpu.x[7:0]");
-            R_CpuY   = ResolveQuiet("cpu.y[7:0]");
-            R_CpuP   = ResolveQuiet("cpu.p[7:0]");
-            R_CpuS   = ResolveQuiet("cpu.s[7:0]");
-            R_CpuIr  = ResolveQuiet("cpu.ir[7:0]");
-            R_CpuPcl = ResolveQuiet("cpu.pcl[7:0]");
-            R_CpuPch = ResolveQuiet("cpu.pch[7:0]");
-            R_CpuAb  = ResolveQuiet("cpu.ab[15:0]");
-            R_CpuDb  = ResolveQuiet("cpu.db[7:0]");
+            R_CpuA   = ResolveNativeQuiet("cpu.a[7:0]");
+            R_CpuX   = ResolveNativeQuiet("cpu.x[7:0]");
+            R_CpuY   = ResolveNativeQuiet("cpu.y[7:0]");
+            R_CpuP   = ResolveNativeQuiet("cpu.p[7:0]");
+            R_CpuS   = ResolveNativeQuiet("cpu.s[7:0]");
+            R_CpuIr  = ResolveNativeQuiet("cpu.ir[7:0]");
+            R_CpuPcl = ResolveNativeQuiet("cpu.pcl[7:0]");
+            R_CpuPch = ResolveNativeQuiet("cpu.pch[7:0]");
+            R_CpuAb  = ResolveNativeQuiet("cpu.ab[15:0]");
+            R_CpuDb  = ResolveNativeQuiet("cpu.db[7:0]");
             M_EramRam = ResolveMemory("cart.eram.ram");
         }
 
-        private static int[] ResolveQuiet(string expr)
+        private static NativeNodeList ResolveNativeQuiet(string expr)
         {
             var l = new List<int>();
             ResolveNodes(expr, l, quiet: true);
-            return l.ToArray();
+            return CopyHandlerNodeList(l);
         }
 
-        // ── power-up state shim (test mode only; see MD/testrom/2026-07-03-fail-analysis §A/§3.2) ──
+        // ── S1A power-up state mechanism (see MD/testrom/2026-07-03-fail-analysis §A/§3.2) ──
         // The netlist's artificial power-on (discharge → pull-ups → settle) is not any real console's
         // power-on. Test mode injects the CONVENTIONAL power-up state after the raw settle, using the
         // drive → settle → RELEASE (SetFloat) pattern so every touched cell float-holds the injected
@@ -337,14 +394,14 @@ namespace AprVisual.Sim
         //   DelayTransition — hold a two-sided enable's transition by clamping its old-value side
         //                     LOW for N hc (even_odd).
         // Triggers: NodeRise (an on-die control signal's own arrival) or RegWrite ($2001 write).
-        // Env M6X arms the built-in rows and supersedes the three shims. Force-LOW only (no
-        // GND>VCC wall); test-mode only, benchmark path never arms it.
+        // The S1A full engine arms the built-in rows unconditionally. Force-LOW only (no GND>VCC
+        // wall); each row remains dormant until its trigger and timing window occur.
         private enum M6xTrig { NodeRise, RegWrite }
         private enum M6xWin { VisibleLines, PreRenderNarrow, Hpos8Ge4 }
         private enum M6xAct { ClampGate, DelayTransition }
         private struct M6xRow
         {
-            public string Name; public M6xTrig Trig; public M6xAct Act; public M6xWin Win;
+            public M6xTrig Trig; public M6xAct Act; public M6xWin Win;
             public int Reg, EnableMask;             // RegWrite: $2001 + db enable bits
             public int TrigNode;                    // NodeRise: the arriving control signal
             public int Gate, GateComp;              // ClampGate: Gate; DelayTransition: Gate + its complement
@@ -352,34 +409,40 @@ namespace AprVisual.Sim
             // state
             public byte PrevTrig; public long HoldUntil; public int ClampedNode; public bool InWr; public int WrDb;
         }
-        private static M6xRow[] _m6xRows = Array.Empty<M6xRow>();
-        private static int[] _m6xHp = Array.Empty<int>(), _m6xVp = Array.Empty<int>(), _m6xHp3 = Array.Empty<int>();
+        private static M6xRow* _m6xRows;
+        private static int _m6xRowCount;
+        private static NativeNodeList _m6xHp, _m6xVp, _m6xHp3;
+
+        private static void AddM6xClamp(string name, M6xTrig trig, int trigNode, int reg, int mask, string gateName, int delay, M6xWin win)
+        {
+            int gate = LookupNode(gateName);
+            if (gate == EmptyNode) { Console.Error.WriteLine($"# [m6x] row {name}: gate {gateName} unresolved -- skipped"); return; }
+            _m6xRows[_m6xRowCount++] = new M6xRow
+            {
+                Trig = trig, Act = M6xAct.ClampGate, Win = win,
+                Reg = reg, EnableMask = mask, TrigNode = trigNode, Gate = gate, GateComp = EmptyNode,
+                DelayHc = delay, PrevTrig = trigNode != EmptyNode ? NodeStates[trigNode] : (byte)0,
+                HoldUntil = -1, ClampedNode = EmptyNode,
+            };
+        }
 
         public static void EnableM6xPhase()
         {
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _m6xHp = hp.Count == 9 ? hp.ToArray() : Array.Empty<int>();
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _m6xVp = vp.Count == 9 ? vp.ToArray() : Array.Empty<int>();
-            var h3 = new List<int>(); ResolveNodes("ppu.hpos[2:0]", h3, quiet: true); _m6xHp3 = h3.Count == 3 ? h3.ToArray() : Array.Empty<int>();
-            var rows = new List<M6xRow>();
-            void AddClamp(string name, M6xTrig trig, int trigNode, int reg, int mask, string gateName, int delay, M6xWin win)
-            {
-                int g = LookupNode(gateName);
-                if (g == EmptyNode) { Console.Error.WriteLine($"# [m6x] row {name}: gate {gateName} unresolved -- skipped"); return; }
-                rows.Add(new M6xRow { Name = name, Trig = trig, Act = M6xAct.ClampGate, Win = win,
-                                      Reg = reg, EnableMask = mask, TrigNode = trigNode, Gate = g, GateComp = EmptyNode,
-                                      DelayHc = delay, PrevTrig = trigNode != EmptyNode ? NodeStates[trigNode] : (byte)0,
-                                      HoldUntil = -1, ClampedNode = EmptyNode });
-            }
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _m6xHp = hp.Count == 9 ? CopyHandlerNodeList(hp) : default;
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _m6xVp = vp.Count == 9 ? CopyHandlerNodeList(vp) : default;
+            var h3 = new List<int>(); ResolveNodes("ppu.hpos[2:0]", h3, quiet: true); _m6xHp3 = h3.Count == 3 ? CopyHandlerNodeList(h3) : default;
+            _m6xRows = AllocHandlerArray<M6xRow>(4);
+            _m6xRowCount = 0;
             // row: dot-339 — rendering_1 rise clamps hpos_eq_339_and_rendering for 24hc on visible lines
             int ren = LookupNode("ppu.rendering_1");
-            if (ren != EmptyNode) AddClamp("dot339", M6xTrig.NodeRise, ren, 0, 0, "ppu.hpos_eq_339_and_rendering", 24, M6xWin.VisibleLines);
+            if (ren != EmptyNode) AddM6xClamp("dot339", M6xTrig.NodeRise, ren, 0, 0, "ppu.hpos_eq_339_and_rendering", 24, M6xWin.VisibleLines);
             // row: BGSerialIn — $2001 enable write clamps the shifter-reload gate for 16hc at hpos%8>=4
             int bgg = LookupNode("ppu.hpos_mod_8_eq_6_or_7_and_rendering");
             if (bgg == EmptyNode) bgg = LookupNode("ppu.hpos_mod_8_eq_6_or_7");
             if (bgg != EmptyNode)
-                rows.Add(new M6xRow { Name = "bgserial", Trig = M6xTrig.RegWrite, Act = M6xAct.ClampGate, Win = M6xWin.Hpos8Ge4,
-                                      Reg = 0x2001, EnableMask = 0x18, TrigNode = EmptyNode, Gate = bgg, GateComp = EmptyNode,
-                                      DelayHc = 16, PrevTrig = 0, HoldUntil = -1, ClampedNode = EmptyNode });
+                _m6xRows[_m6xRowCount++] = new M6xRow { Trig = M6xTrig.RegWrite, Act = M6xAct.ClampGate, Win = M6xWin.Hpos8Ge4,
+                                                          Reg = 0x2001, EnableMask = 0x18, TrigNode = EmptyNode, Gate = bgg, GateComp = EmptyNode,
+                                                          DelayHc = 16, PrevTrig = 0, HoldUntil = -1, ClampedNode = EmptyNode };
             // rows: even_odd — a bkg/spr_enable transition in the vpos261/hpos338-339 pre-render skip
             // window is delayed 16hc by holding the OLD value (clamp the old-value side low). This is
             // the DelayTransition action: it delays a two-sided enable's edge, not a one-sided gate.
@@ -388,30 +451,29 @@ namespace AprVisual.Sim
             {
                 int g = LookupNode(en), gc = LookupNode(comp);
                 if (g != EmptyNode && gc != EmptyNode)
-                    rows.Add(new M6xRow { Name = nm, Trig = M6xTrig.NodeRise /*unused for DelayTransition*/, Act = M6xAct.DelayTransition,
-                                          Win = M6xWin.PreRenderNarrow, Reg = 0, EnableMask = 0, TrigNode = g, Gate = g, GateComp = gc,
-                                          DelayHc = 16, PrevTrig = NodeStates[g], HoldUntil = -1, ClampedNode = EmptyNode });
+                    _m6xRows[_m6xRowCount++] = new M6xRow { Trig = M6xTrig.NodeRise /*unused for DelayTransition*/, Act = M6xAct.DelayTransition,
+                                                              Win = M6xWin.PreRenderNarrow, Reg = 0, EnableMask = 0, TrigNode = g, Gate = g, GateComp = gc,
+                                                              DelayHc = 16, PrevTrig = NodeStates[g], HoldUntil = -1, ClampedNode = EmptyNode };
                 else Console.Error.WriteLine($"# [m6x] row {nm}: {en}/{comp} unresolved -- skipped");
             }
-            _m6xRows = rows.ToArray();
-            Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRows.Length} rows (dot339 + bgserial + even_odd)");
+            Console.Error.WriteLine($"# [m6x] cross-chip phase arbitration armed: {_m6xRowCount} rows (dot339 + bgserial + even_odd)");
         }
 
         private static bool M6xWindowOk(M6xWin win)
         {
-            int v = _m6xVp.Length == 9 ? ReadBits(_m6xVp) : -1;
+            int v = _m6xVp.Length == 9 ? ReadBits(_m6xVp.Nodes, _m6xVp.Length) : -1;
             switch (win)
             {
                 case M6xWin.VisibleLines:    return v != 261;
-                case M6xWin.PreRenderNarrow: return v == 261 && _m6xHp.Length == 9 && ReadBits(_m6xHp) >= 338 && ReadBits(_m6xHp) <= 339;
-                case M6xWin.Hpos8Ge4:        return _m6xHp3.Length == 3 && ReadBits(_m6xHp3) >= 4;
+                case M6xWin.PreRenderNarrow: return v == 261 && _m6xHp.Length == 9 && ReadBits(_m6xHp.Nodes, _m6xHp.Length) >= 338 && ReadBits(_m6xHp.Nodes, _m6xHp.Length) <= 339;
+                case M6xWin.Hpos8Ge4:        return _m6xHp3.Length == 3 && ReadBits(_m6xHp3.Nodes, _m6xHp3.Length) >= 4;
             }
             return false;
         }
 
         private static void M6xPhaseStep()
         {
-            for (int r = 0; r < _m6xRows.Length; r++)
+            for (int r = 0; r < _m6xRowCount; r++)
             {
                 ref var row = ref _m6xRows[r];
                 // release when the hold expires
@@ -446,8 +508,9 @@ namespace AprVisual.Sim
                 }
                 else   // RegWrite
                 {
-                    int ab = ReadReg(R_CpuAb);
-                    bool wr = (ab & 0xE007) == row.Reg && NodeStates[_pdRw] == 0;
+                    // Most half-cycles are reads. Do not gather the 16-bit CPU address unless
+                    // R/W says this can be the $2001 write that this row observes.
+                    bool wr = NodeStates[_pdRw] == 0 && (ReadReg(R_CpuAb) & 0xE007) == row.Reg;
                     if (wr) { row.InWr = true; row.WrDb = ReadReg(R_CpuDb); continue; }
                     if (!row.InWr) continue;
                     row.InWr = false;
@@ -479,24 +542,31 @@ namespace AprVisual.Sim
         private enum M4Kind { DataWins, Hold, Transparent }
         private struct M4Row
         {
-            public string Name; public M4Kind Kind;
-            public int Enable; public int[] Cells; public int[] Datas;
-            public byte PrevEnable; public byte[] Snap;
+            public M4Kind Kind;
+            public int Enable; public NativeNodeList Cells; public NativeNodeList Datas;
+            public byte PrevEnable; public fixed byte Snap[8];
             public int AddrLo, AddrHi, MinBits;   // Transparent scoping (0/0/0 = unscoped)
         }
         private static bool _m4Edge;
         public static bool M4EdgeEnabled => _m4Edge;
-        private static M4Row[] _m4Rows = Array.Empty<M4Row>();
+        private static M4Row* _m4Rows;
+        private static int _m4RowCount;
 
         public static void EnableM4EdgeLatch()
         {
-            var rows = new List<M4Row>();
+            _m4Rows = AllocHandlerArray<M4Row>(4);
+            _m4RowCount = 0;
             {   // row: DMC pcm_latch — data-wins (measured: blargg 7-dmc_basics #19 reads $80)
                 int en = LookupNode("cpu.apu_clk1"), d = LookupNode("cpu.#13907"), c = LookupNode("cpu.#13947");
                 if (en != EmptyNode && d != EmptyNode && c != EmptyNode)
-                    rows.Add(new M4Row { Name = "dmc_pcm_latch", Kind = M4Kind.DataWins, Enable = en,
-                                         Cells = new[] { c }, Datas = new[] { d },
-                                         PrevEnable = NodeStates[en], Snap = new byte[1] });
+                {
+                    int* cells = AllocHandlerArray<int>(1); cells[0] = c;
+                    int* datas = AllocHandlerArray<int>(1); datas[0] = d;
+                    _m4Rows[_m4RowCount++] = new M4Row { Kind = M4Kind.DataWins, Enable = en,
+                                                           Cells = new NativeNodeList { Nodes = cells, Length = 1 },
+                                                           Datas = new NativeNodeList { Nodes = datas, Length = 1 },
+                                                           PrevEnable = NodeStates[en] };
+                }
                 else Console.Error.WriteLine("# [m4] edge-latch row dmc_pcm_latch: nodes unresolved -- skipped");
             }
             foreach (var (nm, enName, cellsExpr) in new[]
@@ -507,11 +577,10 @@ namespace AprVisual.Sim
                 var cells = new List<int>(); ResolveNodes(cellsExpr, cells, quiet: true);
                 if (en != EmptyNode && cells.Count == 8)
                 {
-                    var row = new M4Row { Name = nm, Kind = M4Kind.Hold, Enable = en,
-                                          Cells = cells.ToArray(), Datas = Array.Empty<int>(),
-                                          PrevEnable = NodeStates[en], Snap = new byte[8] };
-                    for (int i = 0; i < 8; i++) row.Snap[i] = NodeStates[row.Cells[i]];
-                    rows.Add(row);
+                    ref M4Row row = ref _m4Rows[_m4RowCount++];
+                    row = new M4Row { Kind = M4Kind.Hold, Enable = en,
+                                      Cells = CopyHandlerNodeList(cells), PrevEnable = NodeStates[en] };
+                    for (int i = 0; i < 8; i++) row.Snap[i] = NodeStates[row.Cells.Nodes[i]];
                 }
                 else Console.Error.WriteLine($"# [m4] edge-latch row {nm}: nodes unresolved -- skipped");
             }
@@ -523,20 +592,19 @@ namespace AprVisual.Sim
                 var idl = new List<int>(); ResolveNodes("cpu.idl[7:0]", idl, quiet: true);
                 var db = new List<int>(); ResolveNodes("cpu.db[7:0]", db, quiet: true);
                 if (en != EmptyNode && idl.Count == 8 && db.Count == 8)
-                    rows.Add(new M4Row { Name = "dl_idl", Kind = M4Kind.Transparent, Enable = en,
-                                         Cells = idl.ToArray(), Datas = db.ToArray(),
-                                         PrevEnable = NodeStates[en], Snap = new byte[8],
-                                         AddrLo = 0x4016, AddrHi = 0x4017, MinBits = 2 });
+                    _m4Rows[_m4RowCount++] = new M4Row { Kind = M4Kind.Transparent, Enable = en,
+                                                           Cells = CopyHandlerNodeList(idl), Datas = CopyHandlerNodeList(db),
+                                                           PrevEnable = NodeStates[en],
+                                                           AddrLo = 0x4016, AddrHi = 0x4017, MinBits = 2 };
                 else Console.Error.WriteLine("# [m4] edge-latch row dl_idl: nodes unresolved -- skipped");
             }
-            _m4Rows = rows.ToArray();
-            _m4Edge = _m4Rows.Length > 0;
-            Console.Error.WriteLine($"# [m4] edge-latch armed: {_m4Rows.Length} annotation rows");
+            _m4Edge = _m4RowCount > 0;
+            Console.Error.WriteLine($"# [m4] edge-latch armed: {_m4RowCount} annotation rows");
         }
 
         private static void M4EdgeLatchStep()
         {
-            for (int r = 0; r < _m4Rows.Length; r++)
+            for (int r = 0; r < _m4RowCount; r++)
             {
                 ref var row = ref _m4Rows[r];
                 byte cur = NodeStates[row.Enable];
@@ -554,12 +622,12 @@ namespace AprVisual.Sim
                     {
                         int diff = 0;
                         for (int i = 0; i < row.Cells.Length; i++)
-                            if (NodeStates[row.Cells[i]] != NodeStates[row.Datas[i]]) diff++;
+                            if (NodeStates[row.Cells.Nodes[i]] != NodeStates[row.Datas.Nodes[i]]) diff++;
                         if (diff >= row.MinBits)
                             for (int i = 0; i < row.Cells.Length; i++)
                             {
-                                byte want = NodeStates[row.Datas[i]];
-                                int n = row.Cells[i];
+                                byte want = NodeStates[row.Datas.Nodes[i]];
+                                int n = row.Cells.Nodes[i];
                                 if (NodeStates[n] != want) { if (want == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
                             }
                     }
@@ -570,24 +638,24 @@ namespace AprVisual.Sim
                 {
                     for (int i = 0; i < row.Cells.Length; i++)
                     {
-                        byte want = row.Kind == M4Kind.DataWins ? NodeStates[row.Datas[i]] : row.Snap[i];
-                        int n = row.Cells[i];
+                        byte want = row.Kind == M4Kind.DataWins ? NodeStates[row.Datas.Nodes[i]] : row.Snap[i];
+                        int n = row.Cells.Nodes[i];
                         if (NodeStates[n] != want)
                         { if (want == 1) SetHigh(n); else SetLow(n); SetFloat(n); }
                     }
                 }
                 row.PrevEnable = cur;
                 if (row.Kind == M4Kind.Hold)
-                    for (int i = 0; i < row.Cells.Length; i++) row.Snap[i] = NodeStates[row.Cells[i]];
+                    for (int i = 0; i < row.Cells.Length; i++) row.Snap[i] = NodeStates[row.Cells.Nodes[i]];
             }
         }
 
-        // ── per-hc test-shim dispatch (flattened 2026-07-18) ─────────────────────────────────
+        // ── per-hc S1A mechanism dispatch (flattened 2026-07-18) ─────────────────────────────
         // Was a daisy chain hosted inside DmcLatch→Alu→Lxa: any single shim's kill switch
         // silently disabled the whole downstream family — a confounded control for retirement
         // experiments. Flattened with the ORIGINAL execution order preserved exactly:
         // OpenBus → DL → abort → OamEdge → Lxa-rest → M4·P1 (DMC/ALU are M4EdgeLatch M4Row entries
-        // now, dispatched at the top). Each step self-guards; nothing fires on the benchmark path (bit-exact).
+        // now, dispatched at the top). Each step self-guards; an inactive row costs only its guard.
         internal static void TestShimChainStep()
         {
             if (M4EdgeEnabled) M4EdgeLatchStep();   // M4 edge-latch mechanism (DMC data-wins + ALU hold rows)
@@ -603,7 +671,7 @@ namespace AprVisual.Sim
                                            // -on reproduces shim-on bit-for-bit.
         }
 
-        // ── LXA ($AB) magic-constant shim (test mode only) ───────────────────────────────────
+        // ── LXA ($AB) magic-constant mechanism ───────────────────────────────────────────────
         // LXA/ATX: A = X = (A | MAGIC) & imm. The MAGIC constant is a ratioed analog bus fight
         // (AC pulls the merged SB/IDB line against the data-latch driver during a short window);
         // real chips yield $EE/$FF and it is documented as chip- and temperature-dependent
@@ -617,7 +685,7 @@ namespace AprVisual.Sim
         public static bool LxaMagicShim = false;
         private static int _lxaPhi2 = EmptyNode, _lxaSync = EmptyNode;
         private static int _lxaP1 = EmptyNode, _lxaP7 = EmptyNode, _lxaZLoop = EmptyNode, _lxaNotN = EmptyNode;
-        private static int[] _lxaDb = Array.Empty<int>(), _lxaA = Array.Empty<int>(), _lxaX = Array.Empty<int>();
+        private static NativeNodeList _lxaDb, _lxaA, _lxaX;
         private static int _lxaPrevPhi2, _lxaArm, _lxaImm;
         private static bool _lxaPrevSync;
         // LAE/LAS ($BB absolute,Y) — the same analog bus-fight family, opposite symptom. The op loads
@@ -632,8 +700,8 @@ namespace AprVisual.Sim
         // dissected with --dump-node @id). Forcing s[7:0] alone measurably reverts (Copy_SP2 stayed
         // $CA: nots re-imposed the old value through the loop every cycle) — the force must flip
         // BOTH halves of the pair, the same dual-side pattern the frame-IRQ shim uses.
-        private static int[] _laeS = Array.Empty<int>();
-        private static int[] _laeNotS = Array.Empty<int>();
+        private static NativeNodeList _laeS;
+        private static NativeNodeList _laeNotS;
         private static int _laeSbs = EmptyNode;
         private static int _laeRecent;       // half-cycles since IR last read $BB (write-back overlaps the next fetch)
         private static bool _laeSbsSeen;
@@ -641,7 +709,7 @@ namespace AprVisual.Sim
         private static int _laeVal = -1;     // the correct merge, COMPUTED as (db & pre-op S) in the load window
         private static int _laeOldS = -1;    // S sampled when IR first reads $BB (pre-load)
         private static int _laeDbPrevFall = -1;   // db at the PREVIOUS phi2 fall (the data-read cycle)
-        private static int[] _laeNotA = Array.Empty<int>();   // A's complement storage (~a_i), found by topology
+        private static NativeNodeList _laeNotA;   // A's complement storage (~a_i), found by topology
         private static int _laeAcs = EmptyNode;                // dpc23_SBAC: the SB->A load gate
         private static int _laePrevAcs;
 
@@ -656,9 +724,9 @@ namespace AprVisual.Sim
         // WRITTEN byte; open bus wants the last TRANSFERRED byte -- measured err2: replaying DOR
         // returned $02 for $55). So the shim tracks the last driven bus byte behaviorally: mapped
         // or write half-cycles record db; unmapped read half-cycles replay it onto any db bit with
-        // no conducting channel. Test mode only; the benchmark path never enables it. ──
+        // no conducting channel. The S1A full engine arms it; it is idle outside those accesses. ──
         private static bool _openBusShim;
-        private static readonly int[] _pdDb = new int[8];
+        private static NativeNodeList _pdDb;
         private static int _pdRw = EmptyNode;
         private static int _pdObTop;   // top of the unmapped window ($5FFF with cart extra-ram, else $7FFF)
 
@@ -668,8 +736,7 @@ namespace AprVisual.Sim
             _pdRw = LookupNode("cpu.rw");
             if (db.Count != 8 || _pdRw == EmptyNode)
             { Console.Error.WriteLine("# [shim] open-bus: nodes unresolved -- disabled"); return; }
-            // ResolveNodes returns ascending bit order (ReadBits: index i = bit i)
-            for (int b = 0; b < 8; b++) _pdDb[b] = db[b];
+            _pdDb = CopyHandlerNodeList(db);   // ascending bit order (ReadBits: index i = bit i)
             _pdObTop = LookupNode("cart.eram.gate") != EmptyNode ? 0x5FFF : 0x7FFF;
             _openBusShim = true;
         }
@@ -694,6 +761,11 @@ namespace AprVisual.Sim
         private static void OpenBusShimStep()
         {
             if (!_openBusShim) return;
+            if (NodeStates[_pdRw] == 0)
+            {
+                _pdLastBus = ReadReg(R_CpuDb);   // writes always transfer their bus byte
+                return;
+            }
             int abNow = ReadReg(R_CpuAb);
             // Opcode FETCHES from APU register space ($4000-$401F) are open-bus too: reading
             // $4015 does not update the data bus (the status byte travels the internal bus), so
@@ -702,17 +774,18 @@ namespace AprVisual.Sim
             // (the OpenBus err4 culprit) corrupted those fetches ($28->$38, $68->$78 measured:
             // PLP/PLA became SEC/SEI, leaking one stack byte per stunt). Data reads there keep
             // their native paths; only fetch cycles join the replay window.
-            bool apuFetch = abNow >= 0x4000 && abNow <= 0x401F && NodeStates[_pdRw] != 0
+            bool apuFetch = abNow >= 0x4000 && abNow <= 0x401F
                          && abNow == ((ReadReg(R_CpuPch) << 8) | ReadReg(R_CpuPcl));
-            if ((abNow < 0x4020 && !apuFetch) || abNow > _pdObTop || NodeStates[_pdRw] == 0)
+            if ((abNow < 0x4020 && !apuFetch) || abNow > _pdObTop)
             {
                 _pdLastBus = ReadReg(R_CpuDb); return;   // driven half-cycle (mapped, or a write) -- record the bus
             }
             for (int b = 0; b < 8; b++)                   // open-bus read -- replay the held byte
             {
-                if (AnyChannelOn(_pdDb[b])) continue;      // someone is driving -- hands off
+                int dbNode = _pdDb.Nodes[b];
+                if (AnyChannelOn(dbNode)) continue;        // someone is driving -- hands off
                 byte want = (byte)((_pdLastBus >> b) & 1);
-                if (NodeStates[_pdDb[b]] != want) LaeForce(_pdDb[b], want);
+                if (NodeStates[dbNode] != want) LaeForce(dbNode, want);
             }
         }
 
@@ -726,10 +799,10 @@ namespace AprVisual.Sim
         // the structurally identical LDA $4016 read latched $5D correctly (instance node-id
         // ordering lottery, same family as DMC/LAE). The shim restates transparency post-settle:
         // during phi2 (clk1out==0) of a read half-cycle, idl is float-forced back to the settled
-        // db whenever they diverge. A no-op on every correctly-resolved cycle. Test mode only. ──
+        // db whenever they diverge. A no-op on every correctly-resolved cycle. ──
         private static bool _dlShim;
-        private static readonly int[] _dlIdl = new int[8];
-        private static readonly int[] _dlNotIdl = new int[8];   // complement side -- a single-sided force snaps back
+        private static NativeNodeList _dlIdl;
+        private static NativeNodeList _dlNotIdl;   // complement side -- a single-sided force snaps back
         private static int _dlClk1 = EmptyNode;
 
         public static void EnableDlShim()
@@ -737,9 +810,10 @@ namespace AprVisual.Sim
             var idl = new List<int>(); ResolveNodes("cpu.idl[7:0]", idl, quiet: true);
             var nidl = new List<int>(); ResolveNodes("cpu.notidl[7:0]", nidl, quiet: true);
             _dlClk1 = LookupNode("cpu.clk1out");
-            if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb[7] == 0)
+            if (idl.Count != 8 || nidl.Count != 8 || _dlClk1 == EmptyNode || _pdRw == EmptyNode || _pdDb.Length != 8)
             { Console.Error.WriteLine("# [shim] DL-transparency: nodes unresolved -- disabled (enable AFTER EnableOpenBusShim)"); return; }
-            for (int b = 0; b < 8; b++) { _dlIdl[b] = idl[b]; _dlNotIdl[b] = nidl[b]; }
+            _dlIdl = CopyHandlerNodeList(idl);
+            _dlNotIdl = CopyHandlerNodeList(nidl);
             _dlShim = true;
         }
 
@@ -753,9 +827,8 @@ namespace AprVisual.Sim
             // FrameCounterIRQ, ...): $4015 reads are INTERNAL to the 2A03 and never touch the
             // external bus, so forcing idl := external db there overwrites the real value with
             // open-bus junk (exactly what AC OpenBus test 7 documents). Minimal blast radius wins.
-            int abDl = ReadReg(R_CpuAb);
-            bool phi2read = (abDl == 0x4016 || abDl == 0x4017)
-                         && NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0;
+            bool phi2read = NodeStates[_dlClk1] == 0 && NodeStates[_pdRw] != 0
+                          && (ReadReg(R_CpuAb) is 0x4016 or 0x4017);
 
             if (_dlHeldMask != 0 && !phi2read)
             {
@@ -763,7 +836,7 @@ namespace AprVisual.Sim
                 // so the dynamic notidl node float-holds the corrected value; the next phi2
                 // re-samples fresh -- no residue.
                 for (int b = 0; b < 8; b++)
-                    if ((_dlHeldMask >> b & 1) != 0) InstRelease(_dlNotIdl[b]);
+                    if ((_dlHeldMask >> b & 1) != 0) InstRelease(_dlNotIdl.Nodes[b]);
                 _dlHeldMask = 0;
             }
             if (!phi2read) return;
@@ -776,7 +849,7 @@ namespace AprVisual.Sim
             // each shim alone fine, both = hang). The signature gates NEW engagements only; once
             // holding, hold through phi2 -- an early release lets the upstream re-drive notidl
             // and the latch falls back (measured as a FIRE/VETO oscillation).
-            if (_dlHeldMask == 0 && System.Numerics.BitOperations.PopCount((uint)(ReadBits(_dlIdl) ^ ReadReg(R_CpuDb))) < 2) return;
+            if (_dlHeldMask == 0 && System.Numerics.BitOperations.PopCount((uint)(ReadBits(_dlIdl.Nodes, _dlIdl.Length) ^ ReadReg(R_CpuDb))) < 2) return;
             // Never engage while the CPU is DMA-halted: during a stall the "read" on the address
             // bus is the halted CPU's held cycle, and what the DL catches there is legitimate
             // analog behaviour under test (ImpliedDummyRead measures exactly these) -- restating
@@ -789,14 +862,14 @@ namespace AprVisual.Sim
             }
             for (int b = 0; b < 8; b++)
             {
-                byte want = NodeStates[_pdDb[b]];
-                if (NodeStates[_dlIdl[b]] == want) continue;
+                byte want = NodeStates[_pdDb.Nodes[b]];
+                if (NodeStates[_dlIdl.Nodes[b]] == want) continue;
                 // The DL is a two-phase DYNAMIC latch: idl = pullup + a notidl-gated pulldown, and
                 // notidl is re-driven from the upstream stage through cclk for the whole of phi2 --
                 // so a point-force snaps back, and clamping idl HIGH loses to the conducting
                 // pulldown (Gnd outranks Pwr). Clamp ONLY notidl (idl follows combinationally) and
                 // HOLD the clamp until phi2 ends.
-                if (want != 0) InstClampLow(_dlNotIdl[b]); else InstClampHigh(_dlNotIdl[b]);
+                if (want != 0) InstClampLow(_dlNotIdl.Nodes[b]); else InstClampHigh(_dlNotIdl.Nodes[b]);
                 _dlHeldMask |= 1 << b;
             }
         }
@@ -813,11 +886,11 @@ namespace AprVisual.Sim
         // WireCore.Module cuts ppu.io_ab[2:0] <-> cpu.ab[2:0] when this shim is on; the mux relays
         // cpu.ab -> ppu.io_ab every hc (transparent) EXCEPT in-window, where it HOLDS ppu.io_ab=7
         // (isolated -> SetHigh wins, no re-assert wall) long enough for read_2007_ended to land the
-        // ReadALE at dot 230. Opt-in (ALEREAD_MUX env; set BEFORE LoadSystem for the cut); the
-        // golden-checksum benchmark path never sets it.
+        // ReadALE at dot 230. The S1A load path enables this before composition so the node split
+        // is present; the mux is idle unless the matching $2007-read timing window occurs.
         public static bool AleReadMuxShim = false;
         private static int _muxIoCe = EmptyNode, _muxCpuRw = EmptyNode;
-        private static int[] _muxPpuAb = System.Array.Empty<int>(), _muxCpuAb = System.Array.Empty<int>(), _muxVp = System.Array.Empty<int>(), _muxHp = System.Array.Empty<int>();
+        private static NativeNodeList _muxPpuAb, _muxCpuAb, _muxVp, _muxHp;
         private static int _muxState;          // 0=armed, 1=swallow, 2=wait, 3=replay-hold(io_ab=7 + io_ce=0)
         private static long _muxDetect;
         private static bool _muxReady;         // nodes resolved + split active
@@ -839,19 +912,19 @@ namespace AprVisual.Sim
             _muxIoCe = LookupNode("ppu.io_ce");
             _muxAle = LookupNode("ppu.ale");
             _muxCpuRw = LookupNode("cpu.rw"); if (_muxCpuRw == EmptyNode) _muxCpuRw = LookupNode("2a03.cpu.rw");
-            var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? pab.ToArray() : System.Array.Empty<int>();
-            var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? cab.ToArray() : System.Array.Empty<int>();
-            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? vp.ToArray() : System.Array.Empty<int>();
-            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _muxHp = hp.Count == 9 ? hp.ToArray() : System.Array.Empty<int>();
+            var pab = new List<int>(); ResolveNodes("ppu.io_ab[2:0]", pab, quiet: true); _muxPpuAb = pab.Count == 3 ? CopyHandlerNodeList(pab) : default;
+            var cab = new List<int>(); ResolveNodes("cpu.ab[2:0]", cab, quiet: true); if (cab.Count != 3) { cab.Clear(); ResolveNodes("2a03.cpu.ab[2:0]", cab, quiet: true); } _muxCpuAb = cab.Count == 3 ? CopyHandlerNodeList(cab) : default;
+            var vp = new List<int>(); ResolveNodes("ppu.vpos[8:0]", vp, quiet: true); _muxVp = vp.Count == 9 ? CopyHandlerNodeList(vp) : default;
+            var hp = new List<int>(); ResolveNodes("ppu.hpos[8:0]", hp, quiet: true); _muxHp = hp.Count == 9 ? CopyHandlerNodeList(hp) : default;
             if (_muxIoCe == EmptyNode || _muxAle == EmptyNode || _muxCpuRw == EmptyNode || _muxPpuAb.Length != 3 || _muxCpuAb.Length != 3 || _muxVp.Length != 9)
             { Console.Error.WriteLine("# [shim] aleread-mux: nodes unresolved -- disabled"); AleReadMuxShim = false; _muxReady = false; return; }
             _muxState = 0; _muxReady = true;
             MuxRelayIoAb();   // seed: ppu.io_ab := cpu.ab now that the connection is cut
         }
 
-        private static int MuxCpuAb() => (NodeStates[_muxCpuAb[2]] << 2) | (NodeStates[_muxCpuAb[1]] << 1) | NodeStates[_muxCpuAb[0]];
-        private static void MuxDriveIoAb(int v) { for (int i = 0; i < 3; i++) { if (((v >> i) & 1) != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
-        private static void MuxRelayIoAb() { for (int i = 0; i < 3; i++) { if (NodeStates[_muxCpuAb[i]] != 0) SetHigh(_muxPpuAb[i]); else SetLow(_muxPpuAb[i]); } }
+        private static int MuxCpuAb() => (NodeStates[_muxCpuAb.Nodes[2]] << 2) | (NodeStates[_muxCpuAb.Nodes[1]] << 1) | NodeStates[_muxCpuAb.Nodes[0]];
+        private static void MuxDriveIoAb(int v) { for (int i = 0; i < 3; i++) { if (((v >> i) & 1) != 0) SetHigh(_muxPpuAb.Nodes[i]); else SetLow(_muxPpuAb.Nodes[i]); } }
+        private static void MuxRelayIoAb() { for (int i = 0; i < 3; i++) { if (NodeStates[_muxCpuAb.Nodes[i]] != 0) SetHigh(_muxPpuAb.Nodes[i]); else SetLow(_muxPpuAb.Nodes[i]); } }
 
         internal static void AleReadMuxStep()
         {
@@ -860,7 +933,7 @@ namespace AprVisual.Sim
             {
                 if (NodeStates[_muxIoCe] == 0 && NodeStates[_muxCpuRw] != 0 && MuxCpuAb() == 7)
                 {
-                    int v = ReadBits(_muxVp), h = _muxHp.Length == 9 ? ReadBits(_muxHp) : -1;
+                    int v = ReadBits(_muxVp.Nodes, _muxVp.Length), h = _muxHp.Length == 9 ? ReadBits(_muxHp.Nodes, _muxHp.Length) : -1;
                     if (v >= _muxVlo && v <= _muxVhi && h >= _muxHlo && h <= _muxHhi)
                     { _muxDetect = Time; _muxState = 1; }
                 }
@@ -891,7 +964,7 @@ namespace AprVisual.Sim
         // (hardware answer key 01, S1 measured 04; the other 14 phases match). The shim restates
         // the TriCNES-documented semantics: on the pcm_en falling edge, schedule the abort check
         // ~3.5 cycles out; if the CPU is then DMA-stalled and the fetch has not yet happened,
-        // clamp the rdy pulldown gate (cpu.#14039) off so the CPU resumes. Test mode only. ──
+        // clamp the rdy pulldown gate (cpu.#14039) off so the CPU resumes. ──
         private static bool _dmcAbortShim;
         private static int _dmcAbHalt = EmptyNode, _dmcAbDmaAct = EmptyNode, _dmcAbEn = EmptyNode, _dmcAbRdy = EmptyNode, _dmcAbLoadSr = EmptyNode, _dmcAbPhase = EmptyNode;
         private static long _dmcAbLastBoundary; private static int _dmcAbPrevLoadSr;
@@ -919,39 +992,43 @@ namespace AprVisual.Sim
         // spec states the hardware rule outright -- the only OAM corruption is a copy of row 0 INTO
         // row `seed` at the re-ENABLE edge, so "OAM Corruption cannot affect the outcome of a
         // (non-arbitrary) sprite zero hit": row 0 is the source and is never destroyed.
-        // The shim restates that one semantic: it mirrors the addressed OAM row while rendering and,
-        // on the rendering-disable edge, restores whatever that settle wrote into it. Test mode only.
+        // The mechanism mirrors the addressed OAM row while rendering and, on the rendering-disable
+        // edge, restores whatever that settle wrote into it.
         private static bool _oamEdgeShim;
         private static int _oeRend = EmptyNode;
-        private static int[] _oeSprAddr = Array.Empty<int>();
-        private static readonly int[,] _oeCellA = new int[256, 8], _oeCellB = new int[256, 8];
-        private static readonly byte[] _oeMirror = new byte[8];
-        private static readonly int[] _oeDriven = new int[128];
+        private static NativeNodeList _oeSprAddr;
+        private static int* _oeCellA, _oeCellB;  // [256 * 8], index = cell * 8 + bit
+        private static byte* _oeMirror;          // [8]
+        private static int* _oeDriven;           // [128]
         private static int _oeMirrorRow = -1, _oePrevRend, _oeDrivenCount, _oeHold;
 
         public static void EnableOamBlankEdgeShim()
         {
             _oeRend = LookupNode("ppu.rendering_1");
             var sa = new List<int>(); ResolveNodes("ppu.spr_addr[7:0]", sa, quiet: true);
+            _oeCellA = AllocHandlerArray<int>(256 * 8);
+            _oeCellB = AllocHandlerArray<int>(256 * 8);
+            _oeMirror = AllocHandlerArray<byte>(8);
+            _oeDriven = AllocHandlerArray<int>(128);
             int live = 0;
             for (int i = 0; i < 256; i++)
                 for (int b = 0; b < 8; b++)
                 {
-                    _oeCellA[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_a{b}");
-                    _oeCellB[i, b] = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
-                    if (_oeCellB[i, b] != EmptyNode && !IsPwrGnd(_oeCellB[i, b])) live++;
+                    int offset = (i << 3) | b;
+                    _oeCellA[offset] = LookupNode($"ppu.oam_ram_{i:X2}_a{b}");
+                    _oeCellB[offset] = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
+                    if (_oeCellB[offset] != EmptyNode && !IsPwrGnd(_oeCellB[offset])) live++;
                 }
             if (_oeRend == EmptyNode || sa.Count != 8 || live == 0)
             { Console.Error.WriteLine("# [shim] oam-blank-edge: nodes unresolved -- disabled"); return; }
-            _oeSprAddr = sa.ToArray();
+            _oeSprAddr = CopyHandlerNodeList(sa);
             _oePrevRend = NodeStates[_oeRend];
             _oeMirrorRow = -1; _oeDrivenCount = 0; _oeHold = 0;
             _oamEdgeShim = true;
         }
 
-        // M4·hold-on-OAM MECHANISM (env M4_OE): promotes the proven OAM-blank-edge row-restore to
-        // an opt-in mechanism that supersedes the shim (arms the same _oe* state, then flips the
-        // flag). Reproduces the shim bit-for-bit; opt-in so Gate A is untouched.
+        // M4·hold-on-OAM mechanism: wraps the proven OAM-blank-edge state and switches its runtime
+        // gate to M4OeEnabled. ArmS1aMechanisms invokes it for every S1A load.
         public static bool M4OeEnabled;
         public static void EnableOamBlankEdgeMech()
         {
@@ -972,14 +1049,17 @@ namespace AprVisual.Sim
                 if (rel) ProcessQueue();
             }
             int rend = NodeStates[_oeRend];
-            int row = (ReadBits(_oeSprAddr) >> 3) & 0x1F;
+            int row = (ReadBits(_oeSprAddr.Nodes, _oeSprAddr.Length) >> 3) & 0x1F;
             if (rend != 0 && _oeHold == 0)
             {
                 for (int c = 0; c < 8; c++)
                 {
                     int idx = (row << 3) | c, v = 0;
                     for (int b = 0; b < 8; b++)
-                        if (_oeCellB[idx, b] != EmptyNode && NodeStates[_oeCellB[idx, b]] != 0) v |= 1 << b;
+                    {
+                        int bn = _oeCellB[(idx << 3) | b];
+                        if (bn != EmptyNode && NodeStates[bn] != 0) v |= 1 << b;
+                    }
                     _oeMirror[c] = (byte)v;
                 }
                 _oeMirrorRow = row;
@@ -994,7 +1074,8 @@ namespace AprVisual.Sim
                     for (int b = 0; b < 8; b++)
                     {
                         bool one = ((_oeMirror[c] >> b) & 1) != 0;
-                        int bn = _oeCellB[idx, b], an = _oeCellA[idx, b];
+                        int offset = (idx << 3) | b;
+                        int bn = _oeCellB[offset], an = _oeCellA[offset];
                         if (bn != EmptyNode && !IsPwrGnd(bn))
                         { changed |= one ? SetHighQueued(bn) : SetLowQueued(bn); _oeDriven[_oeDrivenCount++] = bn; }
                         if (an != EmptyNode && !IsPwrGnd(an))
@@ -1020,9 +1101,8 @@ namespace AprVisual.Sim
             _dmcAbortShim = true;
         }
 
-        // P3-abort MECHANISM (env M3_ABORT): promotes the proven deferred-$4015 DMC-DMA-abort
-        // sequence to an opt-in mechanism that supersedes the shim (arms the same state, flips
-        // the flag). Reproduces it bit-for-bit; opt-in so Gate A is untouched.
+        // M3-abort mechanism: wraps the proven deferred-$4015 DMC-DMA-abort sequence and switches
+        // its runtime gate. ArmS1aMechanisms invokes it for every S1A load.
         public static bool M3AbortEnabled;
         public static void EnableDmc4015AbortMech()
         {
@@ -1117,31 +1197,33 @@ namespace AprVisual.Sim
             if (_lxaPhi2 == EmptyNode || _lxaSync == EmptyNode || _lxaP1 == EmptyNode || _lxaP7 == EmptyNode
                 || db.Count != 8 || a.Count != 8 || x.Count != 8 || s.Count != 8)
             { Console.Error.WriteLine("# [shim] LXA magic shim: nodes unresolved — disabled"); LxaMagicShim = false; return; }
-            _lxaDb = db.ToArray(); _lxaA = a.ToArray(); _lxaX = x.ToArray(); _laeS = s.ToArray();
+            _lxaDb = CopyHandlerNodeList(db); _lxaA = CopyHandlerNodeList(a); _lxaX = CopyHandlerNodeList(x); _laeS = CopyHandlerNodeList(s);
             var ns = new List<int>(); ResolveNodes("cpu.nots[7:0]", ns, quiet: true);
             var sb = new List<int>(); ResolveNodes("cpu.sb[7:0]", sb, quiet: true);
             _laeSbs = LookupNode("cpu.dpc6_SBS");
             _laeAcs = LookupNode("cpu.dpc23_SBAC");
             if (ns.Count != 8 || sb.Count != 8 || _laeSbs == EmptyNode)
             { Console.Error.WriteLine("# [shim] LXA/LAE shim: nots[7:0]/sb[7:0]/dpc6_SBS unresolved — disabled"); LxaMagicShim = false; return; }
-            _laeNotS = ns.ToArray();
+            _laeNotS = CopyHandlerNodeList(ns);
             _laeRam = ResolveMemory("u1.ram");
-            _laeNotA = new int[8];
+            int* notA = AllocHandlerArray<int>(8);
             for (int i = 0; i < 8; i++)
             {
-                _laeNotA[i] = GatedGndPullTarget(a[i]);   // a_i -> (~a_i): same dual-side need as S (measured: A reverted $82->$92)
-                if (_laeNotA[i] == EmptyNode)
+                notA[i] = GatedGndPullTarget(a[i]);   // a_i -> (~a_i): same dual-side need as S (measured: A reverted $82->$92)
+                if (notA[i] == EmptyNode)
                 { Console.Error.WriteLine($"# [shim] LXA/LAE shim: A-bit {i} complement unresolved — disabled"); LxaMagicShim = false; return; }
             }
+            _laeNotA = new NativeNodeList { Nodes = notA, Length = 8 };
+            LaeReadAddr = AllocHandlerArray<int>(16);
+            LaeReadVal = AllocHandlerArray<int>(16);
             _lxaPrevPhi2 = NodeStates[_lxaPhi2];
             _lxaArm = 0;
             _laeRecent = 0; _laeWait = 0; _laeVal = -1; _laeSbsSeen = false;
             LxaMagicShim = true;
         }
 
-        // M1·strength LXA MECHANISM (env M1_LXA): promotes the proven LXA/ANE magic-merge to an
-        // opt-in mechanism that supersedes the shim (arms the same state, flips the flag).
-        // Reproduces it bit-for-bit; opt-in so Gate A is untouched.
+        // M1-strength LXA mechanism: wraps the proven LXA/ANE magic-merge and switches its runtime
+        // gate. ArmS1aMechanisms invokes it for every S1A load.
         public static bool M1LxaEnabled;
         public static void EnableLxaMagicMech()
         {
@@ -1160,15 +1242,13 @@ namespace AprVisual.Sim
         // than the shim's aggregate-value clock (each cell leaks on its own). The annotation set
         // is the first entry of the analog-sidecar plan: the 2C02 io-bus latch island.
         // Scan every 16,384 hc (~0.38 ms) — ample resolution for a 600 ms constant, negligible
-        // cost. DEFAULT-ON in test mode (EnableM2Decay from the test runner, unless --no-shims);
-        // env NO_M2DECAY disables it and restores the old runner-level _io_db shim. (There is no
-        // "M2_DECAY" enabling env — the mechanism supersedes the shim by default.) golden/bench
-        // paths never enable it, and the threshold (25.7M hc) cannot fire inside benchmark runs.
+        // cost. The full S1A engine arms it in every mode; the threshold (25.7M hc) cannot fire
+        // inside the short benchmark runs used for checksum/performance comparison.
         private static bool _m2Decay;
         public static bool M2DecayEnabled => _m2Decay;
-        private static int[] _m2dNodes = Array.Empty<int>();
-        private static byte[] _m2dPrev = Array.Empty<byte>();
-        private static long[] _m2dStamp = Array.Empty<long>();
+        private static NativeNodeList _m2dNodes;
+        private static byte* _m2dPrev;
+        private static long* _m2dStamp;
         private const long M2DecayThresholdHc = 36L * 714_732;   // 36 NTSC frames ≈ 600 ms of master clock
 
         public static void EnableM2Decay()
@@ -1177,10 +1257,10 @@ namespace AprVisual.Sim
             ResolveNodes("ppu._io_db[7:0]", nodes, quiet: true);   // the io data-bus LATCH side (the "decay register")
             if (nodes.Count != 8)
             { Console.Error.WriteLine("# [m2] decay island: nodes unresolved -- disabled"); return; }
-            _m2dNodes = nodes.ToArray();
-            _m2dPrev = new byte[_m2dNodes.Length];
-            _m2dStamp = new long[_m2dNodes.Length];
-            for (int i = 0; i < _m2dNodes.Length; i++) { _m2dPrev[i] = NodeStates[_m2dNodes[i]]; _m2dStamp[i] = Time; }
+            _m2dNodes = CopyHandlerNodeList(nodes);
+            _m2dPrev = AllocHandlerArray<byte>(_m2dNodes.Length);
+            _m2dStamp = AllocHandlerArray<long>(_m2dNodes.Length);
+            for (int i = 0; i < _m2dNodes.Length; i++) { _m2dPrev[i] = NodeStates[_m2dNodes.Nodes[i]]; _m2dStamp[i] = Time; }
             _m2Decay = true;
             Console.Error.WriteLine($"# [m2] decay island armed: {_m2dNodes.Length} nodes, threshold {M2DecayThresholdHc:N0} hc (~600 ms)");
         }
@@ -1190,7 +1270,7 @@ namespace AprVisual.Sim
             if (!_m2Decay || (Time & 0x3FFF) != 0) return;
             for (int i = 0; i < _m2dNodes.Length; i++)
             {
-                int n = _m2dNodes[i];
+                int n = _m2dNodes.Nodes[i];
                 byte s = NodeStates[n];
                 if (s != _m2dPrev[i]) { _m2dPrev[i] = s; _m2dStamp[i] = Time; }
                 else if (s != 0 && Time - _m2dStamp[i] >= M2DecayThresholdHc)
@@ -1212,11 +1292,11 @@ namespace AprVisual.Sim
             // advanced to the next opcode — the 6502's T0/T1 overlap puts LAE's write-back inside the
             // next instruction's fetch. So keep a short 'ember' after IR reads $BB; an SBS pulse
             // within it is LAE's own load window, while a TXS anywhere else stays excluded.
-            if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBB)
+            if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr.Nodes, R_CpuIr.Length) == 0xBB)
             {
                 if (_laeRecent == 0)
                 {
-                    _laeOldS = ReadBits(_laeS);   // first sighting: S still pre-op
+                    _laeOldS = ReadBits(_laeS.Nodes, _laeS.Length);   // first sighting: S still pre-op
                     LaeReadCount = 0; LaeRecording = true;   // record every memory read of this op
                 }
                 _laeRecent = 90;   // must outlive the ~49-hc overlap PLUS the SBS high phase (~12 hc)
@@ -1239,7 +1319,7 @@ namespace AprVisual.Sim
             int ph = NodeStates[_lxaPhi2];
             if (_lxaPrevPhi2 == 1 && ph == 0)   // phi2 falling = end of a CPU cycle
             {
-                int dbv = ReadBits(_lxaDb);
+                int dbv = ReadBits(_lxaDb.Nodes, _lxaDb.Length);
                 // In this netlist's phi2-fall sampling, cpu.sync leads by one cycle: sync==1 at
                 // the fall of cycle N flags cycle N+1 as the opcode fetch. Use the PREVIOUS
                 // fall's sync to classify the current cycle.
@@ -1256,7 +1336,7 @@ namespace AprVisual.Sim
                 else if (_lxaArm == 2 && fetchNow)
                 {
                     int imm = _lxaImm;
-                    for (int i = 0; i < 8; i++) { int b = (imm >> i) & 1; Force(_lxaA[i], b); Force(_lxaX[i], b); }
+                    for (int i = 0; i < 8; i++) { int b = (imm >> i) & 1; Force(_lxaA.Nodes[i], b); Force(_lxaX.Nodes[i], b); }
                     // Flags: both latches are actively-refreshed loops that revert a one-shot
                     // force; hold a sustained drive on the pair for 3 cycles instead, then float.
                     int n = (imm >> 7) & 1, z = imm == 0 ? 1 : 0;
@@ -1303,13 +1383,13 @@ namespace AprVisual.Sim
                                 if ((LaeReadAddr[k] & 0x7FF) == target) { mem = LaeReadVal[k]; break; }
                         }
                     }
-                    _laeVal = (mem >= 0 ? mem : ReadBits(_lxaA)) & _laeOldS;
+                    _laeVal = (mem >= 0 ? mem : ReadBits(_lxaA.Nodes, _lxaA.Length)) & _laeOldS;
                     for (int i = 0; i < 8; i++)
                     {
                         int b = (_laeVal >> i) & 1;
-                        Force(_lxaA[i], b);
-                        Force(_laeNotA[i], b ^ 1);   // dual-side: A reverts a single-sided force (measured $82 -> $92 by TSX time)
-                        Force(_lxaX[i], b);
+                        Force(_lxaA.Nodes[i], b);
+                        Force(_laeNotA.Nodes[i], b ^ 1);   // dual-side: A reverts a single-sided force (measured $82 -> $92 by TSX time)
+                        Force(_lxaX.Nodes[i], b);
                     }
                     {
                         int n = (_laeVal >> 7) & 1, z = _laeVal == 0 ? 1 : 0;
@@ -1332,13 +1412,13 @@ namespace AprVisual.Sim
                 {
                     _laeWait--;
 
-                    if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr) == 0xBA)   // TSX just fetched: fix S before its execute reads it
+                    if (R_CpuIr.Length == 8 && ReadBits(R_CpuIr.Nodes, R_CpuIr.Length) == 0xBA)   // TSX just fetched: fix S before its execute reads it
                     {
                         for (int i = 0; i < 8; i++)
                         {
                             int b = (_laeVal >> i) & 1;
-                            Force(_laeS[i], b);
-                            Force(_laeNotS[i], b ^ 1);
+                            Force(_laeS.Nodes[i], b);
+                            Force(_laeNotS.Nodes[i], b ^ 1);
                         }
                         _laeWait = 0;
                     }
@@ -1353,7 +1433,7 @@ namespace AprVisual.Sim
             if (FrameIrqShim || M4FiEnabled) FrameIrqShimStep();
         }
 
-        // ── Frame-IRQ flag hold shim (test mode only) ────────────────────────────────────────
+        // ── Frame-IRQ flag hold mechanism ────────────────────────────────────────────────────
         // The frame-IRQ RS pair (frame_irq / /frame_irq) loses its state to an intra-settle
         // transient when a $4017 write wave coincides with the apu_clk1 falling edge (blargg
         // apu_test 3-irq_flag #6: writing $00/$80 must NOT clear the flag). The netlist's clear
@@ -1378,9 +1458,8 @@ namespace AprVisual.Sim
             FrameIrqShim = true;
         }
 
-        // M4·P6 FrameIrq MECHANISM (env M4_FI): promotes the proven frame-IRQ flag-hold (guarded
-        // restore) to an opt-in mechanism that supersedes the shim. Reproduces it bit-for-bit;
-        // opt-in so Gate A is untouched.
+        // M4·P6 FrameIrq mechanism: wraps the proven guarded flag restore and switches its runtime
+        // gate. ArmS1aMechanisms invokes it for every S1A load.
         public static bool M4FiEnabled;
         public static void EnableFrameIrqMech()
         {
@@ -1404,7 +1483,7 @@ namespace AprVisual.Sim
             if (Dbl2007Shim) Dbl2007ShimStep();
         }
 
-        // ── $2007 double-read merge shim (test mode only, global) ────────────────────────────
+        // ── $2007 double-read merge mechanism (global) ───────────────────────────────────────
         // Back-to-back $2007 reads (LDA abs,X page-cross dummy + real read) merge into ONE
         // buffer advance in the netlist — matching real hardware — but the reload's
         // staging→inbuf→io→db propagation AND the CPU's A load complete inside the same
@@ -1413,11 +1492,11 @@ namespace AprVisual.Sim
         // values (double_2007_read). Behavioral references model exactly this at the memory
         // layer: a read that lands mid-reload returns the OLD buffer (AprNes ppu_r_2007 state
         // machine, TriCNES read-latch pipeline). The shim is the logical stand-in for the
-        // missing physical propagation delay — hence GLOBAL in test mode, not per-test.
+        // missing physical propagation delay — hence global in S1A, not per-test.
         // ZERO-FOOTPRINT (Gemini consult 2026-07-05): no fake nodes/transistors — a load-time
         // attach renumbers the netlist and re-rolls alignment-lottery races in unrelated
         // tests (measured: dma_2007_read@K=1 flipped to a non-real pattern with zero shim
-        // firings). Detection polls in the existing test-mode shim chain; the force uses the
+        // firings). Detection polls in the existing per-hc mechanism chain; the force uses the
         // instrument-grade InstClampLow (Gnd-class, wins the whole wave — measured: every
         // Set-flag force at every discrete boundary loses, the A load consumes the mid-wave
         // transient). Armed only when the reload lands inside a GENUINE CPU $2007 sample:
@@ -1432,7 +1511,7 @@ namespace AprVisual.Sim
         // (blargg @K=1) after the reload — i.e. the window is "same active phi2 phase".
         public static bool Dbl2007Shim = false;
         private static int _d27Pal = EmptyNode, _d27Rw = EmptyNode, _d27Rdy = EmptyNode, _d27Phi2 = EmptyNode, _d27Nr2007 = EmptyNode;
-        private static int[] _d27Inbuf = Array.Empty<int>(), _d27Ab = Array.Empty<int>(), _d27Db = Array.Empty<int>();
+        private static NativeNodeList _d27Inbuf, _d27Ab, _d27Db;
         private static int _d27Prev, _d27Clamped, _d27Phi2Prev;
         private static long _d27T0;
 
@@ -1449,8 +1528,8 @@ namespace AprVisual.Sim
             if (_d27Pal == EmptyNode || _d27Rw == EmptyNode || _d27Rdy == EmptyNode || _d27Phi2 == EmptyNode
                 || _d27Nr2007 == EmptyNode || ib.Count != 8 || ab.Count != 16 || db.Count != 8)
             { Console.Error.WriteLine("# [shim] dbl2007 shim: nodes unresolved — disabled"); Dbl2007Shim = false; return; }
-            _d27Inbuf = ib.ToArray(); _d27Ab = ab.ToArray(); _d27Db = db.ToArray();
-            _d27Prev = ReadBits(_d27Inbuf);
+            _d27Inbuf = CopyHandlerNodeList(ib); _d27Ab = CopyHandlerNodeList(ab); _d27Db = CopyHandlerNodeList(db);
+            _d27Prev = ReadBits(_d27Inbuf.Nodes, _d27Inbuf.Length);
             _d27Phi2Prev = NodeStates[_d27Phi2];
             _d27Clamped = 0;
             Dbl2007Shim = true;
@@ -1458,14 +1537,14 @@ namespace AprVisual.Sim
 
         private static void Dbl2007ShimStep()
         {
-            int now = ReadBits(_d27Inbuf);
+            int now = ReadBits(_d27Inbuf.Nodes, _d27Inbuf.Length);
             if (now != _d27Prev)
             {
                 if (_d27Clamped == 0
                     && NodeStates[_d27Nr2007] == 0
                     && NodeStates[_d27Phi2] != 0
                     && NodeStates[_d27Pal] == 0
-                    && (ReadBits(_d27Ab) & 0xE007) == 0x2007
+                    && (ReadBits(_d27Ab.Nodes, _d27Ab.Length) & 0xE007) == 0x2007
                     && NodeStates[_d27Rw] != 0 && NodeStates[_d27Rdy] != 0)
                 {
                     // Reload landed inside a genuine CPU $2007 sample: /r2007 pulse ACTIVE and
@@ -1479,7 +1558,7 @@ namespace AprVisual.Sim
                     // path below undoes the clamp BEFORE the sample.
                     int rose = now & ~_d27Prev & 0xFF;
                     for (int i = 0; i < 8; i++)
-                        if (((rose >> i) & 1) != 0) InstClampLow(_d27Db[i]);
+                        if (((rose >> i) & 1) != 0) InstClampLow(_d27Db.Nodes[i]);
                     _d27Clamped = rose;
                     _d27T0 = Time;
                 }
@@ -1491,14 +1570,14 @@ namespace AprVisual.Sim
                     || Time - _d27T0 > 24))               // safety: never hold past one CPU cycle
             {
                 for (int i = 0; i < 8; i++)
-                    if (((_d27Clamped >> i) & 1) != 0) InstRelease(_d27Db[i]);
+                    if (((_d27Clamped >> i) & 1) != 0) InstRelease(_d27Db.Nodes[i]);
                 _d27Clamped = 0;
-                _d27Prev = ReadBits(_d27Inbuf);
+                _d27Prev = ReadBits(_d27Inbuf.Nodes, _d27Inbuf.Length);
             }
             _d27Phi2Prev = phi2;
         }
 
-        // ── M4·P1 pass-gate merge-clamp MECHANISM (env M4_P1) ────────────────────────────────
+        // ── M4·P1 pass-gate merge-clamp mechanism ────────────────────────────────────────────
         // The P1 family: a pass-gate sample/write must capture the value at its intended phase,
         // and a mid-settle change on the SOURCE must not leak into the SINK. Two realizations,
         // same abstraction, different action + scale (see the ledger comparison):
@@ -1508,9 +1587,9 @@ namespace AprVisual.Sim
         //   QueuedDrive = OamDmaPpuBus (folds in next). Same "hold the intended value against a
         //                 mid-settle race", but forwards 256 batched DMA $2004 writes into OAM,
         //                 so it needs a queue (capture on the put cycle, drive on the later /WE).
-        // When armed it SUPERSEDES the corresponding shim (gated in TestRunner) and runs at the
-        // exact chain position the shim did (LxaMagic tail), so mechanism-on == shim-on bit-for
-        // -bit. Opt-in; the benchmark/golden path never arms it, so Gate A is untouched.
+        // It supersedes the corresponding shim and runs at the exact chain position the shim did
+        // (LxaMagic tail), so its behavior is bit-for-bit identical. The full S1A engine arms it
+        // in every mode.
         public static bool M4P1Enabled;
         private static bool _m4p1Clamp;   // ClampBus row (Dbl2007) — runs in M4P1Step (TestShimChainStep tail)
         internal static bool _m4p1Queue;  // QueuedDrive row (OamDmaPpuBus) — runs at WireCore.Recalc.cs (its shim's point)
@@ -1532,20 +1611,21 @@ namespace AprVisual.Sim
             if (_m4p1Clamp) Dbl2007ShimStep();
         }
 
-        // ── OAM-DMA from PPU I/O bus write-data hold shim (test mode only, opt-in) ───────────
+        // ── OAM-DMA from PPU I/O bus write-data hold mechanism ────────────────────────────────
         // ppu_read_buffer's TEST_SPHIT_DMA_PPU_BUS performs $4014 <- $20, so the CPU DMA engine
         // alternates reads from $2000-$20FF with writes to $2004. The CPU-side DMA latch already
         // captures the correct values (verified by cpu.spr_data), but the PPU's delayed $2004->OAM
         // write can sample a later PPU I/O bus value inside the same settle wave. Real hardware's
         // write-data latch holds the $2004 data through /WE. This shim supplies only that hold
         // semantic: capture cpu.spr_data on the DMA put cycle, then drive the addressed OAM cell
-        // while the PPU OAM /WE pulse is active. It is opt-in because it directly touches OAM cells.
+        // while the PPU OAM /WE pulse is active. It is the QueuedDrive row of M4·P1.
         public static bool OamDmaPpuBusShim = false;
         private static int _odmaPhi2 = EmptyNode, _odmaRw = EmptyNode, _odmaRdy = EmptyNode, _odmaNW2004 = EmptyNode, _odmaNWe = EmptyNode;
-        private static int[] _odmaAb = Array.Empty<int>(), _odmaSprData = Array.Empty<int>(), _odmaSprAddr = Array.Empty<int>();
-        private static int[,] _odmaOamA = new int[256, 8], _odmaOamB = new int[256, 8];
-        private static readonly byte[] _odmaValueQ = new byte[512], _odmaAddrQ = new byte[512];
-        private static readonly int[] _odmaDriven = new int[16];
+        private static NativeNodeList _odmaAb, _odmaSprData, _odmaSprAddr;
+        private static int* _odmaOamA, _odmaOamB;  // [256 * 8], index = cell * 8 + bit
+        private static byte* _odmaValueQ, _odmaAddrQ;
+        private static int* _odmaDriven;
+        private const int OamDmaQueueCapacity = 512;
         private static int _odmaPrevPhi2, _odmaPrevNWe, _odmaPendingPpuGet, _odmaQHead, _odmaQCount, _odmaDrivenCount;
         private static long _odmaLastActivity;
 
@@ -1563,9 +1643,14 @@ namespace AprVisual.Sim
                 || ab.Count != 16 || sd.Count != 8 || sa.Count != 8)
             { Console.Error.WriteLine("# [shim] oam-dma-ppu-bus: nodes unresolved — disabled"); OamDmaPpuBusShim = false; return; }
 
-            _odmaAb = ab.ToArray();
-            _odmaSprData = sd.ToArray();
-            _odmaSprAddr = sa.ToArray();
+            _odmaAb = CopyHandlerNodeList(ab);
+            _odmaSprData = CopyHandlerNodeList(sd);
+            _odmaSprAddr = CopyHandlerNodeList(sa);
+            _odmaOamA = AllocHandlerArray<int>(256 * 8);
+            _odmaOamB = AllocHandlerArray<int>(256 * 8);
+            _odmaValueQ = AllocHandlerArray<byte>(OamDmaQueueCapacity);
+            _odmaAddrQ = AllocHandlerArray<byte>(OamDmaQueueCapacity);
+            _odmaDriven = AllocHandlerArray<int>(16);
 
             int liveCells = 0;
             for (int i = 0; i < 256; i++)
@@ -1573,8 +1658,9 @@ namespace AprVisual.Sim
                 {
                     int aNode = LookupNode($"ppu.oam_ram_{i:X2}_a{b}");
                     int bNode = LookupNode($"ppu.oam_ram_{i:X2}_b{b}");
-                    _odmaOamA[i, b] = aNode;
-                    _odmaOamB[i, b] = bNode;
+                    int offset = (i << 3) | b;
+                    _odmaOamA[offset] = aNode;
+                    _odmaOamB[offset] = bNode;
                     if (bNode != EmptyNode && !IsPwrGnd(bNode)) liveCells++;
                 }
             if (liveCells == 0)
@@ -1592,6 +1678,7 @@ namespace AprVisual.Sim
 
         internal static void OamDmaPpuBusShimStep()
         {
+            if (!OamDmaPpuBusShim && !_m4p1Queue) return;
             int phi2 = NodeStates[_odmaPhi2];
             if (_odmaPrevPhi2 == 1 && phi2 == 0) OamDmaTrackCpuCycle();
             _odmaPrevPhi2 = phi2;
@@ -1626,7 +1713,7 @@ namespace AprVisual.Sim
                 return;
             }
 
-            int addr = ReadBits(_odmaAb);
+            int addr = ReadBits(_odmaAb.Nodes, _odmaAb.Length);
             if (NodeStates[_odmaRw] != 0)
             {
                 _odmaPendingPpuGet = (addr & 0xE000) == 0x2000 ? 1 : 0;
@@ -1634,17 +1721,17 @@ namespace AprVisual.Sim
             }
 
             if (_odmaPendingPpuGet != 0 && (addr & 0xE007) == 0x2004 && NodeStates[_odmaNW2004] == 0)
-                OamDmaEnqueue((byte)ReadBits(_odmaSprAddr), (byte)ReadBits(_odmaSprData));
+                OamDmaEnqueue((byte)ReadBits(_odmaSprAddr.Nodes, _odmaSprAddr.Length), (byte)ReadBits(_odmaSprData.Nodes, _odmaSprData.Length));
             _odmaPendingPpuGet = 0;
         }
 
         private static void OamDmaEnqueue(byte addr, byte value)
         {
-            if (_odmaQCount == _odmaValueQ.Length)
+            if (_odmaQCount == OamDmaQueueCapacity)
             {
                 _odmaQHead = _odmaQCount = 0;
             }
-            int tail = (_odmaQHead + _odmaQCount) % _odmaValueQ.Length;
+            int tail = (_odmaQHead + _odmaQCount) & (OamDmaQueueCapacity - 1);
             _odmaAddrQ[tail] = addr;
             _odmaValueQ[tail] = value;
             _odmaQCount++;
@@ -1660,7 +1747,7 @@ namespace AprVisual.Sim
         private static byte OamDmaDequeueValue()
         {
             byte v = _odmaValueQ[_odmaQHead];
-            _odmaQHead = (_odmaQHead + 1) % _odmaValueQ.Length;
+            _odmaQHead = (_odmaQHead + 1) & (OamDmaQueueCapacity - 1);
             _odmaQCount--;
             return v;
         }
@@ -1673,8 +1760,9 @@ namespace AprVisual.Sim
             for (int bit = 0; bit < 8; bit++)
             {
                 bool one = ((value >> bit) & 1) != 0;
-                int bNode = _odmaOamB[index, bit];
-                int aNode = _odmaOamA[index, bit];
+                int offset = (index << 3) | bit;
+                int bNode = _odmaOamB[offset];
+                int aNode = _odmaOamA[offset];
                 if (bNode != EmptyNode && !IsPwrGnd(bNode))
                 {
                     changed |= one ? SetHighQueued(bNode) : SetLowQueued(bNode);
@@ -1717,8 +1805,18 @@ namespace AprVisual.Sim
         public static void PadSetButton(int pad, int osIdx, bool pressed)
         {
             if (pad < 0 || pad > 1 || osIdx < 0 || osIdx > 7) return;
-            if (pressed) JoyButtons[pad] |= (byte)(1 << osIdx);
-            else         JoyButtons[pad] &= (byte)~(1 << osIdx);
+            if (_joyState == null) return;
+            byte mask = (byte)(1 << osIdx);
+            if (pad == 0)
+            {
+                if (pressed) _joyState->Buttons0 |= mask;
+                else         _joyState->Buttons0 &= (byte)~mask;
+            }
+            else
+            {
+                if (pressed) _joyState->Buttons1 |= mask;
+                else         _joyState->Buttons1 &= (byte)~mask;
+            }
         }
 
         /// <summary>

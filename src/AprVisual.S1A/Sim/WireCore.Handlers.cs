@@ -45,7 +45,6 @@ namespace AprVisual.Sim
         {
             public string Name = "";
             public int TargetNode;
-            public int[] WatchedNodes = Array.Empty<int>();
             public bool Enqueued;
             public HandlerKind Kind;
             public Action? Callback;                       // Generic only
@@ -88,15 +87,11 @@ namespace AprVisual.Sim
         internal static bool PpuAleReadFeedbackMechEnabled;
         internal static long PpuAleReadFeedbackHoldCount;
         private static long _ppuAleReadFeedbackLastLogTime;
-        // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] = the CallbackInfo registered on
-        // node nn (null if none). Built in Reset; lets RecalcNode's HasCallback group-walk look the callback
-        // up directly instead of jumping into the managed Nodes[] Node object graph.
-        // [A6 2026-06-04] NodeCount-sized reference array, NOT a sparse Dictionary. The old code chose the
-        // Dictionary on the *assumption* that the array's ~115 KB + gen2 scan wasn't worth it "for ~0 hot-path
-        // benefit" — that was never measured and was WRONG: the HasCallback branch fires per-group-member for
-        // every group containing a watched bus node (far more often than callbacks actually *fire*), so
-        // Dictionary.TryGetValue's hash+probe was real cost. Direct array index measured **+~1.4%**
-        // (3 interleaved-paired batches, 49/60 wins, median +1.36/+1.36/+1.46%, bit-exact).
+        // Node-id direct lookup (suggest #F4 / A6): _callbackByNode[nn] is the CallbackInfo registered on
+        // node nn (null if none). This is the deliberate native-array exception: CallbackInfo is a movable
+        // managed object (and can carry a rare Generic Action), so a raw native pointer table would be
+        // invalid across GC compaction. The direct reference table is faster than a native index plus a
+        // managed List lookup on the callback-hit path; retain it as the one GC-reference lookup table.
         internal static CallbackInfo?[]? _callbackByNode;
 
         internal static void ResetHandlers()
@@ -107,6 +102,11 @@ namespace AprVisual.Sim
             _pendingCallbacks.Clear();
             _processingCallbacks.Clear();
             _callbackByNode = null;
+            LaeReadAddr = LaeReadVal = null;
+            LaeReadCount = 0;
+            LaeRecording = false;
+            _joyState = null;
+            _joyArmed = false;
             PpuAleReadFeedbackHoldCount = 0;
             _ppuAleReadFeedbackLastLogTime = long.MinValue;
             // free this composed system's handler-lifetime unmanaged arrays (video node-lists, palette,
@@ -132,7 +132,7 @@ namespace AprVisual.Sim
         {
             string name = "callback:" + string.Join(",", watchedNodes.Select(GetNodeName));
             int target = AddNamedNode(name);
-            info.Name = name; info.TargetNode = target; info.WatchedNodes = watchedNodes.ToArray();
+            info.Name = name; info.TargetNode = target;
             _callbacks.Add(info);
             foreach (int nn in watchedNodes) AddTransistor("callback", gate: nn, c1: target, c2: Ngnd);
             var node = GetOrCreateNode(target);
@@ -144,8 +144,8 @@ namespace AprVisual.Sim
         // data byte from ground truth instead of guessing bus timing. Off outside the ember; the
         // hot-path cost when idle is one predictable branch per memory read callback.
         internal static bool LaeRecording;
-        internal static readonly int[] LaeReadAddr = new int[16];
-        internal static readonly int[] LaeReadVal = new int[16];
+        internal static int* LaeReadAddr;
+        internal static int* LaeReadVal;
         internal static int LaeReadCount;
         internal static void LaeRecordRead(int addr, int val)
         {
@@ -339,30 +339,6 @@ namespace AprVisual.Sim
         internal static IReadOnlyCollection<string> MemoryNames => _memories.Keys;
 
         // ── bit-vector helpers (a "register" = an ordered list of nodes; bit i = nodes[i]) ──
-        // int[] fast-path overload (suggest #06): handlers cache their node lists as int[]
-        // so this path bypasses IReadOnlyList interface dispatch (vtable Count + indexer).
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int ReadBits(int[] nodes)
-        {
-            // #G1 branchless gather: NodeStates ∈ {0,1} (FlagsToState guarantees), so
-            // `v |= state << i` matches `if (state != 0) v |= 1 << i` exactly.
-            int v = 0;
-            for (int i = 0; i < nodes.Length; i++) v |= NodeStates[nodes[i]] << i;
-            return v;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void WriteBits(int[] nodes, int value)
-        {
-            bool changed = false;
-            for (int i = 0; i < nodes.Length; i++)
-            {
-                if ((value & (1 << i)) != 0) changed |= SetHighQueued(nodes[i]);
-                else                          changed |= SetLowQueued(nodes[i]);
-            }
-            if (changed) ProcessQueue();
-        }
-
         // Unmanaged int* overloads — handler node-lists are now unmanaged (AllocHandlerArray), so the
         // hot path indexes raw pointers (no bounds checks, no managed array object).
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -389,7 +365,7 @@ namespace AprVisual.Sim
         // paths (Trace, TestRunner debug dumps, callsites that own a List<int>).
         public static int ReadBits(IReadOnlyList<int> nodes)
         {
-            // #G1 branchless gather (matches int[] overload).
+            // #G1 branchless gather (matches the native-node overload).
             int v = 0;
             for (int i = 0; i < nodes.Count; i++) v |= NodeStates[nodes[i]] << i;
             return v;
@@ -551,42 +527,55 @@ namespace AprVisual.Sim
 
         // ── Behavioral joypad (test mode; see WireCore.System EnableJoypadHandler) ──────────
         // Implements the controller's CD4021: strobe (port.out) high => continuously reload the
-        // shift register from JoyButtons and present bit 0; on each pad-clock falling edge while
+        // shift register from the injected button state and present bit 0; on each pad-clock falling edge while
         // the port is selected (joy select low) advance to the next bit; after 8 bits present 1
         // (the real 4021 shifts in DS = ground; the LS368 inversion turns that into reads of 1).
         // d0 is driven inverted: the board's LS368 inverts d0 onto the data bus, so a pressed
         // button (bit=1) must present d0=0 to read back as 1.
-        public static readonly byte[] JoyButtons = new byte[2];   // bit0=A .. bit7=Right
-        private static readonly byte[] _joyShift = new byte[2];
-        private static readonly int[] _joyCount = new int[2];
-        private static readonly int[] _joyDriven = new int[2];     // last driven d0 value (-1 = force first drive)
-        private static readonly bool[] _joyStrobed = new bool[2];  // cold-port rule: reads return 0 until the first strobe
+        private struct JoypadState
+        {
+            public byte Buttons0, Buttons1;     // bit0=A .. bit7=Right
+            public byte Shift0, Shift1;
+            public int Count0, Count1;
+            public int Driven0, Driven1;         // last driven d0 value (-1 = force first drive)
+            public bool Strobed0, Strobed1;      // cold-port rule: reads return 0 until the first strobe
+        }
+        private static JoypadState* _joyState;
         internal static bool _joyArmed;
 
         private static void DoJoypad(CallbackInfo cb)
         {
+            if (_joyState == null) return;
+            ref JoypadState state = ref *_joyState;
             int pad = cb.Mask;
+            if (pad == 0)
+                DoJoypadPort(cb, ref state.Buttons0, ref state.Shift0, ref state.Count0, ref state.Driven0, ref state.Strobed0);
+            else
+                DoJoypadPort(cb, ref state.Buttons1, ref state.Shift1, ref state.Count1, ref state.Driven1, ref state.Strobed1);
+        }
+
+        private static void DoJoypadPort(CallbackInfo cb, ref byte buttons, ref byte shift, ref int count, ref int driven, ref bool strobed)
+        {
             bool strobe = NodeStates[cb.Cs] != 0;         // port.out (OUT0), active high
             bool selected = NodeStates[cb.We] == 0;       // cpu.joy1/joy2, active low
             // Advance on the DESELECT edge (read definitively over): the pad clk's falling edge
             // lands mid-read (phi1->phi2), i.e. BEFORE the CPU samples DB at the end of phi2 —
             // advancing there presents the next bit one read early (measured: the post-8 marker
             // appeared on read 8). The select line asserts exactly once per $4016/$4017 read.
-            if (strobe) { _joyShift[pad] = JoyButtons[pad]; _joyCount[pad] = 0; _joyStrobed[pad] = true; }
-            else if (cb.VidPrev && !selected && _joyCount[pad] < 8) _joyCount[pad]++;
+            if (strobe) { shift = buttons; count = 0; strobed = true; }
+            else if (cb.VidPrev && !selected && count < 8) count++;
             cb.VidPrev = selected;
             // Cold-port rule: until a pad is strobed for the first time, reads return 0 —
             // matching the reference machine (blargg's cpu_exec_space_apu executes opcode
             // fetches from $4016/$4017 and requires $40 = RTI, i.e. bit0 = 0; an unplugged
             // port's floating LS368 inputs read high, inverted to 0 on the bus).
-            int bit = !_joyStrobed[pad] ? 0
-                    : _joyCount[pad] < 8 ? (_joyShift[pad] >> _joyCount[pad]) & 1 : 1;
+            int bit = !strobed ? 0 : count < 8 ? (shift >> count) & 1 : 1;
             int d0 = bit ^ 1;                             // LS368 inverts back onto the bus
             // The drive flag is persistent, so re-writing an unchanged value only costs a
             // redundant settle — and polling loops (test_buttons' wait-for-press) invoke this
             // callback thousands of times per frame. Skip when the presented value is unchanged.
-            if (d0 == _joyDriven[pad]) return;
-            _joyDriven[pad] = d0;
+            if (d0 == driven) return;
+            driven = d0;
             WriteBits(cb.DataOut, 1, d0);
         }
 
@@ -612,11 +601,9 @@ namespace AprVisual.Sim
                     DataOut = d0, DLen = 1,
                 });
             }
-            JoyButtons[0] = JoyButtons[1] = 0;
-            _joyShift[0] = _joyShift[1] = 0;
-            _joyCount[0] = _joyCount[1] = 8;
-            _joyDriven[0] = _joyDriven[1] = -1;
-            _joyStrobed[0] = _joyStrobed[1] = false;
+            _joyState = AllocHandlerArray<JoypadState>(1);
+            _joyState->Count0 = _joyState->Count1 = 8;
+            _joyState->Driven0 = _joyState->Driven1 = -1;
             _joyArmed = true;
         }
 

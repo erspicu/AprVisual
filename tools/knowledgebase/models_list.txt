@@ -24,7 +24,11 @@ gemini-3-pro-image : Gemini 3 Pro Image
 nano-banana-pro-preview : Gemini 3 Pro Image Preview
 gemini-3.1-flash-image-preview : Gemini 3.1 Flash Image Preview.
 gemini-3.1-flash-image : Gemini 3.1 Flash Image.
+gemini-3.1-flash-lite-image : Gemini 3.1 Flash Lite Image.
 gemini-3.5-flash : Gemini 3.5 Flash
+gemini-3.5-flash-lite : Gemini 3.5 Flash Lite
+gemini-omni-flash-preview : Gemini Omni Flash Preview
+gemini-3.6-flash : Gemini 3.6 Flash
 lyria-3-clip-preview : Lyria 3 30s model Preview
 lyria-3-pro-preview : Lyria 3 Pro Preview
 gemini-3.1-flash-tts-preview : Gemini 3.1 Flash TTS Preview
@@ -42,9 +46,5 @@ aqa : Model trained to return answers to questions that are grounded in provided
 imagen-4.0-generate-001 : Vertex served Imagen 4.0 model
 imagen-4.0-ultra-generate-001 : Vertex served Imagen 4.0 ultra model
 imagen-4.0-fast-generate-001 : Vertex served Imagen 4.0 Fast model
-veo-2.0-generate-001 : Vertex served Veo 2 model. Access to this model requires billing to be enabled on the associated Google Cloud Platform account. Please visit https://console.cloud.google.com/billing to enable it.
-veo-3.0-generate-001 : Veo 3
-veo-3.0-fast-generate-001 : Veo 3 fast
 veo-3.1-generate-preview : Veo 3.1
 veo-3.1-fast-generate-preview : Veo 3.1 fast
-veo-3.1-lite-generate-preview : Veo 3.1 lite

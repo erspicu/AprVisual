@@ -1,6 +1,6 @@
 S1A method reference-count analysis
 Generated 2026-07-22  .  src/AprVisual.S1A/  (23 .cs files, excl bin/obj)
-Methods found: 258   .   DEAD candidates (0 refs): 7
+Methods found: 254   .   DEAD candidates (0 refs): 3
 
 Reference count = whole-word occurrences in CODE (comments stripped) minus the
 definition site(s). 0 = defined but never called anywhere in S1A source.
@@ -9,25 +9,17 @@ target, an event handler, a reflection/entry point (Program.Main), or a public A
 meant for an external caller, before deleting it.
 ==============================================================================
 
-=== DEAD candidates -- 0 refs (7) ===
+=== DEAD candidates -- 0 refs (3) ===
   AllNodeNames                      Sim/WireCore.Module.cs:59
-  AtArrayEnd                        Sim/JsModuleFormat.cs:183
-  FindCallbackTargetByName          Sim/WireCore.Handlers.cs:327
   GetNodeFlags                      Sim/WireCore.Recalc.cs:804
   Main                              Program.cs:13
-  PeekText                          Sim/JsModuleFormat.cs:140
-  ReadBool                          Sim/JsModuleFormat.cs:213
 
 === ALL methods -- by ref count ascending ===
    refs  method                            defined at
   ------------------------------------------------------------------------
       0  AllNodeNames                      Sim/WireCore.Module.cs:59
-      0  AtArrayEnd                        Sim/JsModuleFormat.cs:183
-      0  FindCallbackTargetByName          Sim/WireCore.Handlers.cs:327
       0  GetNodeFlags                      Sim/WireCore.Recalc.cs:804
       0  Main                              Program.cs:13
-      0  PeekText                          Sim/JsModuleFormat.cs:140
-      0  ReadBool                          Sim/JsModuleFormat.cs:213
       1  AddCallback                       Sim/WireCore.Handlers.cs:125
       1  AddNamedNode                      Sim/WireCore.Module.cs:165
       1  AleReadMuxStep                    Sim/WireCore.System.cs:860
@@ -39,7 +31,7 @@ meant for an external caller, before deleting it.
       1  ApplyPowerUpZFlag                 Sim/WireCore.System.cs:319
       1  ApplyRenumber                     Sim/WireCore.Renumber.cs:132
       1  ArmS1aMechanisms                  Sim/WireCore.System.cs:195
-      1  AttachMemoryHandlers              Sim/WireCore.Handlers.cs:439
+      1  AttachMemoryHandlers              Sim/WireCore.Handlers.cs:430
       1  AutoBestCoreMask                  Sim/PerfTuning.cs:152
       1  Benchmark                         Test/TestRunner.Bench.cs:14
       1  BenchmarkHalfCycles               Test/TestRunner.Bench.cs:57
@@ -59,7 +51,7 @@ meant for an external caller, before deleting it.
       1  DecodeNametable                   Test/TestRunner.Test.cs:521
       1  DlShimStep                        Sim/WireCore.System.cs:751
       1  Dmc4015AbortShimStep              Sim/WireCore.System.cs:1041
-      1  DoJoypad                          Sim/WireCore.Handlers.cs:575
+      1  DoJoypad                          Sim/WireCore.Handlers.cs:566
       1  DoMapperLatch                     Sim/WireCore.Handlers.cs:280
       1  DoMemRead                         Sim/WireCore.Handlers.cs:227
       1  DoMemReadWrite                    Sim/WireCore.Handlers.cs:288
@@ -135,13 +127,13 @@ meant for an external caller, before deleting it.
       1  pthread_set_qos_class_self_np     Sim/PerfTuning.cs:67
       1  ReleaseBenchResidualState         Sim/WireCore.Module.cs:99
       1  ResetHandlers                     Sim/WireCore.Handlers.cs:102
-      1  ResetMapperState                  Sim/WireCore.Handlers.cs:559
+      1  ResetMapperState                  Sim/WireCore.Handlers.cs:550
       1  ResolveCachedNodes                Sim/WireCore.System.cs:236
       1  Run                               Test/TestRunner.cs:40
       1  SelfTest                          Test/TestRunner.Diag.cs:157
       1  SetProcessInformation             Sim/PerfTuning.cs:52
       1  SettlePassTally                   Sim/WireCore.Recalc.cs:169
-      1  SetupCnrom                        Sim/WireCore.Handlers.cs:524
+      1  SetupCnrom                        Sim/WireCore.Handlers.cs:515
       1  SideOf                            Sim/WireCore.Recalc.cs:263
       1  SkipTrivia                        Sim/JsModuleFormat.cs:49
       1  SoftReset                         Sim/WireCore.System.cs:1760
@@ -154,18 +146,18 @@ meant for an external caller, before deleting it.
       1  TestShimChainStep                 Sim/WireCore.System.cs:593
       1  TestStaticMerge                   Test/TestRunner.Diag.cs:260
       1  Trace                             Test/TestRunner.Probes.cs:77
-      1  TryReadBool                       Sim/JsModuleFormat.cs:221
+      1  TryReadBool                       Sim/JsModuleFormat.cs:212
       1  WarmupCaptureFirstTouch           Sim/WireCore.Renumber.cs:52
       1  WasteProfileTally                 Sim/WireCore.Recalc.cs:117
       1  WriteBenchLog                     Test/TestRunner.Bench.cs:339
       1  WriteProgress                     Test/TestRunner.Test.cs:90
       1  WriteTestJson                     Test/TestRunner.Test.cs:595
       2  AllocNodes                        Sim/WireCore.Module.cs:108
-      2  AttachClockHandler                Sim/WireCore.Handlers.cs:431
-      2  AttachCnromLatch                  Sim/WireCore.Handlers.cs:536
-      2  AttachJoypadHandler               Sim/WireCore.Handlers.cs:604
-      2  AttachRamLikeHandler              Sim/WireCore.Handlers.cs:448
-      2  AttachVideoHandler                Sim/WireCore.Handlers.cs:657
+      2  AttachClockHandler                Sim/WireCore.Handlers.cs:422
+      2  AttachCnromLatch                  Sim/WireCore.Handlers.cs:527
+      2  AttachJoypadHandler               Sim/WireCore.Handlers.cs:595
+      2  AttachRamLikeHandler              Sim/WireCore.Handlers.cs:439
+      2  AttachVideoHandler                Sim/WireCore.Handlers.cs:648
       2  ButtonName                        Test/TestRunner.Test.cs:555
       2  CheckUnitTest                     Sim/WireCore.Trace.cs:40
       2  ClearLoadedDefs                   Sim/WireCore.Parse.cs:79
@@ -174,7 +166,7 @@ meant for an external caller, before deleting it.
       2  Dispose                           Sim/WireCore.Snapshot.cs:324
       2  DumpM2Census                      Sim/WireCore.cs:161
       2  EnableOpenBusShim                 Sim/WireCore.System.cs:668
-      2  ExpectVarHeader                   Sim/JsModuleFormat.cs:143
+      2  ExpectVarHeader                   Sim/JsModuleFormat.cs:142
       2  FcTaintStats                      Sim/WireCore.FastPath.cs:363; Test/TestRunner.Diag.cs:58 [x2]
       2  FreeUnmanagedMemory               Sim/WireCore.Native.cs:72
       2  GetCurrentProcess                 Sim/PerfTuning.cs:43
@@ -187,7 +179,7 @@ meant for an external caller, before deleting it.
       2  MuxDriveIoAb                      Sim/WireCore.System.cs:857
       2  OamDmaReleaseDrive                Sim/WireCore.System.cs:1698
       2  PadInit                           Sim/WireCore.System.cs:1721
-      2  PrefixOf                          Sim/WireCore.Handlers.cs:419
+      2  PrefixOf                          Sim/WireCore.Handlers.cs:410
       2  PrintUsage                        Test/TestRunner.cs:195
       2  ReadSegDef                        Sim/WireCore.Parse.cs:182
       2  ReadTransDef                      Sim/WireCore.Parse.cs:153
@@ -204,7 +196,7 @@ meant for an external caller, before deleting it.
       3  LowerNetlist                      Sim/WireCore.Lower.cs:36
       3  MuxRelayIoAb                      Sim/WireCore.System.cs:858
       3  RecalcNodeFast                    Sim/WireCore.FastPath.cs:280
-      3  WriteBits                         Sim/WireCore.Handlers.cs:364; Sim/WireCore.Handlers.cs:386; Sim/WireCore.Handlers.cs:407 [x3]
+      3  WriteBits                         Sim/WireCore.Handlers.cs:355; Sim/WireCore.Handlers.cs:377; Sim/WireCore.Handlers.cs:398 [x3]
       3  WriteChunk                        Render/PngWriter.cs:72
       4  AddConnection                     Sim/WireCore.Module.cs:191; Sim/WireCore.Module.cs:199 [x2]
       4  BeginSection                      Sim/WireCore.Snapshot.cs:326
@@ -220,20 +212,21 @@ meant for an external caller, before deleting it.
       4  SetFloatQueued                    Sim/WireCore.Recalc.cs:753
       4  WriteBE                           Render/PngWriter.cs:64
       5  Crc32                             Render/PngWriter.cs:90; Sim/WireCore.Snapshot.cs:341 [x2]
-      5  ReadObject                        Sim/JsModuleFormat.cs:155
+      5  ReadObject                        Sim/JsModuleFormat.cs:154
       5  RecalcNode                        Sim/WireCore.Recalc.cs:421
       5  RegisterCallback                  Sim/WireCore.Handlers.cs:131
       5  SaveState                         Sim/WireCore.Snapshot.cs:57
-      5  SkipValue                         Sim/JsModuleFormat.cs:231
+      5  SkipValue                         Sim/JsModuleFormat.cs:222
       5  WriteTag                          Sim/WireCore.Snapshot.cs:306
-      6  BeginArray                        Sim/JsModuleFormat.cs:182
+      6  BeginArray                        Sim/JsModuleFormat.cs:181
       6  DumpCpuState                      Sim/WireCore.Trace.cs:16
-      6  EndArray                          Sim/JsModuleFormat.cs:184
+      6  EndArray                          Sim/JsModuleFormat.cs:182
       6  FcuFind                           Sim/WireCore.FastPath.cs:425
       6  RecomputeAllNodes                 Sim/WireCore.Recalc.cs:40
       6  ResetBuild                        Sim/WireCore.Module.cs:117
       6  SetNodeState                      Sim/WireCore.Recalc.cs:576
       7  GetOrCreateNode                   Sim/WireCore.Module.cs:136
+      7  Peek                              Sim/JsModuleFormat.cs:44
       7  RunFrame                          Sim/WireCore.System.cs:1769
       7  Step                              Sim/WireCore.Recalc.cs:814
       8  AddTransistor                     Sim/WireCore.Module.cs:172
@@ -243,9 +236,8 @@ meant for an external caller, before deleting it.
       9  EnqueueNode                       Sim/WireCore.Recalc.cs:59
       9  ExpectB                           Sim/WireCore.Snapshot.cs:336
       9  InstRelease                       Sim/WireCore.Recalc.cs:789
-      9  Peek                              Sim/JsModuleFormat.cs:44
       9  PeekKind                          Sim/JsModuleFormat.cs:139
-     10  ReadInt                           Sim/JsModuleFormat.cs:201
+     10  ReadInt                           Sim/JsModuleFormat.cs:199
      10  Reset                             Sim/WireCore.cs:223
      10  ResolveQuiet                      Sim/WireCore.System.cs:255
      10  SetHighQueued                     Sim/WireCore.Recalc.cs:739
@@ -256,26 +248,26 @@ meant for an external caller, before deleting it.
      11  LoadState                         Sim/WireCore.Snapshot.cs:178
      11  LoadSystem                        Sim/WireCore.System.cs:105
      12  Esc                               Test/TestRunner.Bench.cs:466
-     12  Expect                            Sim/JsModuleFormat.cs:245; Sim/WireCore.Snapshot.cs:334 [x2]
+     12  Expect                            Sim/JsModuleFormat.cs:236; Sim/WireCore.Snapshot.cs:334 [x2]
+     12  Next                              Sim/JsModuleFormat.cs:45
      13  CombinePrefix                     Sim/WireCore.Module.cs:221
-     13  Next                              Sim/JsModuleFormat.cs:45
-     13  ReadArray                         Sim/JsModuleFormat.cs:171
-     14  ResolveMemory                     Sim/WireCore.Handlers.cs:347
+     13  ReadArray                         Sim/JsModuleFormat.cs:170
+     14  ResolveMemory                     Sim/WireCore.Handlers.cs:338
      14  SetFloat                          Sim/WireCore.Recalc.cs:761; Sim/WireCore.Recalc.cs:800 [x2]
-     16  ReadString                        Sim/JsModuleFormat.cs:194
+     16  ReadString                        Sim/JsModuleFormat.cs:192
      16  Shutdown                          Sim/WireCore.cs:474
      19  AddNode                           Sim/WireCore.Module.cs:144
      20  Check                             Test/TestRunner.Diag.cs:169
      20  IsNodeHigh                        Sim/WireCore.Recalc.cs:802; Sim/WireCore.Recalc.cs:803 [x2]
      21  ProcessQueue                      Sim/WireCore.Recalc.cs:356
-     27  Read                              Sim/WireCore.Handlers.cs:341
+     27  Read                              Sim/WireCore.Handlers.cs:332
      28  ReadReg                           Sim/WireCore.Trace.cs:13
      28  ToString                          Sim/JsModuleFormat.cs:31; Sim/WireCore.Parse.cs:71 [x2]
      29  SetHigh                           Sim/WireCore.Recalc.cs:759; Sim/WireCore.Recalc.cs:798 [x2]
      29  SetLow                            Sim/WireCore.Recalc.cs:760; Sim/WireCore.Recalc.cs:799 [x2]
-     37  ReadBits                          Sim/WireCore.Handlers.cs:354; Sim/WireCore.Handlers.cs:378; Sim/WireCore.Handlers.cs:399 [x3]
+     37  ReadBits                          Sim/WireCore.Handlers.cs:345; Sim/WireCore.Handlers.cs:369; Sim/WireCore.Handlers.cs:390 [x3]
      53  ResolveNodes                      Sim/WireCore.Module.cs:379
-     55  Clear                             Sim/WireCore.Handlers.cs:343
-     82  Write                             Render/PngWriter.cs:15; Sim/WireCore.Handlers.cs:342 [x2]
+     55  Clear                             Sim/WireCore.Handlers.cs:334
+     82  Write                             Render/PngWriter.cs:15; Sim/WireCore.Handlers.cs:333 [x2]
      94  LookupNode                        Sim/WireCore.Module.cs:58
-    113  Error                             Sim/JsModuleFormat.cs:47
+    112  Error                             Sim/JsModuleFormat.cs:47

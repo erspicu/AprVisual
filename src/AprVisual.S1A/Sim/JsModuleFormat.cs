@@ -137,7 +137,6 @@ namespace AprVisual.Sim
 
         public string Path => _lex.Path;
         public JsLexer.Kind PeekKind() => _lex.Peek().Kind;
-        public string PeekText() => _lex.Peek().Text;
 
         /// <summary>Consume `var &lt;ident&gt; =` at the start of a file.</summary>
         public void ExpectVarHeader(out string varName)
@@ -180,7 +179,6 @@ namespace AprVisual.Sim
 
         // ── positional reads inside a fixed-shape array (transdef / segdef / pindef / ...) ──
         public void BeginArray() => Expect(JsLexer.Kind.LBracket);
-        public bool AtArrayEnd() => _lex.Peek().Kind == JsLexer.Kind.RBracket;
         public void EndArray()
         {
             while (_lex.Peek().Kind != JsLexer.Kind.RBracket)
@@ -208,13 +206,6 @@ namespace AprVisual.Sim
             if (!int.TryParse(digits, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int v))
                 throw _lex.Error($"bad integer '{t.Text}'");
             return v;
-        }
-
-        public bool ReadBool()
-        {
-            var t = _lex.Next();
-            if (t.Kind == JsLexer.Kind.Ident && (t.Text == "true" || t.Text == "false")) return t.Text == "true";
-            throw _lex.Error($"expected boolean, got {t}");
         }
 
         /// <summary>If the next token is `true`/`false`, consume it and return true.</summary>

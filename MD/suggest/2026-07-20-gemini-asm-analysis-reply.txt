@@ -1,0 +1,154 @@
+你好。身為同在 6502/NES 底層打滾的開發者，我必須先向你致敬——你能從模擬器內部 `NowDots` 計算式的非單調性挖出這個 Bug，非常犀利。
+
+我直接回答你的四個問題。結論先說：**你的診斷完全正確，ASM 基本上是清白的。** 但 ASM 端仍有一些微小的時序抖動可以優化，且我們可以透過等效時間採樣（Equivalent-Time Sampling）大幅拉高暖端的解析度。
+
+以下是深度的技術分析：
+
+### 3. 我同意根因在模擬器嗎？ASM 清白嗎？ (先回答這個，因為最關鍵)
+**完全同意，根因 100% 在模擬器的 `NowDots` 演算法，ASM 沒有邏輯錯誤。**
+
+我們可以從 ASM 的週期數直接反推你的實驗數據，證明這點：
+你的 `measure` 緊迴圈在正常情況下（無進位、無跨頁）的 CPU 週期數如下：
+* `LDA $2001` (4)
+* `CMP #$FF` (2)
+* `BNE measured` (未觸發: 2)
+* `INC cnt0` (5)
+* `BNE measure` (觸發: 3)
+* **總計: 16 CPU cycles = 48 PPU dots (NTSC)**
+
+你提到 75°C ~ 91°C 全部卡在 `count = 1231`。
+1231 次迴圈對應的時間是：`1231 * 48 = 59,088 dots`。
+59,088 dots 相當於 `59088 / 341 ≈ 173 條 Scanline`。
+
+這意味著，你的 ROM 在開機初始化（兩次 VBlank wait + 清 2KB RAM + 寫 PPU 暫存器）後，大約在 **Scanline 67** 附近進入了 `measure` 迴圈。
+當迴圈跑到第 1231 次時，剛好抵達 **Scanline 240** (`67 + 173 = 240`)。
+就在這一刻，你的模擬器 `NowDots` 因為 `frame_count++` 暴跳了 89342 dots（約 1 個 Frame 的時間）。這個巨大的時間跳躍，瞬間滿足了 75°C~91°C (61k~140k dots) 的衰減條件，導致 latch 提早被判定為衰減，迴圈被迫中斷。
+而 92°C (59,037 dots) 比 59,088 短，在抵達 SL240 之前就已經自然衰減了，所以沒有觸發 Bug，給出了正確的 1228。
+
+**結論：這是一個完美的「模擬器時間截斷」證明，你的 ROM 邏輯是無辜的。**
+
+---
+
+### 1. 這段量測 ASM 本身有沒有 Bug 或不精確？
+雖然不影響上述的 Bug，但在精確計時的標準下，這段 ASM 有幾個會造成「時序抖動 (Jitter)」的隱患：
+
+*   **跨頁分支懲罰 (Page Boundary Penalty)：**
+    `BNE measure` 是向後跳轉。如果 `measure` 標籤剛好落在 `xx00` (Page 開頭)，而 `BNE` 指令在上一頁，會多消耗 1 CPU cycle。在沒有 `.ALIGN` 的情況下，每次修改前面的 code，這個迴圈可能會在 16 cycles (48 dots) 和 17 cycles (51 dots) 之間跳動，使得 Count 對應的絕對時間飄移。
+*   **多位元計數器的進位懲罰 (Carry Jitter)：**
+    當 `cnt0` 從 `$FF` 溢位成 `$00` 時，迴圈會走 `INC cnt1` 的路徑：
+    4 (LDA) + 2 (CMP) + 2 (BNE) + 5 (INC0) + 2 (BNE未觸發) + 5 (INC1) + 3 (BNE觸發) = **23 CPU cycles** (69 dots)。
+    也就是說，每 256 次迴圈，就有一次會多花 7 cycles (21 dots)。這不是 Bug，但會讓解析度產生微小的非線性。
+*   **Prime 到 Read 的空窗期：**
+    `STA $2002` 到第一次 `LDA $2001` 中間隔了 3 個 `STA zp`，大約 14 cycles (42 dots)。這段時間 Latch 已經開始衰減，但對於幾萬 dots 的衰減期來說，這 42 dots 的誤差完全可以忽略。
+
+---
+
+### 2. 從 ROM 端，有沒有辦法對這個 `NowDots` 跳躍更 Robust？
+**結論：物理上不可能（在不改模擬器的前提下）。**
+
+原因很簡單：75°C 的衰減週期是 140,783 dots，而 NES 一個 Frame 只有 89,342 dots。
+這代表 75°C 的衰減**必定會跨越至少一次 Scanline 240**。無論你在哪個 Scanline 開始量測，只要測量長度大於一個 Frame，你的計時器絕對會撞上模擬器在 SL240 的那次 `NowDots` 暴衝。
+要避開這個問題，唯有修復模擬器（例如把 `frame_count++` 和 `NowDots` 的計算改為依賴單純的 master cycle 累加器，而不是用 frame/line/x 拼湊）。
+
+---
+
+### 4. 若要提高暖端解析度，ASM 端的具體做法 (落地程式碼)
+
+要在不使用外部計時器（如 APU IRQ 或 Mapper Timer）的情況下，極限壓榨 6502 的解析度，有兩種做法：**A. 壓縮迴圈週期**；**B. 相位偏移等效採樣 (Phase-shifted Over-sampling)**。我建議將兩者結合。
+
+#### A. 最緊湊的 13-cycle 迴圈 (取代原本的 16-cycle)
+拋棄 Zero-page INC，改用 X/Y 暫存器做 16-bit 計數（適用於暖端，Count < 65536）。
+```assembly
+    ; 確保迴圈不跨頁
+    .ALIGN 256
+
+    lda #$FF
+    sta $2002
+    ldx #$00
+    ldy #$00
+measure_fast:
+    lda $2001        ; 4
+    cmp #$FF         ; 2
+    bne measured     ; 2 (未觸發)
+    inx              ; 2
+    bne measure_fast ; 3 (觸發) = Fast path: 13 cycles (39 dots)
+    iny              ; 2
+    bne measure_fast ; 3
+```
+
+#### B. 相位偏移等效時間採樣 (極致解析度)
+既然溫度在短時間內不會改變，我們可以連續測量 13 次，每次在 `STA $2002` 和 `measure` 之間**多插入 1 個 CPU cycle 的 Delay**（0~12 cycles）。
+將這 13 次測量的 Count 累加，你就能得到等效於 **1 CPU Cycle (3 PPU dots) 解析度** 的計數值！這對於暖端（衰減快、迴圈次數少）的精準度提升非常顯著。
+
+以下是可落地的整合片段：
+
+```assembly
+; 定義變數
+.DEFINE accum_lo $10
+.DEFINE accum_hi $11
+.DEFINE shift    $12
+
+    ; 進入測量階段
+    lda #$00
+    sta accum_lo
+    sta accum_hi
+    sta shift
+
+sampling_loop:
+    ; 1. 產生 0 ~ 12 CPU Cycles 的可變延遲 (利用 branch)
+    ; 為了不影響 2002 prime，我們先計算好延遲
+    ; ... (此處可使用一系列的 NOP 與 Branch 組合來消耗 'shift' 數量的 cycle)
+
+    ; 簡化示範：我們透過讀取 ROM 不同長度的執行路徑來 delay
+    ; 為了絕對精確，我們先 Disable Interrupts
+    sei
+    lda #$FF
+    sta $2002        ; Prime open-bus
+
+    ; --- 動態相位延遲 (0 to 12 cycles) ---
+    ; 這裡用一個簡單的迴圈消耗 (shift * 5) cycles 作為示範
+    ; 若要嚴格 1 cycle 步進，需要寫 unrolled NOP / branch tree
+    ldx shift
+    beq skip_delay
+delay_loop:
+    dex
+    bne delay_loop
+skip_delay:
+    ; -------------------------------------
+
+    ; 進入緊迴圈
+    ldx #$00
+    ldy #$00
+measure_tight:
+    lda $2001        ; 4
+    cmp #$FF         ; 2
+    bne tight_done   ; 2
+    inx              ; 2
+    bne measure_tight; 3  (共 13 cycles)
+    iny
+    bne measure_tight
+tight_done:
+
+    ; 累加到總計數器 (accum)
+    clc
+    txa
+    adc accum_lo
+    sta accum_lo
+    tya
+    adc accum_hi
+    sta accum_hi
+
+    ; 增加 shift，重複 13 次採樣
+    inc shift
+    lda shift
+    cmp #13
+    bne sampling_loop
+
+    ; 結束後，accum_lo / accum_hi 就是等效 1-cycle 解析度的高精度 Count
+    ; 可以將其除以 13 或直接用 PC 工具產生對應的 Lookup table
+```
+
+**總結建議：**
+1. 你的 ASM 寫法很標準，問題確定是模擬器的 `NowDots` 截斷 bug。請優先修復模擬器的時序架構（建議：讓 `NowDots` 成為一個純粹跟隨 master clock 遞增的 `uint64_t`，避免與掃描線渲染邏輯綁定）。
+2. 在 ASM 端，加上 `.ALIGN 256` 保證迴圈不跨頁。
+3. 若要針對高溫端（<10,000 dots 衰減）提升感測平滑度，強烈建議導入上述的「13-cycle 迴圈 + 相位偏移採樣」技術。查表程式碼也只需配合改成讀取 Accumulator 值即可。

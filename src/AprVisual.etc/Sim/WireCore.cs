@@ -81,6 +81,9 @@ namespace AprVisual.Sim
         public static int* NodeConnections;
         public static int* NodeTlistGates;
         public static int* NodeTlistGatesOff;
+        // ARM1-only: active-low transistor endpoint pairs. Kept separate so the established
+        // active-high fast path remains unchanged for NES / 6502 / 6800 / Z80.
+        public static int* NodeTlistGatesInv;
 
         // FlagsToState[256] — precomputed by BuildFlagsToStateTable() in WireCore.Group.cs.
         // Indexed by (group's OR-ed NodeFlags); value = the group's resolved 0/1.
@@ -139,6 +142,7 @@ namespace AprVisual.Sim
             NodeConnections = AllocArray<int>(NodeCount);   // cold — only tie-break
             NodeTlistGates  = AllocArray<int>(NodeCount);   // cold — SetNodeState turn-ON writeback
             NodeTlistGatesOff = AllocArray<int>(NodeCount); // cold — SetNodeState turn-OFF writeback
+            NodeTlistGatesInv = RawArm1Mode ? AllocArray<int>(NodeCount) : null;
             RecalcList     = AllocArray<int>(NodeCount);
             RecalcListNext = AllocArray<int>(NodeCount);
             RecalcHash     = AllocArray<byte>(NodeCount);
@@ -182,6 +186,7 @@ namespace AprVisual.Sim
             var c1gnd = new List<int>();
             var c1pwr = new List<int>();
             var gates = new List<int>();
+            List<int>? gatesInv = RawArm1Mode ? new List<int>() : null;
             for (int nn = 0; nn < NodeCount; nn++)
             {
                 Node? node = Nodes[nn];
@@ -189,18 +194,26 @@ namespace AprVisual.Sim
                 ref NodeInfo ns = ref NodeInfos[nn];
 
                 gates.Clear();
-                foreach (int tid in node.Gates) { var t = Transistors[tid]; gates.Add(t.C1); gates.Add(t.C2); }
+                gatesInv?.Clear();
+                foreach (int tid in node.Gates)
+                {
+                    var t = Transistors[tid];
+                    if (t.ActiveLow) { gatesInv!.Add(t.C1); gatesInv.Add(t.C2); }
+                    else { gates.Add(t.C1); gates.Add(t.C2); }
+                }
                 NodeTlistGates[nn] = AddSubList(gates);
+                if (gatesInv != null) NodeTlistGatesInv[nn] = AddSubList(gatesInv);
 
                 c1c2.Clear(); c1gnd.Clear(); c1pwr.Clear();
                 foreach (int tid in node.C1c2s)
                 {
                     var t = Transistors[tid];
                     if (t.Gate == Ngnd) continue;             // gate tied to GND → transistor can never turn on
+                    int gate = t.ActiveLow ? t.Gate | RawArm1InvertedGateBit : t.Gate;
                     int other = t.C1 == nn ? t.C2 : t.C1;
-                    if (other == Ngnd) c1gnd.Add(t.Gate);
-                    else if (other == Npwr) c1pwr.Add(t.Gate);
-                    else { c1c2.Add(t.Gate); c1c2.Add(other); }
+                    if (other == Ngnd) c1gnd.Add(gate);
+                    else if (other == Npwr) c1pwr.Add(gate);
+                    else { c1c2.Add(gate); c1c2.Add(other); }
                 }
                 // S2-A: inline the channel payload into the 32-byte NodeInfo for small-fanout nodes
                 // (~96%), so the hot path (cls==2 singleton check / RecalcNodeFast / BFS) reads ONE
@@ -249,6 +262,16 @@ namespace AprVisual.Sim
             // ── forceCompute: if a group has both Gnd and Pwr, they cancel (certain bus nodes) ──
             foreach (int nn in ForceComputeList)
                 if (nn >= 0 && nn < NodeCount) NodeInfos[nn].Flags |= NodeFlags.ForceCompute;
+
+            // ARM1 uses signed (active-low) transistor gates and ffdefs-specific short resolution.
+            // Its dedicated raw path consumes the encoded gate lists above and deliberately bypasses
+            // the active-high fast-path / prune classifiers below.
+            if (RawArm1Mode)
+            {
+                TransistorListOff = AllocArray<ushort>(1);
+                _callbackByNode = new CallbackInfo?[NodeCount];
+                return;
+            }
 
             // ── Fast-path classifier (always on in S1 — verified +2% peak in C# 6d01abe bench).
             //    Pure-logic-gnd nodes (pull-up + only GND channels + no normal channel + no callback)
@@ -366,6 +389,7 @@ namespace AprVisual.Sim
         public int C1;
         public int C2;
         public bool IsWeak;   // 7th column of 2A03/2C02 transdefs — weak / depletion-load device
+        public bool ActiveLow; // ARM1 raw transdefs only: gate conducts when its node is low
         public string Name;
     }
 }

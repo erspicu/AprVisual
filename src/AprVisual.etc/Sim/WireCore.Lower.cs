@@ -91,6 +91,7 @@ namespace AprVisual.Sim
                 int nid = remap[old];
                 var nn = newNodes[nid] ??= new Node { Id = nid, Name = on.Name };
                 nn.Pullups += on.Pullups;
+                nn.IsFlipFlop |= on.IsFlipFlop;
                 if (on.Callback != null) nn.Callback = on.Callback;       // (no callbacks attached at this stage, but be correct)
                 int cap = on.C1c2s.Count + on.Gates.Count;               // pre-lowering "capacitance" = what the old tie-break used
                 if (cap > nn.CapacityOverride) nn.CapacityOverride = cap;
@@ -99,7 +100,7 @@ namespace AprVisual.Sim
 
             // ── 3. rebuild transistors: remap, drop self-loops (consumed connections) & gate==Ngnd, re-dedupe ──
             var newTrans = new List<Transistor>(tOld);
-            var seen = new HashSet<(int, int, int)>();
+            var seen = new HashSet<(int Gate, int C1, int C2, bool ActiveLow)>();
             foreach (var t in _transistors)
             {
                 int g = remap[t.Gate], c1 = remap[t.C1], c2 = remap[t.C2];
@@ -107,9 +108,9 @@ namespace AprVisual.Sim
                 if (g == Ngnd) continue;                                              // dead — gate tied to GND, never conducts
                 if (c1 == c2) continue;                                               // self-loop — a consumed always-on connection
                 if (IsPwrGnd(c1)) (c1, c2) = (c2, c1);                                // normalise supply onto c2 (matches AddTransistor)
-                if (!seen.Add((g, c1, c2))) continue;                                 // dedupe (gate, c1, c2)
+                if (!seen.Add((g, c1, c2, t.ActiveLow))) continue;                    // dedupe (gate, c1, c2, polarity)
                 int idx = newTrans.Count;
-                newTrans.Add(new Transistor { Gate = g, C1 = c1, C2 = c2, IsWeak = t.IsWeak, Name = t.Name });
+                newTrans.Add(new Transistor { Gate = g, C1 = c1, C2 = c2, IsWeak = t.IsWeak, ActiveLow = t.ActiveLow, Name = t.Name });
                 newNodes[g]!.Gates.Add(idx);
                 newNodes[c1]!.C1c2s.Add(idx);
                 newNodes[c2]!.C1c2s.Add(idx);

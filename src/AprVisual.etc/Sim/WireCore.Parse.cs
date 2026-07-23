@@ -33,6 +33,9 @@ namespace AprVisual.Sim
             public readonly List<(string From, string To)> Connections = new();
             public readonly List<string> Pullups = new();
             public readonly List<string> ForceCompute = new();
+            // ARM1's ffdefs.js marks nodes whose VSS/VDD short resolves by toggling stored state.
+            // Empty for MetalNES and the existing visual6502 raw CPU netlists.
+            public readonly HashSet<int> FlipFlopNodeIds = new();
             public readonly Dictionary<string, int> Memories = new();  // name -> size (behavioral RAM/ROM)
             // External file references (large chips put their netlist in separate .js):
             public readonly List<string> NodeNameFiles = new();
@@ -55,6 +58,7 @@ namespace AprVisual.Sim
             public string Name;
             public NodeRef Gate, C1, C2;
             public bool IsWeak;   // 7th column boolean (2A03/2C02). Default false.
+            public bool ActiveLow; // ARM1 raw transdefs encodes the active gate polarity in the sign.
             // bbox / geom omitted in S1.
         }
 

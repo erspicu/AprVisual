@@ -27,6 +27,7 @@ namespace AprVisual.Sim
             public int Id;
             public string Name = "";
             public int Pullups;                 // segdef '+' / pullups:[] count
+            public bool IsFlipFlop;             // ARM1 ffdefs.js compatibility marker
             public readonly List<int> Gates  = new();   // transistor indices this node gates
             public readonly List<int> C1c2s  = new();   // transistor indices this node is a channel end of
             public CallbackInfo? Callback;      // set by AddCallback (Step 6)
@@ -36,7 +37,8 @@ namespace AprVisual.Sim
         // build-time tables (consumed by WireCore.Reset() in Step 3 to fill the unmanaged hot arrays)
         private static readonly List<Node?> _nodes = new();             // indexed by global node id
         private static readonly List<Transistor> _transistors = new();
-        private static readonly HashSet<(int, int, int)> _transistorSet = new();   // dedup by (gate, c1, c2)
+        private static readonly HashSet<(int Gate, int C1, int C2, bool ActiveLow)> _transistorSet = new();
+                                                                                     // dedup by (gate, c1, c2, polarity)
         private static readonly List<int> _forceComputeList = new();
         private static readonly HashSet<string> _instancesSetUp = new(StringComparer.Ordinal);
 
@@ -109,6 +111,10 @@ namespace AprVisual.Sim
         // ── reset all build-time state (called at the start of ComposeSystem / any fresh build) ──
         public static void ResetBuild()
         {
+            // A process normally runs one CLI mode, but keep a prior ARM1 raw-compat load from
+            // leaking its signed-gate execution mode into any subsequent generic composition.
+            RawArm1Mode = false;
+            RawArm1FlipFlopNodes = null;
             ClearLoadedDefs();
             InstanceRanges.Clear();   // append-only in AddInstance — without this it accumulates across every compose (2x per two-phase load, more across --test-dir)
             _nodes.Clear();
@@ -158,17 +164,17 @@ namespace AprVisual.Sim
             return nn;
         }
 
-        public static void AddTransistor(string name, int gate, int c1, int c2, bool isWeak = false)
+        public static void AddTransistor(string name, int gate, int c1, int c2, bool isWeak = false, bool activeLow = false)
         {
             if (gate == EmptyNode || c1 == EmptyNode || c2 == EmptyNode) return;
             if (c1 == c2) return;
             if (IsPwrGnd(c1)) (c1, c2) = (c2, c1);   // normalise supply onto c2
 
-            var key = (gate, c1, c2);
-            if (!_transistorSet.Add(key)) return;     // dedup by (gate, c1, c2)
+            var key = (gate, c1, c2, activeLow);
+            if (!_transistorSet.Add(key)) return;     // dedup by (gate, c1, c2, polarity)
 
             int i = _transistors.Count;
-            _transistors.Add(new Transistor { Gate = gate, C1 = c1, C2 = c2, IsWeak = isWeak, Name = name });
+            _transistors.Add(new Transistor { Gate = gate, C1 = c1, C2 = c2, IsWeak = isWeak, ActiveLow = activeLow, Name = name });
             GetOrCreateNode(gate)!.Gates.Add(i);
             GetOrCreateNode(c1)!.C1c2s.Add(i);
             GetOrCreateNode(c2)!.C1c2s.Add(i);
@@ -258,6 +264,11 @@ namespace AprVisual.Sim
 
                 // setupNodes
                 foreach (var (name, id) in def.NodeNames) AddNode(Remap(id), CombinePrefix(prefix, name));
+                foreach (int id in def.FlipFlopNodeIds)
+                {
+                    int nid = Remap(id);
+                    if (nid != EmptyNode && !IsPwrGnd(nid)) GetOrCreateNode(nid)!.IsFlipFlop = true;
+                }
 
                 // setupPins — add a "#<pin>" alias for each pin's node (documentation / layout; not load-bearing)
                 foreach (var pd in def.Pins)
@@ -293,7 +304,7 @@ namespace AprVisual.Sim
 
                 // setupTransistors
                 foreach (var td in def.Trans)
-                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak);
+                    AddTransistor(CombinePrefix(prefix, td.Name), ResolveRef(td.Gate), ResolveRef(td.C1), ResolveRef(td.C2), td.IsWeak, td.ActiveLow);
             }
 
             // recurse into sub-modules

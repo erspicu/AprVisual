@@ -159,7 +159,9 @@ namespace AprVisual.Sim
             {
                 var t = _lex.Peek();
                 if (t.Kind == JsLexer.Kind.RBrace) { _lex.Next(); return; }
-                if (t.Kind != JsLexer.Kind.Ident && t.Kind != JsLexer.Kind.String)
+                // Raw ARM1 nodenames.js uses numeric object keys (`0: 'vss'`).
+                // Module files use identifiers/strings, so accepting a number here is backwards compatible.
+                if (t.Kind != JsLexer.Kind.Ident && t.Kind != JsLexer.Kind.String && t.Kind != JsLexer.Kind.Number)
                     throw _lex.Error($"expected object key or '}}', got {t}");
                 _lex.Next();
                 Expect(JsLexer.Kind.Colon);

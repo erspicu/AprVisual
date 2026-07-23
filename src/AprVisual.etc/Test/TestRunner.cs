@@ -60,7 +60,7 @@ namespace AprVisual.Test
                     case "--selftest":        return SelfTest();
                     case "--system-def-dir":  if (i + 1 < args.Length) systemDefDir = args[++i]; break;
                     case "--cpu-bench":       if (i + 1 < args.Length) cpuBenchDir = args[++i]; break;   // raw visual6502 bare-CPU netlist dir
-                    case "--chip":            if (i + 1 < args.Length) cpuChip     = args[++i]; break;   // 6502 | 6800 | z80
+                    case "--chip":            if (i + 1 < args.Length) cpuChip     = args[++i]; break;   // 6502 | 6800 | z80 | arm1
                     case "--warmup":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuWarmup); break;
                     case "--rounds":          if (i + 1 < args.Length) int.TryParse(args[++i], out cpuRounds); break;   // --cpu-bench timed rounds
                     case "--no-lower":        WireCore.EnableLowering = false; break;
@@ -1082,9 +1082,10 @@ namespace AprVisual.Test
 
                   AprVisual.etc --benchmark <rom> [--frames N]  headless throughput: simulated FPS, MIPS, raw step rate (default N=12; Release build recommended)
                   AprVisual.etc --benchmark <rom> --bench-hc <N>   headless throughput: time exactly N raw master-half-cycles
-                  AprVisual.etc --cpu-bench <dir> --chip 6502|6800|z80 [--bench-hc N] [--warmup N]
-                                                           bare-CPU throughput: load a RAW visual6502 netlist (segdefs/transdefs/
-                                                           nodenames in <dir>), power-on, NOP-sled via the pins, time N half-cycles
+                  AprVisual.etc --cpu-bench <dir> --chip 6502|6800|z80|arm1 [--bench-hc N] [--warmup N]
+                                                           bare-CPU throughput: 6502/6800/Z80 load segdefs/transdefs/nodenames;
+                                                           ARM1 loads flat signed transdefs/nodenames/ffdefs. Power on, drive a
+                                                           NOP workload through the pins, and time N half-cycles.
                                                            (our engine vs tools/visual6502-node; see src/.../netlists/)
                   AprVisual.etc --test <test.nes>           headless: run to the $6000 signature, print PASS/FAIL
                   AprVisual.etc --test-dir <dir>            headless: batch-run *.nes under <dir>

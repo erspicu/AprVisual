@@ -245,7 +245,7 @@ namespace AprVisual.Sim
             }
             // 3. _transistorSet: rebuild (handler attach dedups against it later).
             _transistorSet.Clear();
-            foreach (var tr in _transistors) _transistorSet.Add((tr.Gate, tr.C1, tr.C2));
+            foreach (var tr in _transistors) _transistorSet.Add((tr.Gate, tr.C1, tr.C2, tr.ActiveLow));
             // 4. _forceComputeList.
             for (int i = 0; i < _forceComputeList.Count; i++) _forceComputeList[i] = perm[_forceComputeList[i]];
             // 5. name maps.

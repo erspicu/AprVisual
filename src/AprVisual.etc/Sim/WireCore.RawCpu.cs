@@ -9,7 +9,8 @@ namespace AprVisual.Sim
     // ── Bare-CPU raw visual6502 netlist loader + pin-level bench harness (AprVisual.etc only) ──
     //
     // Loads a single non-NES CPU directly from raw visual6502 files (segdefs.js / transdefs.js /
-    // nodenames.js — NOT MetalNES `var module={}` wrappers) and drives it the visual6502 way:
+    // nodenames.js — NOT MetalNES `var module={}` wrappers). ARM1 is the deliberate exception:
+    // flat signed transdefs + inverse nodenames + ffdefs are handled in WireCore.RawArm1.cs.
     // power-on reset, then halfStep = toggle the clock + feed a flat memory[] NOP-sled through the
     // rw/ab/db (or z80 _rd/_mreq/_wr) pins. This mirrors ref/visual6502-master/macros.js (6502) and
     // chip-6800 / chip-z80 support.js, so AprVisual's engine runs the SAME workload as
@@ -41,6 +42,8 @@ namespace AprVisual.Sim
                        Jam = new[] { 0x3E, 0x9D, 0xDD, 0xED, 0xFD } },   // WAI + HCF (halt-and-catch-fire)
             ["z80"]  = new RawCpuConfig { Name = "z80",  Vss = "vss", Vcc = "vcc", Clock = "clk",  Nop = 0x00, SkipWeak = true,
                        Jam = new[] { 0x76 } },   // HALT
+            ["arm1"] = new RawCpuConfig { Name = "arm1", Vss = "vss", Vcc = "vdd", Clock = "phi1_pad", Nop = 0,
+                       Jam = Array.Empty<int>() },
         };
 
         // class-major renumber (range-prune + locality key); --no-renumber for an A/B
@@ -67,9 +70,11 @@ namespace AprVisual.Sim
 
         private static RawCpuConfig _rawCfg = null!;
         // HOT PATH reads these — UNMANAGED (handler-lifetime pool; no bounds checks, no GC tracking).
-        private static int* _abNodes;   // 16 address-bus node ids
-        private static int* _dbNodes;   // 8 data-bus node ids
+        private static int* _abNodes;   // raw CPU address-bus node ids
+        private static int* _dbNodes;   // raw CPU data-bus node ids
         private static byte* _rawMem;   // flat 64K NOP-sled memory
+        private static int _rawAddressBits = 16;
+        private static int _rawDataBits = 8;
         // cached pin node ids (resolved at load; EmptyNode if the chip lacks one)
         private static int _pRw, _pClk0, _pClk, _pPhi1, _pPhi2, _pDbe, _pRd, _pMreq, _pWr, _pM1, _pIorq;
         private static Action _rawHalfStep = null!;
@@ -86,6 +91,15 @@ namespace AprVisual.Sim
             _fuzzState = FuzzSeed;
             Array.Clear(_jamMask);
             foreach (int j in cfg.Jam) _jamMask[j & 0xFF] = true;   // fuzz re-rolls past these
+            if (cfg.Name == "arm1")
+            {
+                // ARM1 uses signed transistor polarity and ffdefs-specific short resolution. Its raw
+                // compatibility path deliberately starts from identity numbering; the S1 range-prune
+                // capture assumptions are active-high-only.
+                BuildRawNetlist(dir, cfg);
+                FinishRawLoad(cfg);
+                return;
+            }
             if (RawRenumber)
             {
                 // Mirrors LoadSystem's 3-pass auto-renumber for a bare CPU.
@@ -139,6 +153,14 @@ namespace AprVisual.Sim
         private static void BuildRawNetlist(string dir, RawCpuConfig cfg)
         {
             ResetBuild();   // registers Npwr=vcc / Ngnd=vss
+            RawArm1Mode = false;
+            RawArm1FlipFlopNodes = null;
+
+            if (cfg.Name == "arm1")
+            {
+                BuildRawArm1Netlist(dir);
+                return;
+            }
 
             var def = ParseRawModuleDef(dir, cfg.Name);
 
@@ -158,11 +180,21 @@ namespace AprVisual.Sim
         // post-build: power on + resolve the bus/clock pins + NOP-sled memory + half-step dispatch
         private static void FinishRawLoad(RawCpuConfig cfg)
         {
+            if (cfg.Name == "arm1")
+            {
+                FinishRawArm1Load();
+                return;
+            }
+
+            RawArm1Mode = false;
+            RawArm1FlipFlopNodes = null;
             Reset();              // alloc hot arrays + power-on state + build fast-path / P-2/3/4 prune masks
             RecomputeAllNodes();  // settle the raw power-on state (perm-ordered if renumbered)
 
             _abNodes = ResolveBusNodes("ab", 16);
             _dbNodes = ResolveBusNodes("db", 8);
+            _rawAddressBits = 16;
+            _rawDataBits = 8;
             _rawMem = AllocHandlerArray<byte>(65536);                              // unmanaged 64K (hot path)
             for (int i = 0; i < 65536; i++) _rawMem[i] = (byte)cfg.Nop;            // Infinite NOP Sled
 
@@ -218,10 +250,10 @@ namespace AprVisual.Sim
             PendingLocalityOrder = order;
         }
 
-        private static int* ResolveBusNodes(string prefix, int n)
+        private static int* ResolveBusNodes(string prefix, int n, string suffix = "")
         {
             int* a = AllocHandlerArray<int>(n);   // unmanaged; freed at the next ResetBuild
-            for (int i = 0; i < n; i++) a[i] = LookupNode(prefix + i);
+            for (int i = 0; i < n; i++) a[i] = LookupNode(prefix + i + suffix);
             return a;
         }
 
@@ -300,7 +332,7 @@ namespace AprVisual.Sim
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void WriteDataBus(int value)
         {
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < _rawDataBits; i++)
             {
                 int nn = _dbNodes[i];
                 if (nn == EmptyNode) continue;
@@ -361,23 +393,23 @@ namespace AprVisual.Sim
             RawDrive(_pClk, NodeStates[_pClk] == 0);
             if (_resetHold) return;   // clock tree only
             // read: active when _rd & _mreq both low; else drive 0xe9 (int-ack) or 0xff (idle)
-            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, 16)));
+            if (NodeStates[_pRd] == 0 && NodeStates[_pMreq] == 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, _rawAddressBits)));
             else if (_pM1 != EmptyNode && _pIorq != EmptyNode && NodeStates[_pM1] == 0 && NodeStates[_pIorq] == 0) WriteDataBus(0xE9);
             else WriteDataBus(0xFF);
             // write: when _wr low
-            if (_pWr != EmptyNode && NodeStates[_pWr] == 0) _rawMem[ReadBusNodes(_abNodes, 16)] = (byte)ReadBusNodes(_dbNodes, 8);
+            if (_pWr != EmptyNode && NodeStates[_pWr] == 0) _rawMem[ReadBusNodes(_abNodes, _rawAddressBits)] = (byte)ReadBusNodes(_dbNodes, _rawDataBits);
         }
 
         // shared rw/ab/db bus for 6502 + 6800
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusReadRwAbDb()
         {
-            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, 16)));
+            if (_pRw == EmptyNode || NodeStates[_pRw] != 0) WriteDataBus(ReadFeed(ReadBusNodes(_abNodes, _rawAddressBits)));
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BusWriteRwAbDb()
         {
-            if (_pRw != EmptyNode && NodeStates[_pRw] == 0) _rawMem[ReadBusNodes(_abNodes, 16)] = (byte)ReadBusNodes(_dbNodes, 8);
+            if (_pRw != EmptyNode && NodeStates[_pRw] == 0) _rawMem[ReadBusNodes(_abNodes, _rawAddressBits)] = (byte)ReadBusNodes(_dbNodes, _rawDataBits);
         }
 
         // ────────────────────────── power-on ────────────────────────────
@@ -388,6 +420,10 @@ namespace AprVisual.Sim
         {
             switch (_rawCfg.Name)
             {
+                case "arm1":
+                    InitRawArm1();
+                    break;
+
                 case "6800":
                     DriveName("reset", false);
                     DriveName("phi1", true); DriveName("phi2", false); DriveName("dbe", false);
@@ -509,7 +545,10 @@ namespace AprVisual.Sim
                 Console.Error.WriteLine($"unknown chip '{chipName}' (have: {string.Join(", ", RawCpus.Keys)})");
                 return 2;
             }
-            foreach (var f in new[] { "nodenames.js", "segdefs.js", "transdefs.js" })
+            string[] requiredFiles = cfg.Name == "arm1"
+                ? new[] { "nodenames.js", "transdefs.js", "ffdefs.js" }
+                : new[] { "nodenames.js", "segdefs.js", "transdefs.js" };
+            foreach (var f in requiredFiles)
                 if (!File.Exists(Path.Combine(dir, f))) { Console.Error.WriteLine($"missing {f} in {dir}"); return 2; }
 
             if (benchHc <= 0) benchHc = 1_000_000;
@@ -525,15 +564,18 @@ namespace AprVisual.Sim
             Console.WriteLine($"# AprVisual.etc raw-CPU bench (our event-driven engine) — chip {cfg.Name}");
             Console.WriteLine($"#   netlist dir: {dir}");
             Console.WriteLine($"#   nodes: {nodes}   transistors: {trans}" + (cfg.SkipWeak ? $"   (skipped {_rawSkippedWeak} weak)" : ""));
-            string rn = RawRenumber ? (RawSelfCapture ? "on (self-capture locality)" : "on (BFS-key locality)") : "off";
-            string wl = Workload switch
+            string rn = cfg.Name == "arm1" ? "off (ARM1 signed-polarity compatibility path)"
+                      : RawRenumber ? (RawSelfCapture ? "on (self-capture locality)" : "on (BFS-key locality)") : "off";
+            string wl = cfg.Name == "arm1" ? "ARM1 32-bit NOP word (MOV r0,r0)"
+                      : Workload switch
             {
                 RawWorkload.Fuzz      => $"Random Bus Fuzzing (fixed-seed LCG)",
                 RawWorkload.ResetHold => $"Reset-Hold (reset asserted, clock tree only)",
                 _                     => $"Infinite NOP Sled (opcode 0x{cfg.Nop:X2})",
             };
-            Console.WriteLine($"#   workload: {wl}   lowering: {(EnableLowering ? "on" : "off")}   renumber: {rn}");
-            if (RawRenumber) Console.WriteLine($"#   {LastRenumberStats}  (range-prune verified: {RangePruneOk})");
+            string lowering = cfg.Name == "arm1" ? "raw topology (ARM1 compatibility)" : (EnableLowering ? "on" : "off");
+            Console.WriteLine($"#   workload: {wl}   lowering: {lowering}   renumber: {rn}");
+            if (cfg.Name != "arm1" && RawRenumber) Console.WriteLine($"#   {LastRenumberStats}  (range-prune verified: {RangePruneOk})");
             Console.WriteLine($"#   load (parse + compose + lower + capture + power-on settle): {swLoad.Elapsed.TotalSeconds:F2} s");
 
             InitRawCpu();
@@ -545,9 +587,9 @@ namespace AprVisual.Sim
             ReleaseBenchResidualState();   // drop the name maps + Node shells (no name lookups past here)
 
             // sanity: with a NOP sled the address bus should advance — sample it across the warmup
-            int ab0 = ReadBusNodes(_abNodes, 16);
+            int ab0 = ReadBusNodes(_abNodes, _rawAddressBits);
             for (int i = 0; i < warmup; i++) _rawHalfStep();
-            int ab1 = ReadBusNodes(_abNodes, 16);
+            int ab1 = ReadBusNodes(_abNodes, _rawAddressBits);
             bool advancing = ab0 != ab1;
 
             // Multiple timed rounds: the .NET tiered JIT + dynamic PGO leave the FIRST round(s) below
@@ -560,13 +602,14 @@ namespace AprVisual.Sim
                 for (int i = 0; i < benchHc; i++) _rawHalfStep();
                 sw.Stop();
                 rates[r] = benchHc / sw.Elapsed.TotalSeconds;
-                advancing |= ReadBusNodes(_abNodes, 16) != ab1;
+                advancing |= ReadBusNodes(_abNodes, _rawAddressBits) != ab1;
             }
 
             // reset-hold deliberately keeps the chip in reset, so a static address bus is EXPECTED there.
             string abMsg = _resetHold ? "(held in reset — clock tree only, as intended)"
                                       : (advancing ? "(advancing — CPU running)" : "(NOT advancing — check harness)");
-            Console.WriteLine($"#   AB sample: post-reset=0x{ab0:X4}  post-warmup=0x{ab1:X4}  {abMsg}");
+            int addressHexDigits = (_rawAddressBits + 3) >> 2;
+            Console.WriteLine($"#   AB sample: post-reset=0x{ab0.ToString($"X{addressHexDigits}")}  post-warmup=0x{ab1.ToString($"X{addressHexDigits}")}  {abMsg}");
             Console.WriteLine("#   " + new string('-', 50));
             for (int r = 0; r < rounds; r++)
                 Console.WriteLine($"#   round {r + 1}: {rates[r]:N0} hc/s");

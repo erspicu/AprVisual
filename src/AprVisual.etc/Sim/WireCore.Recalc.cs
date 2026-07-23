@@ -404,6 +404,7 @@ namespace AprVisual.Sim
             System.Diagnostics.Debug.Assert(nn != Npwr && nn != Ngnd, "RecalcNode: a supply node was enqueued — invariant broken");
             if (nn == Npwr || nn == Ngnd) return;
 #endif
+            if (RawArm1Mode) { RecalcNodeArm1(nn); return; }
             // Fast-path dispatch (IsPureLogic populated at Reset):
             //   1 = static pure-logic — group provably {nn}, O(1) RecalcNodeFast.
             //   2 = R-1 dynamic-singleton candidate — has c1c2s channels but no excluded flags; if
